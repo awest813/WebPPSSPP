@@ -98,13 +98,14 @@ touch-screen devices.
 
 | Control | Action |
 |---------|--------|
-| 💾 Save (header) | Quick-save to slot 1 |
-| 📂 Load (header) | Quick-load from slot 1 |
+| Slot picker (header) | Choose active save-state slot (1–5) |
+| 💾 Save (header) | Quick-save to the selected slot |
+| 📂 Load (header) | Quick-load from the selected slot |
 | ↺ Reset (header) | Restart the current game |
 | 📁 New Game (header) | Reload page to pick a different game |
 | Volume slider (header) | Adjust volume (persisted) |
-| **F5** | Quick-save slot 1 |
-| **F7** | Quick-load slot 1 |
+| **F5** | Quick-save to the selected slot |
+| **F7** | Quick-load from the selected slot |
 | **F1** | Reset |
 | EmulatorJS ⚙ icon | Full settings: key remap, shaders, state slots, … |
 

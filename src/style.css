@@ -404,6 +404,42 @@ body {
   background: color-mix(in srgb, var(--c-danger) 12%, var(--c-surface2));
 }
 
+/* ── Save-slot picker ─────────────────────────────────────── */
+.slot-select {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  color: var(--c-text);
+  font-size: 0.82rem;
+  padding: 1px 4px;
+  cursor: pointer;
+  outline-offset: 2px;
+  accent-color: var(--c-accent);
+}
+
+.slot-select:focus {
+  border-color: var(--c-accent);
+  outline: 2px solid color-mix(in srgb, var(--c-accent) 40%, transparent);
+}
+
+/* ── Large-file warning ───────────────────────────────────── */
+.landing__large-file-warn {
+  display: none;
+  max-width: 460px;
+  background: color-mix(in srgb, var(--c-warn) 12%, var(--c-surface));
+  border: 1px solid var(--c-warn);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  color: var(--c-warn);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.landing__large-file-warn.visible {
+  display: block;
+}
+
 /* ── Responsive: hide non-essential items on small screens ── */
 @media (max-width: 480px) {
   .app-header__title span.title-long {

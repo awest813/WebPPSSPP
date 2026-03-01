@@ -23,6 +23,10 @@
 import { PSPEmulator, PSP_EXTENSIONS, type EmulatorState } from "./emulator.js";
 import type { Settings } from "./main.js";
 
+// ── Module-level save slot tracker ───────────────────────────────────────────
+// Shared between initUI (keyboard shortcuts) and buildInGameControls (buttons).
+let _selectedSlot = 1;
+
 // ── DOM helper ────────────────────────────────────────────────────────────────
 
 function el<T extends HTMLElement = HTMLElement>(sel: string): T {
@@ -97,6 +101,7 @@ export function buildDOM(app: HTMLElement): void {
             Powered by EmulatorJS (PPSSPP core)
           </a>
         </p>
+        <p id="large-file-warning" class="landing__large-file-warn" role="alert"></p>
       </section>
 
       <!-- ── EmulatorJS mount point ── -->
@@ -159,7 +164,10 @@ export function initUI(opts: UIOptions): void {
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
-    if (file) onFileSelected(file);
+    if (file) {
+      warnIfLargeFile(file);
+      onFileSelected(file);
+    }
   });
 
   dropZone.addEventListener("dragover", (e) => {
@@ -175,7 +183,10 @@ export function initUI(opts: UIOptions): void {
     e.preventDefault();
     dropZone.classList.remove("drag-over");
     const file = e.dataTransfer?.files[0];
-    if (file) onFileSelected(file);
+    if (file) {
+      warnIfLargeFile(file);
+      onFileSelected(file);
+    }
   });
 
   // ── Error banner dismiss ────────────────────────────────────────────────
@@ -197,9 +208,9 @@ export function initUI(opts: UIOptions): void {
   document.addEventListener("keydown", (e) => {
     if (emulator.state !== "running") return;
     switch (e.key) {
-      case "F5": e.preventDefault(); emulator.quickSave(1); break;
-      case "F7": e.preventDefault(); emulator.quickLoad(1); break;
-      case "F1": e.preventDefault(); emulator.reset();      break;
+      case "F5": e.preventDefault(); emulator.quickSave(_selectedSlot); break;
+      case "F7": e.preventDefault(); emulator.quickLoad(_selectedSlot); break;
+      case "F1": e.preventDefault(); emulator.reset();                  break;
     }
   });
 }
@@ -218,13 +229,33 @@ function buildInGameControls(
   const container = el("#header-actions");
   container.innerHTML = ""; // clear any previous controls
 
+  // Save-state slot picker (slots 1–5)
+  const slotWrap = make("label", { class: "btn slot-wrap", style: "gap:6px;cursor:default", title: "Active save-state slot (F5 = save, F7 = load)" });
+  slotWrap.append(document.createTextNode("Slot:"));
+  const slotSelect = document.createElement("select");
+  slotSelect.className = "slot-select";
+  slotSelect.setAttribute("aria-label", "Save state slot");
+  for (let i = 1; i <= 5; i++) {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = String(i);
+    if (i === _selectedSlot) opt.selected = true;
+    slotSelect.appendChild(opt);
+  }
+  slotSelect.addEventListener("change", () => {
+    _selectedSlot = Number(slotSelect.value);
+    btnSave.title = `Quick Save to slot ${_selectedSlot} (F5)`;
+    btnLoad.title = `Quick Load from slot ${_selectedSlot} (F7)`;
+  });
+  slotWrap.append(slotSelect);
+
   // Quick Save (F5)
-  const btnSave = make("button", { class: "btn", title: "Quick Save (F5)" }, "💾 Save");
-  btnSave.addEventListener("click", () => emulator.quickSave(1));
+  const btnSave = make("button", { class: "btn", title: `Quick Save to slot ${_selectedSlot} (F5)` }, "💾 Save");
+  btnSave.addEventListener("click", () => emulator.quickSave(_selectedSlot));
 
   // Quick Load (F7)
-  const btnLoad = make("button", { class: "btn", title: "Quick Load (F7)" }, "📂 Load");
-  btnLoad.addEventListener("click", () => emulator.quickLoad(1));
+  const btnLoad = make("button", { class: "btn", title: `Quick Load from slot ${_selectedSlot} (F7)` }, "📂 Load");
+  btnLoad.addEventListener("click", () => emulator.quickLoad(_selectedSlot));
 
   // Reset (F1)
   const btnReset = make(
@@ -272,7 +303,28 @@ function buildInGameControls(
   });
 
   volumeWrap.append(volIcon, volSlider);
-  container.append(btnSave, btnLoad, btnReset, btnNew, volumeWrap);
+  container.append(slotWrap, btnSave, btnLoad, btnReset, btnNew, volumeWrap);
+}
+
+// ── Large-file warning ────────────────────────────────────────────────────────
+
+const LARGE_FILE_THRESHOLD_MB = 500;
+
+function warnIfLargeFile(file: File): void {
+  const warnEl = document.querySelector<HTMLElement>("#large-file-warning");
+  if (!warnEl) return;
+  const mb = file.size / (1024 * 1024);
+  if (mb > LARGE_FILE_THRESHOLD_MB) {
+    const display = mb >= 1024
+      ? `${(mb / 1024).toFixed(2)} GB`
+      : `${Math.round(mb)} MB`;
+    warnEl.textContent =
+      `⚠ Large file detected (${display}). Loading may be slow on devices with limited RAM.`;
+    warnEl.classList.add("visible");
+  } else {
+    warnEl.textContent = "";
+    warnEl.classList.remove("visible");
+  }
 }
 
 // ── State-driven DOM updates ─────────────────────────────────────────────────
