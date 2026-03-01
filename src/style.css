@@ -220,7 +220,7 @@ body {
 #loading-overlay.visible {
   opacity: 1;
   visibility: visible;
-  pointer-events: all;
+  pointer-events: auto;
 }
 
 .loading-spinner {
@@ -405,9 +405,18 @@ body {
 }
 
 /* ── Responsive: hide non-essential items on small screens ── */
+/* .title-short is hidden by default; CSS (not inline style) controls visibility */
+.title-short {
+  display: none;
+}
+
 @media (max-width: 480px) {
   .app-header__title span.title-long {
     display: none;
+  }
+
+  .app-header__title span.title-short {
+    display: inline;
   }
 
   .status-item.hide-mobile {

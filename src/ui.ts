@@ -66,7 +66,7 @@ export function buildDOM(app: HTMLElement): void {
           <line x1="9"  y1="12" x2="15" y2="12"/>
         </svg>
         <span class="title-long">Web PSP Emulator</span>
-        <span class="title-short" style="display:none">PSP</span>
+        <span class="title-short">PSP</span>
       </div>
       <div class="app-header__actions" id="header-actions">
         <!-- Populated by initControls() after emulator starts -->
@@ -79,7 +79,7 @@ export function buildDOM(app: HTMLElement): void {
         <div class="landing__drop-zone" id="drop-zone">
           <input type="file"
                  id="file-input"
-                 accept=".iso,.cso,.pbp,.chd,.elf,.zip"
+                 accept="${PSP_EXTENSIONS.map(e => `.${e}`).join(",")}"
                  aria-label="Select PSP game file" />
           <div class="landing__drop-icon" aria-hidden="true">🎮</div>
           <p class="landing__drop-label">Drop your PSP game here</p>

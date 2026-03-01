@@ -258,11 +258,8 @@ export class PSPEmulator {
     this.onStateChange?.(s);
   }
 
-  private _emit(cb: "onProgress", msg: string): void;
-  private _emit(cb: "onError",    msg: string): void;
-  private _emit(cb: "onProgress" | "onError", msg: string): void {
+  private _emit(cb: "onProgress", msg: string): void {
     if (cb === "onProgress") this.onProgress?.(msg);
-    else                     this.onError?.(msg);
   }
 
   private _emitError(msg: string): void {
