@@ -35,6 +35,8 @@ export interface Settings {
   volume: number;
   /** Display name of the last loaded game (not the file path). */
   lastGameName: string | null;
+  /** Active save/load slot, 1–5. Default 1. */
+  saveSlot: number;
 }
 
 const STORAGE_KEY = "web-psp-emulator-settings";
@@ -42,6 +44,7 @@ const STORAGE_KEY = "web-psp-emulator-settings";
 const DEFAULT_SETTINGS: Settings = {
   volume:       0.7,
   lastGameName: null,
+  saveSlot:     1,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -58,6 +61,11 @@ function loadSettings(): Settings {
       lastGameName: typeof parsed.lastGameName === "string"
                       ? parsed.lastGameName
                       : null,
+      saveSlot:     typeof parsed.saveSlot === "number" &&
+                    Number.isInteger(parsed.saveSlot) &&
+                    parsed.saveSlot >= 1 && parsed.saveSlot <= 5
+                      ? parsed.saveSlot
+                      : DEFAULT_SETTINGS.saveSlot,
     };
   } catch {
     // Corrupt or inaccessible storage — fall back to defaults.

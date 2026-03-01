@@ -404,6 +404,174 @@ body {
   background: color-mix(in srgb, var(--c-danger) 12%, var(--c-surface2));
 }
 
+/* ── Header right-side wrapper ────────────────────────────── */
+.app-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Help button (?) ──────────────────────────────────────── */
+.help-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+/* ── Save-slot picker ─────────────────────────────────────── */
+.slot-picker {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.slot-picker__label {
+  font-size: 0.78rem;
+  color: var(--c-text-faint);
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.slot-picker__btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+/* ── Help modal ───────────────────────────────────────────── */
+#help-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+#help-modal[hidden] {
+  display: none;
+}
+
+.help-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+
+.help-modal__panel {
+  position: relative;
+  z-index: 1;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.help-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.help-modal__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.help-modal__close {
+  background: none;
+  border: none;
+  color: var(--c-text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  line-height: 1;
+  transition: color var(--transition), background var(--transition);
+}
+
+.help-modal__close:hover {
+  color: var(--c-text);
+  background: var(--c-surface2);
+}
+
+.help-modal__body {
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.help-modal__section {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-faint);
+  margin-top: 4px;
+}
+
+.help-modal__note {
+  font-size: 0.78rem;
+  color: var(--c-text-faint);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.help-table td {
+  padding: 4px 6px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text-dim);
+}
+
+.help-table tr:last-child td {
+  border-bottom: none;
+}
+
+.help-table td:first-child {
+  white-space: nowrap;
+  color: var(--c-text);
+  padding-right: 16px;
+  min-width: 100px;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 0.78rem;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  background: var(--c-surface2);
+  border: 1px solid var(--c-border);
+  border-radius: 3px;
+  color: var(--c-text);
+  line-height: 1.5;
+}
+
 /* ── Responsive: hide non-essential items on small screens ── */
 @media (max-width: 480px) {
   .app-header__title span.title-long {
@@ -411,6 +579,10 @@ body {
   }
 
   .status-item.hide-mobile {
+    display: none;
+  }
+
+  .slot-picker__label {
     display: none;
   }
 }

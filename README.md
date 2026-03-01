@@ -98,19 +98,24 @@ touch-screen devices.
 
 | Control | Action |
 |---------|--------|
-| 💾 Save (header) | Quick-save to slot 1 |
-| 📂 Load (header) | Quick-load from slot 1 |
+| Slot picker (1–5) | Choose the active save/load slot |
+| 💾 Save (header) | Quick-save to the active slot |
+| 📂 Load (header) | Quick-load from the active slot |
+| ⛶ Full (header) | Toggle browser fullscreen |
 | ↺ Reset (header) | Restart the current game |
 | 📁 New Game (header) | Reload page to pick a different game |
 | Volume slider (header) | Adjust volume (persisted) |
-| **F5** | Quick-save slot 1 |
-| **F7** | Quick-load slot 1 |
+| **?** (header) | Open keyboard shortcut reference |
+| **F5** | Quick-save to the active slot |
+| **F7** | Quick-load from the active slot |
 | **F1** | Reset |
+| **Esc** | Close the shortcut reference panel |
 | EmulatorJS ⚙ icon | Full settings: key remap, shaders, state slots, … |
 
 ### Persisted settings (localStorage)
 
 - **Volume** — restored on next visit.
+- **Save slot** — the active slot (1–5) is remembered between sessions.
 - **Last game name** — shown in the status bar (the ROM file itself is never stored).
 
 ---

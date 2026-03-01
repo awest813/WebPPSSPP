@@ -68,8 +68,11 @@ export function buildDOM(app: HTMLElement): void {
         <span class="title-long">Web PSP Emulator</span>
         <span class="title-short" style="display:none">PSP</span>
       </div>
-      <div class="app-header__actions" id="header-actions">
-        <!-- Populated by initControls() after emulator starts -->
+      <div class="app-header__right">
+        <div class="app-header__actions" id="header-actions">
+          <!-- Populated by buildInGameControls() after emulator starts -->
+        </div>
+        <button class="btn help-btn" id="help-btn" title="Keyboard shortcuts" aria-label="Show keyboard shortcuts">?</button>
       </div>
     </header>
 
@@ -114,6 +117,42 @@ export function buildDOM(app: HTMLElement): void {
       <div id="error-banner" role="alert" aria-live="assertive">
         <span class="error-close" id="error-close" title="Dismiss">✕</span>
         <span id="error-message"></span>
+      </div>
+
+      <!-- ── Keyboard shortcuts help modal ── -->
+      <div id="help-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" hidden>
+        <div class="help-modal__backdrop" id="help-backdrop"></div>
+        <div class="help-modal__panel">
+          <div class="help-modal__header">
+            <h3 class="help-modal__title">Keyboard Shortcuts</h3>
+            <button class="help-modal__close" id="help-close" title="Close" aria-label="Close">✕</button>
+          </div>
+          <div class="help-modal__body">
+            <p class="help-modal__section">Application</p>
+            <table class="help-table">
+              <tbody>
+                <tr><td><kbd>F5</kbd></td><td>Quick-save (active slot)</td></tr>
+                <tr><td><kbd>F7</kbd></td><td>Quick-load (active slot)</td></tr>
+                <tr><td><kbd>F1</kbd></td><td>Reset game</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>Close this panel</td></tr>
+              </tbody>
+            </table>
+            <p class="help-modal__section">PSP Buttons (default mapping)</p>
+            <table class="help-table">
+              <tbody>
+                <tr><td>D-pad</td><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td></tr>
+                <tr><td>Analog stick</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td></tr>
+                <tr><td>✕ / ○ / □ / △</td><td><kbd>Z</kbd> / <kbd>X</kbd> / <kbd>A</kbd> / <kbd>S</kbd></td></tr>
+                <tr><td>L / R</td><td><kbd>Q</kbd> / <kbd>E</kbd></td></tr>
+                <tr><td>Start / Select</td><td><kbd>Enter</kbd> / <kbd>Backspace</kbd></td></tr>
+              </tbody>
+            </table>
+            <p class="help-modal__note">
+              Remap keys via the ⚙ icon in the EmulatorJS toolbar.
+              Gamepad is detected automatically via the Web Gamepad API.
+            </p>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -181,6 +220,15 @@ export function initUI(opts: UIOptions): void {
   // ── Error banner dismiss ────────────────────────────────────────────────
   el("#error-close").addEventListener("click", () => hideError());
 
+  // ── Help modal ──────────────────────────────────────────────────────────
+  const helpModal   = el("#help-modal");
+  const helpOpen    = () => { helpModal.removeAttribute("hidden"); };
+  const helpClose   = () => { helpModal.setAttribute("hidden", ""); };
+
+  el("#help-btn").addEventListener("click", helpOpen);
+  el("#help-close").addEventListener("click", helpClose);
+  el("#help-backdrop").addEventListener("click", helpClose);
+
   // ── Emulator callbacks ──────────────────────────────────────────────────
   emulator.onStateChange = (state) => updateState(state);
   emulator.onProgress    = (msg)   => setLoadingMessage(msg);
@@ -195,11 +243,14 @@ export function initUI(opts: UIOptions): void {
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────
   document.addEventListener("keydown", (e) => {
+    // Escape always closes the help modal
+    if (e.key === "Escape") { helpClose(); return; }
+
     if (emulator.state !== "running") return;
     switch (e.key) {
-      case "F5": e.preventDefault(); emulator.quickSave(1); break;
-      case "F7": e.preventDefault(); emulator.quickLoad(1); break;
-      case "F1": e.preventDefault(); emulator.reset();      break;
+      case "F5": e.preventDefault(); emulator.quickSave(settings.saveSlot); break;
+      case "F7": e.preventDefault(); emulator.quickLoad(settings.saveSlot); break;
+      case "F1": e.preventDefault(); emulator.reset();                      break;
     }
   });
 }
@@ -218,15 +269,52 @@ function buildInGameControls(
   const container = el("#header-actions");
   container.innerHTML = ""; // clear any previous controls
 
-  // Quick Save (F5)
+  // ── Save slot picker (1–5) ────────────────────────────────────────────
+  const slotWrap = make("div", { class: "slot-picker", title: "Active save slot" });
+  slotWrap.append(make("span", { class: "slot-picker__label" }, "Slot:"));
+  for (let i = 1; i <= 5; i++) {
+    const slotBtn = make(
+      "button",
+      { class: `btn slot-picker__btn${i === settings.saveSlot ? " btn--primary" : ""}`,
+        "data-slot": String(i),
+        title: `Save slot ${i}` },
+      String(i)
+    );
+    slotBtn.addEventListener("click", () => {
+      slotWrap.querySelectorAll<HTMLButtonElement>(".slot-picker__btn").forEach(b => {
+        b.classList.remove("btn--primary");
+      });
+      slotBtn.classList.add("btn--primary");
+      settings.saveSlot = i;
+      onSettingsChange({ saveSlot: i });
+    });
+    slotWrap.append(slotBtn);
+  }
+
+  // ── Quick Save (F5) ───────────────────────────────────────────────────
   const btnSave = make("button", { class: "btn", title: "Quick Save (F5)" }, "💾 Save");
-  btnSave.addEventListener("click", () => emulator.quickSave(1));
+  btnSave.addEventListener("click", () => emulator.quickSave(settings.saveSlot));
 
-  // Quick Load (F7)
+  // ── Quick Load (F7) ───────────────────────────────────────────────────
   const btnLoad = make("button", { class: "btn", title: "Quick Load (F7)" }, "📂 Load");
-  btnLoad.addEventListener("click", () => emulator.quickLoad(1));
+  btnLoad.addEventListener("click", () => emulator.quickLoad(settings.saveSlot));
 
-  // Reset (F1)
+  // ── Fullscreen toggle ─────────────────────────────────────────────────
+  const btnFullscreen = make("button", { class: "btn", title: "Toggle fullscreen" });
+  const updateFsLabel = () => {
+    btnFullscreen.textContent = document.fullscreenElement ? "⛶ Exit" : "⛶ Full";
+  };
+  updateFsLabel();
+  btnFullscreen.addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+  document.addEventListener("fullscreenchange", updateFsLabel);
+
+  // ── Reset (F1) ────────────────────────────────────────────────────────
   const btnReset = make(
     "button",
     { class: "btn btn--danger", title: "Reset game (F1)" },
@@ -238,7 +326,7 @@ function buildInGameControls(
     }
   });
 
-  // Load New Game — requires a page reload since EJS doesn't support hot swap
+  // ── Load New Game ─────────────────────────────────────────────────────
   const btnNew = make("button", { class: "btn", title: "Load a different game" }, "📁 New Game");
   btnNew.addEventListener("click", () => {
     if (
@@ -251,7 +339,7 @@ function buildInGameControls(
     }
   });
 
-  // Volume control
+  // ── Volume control ────────────────────────────────────────────────────
   const volumeWrap = make("label", { class: "btn", style: "gap:6px;cursor:default" });
   volumeWrap.title = "Volume";
   const volIcon = make("span", {}, "🔊");
@@ -272,7 +360,7 @@ function buildInGameControls(
   });
 
   volumeWrap.append(volIcon, volSlider);
-  container.append(btnSave, btnLoad, btnReset, btnNew, volumeWrap);
+  container.append(slotWrap, btnSave, btnLoad, btnFullscreen, btnReset, btnNew, volumeWrap);
 }
 
 // ── State-driven DOM updates ─────────────────────────────────────────────────
