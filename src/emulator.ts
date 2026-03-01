@@ -21,6 +21,26 @@
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/** Browser capability and timing diagnostics. */
+export interface DiagnosticsInfo {
+  /** Whether SharedArrayBuffer is available (requires COI). */
+  sharedArrayBuffer: boolean;
+  /** Whether WebGL 2 is available. */
+  webGL2: boolean;
+  /** Whether the page is Cross-Origin Isolated (COOP + COEP). */
+  crossOriginIsolated: boolean;
+  /** Timestamp (ms) when launch() was called. Null before first launch. */
+  launchTime: number | null;
+  /** Timestamp (ms) when EJS_ready fired (core built). Null until then. */
+  readyTime: number | null;
+  /** Timestamp (ms) when EJS_onGameStart fired. Null until game starts. */
+  gameStartTime: number | null;
+  /** ms between launch and ready. Null until ready. */
+  coreLoadMs: number | null;
+  /** ms between launch and game-start. Null until game starts. */
+  totalLoadMs: number | null;
+}
+
 /**
  * All windows-level EJS globals that loader.js reads.
  * Declaring them here keeps TypeScript happy and documents what each does.
@@ -95,6 +115,11 @@ export class PSPEmulator {
   /** The element selector used as the EJS mount point. */
   private readonly _playerId: string;
 
+  // Timing metrics
+  private _launchTime: number | null = null;
+  private _readyTime: number | null = null;
+  private _gameStartTime: number | null = null;
+
   // ── Public callbacks — wired by ui.ts ──────────────────────────────────────
 
   /** Fired whenever the internal state transitions. */
@@ -123,6 +148,32 @@ export class PSPEmulator {
   }
 
   /**
+   * Snapshot current browser capabilities and load timing.
+   * Safe to call at any point (before or after launch).
+   */
+  getDiagnostics(): DiagnosticsInfo {
+    const coreLoadMs =
+      this._readyTime !== null && this._launchTime !== null
+        ? this._readyTime - this._launchTime
+        : null;
+    const totalLoadMs =
+      this._gameStartTime !== null && this._launchTime !== null
+        ? this._gameStartTime - this._launchTime
+        : null;
+
+    return {
+      sharedArrayBuffer:   typeof SharedArrayBuffer !== "undefined",
+      webGL2:              !!document.createElement("canvas").getContext("webgl2"),
+      crossOriginIsolated: self.crossOriginIsolated ?? false,
+      launchTime:          this._launchTime,
+      readyTime:           this._readyTime,
+      gameStartTime:       this._gameStartTime,
+      coreLoadMs,
+      totalLoadMs,
+    };
+  }
+
+  /**
    * Validate browser capabilities and launch the emulator with the given ROM.
    *
    * The method is async but only awaits script injection. EmulatorJS performs
@@ -144,6 +195,9 @@ export class PSPEmulator {
     if (!this._validateFile(opts.file)) return;
 
     this._setState("loading");
+    this._launchTime = Date.now();
+    this._readyTime = null;
+    this._gameStartTime = null;
     this._emit("onProgress", "Preparing game file…");
 
     // Revoke any previous blob URL to free memory.
@@ -179,11 +233,13 @@ export class PSPEmulator {
       // EJS_ready fires once the EJS UI chrome (toolbar, canvas) is built —
       // before the game ROM has finished downloading and booting.
       window.EJS_ready = () => {
+        this._readyTime = Date.now();
         this._emit("onProgress", "Core loaded — booting game…");
       };
 
       // EJS_onGameStart fires when the emulation loop is actually running.
       window.EJS_onGameStart = () => {
+        this._gameStartTime = Date.now();
         this._setState("running");
         this.onGameStart?.();
       };

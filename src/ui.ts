@@ -20,7 +20,7 @@
  *   F1        → Reset
  */
 
-import { PSPEmulator, PSP_EXTENSIONS, type EmulatorState } from "./emulator.js";
+import { PSPEmulator, PSP_EXTENSIONS, type EmulatorState, type DiagnosticsInfo } from "./emulator.js";
 import type { Settings } from "./main.js";
 
 // ── DOM helper ────────────────────────────────────────────────────────────────
@@ -97,6 +97,22 @@ export function buildDOM(app: HTMLElement): void {
             Powered by EmulatorJS (PPSSPP core)
           </a>
         </p>
+
+        <!-- ── Browser capability check ── -->
+        <div class="capability-check" id="capability-check" aria-label="Browser compatibility">
+          <div class="capability-check__row" id="cap-sab">
+            <span class="cap-badge" data-status="checking">…</span>
+            <span class="cap-label">SharedArrayBuffer</span>
+          </div>
+          <div class="capability-check__row" id="cap-gl2">
+            <span class="cap-badge" data-status="checking">…</span>
+            <span class="cap-label">WebGL 2</span>
+          </div>
+          <div class="capability-check__row" id="cap-coi">
+            <span class="cap-badge" data-status="checking">…</span>
+            <span class="cap-label">Cross-Origin Isolation</span>
+          </div>
+        </div>
       </section>
 
       <!-- ── EmulatorJS mount point ── -->
@@ -114,6 +130,17 @@ export function buildDOM(app: HTMLElement): void {
       <div id="error-banner" role="alert" aria-live="assertive">
         <span class="error-close" id="error-close" title="Dismiss">✕</span>
         <span id="error-message"></span>
+      </div>
+
+      <!-- ── Debug panel (F12 to toggle) ── -->
+      <div id="debug-panel" aria-label="Debug information" hidden>
+        <div class="debug-panel__header">
+          <span>Debug Info</span>
+          <span class="debug-panel__close" id="debug-close" title="Close (F12)">✕</span>
+        </div>
+        <div class="debug-panel__body" id="debug-body">
+          <!-- populated by refreshDebugPanel() -->
+        </div>
       </div>
     </main>
 
@@ -181,8 +208,18 @@ export function initUI(opts: UIOptions): void {
   // ── Error banner dismiss ────────────────────────────────────────────────
   el("#error-close").addEventListener("click", () => hideError());
 
+  // ── Capability check (run immediately + after 3 s for SW activation) ───
+  runCapabilityCheck();
+  setTimeout(runCapabilityCheck, 3000);
+
+  // ── Debug panel ─────────────────────────────────────────────────────────
+  el("#debug-close").addEventListener("click", () => hideDebugPanel());
+
   // ── Emulator callbacks ──────────────────────────────────────────────────
-  emulator.onStateChange = (state) => updateState(state);
+  emulator.onStateChange = (state) => {
+    updateState(state);
+    refreshDebugPanel(emulator.getDiagnostics());
+  };
   emulator.onProgress    = (msg)   => setLoadingMessage(msg);
   emulator.onError       = (msg)   => showError(msg);
   emulator.onGameStart   = ()      => {
@@ -191,10 +228,18 @@ export function initUI(opts: UIOptions): void {
     showEjsContainer();
     setStatusGame(settings.lastGameName ?? "Unknown");
     buildInGameControls(emulator, settings, onSettingsChange);
+    refreshDebugPanel(emulator.getDiagnostics());
   };
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────
   document.addEventListener("keydown", (e) => {
+    // F12: toggle debug panel (works in any emulator state)
+    if (e.key === "F12") {
+      e.preventDefault();
+      toggleDebugPanel(emulator.getDiagnostics());
+      return;
+    }
+
     if (emulator.state !== "running") return;
     switch (e.key) {
       case "F5": e.preventDefault(); emulator.quickSave(1); break;
@@ -339,4 +384,83 @@ export function showError(msg: string): void {
 
 export function hideError(): void {
   document.querySelector("#error-banner")?.classList.remove("visible");
+}
+
+// ── Capability check ──────────────────────────────────────────────────────────
+
+/**
+ * Probe browser capabilities and update the three indicator badges on the
+ * landing screen. Safe to call multiple times (e.g. after SW activation).
+ */
+function runCapabilityCheck(): void {
+  const hasSAB = typeof SharedArrayBuffer !== "undefined";
+  const hasGL2 = !!document.createElement("canvas").getContext("webgl2");
+  const hasCOI = self.crossOriginIsolated ?? false;
+
+  setCapBadge("cap-sab", hasSAB, "Available", "Unavailable");
+  setCapBadge("cap-gl2", hasGL2, "Available", "Unavailable");
+  setCapBadge("cap-coi", hasCOI, "Isolated", "Not isolated");
+}
+
+function setCapBadge(
+  rowId: string,
+  ok: boolean,
+  okLabel: string,
+  failLabel: string
+): void {
+  const row   = document.getElementById(rowId);
+  const badge = row?.querySelector<HTMLElement>(".cap-badge");
+  if (!badge) return;
+  badge.textContent       = ok ? `✓ ${okLabel}` : `✗ ${failLabel}`;
+  badge.dataset["status"] = ok ? "ok" : "fail";
+}
+
+// ── Debug panel ───────────────────────────────────────────────────────────────
+
+function toggleDebugPanel(diag: DiagnosticsInfo): void {
+  const panel = document.getElementById("debug-panel");
+  if (!panel) return;
+  if (panel.hidden) {
+    refreshDebugPanel(diag);
+    panel.hidden = false;
+  } else {
+    panel.hidden = true;
+  }
+}
+
+function hideDebugPanel(): void {
+  const panel = document.getElementById("debug-panel");
+  if (panel) panel.hidden = true;
+}
+
+/**
+ * Rebuild the content of the debug panel from the latest diagnostics.
+ * No-op if the panel is currently hidden.
+ */
+function refreshDebugPanel(diag: DiagnosticsInfo): void {
+  const panel = document.getElementById("debug-panel");
+  const body  = document.getElementById("debug-body");
+  if (!panel || panel.hidden || !body) return;
+
+  const fmt = (ms: number | null) =>
+    ms !== null ? `${ms.toLocaleString()} ms` : "—";
+
+  const rows: Array<[string, string, boolean?]> = [
+    ["SharedArrayBuffer", diag.sharedArrayBuffer ? "✓ Available" : "✗ Unavailable", diag.sharedArrayBuffer],
+    ["WebGL 2",           diag.webGL2            ? "✓ Available" : "✗ Unavailable", diag.webGL2],
+    ["Cross-Origin Isolated", diag.crossOriginIsolated ? "✓ Yes" : "✗ No",          diag.crossOriginIsolated],
+    ["Emulator state",    document.getElementById("status-state")?.textContent ?? "—"],
+    ["Core load time",    fmt(diag.coreLoadMs)],
+    ["Total load time",   fmt(diag.totalLoadMs)],
+  ];
+
+  body.innerHTML = rows
+    .map(([label, value, ok]) => {
+      const cls = ok === true ? "ok" : ok === false ? "fail" : "";
+      return `<div class="debug-row">
+        <span class="debug-label">${label}</span>
+        <span class="debug-value ${cls}">${value}</span>
+      </div>`;
+    })
+    .join("");
 }

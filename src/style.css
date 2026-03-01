@@ -404,6 +404,126 @@ body {
   background: color-mix(in srgb, var(--c-danger) 12%, var(--c-surface2));
 }
 
+/* ── Capability check badges ─────────────────────────────── */
+.capability-check {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: center;
+  max-width: 460px;
+}
+
+.capability-check__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+
+.cap-badge {
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface2);
+  color: var(--c-text-dim);
+  white-space: nowrap;
+}
+
+.cap-badge[data-status="ok"] {
+  background: color-mix(in srgb, var(--c-success) 12%, var(--c-surface));
+  border-color: var(--c-success);
+  color: var(--c-success);
+}
+
+.cap-badge[data-status="fail"] {
+  background: color-mix(in srgb, var(--c-danger) 12%, var(--c-surface));
+  border-color: var(--c-danger);
+  color: var(--c-danger);
+}
+
+.cap-label {
+  color: var(--c-text-faint);
+}
+
+/* ── Debug panel ─────────────────────────────────────────── */
+#debug-panel {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  z-index: 40;
+  width: 280px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-bottom: none;
+  border-right: none;
+  border-radius: var(--radius-lg) 0 0 0;
+  font-size: 0.78rem;
+  color: var(--c-text);
+  box-shadow: -2px -2px 12px rgba(0,0,0,0.4);
+}
+
+#debug-panel[hidden] {
+  display: none;
+}
+
+.debug-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: var(--c-surface2);
+  border-bottom: 1px solid var(--c-border);
+  border-radius: var(--radius-lg) 0 0 0;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--c-text-dim);
+}
+
+.debug-panel__close {
+  cursor: pointer;
+  opacity: 0.55;
+  font-size: 1rem;
+  line-height: 1;
+  transition: opacity var(--transition);
+}
+
+.debug-panel__close:hover {
+  opacity: 1;
+}
+
+.debug-panel__body {
+  padding: 8px 0;
+}
+
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px;
+  gap: 8px;
+}
+
+.debug-row:not(:last-child) {
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 50%, transparent);
+}
+
+.debug-label {
+  color: var(--c-text-faint);
+  flex-shrink: 0;
+}
+
+.debug-value {
+  color: var(--c-text-dim);
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+}
+
+.debug-value.ok   { color: var(--c-success); }
+.debug-value.fail { color: var(--c-danger);  }
+
 /* ── Responsive: hide non-essential items on small screens ── */
 @media (max-width: 480px) {
   .app-header__title span.title-long {
