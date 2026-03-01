@@ -4,6 +4,9 @@ A minimal, single-page web application that runs PSP games in the browser using
 [EmulatorJS](https://emulatorjs.org) and the PPSSPP core.
 No server required — everything runs client-side. You supply the ROM.
 
+**Status:** v1.0 MVP — core emulation works in Chrome/Firefox on desktop.
+See [ROADMAP.md](./ROADMAP.md) for what's planned next.
+
 ---
 
 ## Quick Start
@@ -156,6 +159,22 @@ to activate the service worker — this is expected behaviour.
 - **Enable hardware acceleration** in your browser settings for better performance.
 - **Chrome flags** — if SharedArrayBuffer is still unavailable, try enabling `chrome://flags/#enable-experimental-web-platform-features`.
 - **CSO format** — compressed ISOs (`.cso`) are smaller downloads; PPSSPP decompresses them transparently.
+
+---
+
+## Roadmap
+
+The short version of what comes next:
+
+| Milestone | Focus |
+|-----------|-------|
+| **v1.1** | Save-slot picker, BIOS upload, file-size warning, error recovery without reload |
+| **v1.2** | Loading progress bar, screenshot download, recently-played list, FPS overlay, PWA manifest |
+| **v1.3** | GitHub Actions CI, GitHub Pages / Netlify deploy configs, Docker self-host recipe |
+| **v2.0** | IndexedDB game library, save-file export/import, cheat code manager |
+| **v3.0** | Custom key-binding UI, shader presets, mobile-first redesign, offline PWA |
+
+Full detail and task tracking in **[ROADMAP.md](./ROADMAP.md)**.
 
 ---
 
