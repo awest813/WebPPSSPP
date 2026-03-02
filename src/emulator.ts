@@ -89,6 +89,7 @@ class FPSMonitor {
   private _droppedFrames = 0;
   private _targetFPS = 60;
   private _windowSize = 60; // samples to keep
+  private _enabled = false;  // only process + notify when actively tracking
   private _onUpdate?: (snapshot: FPSSnapshot) => void;
 
   constructor(targetFPS = 60) {
@@ -99,11 +100,15 @@ class FPSMonitor {
     this._onUpdate = cb;
   }
 
+  /** Whether the FPS monitor is actively tracking and notifying. */
+  get enabled(): boolean { return this._enabled; }
+
   start(): void {
     if (this._rafId !== null) return;
     this._frameTimes = [];
     this._droppedFrames = 0;
     this._lastTime = performance.now();
+    this._enabled = true;
     this._tick = this._tick.bind(this);
     this._rafId = requestAnimationFrame(this._tick);
   }
@@ -113,6 +118,17 @@ class FPSMonitor {
       cancelAnimationFrame(this._rafId);
       this._rafId = null;
     }
+    this._enabled = false;
+  }
+
+  /**
+   * Pause callbacks without stopping the rAF loop.
+   * Sampling continues (to keep stats accurate) but onUpdate is suppressed.
+   * Call this when the FPS overlay is hidden to avoid unnecessary work
+   * on low-spec devices (Chromebooks, etc.).
+   */
+  setCallbackEnabled(active: boolean): void {
+    this._enabled = active;
   }
 
   getSnapshot(): FPSSnapshot {
@@ -154,8 +170,8 @@ class FPSMonitor {
         this._droppedFrames++;
       }
 
-      // Notify every 10 frames
-      if (this._frameTimes.length % 10 === 0) {
+      // Only notify when enabled and every 10 frames to reduce DOM churn
+      if (this._enabled && this._frameTimes.length % 10 === 0) {
         this._onUpdate?.(this.getSnapshot());
       }
     }
@@ -187,6 +203,7 @@ export class PSPEmulator {
   private _currentSystem: SystemInfo | null = null;
   private _fpsMonitor: FPSMonitor;
   private _visibilityHandler: (() => void) | null = null;
+  private _contextLossHandler: (() => void) | null = null;
   private _pausedByVisibility = false;
   private _preconnected = false;
   private _activeTier: PerformanceTier | null = null;
@@ -209,6 +226,18 @@ export class PSPEmulator {
 
   /** Get the current FPS snapshot (call anytime while running). */
   getFPS(): FPSSnapshot { return this._fpsMonitor.getSnapshot(); }
+
+  /**
+   * Enable or disable FPS monitoring callbacks.
+   *
+   * When the FPS overlay is hidden there is no need to notify the UI every
+   * 10 frames. Disabling reduces CPU overhead on low-spec devices (Chromebooks)
+   * that are already under pressure. The underlying rAF loop keeps running so
+   * stats remain accurate if the overlay is toggled back on.
+   */
+  setFPSMonitorEnabled(enabled: boolean): void {
+    this._fpsMonitor.setCallbackEnabled(enabled);
+  }
 
   // ── Preloading ────────────────────────────────────────────────────────────
 
@@ -339,6 +368,7 @@ export class PSPEmulator {
         this._setState("running");
         this._fpsMonitor.start();
         this._installVisibilityHandler();
+        this._installContextLossHandler();
         this.onGameStart?.();
       };
 
@@ -433,6 +463,47 @@ export class PSPEmulator {
     this._pausedByVisibility = false;
   }
 
+  // ── WebGL context loss ───────────────────────────────────────────────────────
+
+  /**
+   * Listen for WebGL context loss on the emulator canvas.
+   *
+   * On memory-constrained devices (Chromebooks, phones) the browser may
+   * reclaim the GPU context under pressure. When this happens we emit a
+   * user-visible error and reset to idle so the user can relaunch.
+   */
+  private _installContextLossHandler(): void {
+    this._removeContextLossHandler();
+
+    const playerEl = document.getElementById(this._playerId);
+    if (!playerEl) return;
+
+    const canvas = playerEl.querySelector("canvas");
+    if (!canvas) return;
+
+    this._contextLossHandler = () => {
+      this._fpsMonitor.stop();
+      this._removeVisibilityHandler();
+      this._emitError(
+        "WebGL context lost — the GPU ran out of memory or was reset.\n\n" +
+        "This can happen on low-memory devices under heavy load.\n" +
+        "Return to the library and relaunch the game to recover."
+      );
+    };
+
+    canvas.addEventListener("webglcontextlost", this._contextLossHandler);
+  }
+
+  private _removeContextLossHandler(): void {
+    if (!this._contextLossHandler) return;
+    const playerEl = document.getElementById(this._playerId);
+    const canvas = playerEl?.querySelector("canvas");
+    if (canvas) {
+      canvas.removeEventListener("webglcontextlost", this._contextLossHandler);
+    }
+    this._contextLossHandler = null;
+  }
+
   // ── Private ─────────────────────────────────────────────────────────────────
 
   private _setState(s: EmulatorState): void {
@@ -501,6 +572,7 @@ export class PSPEmulator {
   private _teardown(): void {
     this._fpsMonitor.stop();
     this._removeVisibilityHandler();
+    this._removeContextLossHandler();
     this._revokeBlobUrl();
     document.querySelector("script[data-ejs-loader]")?.remove();
     const playerEl = document.getElementById(this._playerId);

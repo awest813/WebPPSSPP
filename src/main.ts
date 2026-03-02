@@ -21,7 +21,7 @@
 import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
 import { GameLibrary }   from "./library.js";
-import { detectCapabilities } from "./performance.js";
+import { detectCapabilities, checkBatteryStatus } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel } from "./ui.js";
 import type { PerformanceMode } from "./performance.js";
@@ -107,6 +107,22 @@ function main(): void {
     setTimeout(() => emulator.prefetchLoader(), 2000);
   }
 
+  // 4b. Battery status — asynchronously check if the device is low on battery.
+  // If so, auto-switch to "performance" mode when the user hasn't made a manual
+  // choice. This is particularly valuable on Chromebooks (always Chrome, always
+  // has Battery API) where sustained emulation drains the battery quickly.
+  checkBatteryStatus().then(battery => {
+    if (!battery) return;
+    if (battery.isLowBattery && settings.performanceMode === "auto") {
+      settings.performanceMode = "performance";
+      saveSettings(settings);
+      console.info(
+        `[RetroVault] Low battery (${Math.round((battery.level ?? 0) * 100)}%) detected. ` +
+        "Auto-switched to Performance mode to conserve power."
+      );
+    }
+  }).catch(() => { /* Battery API unavailable or denied — ignore silently */ });
+
   // 5. Wire launch callback
   const onLaunchGame = async (file: File, systemId: string): Promise<void> => {
     const gameName = file.name.replace(/\.[^.]+$/, "");
@@ -178,11 +194,13 @@ function main(): void {
     btnSettings.addEventListener("click", () => {
       document.dispatchEvent(new CustomEvent("retrovault:openSettings"));
     });
-    if (deviceCaps.isLowSpec) {
+    if (deviceCaps.isLowSpec || deviceCaps.isChromOS) {
       const chip = document.createElement("span");
       chip.className = "perf-chip perf-chip--warn";
-      chip.textContent = "⚡ Low-spec";
-      chip.title = "Performance mode recommended for this device";
+      chip.textContent = deviceCaps.isChromOS ? "⚡ Chromebook" : "⚡ Low-spec";
+      chip.title = deviceCaps.isChromOS
+        ? "Chromebook detected — Performance mode recommended"
+        : "Performance mode recommended for this device";
       container.appendChild(chip);
     }
     container.appendChild(btnSettings);
@@ -192,7 +210,7 @@ function main(): void {
     openSettingsPanel(settings, deviceCaps, library, (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
-    });
+    }, emulator);
   });
 
   // 9. Dev helpers

@@ -234,11 +234,111 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
+// ── GBA (mGBA) tier-specific core options ─────────────────────────────────────
+
+/**
+ * mGBA RetroArch core options per performance tier.
+ *
+ * Key options:
+ *   mgba_frameskip         — 0 = no skip, 1–4 = skip N frames
+ *   mgba_color_correction  — GBA LCD colour correction (CPU cost on low-spec)
+ *   mgba_interframe_blending — Ghost/blend between frames (mimics LCD blur)
+ *   mgba_skip_bios         — Skip the GBA boot logo (always ON for speed)
+ *   mgba_idle_optimization — Detect busy-wait loops and replace with halts
+ */
+const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    mgba_skip_bios: "ON",
+    mgba_frameskip: "1",                   // Skip every other frame when needed
+    mgba_color_correction: "disabled",     // Skip colour correction to save CPU
+    mgba_interframe_blending: "disabled",  // No blending pass on slow hardware
+    mgba_idle_optimization: "Remove Known",
+  },
+  medium: {
+    mgba_skip_bios: "ON",
+    mgba_frameskip: "0",
+    mgba_color_correction: "Game Boy Advance",
+    mgba_interframe_blending: "disabled",
+    mgba_idle_optimization: "Remove Known",
+  },
+  high: {
+    mgba_skip_bios: "ON",
+    mgba_frameskip: "0",
+    mgba_color_correction: "Game Boy Advance",
+    mgba_interframe_blending: "mix",       // Smooth GBC/GBA translucency effects
+    mgba_idle_optimization: "Remove Known",
+  },
+  ultra: {
+    mgba_skip_bios: "ON",
+    mgba_frameskip: "0",
+    mgba_color_correction: "Game Boy Advance",
+    mgba_interframe_blending: "mix",
+    mgba_idle_optimization: "Remove Known",
+  },
+};
+
+// ── PS1 (Beetle PSX) tier-specific core options ───────────────────────────────
+
+/**
+ * Beetle PSX / mednafen-psx-hw RetroArch core options per tier.
+ *
+ * Key options:
+ *   beetle_psx_internal_resolution — Rendering resolution multiplier
+ *   beetle_psx_frame_duping_enable — Repeat last frame when nothing changed (saves GPU)
+ *   beetle_psx_filter              — Texture filter (nearest = fastest)
+ *   beetle_psx_dither_mode         — Ordered dither to hide colour banding
+ *   beetle_psx_cd_access_method    — CD-ROM emulation speed (sync = safest)
+ */
+const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    beetle_psx_internal_resolution: "1x(native)",
+    beetle_psx_frame_duping_enable: "enabled",   // Duplicate unchanged frames to save GPU
+    beetle_psx_filter: "nearest",                // No texture filtering (fastest)
+    beetle_psx_dither_mode: "internal",
+    beetle_psx_cd_access_method: "sync",
+  },
+  medium: {
+    beetle_psx_internal_resolution: "1x(native)",
+    beetle_psx_frame_duping_enable: "disabled",
+    beetle_psx_filter: "nearest",
+    beetle_psx_dither_mode: "internal",
+    beetle_psx_cd_access_method: "sync",
+  },
+  high: {
+    beetle_psx_internal_resolution: "2x",
+    beetle_psx_frame_duping_enable: "disabled",
+    beetle_psx_filter: "bilinear",
+    beetle_psx_dither_mode: "internal",
+    beetle_psx_cd_access_method: "async",
+  },
+  ultra: {
+    beetle_psx_internal_resolution: "4x",
+    beetle_psx_frame_duping_enable: "disabled",
+    beetle_psx_filter: "bilinear",
+    beetle_psx_dither_mode: "internal",
+    beetle_psx_cd_access_method: "async",
+  },
+};
+
 /**
  * Get the appropriate PPSSPP settings for a given performance tier.
  */
 export function getPSPSettingsForTier(tier: PerformanceTier): Record<string, string> {
   return { ...PSP_TIER_SETTINGS[tier] };
+}
+
+/**
+ * Get the appropriate mGBA settings for a given performance tier.
+ */
+export function getGBASettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...GBA_TIER_SETTINGS[tier] };
+}
+
+/**
+ * Get the appropriate Beetle PSX settings for a given performance tier.
+ */
+export function getPSXSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...PSX_TIER_SETTINGS[tier] };
 }
 
 // ── Supported systems ─────────────────────────────────────────────────────────
@@ -297,12 +397,9 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#7c4dff",
     needsThreads: false,
     needsWebGL2: false,
-    qualitySettings: {
-      mgba_skip_bios: "ON",
-    },
-    perfSettings: {
-      mgba_skip_bios: "ON",
-    },
+    qualitySettings: GBA_TIER_SETTINGS.high,
+    perfSettings: GBA_TIER_SETTINGS.low,
+    tierSettings: GBA_TIER_SETTINGS,
   },
   {
     id: "gbc",
@@ -358,8 +455,9 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#003087",
     needsThreads: false,
     needsWebGL2: false,
-    qualitySettings: {},
-    perfSettings: {},
+    qualitySettings: PSX_TIER_SETTINGS.high,
+    perfSettings: PSX_TIER_SETTINGS.low,
+    tierSettings: PSX_TIER_SETTINGS,
   },
   {
     id: "segaMD",

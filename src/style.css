@@ -177,6 +177,10 @@ body {
   flex-direction: column;
   outline: none;
   user-select: none;
+  /* CSS containment: limits reflow/repaint to the card boundary.
+     This is especially beneficial on Chromebooks where the compositor
+     has to work harder with many cards in the grid. */
+  contain: layout style paint;
 }
 
 .game-card:hover,
@@ -992,5 +996,94 @@ body {
 @media (min-width: 900px) {
   .library-grid {
     grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  }
+}
+
+/* ── Reduced motion ───────────────────────────────────────── */
+/* When the OS accessibility setting "Reduce Motion" is enabled,
+   strip all animations and transitions. This meaningfully reduces
+   compositing overhead on low-spec devices like Chromebooks and
+   honours the user's stated preference. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .loading-spinner {
+    animation: none;
+    border-top-color: var(--c-accent);
+  }
+
+  .status-dot.loading {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ── Performance suggestion toast ─────────────────────────── */
+.perf-suggestion {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  z-index: 200;
+  background: color-mix(in srgb, var(--c-warn) 12%, var(--c-surface));
+  border: 1px solid color-mix(in srgb, var(--c-warn) 40%, transparent);
+  border-radius: var(--radius);
+  padding: 10px 14px 10px 16px;
+  font-size: 0.82rem;
+  color: var(--c-text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: all;
+  max-width: min(90vw, 480px);
+}
+
+.perf-suggestion--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.perf-suggestion--hiding {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
+.perf-suggestion__msg {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.perf-suggestion__msg strong {
+  color: var(--c-warn);
+}
+
+.perf-suggestion__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--c-text-dim);
+  font-size: 0.9rem;
+  line-height: 1;
+  flex-shrink: 0;
+  padding: 2px;
+  opacity: 0.65;
+  transition: opacity var(--transition);
+}
+
+.perf-suggestion__close:hover {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perf-suggestion {
+    transition: none;
   }
 }

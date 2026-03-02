@@ -6,11 +6,13 @@
  *   - navigator.deviceMemory → RAM tier
  *   - navigator.hardwareConcurrency → CPU core count
  *   - GPU renderer string → software fallback detection
+ *   - Chrome OS user-agent → Chromebook penalty applied to tier
  *   - WebGL draw-call micro-benchmark → GPU throughput tier
  *   - WebGL capability probing → max texture size, extensions
+ *   - Battery Status API (async) → dynamic tier downgrade on low battery
  *
  * Performance tiers (replaces the old binary low/high split):
- *   - "low"    — software GPU, ≤2 cores, or <4 GB RAM
+ *   - "low"    — software GPU, ≤2 cores, <4 GB RAM, or Chromebook class
  *   - "medium" — 4 cores / 4 GB RAM / modest discrete/integrated GPU
  *   - "high"   — 6+ cores / 8+ GB RAM / decent GPU
  *   - "ultra"  — 8+ cores / 8+ GB RAM / powerful GPU
@@ -58,6 +60,8 @@ export interface DeviceCapabilities {
   isSoftwareGPU: boolean;
   /** True when heuristics suggest the device is low-spec. */
   isLowSpec: boolean;
+  /** True when the device appears to be running Chrome OS (Chromebook). */
+  isChromOS: boolean;
   /**
    * Recommended mode based on hardware alone.
    * Does NOT reflect the user's manual override.
@@ -69,6 +73,18 @@ export interface DeviceCapabilities {
   gpuCaps: GPUCapabilities;
   /** GPU benchmark score (0–100). Higher = faster GPU. */
   gpuBenchmarkScore: number;
+  /** Whether the device prefers reduced motion (OS accessibility setting). */
+  prefersReducedMotion: boolean;
+}
+
+/** Lightweight battery status snapshot. */
+export interface BatteryStatus {
+  /** True if the device is on AC power. */
+  charging: boolean;
+  /** Battery level 0–1, or null if unavailable. */
+  level: number | null;
+  /** True when level < 0.2 and not charging (triggers conservative mode). */
+  isLowBattery: boolean;
 }
 
 // ── Software renderer detection ───────────────────────────────────────────────
@@ -86,6 +102,28 @@ const SOFTWARE_RENDERER_KEYWORDS = [
 function isSoftwareRenderer(renderer: string): boolean {
   const lower = renderer.toLowerCase();
   return SOFTWARE_RENDERER_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+// ── Chrome OS detection ───────────────────────────────────────────────────────
+
+/**
+ * Detect if the user is on Chrome OS / a Chromebook.
+ *
+ * Chrome OS always includes "CrOS" in the user-agent string, which is
+ * a reliable signal for applying Chromebook-appropriate performance limits.
+ */
+export function isLikelyChromeOS(): boolean {
+  return /CrOS/.test(navigator.userAgent);
+}
+
+// ── Reduced motion preference ─────────────────────────────────────────────────
+
+export function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
 }
 
 // ── WebGL probing ─────────────────────────────────────────────────────────────
@@ -167,7 +205,9 @@ function probeGPU(): GPUCapabilities {
  * Draws a configurable number of fullscreen quads and measures how many
  * the GPU can handle in a fixed time budget. Returns a score 0–100.
  *
- * This is intentionally lightweight (<50ms) to avoid blocking startup.
+ * This is intentionally lightweight (≤12ms) to avoid blocking startup,
+ * especially on Chromebooks and other low-spec hardware where blocking
+ * the main thread during detection hurts perceived load time.
  */
 function benchmarkGPU(): number {
   try {
@@ -222,8 +262,10 @@ function benchmarkGPU(): number {
     }
     gl.finish();
 
-    // Timed run: count draw calls in a fixed budget
-    const BUDGET_MS = 16; // ~1 frame
+    // Timed run: count draw calls in a fixed budget.
+    // Budget reduced to 12ms (vs 16ms) to be less intrusive on slow startup
+    // paths — especially on Chromebooks where the main thread is under pressure.
+    const BUDGET_MS = 12;
     let drawCalls = 0;
     const start = performance.now();
 
@@ -235,7 +277,9 @@ function benchmarkGPU(): number {
       }
       gl.flush();
     }
-    gl.finish();
+    // Use flush() instead of finish() here to avoid a synchronous GPU stall
+    // that could add unpredictable latency on tiled-rendering mobile/Chromebook GPUs.
+    gl.flush();
 
     // Cleanup
     gl.deleteBuffer(buf);
@@ -244,10 +288,10 @@ function benchmarkGPU(): number {
     gl.deleteProgram(prog);
 
     // Normalise to 0–100. Thresholds derived from empirical testing:
-    //   ~200  draws/16ms  → very slow (software or old mobile)    → score ~10
-    //   ~1000 draws/16ms  → mid-range integrated                  → score ~40
-    //   ~5000 draws/16ms  → decent discrete GPU                   → score ~75
-    //   ~10000+ draws/16ms → high-end desktop                     → score ~95+
+    //   ~200  draws/12ms  → very slow (software or old mobile)    → score ~2
+    //   ~1000 draws/12ms  → mid-range integrated (Chromebook)     → score ~10
+    //   ~5000 draws/12ms  → decent discrete GPU                   → score ~50
+    //   ~10000+ draws/12ms → high-end desktop                     → score ~100
     const score = Math.min(100, Math.round((drawCalls / 10000) * 100));
     return score;
   } catch {
@@ -262,7 +306,8 @@ function classifyTier(
   memoryGB: number | null,
   isSoftware: boolean,
   gpuScore: number,
-  gpuCaps: GPUCapabilities
+  gpuCaps: GPUCapabilities,
+  chromeos: boolean
 ): PerformanceTier {
   // Software GPU → always low
   if (isSoftware) return "low";
@@ -294,6 +339,11 @@ function classifyTier(
   if (gpuCaps.floatTextures)          points += 2;
   if (gpuCaps.instancedArrays)        points += 3;
 
+  // Chrome OS / Chromebook penalty: these devices use power-constrained
+  // ARM/Intel Celeron SoCs and often throttle under sustained GPU load.
+  // Reduce effective points to avoid over-estimating their capability.
+  if (chromeos) points = Math.round(points * 0.75);
+
   // Classify
   if (points >= 75) return "ultra";
   if (points >= 50) return "high";
@@ -307,7 +357,7 @@ function classifyTier(
  * Probe the device's hardware tier.
  *
  * Call this once at startup. It touches the GPU via WebGL for probing
- * and runs a quick micro-benchmark (~16ms).
+ * and runs a quick micro-benchmark (~12ms).
  */
 export function detectCapabilities(): DeviceCapabilities {
   const deviceMemoryGB: number | null =
@@ -317,8 +367,10 @@ export function detectCapabilities(): DeviceCapabilities {
   const gpuCaps = probeGPU();
   const isSoftwareGPU = isSoftwareRenderer(gpuCaps.renderer);
   const gpuBenchmarkScore = benchmarkGPU();
+  const chromeos = isLikelyChromeOS();
+  const reducedMotion = prefersReducedMotion();
 
-  const tier = classifyTier(cpuCores, deviceMemoryGB, isSoftwareGPU, gpuBenchmarkScore, gpuCaps);
+  const tier = classifyTier(cpuCores, deviceMemoryGB, isSoftwareGPU, gpuBenchmarkScore, gpuCaps, chromeos);
 
   const isLowSpec = tier === "low";
 
@@ -328,11 +380,46 @@ export function detectCapabilities(): DeviceCapabilities {
     gpuRenderer: gpuCaps.renderer,
     isSoftwareGPU,
     isLowSpec,
+    isChromOS: chromeos,
     recommendedMode: isLowSpec || tier === "medium" ? "performance" : "quality",
     tier,
     gpuCaps,
     gpuBenchmarkScore,
+    prefersReducedMotion: reducedMotion,
   };
+}
+
+// ── Battery status (async) ────────────────────────────────────────────────────
+
+/**
+ * Asynchronously query the Battery Status API.
+ *
+ * Returns null when the API is unavailable (Firefox, Safari, Chrome with
+ * permissions policy blocking it). When battery is ≤20% and discharging,
+ * `isLowBattery` is set — callers can use this to force "performance" mode.
+ *
+ * The Battery API is available in Chrome/Chromium (including Chrome OS),
+ * making it especially useful for Chromebook users.
+ */
+export async function checkBatteryStatus(): Promise<BatteryStatus | null> {
+  try {
+    const nav = navigator as Navigator & {
+      getBattery?: () => Promise<{
+        charging: boolean;
+        level: number;
+        addEventListener(event: string, handler: () => void): void;
+      }>;
+    };
+    if (typeof nav.getBattery !== "function") return null;
+    const battery = await nav.getBattery();
+    return {
+      charging: battery.charging,
+      level: battery.level,
+      isLowBattery: !battery.charging && battery.level <= 0.2,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ── Effective mode resolution ─────────────────────────────────────────────────
@@ -390,7 +477,8 @@ export function formatCapabilitiesSummary(caps: DeviceCapabilities): string {
     : caps.gpuRenderer !== "unknown"
       ? caps.gpuRenderer.replace(/\(.*?\)/g, "").trim()
       : "GPU info unavailable";
-  return `${ram} · ${cores} · ${gpu}`;
+  const chromeosSuffix = caps.isChromOS ? " · Chromebook" : "";
+  return `${ram} · ${cores} · ${gpu}${chromeosSuffix}`;
 }
 
 export function formatDetailedSummary(caps: DeviceCapabilities): string {
@@ -400,6 +488,9 @@ export function formatDetailedSummary(caps: DeviceCapabilities): string {
   lines.push(`Max texture: ${caps.gpuCaps.maxTextureSize}px`);
   if (caps.gpuCaps.anisotropicFiltering) {
     lines.push(`Anisotropic: ${caps.gpuCaps.maxAnisotropy}×`);
+  }
+  if (caps.isChromOS) {
+    lines.push("Device: Chromebook (conservative tier applied)");
   }
   return lines.join("\n");
 }

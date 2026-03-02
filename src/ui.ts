@@ -38,7 +38,7 @@ import {
   GameLibrary,
   formatBytes,
   formatRelativeTime,
-  type GameEntry,
+  type GameMetadata,
 } from "./library.js";
 import {
   type DeviceCapabilities,
@@ -287,8 +287,11 @@ export function initUI(opts: UIOptions): void {
   el("#error-close").addEventListener("click", hideError);
 
   // ── FPS overlay wiring ────────────────────────────────────────────────────
+  // Only enable FPS callbacks when the overlay is visible — reduces rAF work
+  // on low-spec devices (Chromebooks) when the user isn't watching the overlay.
+  emulator.setFPSMonitorEnabled(settings.showFPS);
   emulator.onFPSUpdate = (snapshot) => {
-    if (settings.showFPS) updateFPSOverlay(snapshot, emulator);
+    updateFPSOverlay(snapshot, emulator);
   };
 
   // ── Emulator lifecycle → DOM ──────────────────────────────────────────────
@@ -302,6 +305,7 @@ export function initUI(opts: UIOptions): void {
     hideLoadingOverlay();
     showEjsContainer();
     hideLanding();
+    resetPerfSuggestion();
     const sys  = emulator.currentSystem;
     const name = settings.lastGameName ?? "Unknown";
     setStatusSystem(sys ? sys.shortName : "—");
@@ -337,7 +341,7 @@ export function initUI(opts: UIOptions): void {
   });
 
   // ── Landing header controls ───────────────────────────────────────────────
-  buildLandingControls(settings, deviceCaps, library, onSettingsChange);
+  buildLandingControls(settings, deviceCaps, library, onSettingsChange, emulator);
 
   // ── Initial library render ────────────────────────────────────────────────
   renderLibrary(library, settings, onLaunchGame);
@@ -356,9 +360,11 @@ export async function renderLibrary(
   const libSection   = document.getElementById("library-section");
   if (!grid || !countEl || !dropZoneEl || !libSection) return;
 
-  let games: GameEntry[];
+  let games: GameMetadata[];
   try {
-    games = await library.getAllGames();
+    // Use metadata-only query to avoid loading ROM blobs into the JS heap
+    // during library rendering — critical for low-memory Chromebooks.
+    games = await library.getAllGamesMetadata();
   } catch {
     games = [];
   }
@@ -380,7 +386,7 @@ export async function renderLibrary(
 }
 
 function buildGameCard(
-  game:         GameEntry,
+  game:         GameMetadata,
   library:      GameLibrary,
   settings:     Settings,
   onLaunchGame: (file: File, systemId: string) => Promise<void>
@@ -614,7 +620,8 @@ function buildLandingControls(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
-  onSettingsChange: (patch: Partial<Settings>) => void
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  emulatorRef?:     PSPEmulator
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
@@ -634,12 +641,16 @@ function buildLandingControls(
   </svg> Settings`;
 
   btnSettings.addEventListener("click", () => {
-    openSettingsPanel(settings, deviceCaps, library, onSettingsChange);
+    openSettingsPanel(settings, deviceCaps, library, onSettingsChange, emulatorRef);
   });
 
-  // Low-spec indicator
-  if (deviceCaps.isLowSpec) {
-    const chip = make("span", { class: "perf-chip perf-chip--warn", title: "Performance mode recommended for this device" }, "⚡ Low-spec");
+  // Low-spec / Chromebook indicator
+  if (deviceCaps.isLowSpec || deviceCaps.isChromOS) {
+    const label = deviceCaps.isChromOS ? "⚡ Chromebook" : "⚡ Low-spec";
+    const tip   = deviceCaps.isChromOS
+      ? "Chromebook detected — Performance mode recommended"
+      : "Performance mode recommended for this device";
+    const chip = make("span", { class: "perf-chip perf-chip--warn", title: tip }, label);
     container.appendChild(chip);
   }
 
@@ -679,6 +690,8 @@ function buildInGameControls(
     onSettingsChange({ showFPS: settings.showFPS });
     btnFPS.className = settings.showFPS ? "btn btn--active" : "btn";
     showFPSOverlay(settings.showFPS);
+    // Enable/disable FPS callbacks to save CPU on low-spec devices when hidden
+    emulator.setFPSMonitorEnabled(settings.showFPS);
   });
 
   // Volume control — icon acts as a mute toggle; slider sets precise level
@@ -726,13 +739,14 @@ export function openSettingsPanel(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
-  onSettingsChange: (patch: Partial<Settings>) => void
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  emulatorRef?:     import("./emulator.js").PSPEmulator
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
   const previousFocus = document.activeElement as HTMLElement | null;
 
-  buildSettingsContent(content, settings, deviceCaps, library, onSettingsChange);
+  buildSettingsContent(content, settings, deviceCaps, library, onSettingsChange, emulatorRef);
   panel.hidden = false;
 
   const onEsc = (e: KeyboardEvent) => {
@@ -756,7 +770,8 @@ function buildSettingsContent(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
-  onSettingsChange: (patch: Partial<Settings>) => void
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  emulatorRef?:     import("./emulator.js").PSPEmulator
 ): void {
   container.innerHTML = "";
 
@@ -796,6 +811,7 @@ function buildSettingsContent(
   fpsCheck.addEventListener("change", () => {
     onSettingsChange({ showFPS: fpsCheck.checked });
     showFPSOverlay(fpsCheck.checked);
+    emulatorRef?.setFPSMonitorEnabled(fpsCheck.checked);
   });
   const fpsTxt = make("span", { class: "radio-row__text" });
   fpsTxt.append(
@@ -892,6 +908,12 @@ function showFPSOverlay(show: boolean): void {
   if (overlay) overlay.hidden = !show;
 }
 
+// Track consecutive low-FPS updates to trigger a performance suggestion
+let _lowFPSCount = 0;
+let _perfSuggestionShown = false;
+const LOW_FPS_THRESHOLD  = 25;  // FPS below this is considered "struggling"
+const LOW_FPS_TRIGGER    = 6;   // consecutive update windows (≈6×10 frames)
+
 function updateFPSOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
   const currentEl = document.getElementById("fps-current");
   const avgEl     = document.getElementById("fps-avg");
@@ -919,6 +941,55 @@ function updateFPSOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
       droppedEl.hidden = true;
     }
   }
+
+  // Adaptive performance suggestion: if FPS has been consistently low,
+  // and the user hasn't already been notified this session, prompt them
+  // to switch to Performance mode via a non-blocking toast.
+  if (snapshot.average > 0 && snapshot.average < LOW_FPS_THRESHOLD) {
+    _lowFPSCount++;
+    if (_lowFPSCount >= LOW_FPS_TRIGGER && !_perfSuggestionShown) {
+      _perfSuggestionShown = true;
+      showPerfSuggestion();
+    }
+  } else {
+    _lowFPSCount = Math.max(0, _lowFPSCount - 1);
+  }
+}
+
+/**
+ * Show a subtle, non-blocking performance suggestion toast.
+ * Auto-dismisses after 10 s. Does not fire again during the same session.
+ */
+function showPerfSuggestion(): void {
+  const existing = document.getElementById("perf-suggestion");
+  if (existing) return;
+
+  const toast = make("div", { id: "perf-suggestion", class: "perf-suggestion", role: "status" });
+  toast.innerHTML =
+    `<span class="perf-suggestion__msg">Low FPS detected — try <strong>Performance mode</strong> in Settings for a smoother experience.</span>` +
+    `<button class="perf-suggestion__close" aria-label="Dismiss">✕</button>`;
+
+  document.body.appendChild(toast);
+
+  const dismiss = () => {
+    toast.classList.add("perf-suggestion--hiding");
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  toast.querySelector(".perf-suggestion__close")?.addEventListener("click", dismiss);
+
+  // Auto-dismiss after 10 s
+  setTimeout(dismiss, 10_000);
+
+  // Animate in
+  requestAnimationFrame(() => toast.classList.add("perf-suggestion--visible"));
+}
+
+/** Reset the adaptive FPS counters when a new game launches. */
+export function resetPerfSuggestion(): void {
+  _lowFPSCount = 0;
+  _perfSuggestionShown = false;
+  document.getElementById("perf-suggestion")?.remove();
 }
 
 // ── State-driven DOM updates ──────────────────────────────────────────────────

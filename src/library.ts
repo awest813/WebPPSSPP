@@ -33,6 +33,15 @@ export interface GameEntry {
   blob: Blob;
 }
 
+/**
+ * GameEntry without the ROM blob — used for library listing.
+ *
+ * Fetching only metadata (no blob) via a cursor avoids deserializing
+ * potentially large Blob objects when rendering the library grid, which
+ * is a meaningful win on low-memory devices (Chromebooks, budget phones).
+ */
+export type GameMetadata = Omit<GameEntry, "blob">;
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DB_NAME    = "retrovault";
@@ -147,11 +156,44 @@ export class GameLibrary {
 
   /**
    * Get all games, sorted by most recently added first.
+   * Includes ROM blobs — prefer getAllGamesMetadata() for library listing.
    */
   async getAllGames(): Promise<GameEntry[]> {
     const db      = await openDB();
     const results = await promisify<GameEntry[]>(tx(db, "readonly").getAll());
     return results.sort((a, b) => b.addedAt - a.addedAt);
+  }
+
+  /**
+   * Get lightweight metadata for all games (no ROM blob), sorted by most
+   * recently added first.
+   *
+   * Uses an IDBCursor to iterate records and omit the blob field, keeping
+   * ROM data out of the JS heap during library rendering. This is the
+   * preferred method for populating the library grid on low-spec devices.
+   */
+  async getAllGamesMetadata(): Promise<GameMetadata[]> {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const store = tx(db, "readonly");
+      const results: GameMetadata[] = [];
+      const req = store.openCursor();
+
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          const entry = cursor.value as GameEntry;
+          // Destructure to omit blob from the result
+          const { blob: _blob, ...meta } = entry;
+          results.push(meta);
+          cursor.continue();
+        } else {
+          resolve(results.sort((a, b) => b.addedAt - a.addedAt));
+        }
+      };
+
+      req.onerror = () => reject(req.error);
+    });
   }
 
   /**

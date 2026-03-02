@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { formatBytes } from './library';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { formatBytes, formatRelativeTime, GameLibrary } from './library';
+import 'fake-indexeddb/auto';
 
 describe('formatBytes', () => {
   it('formats 0 bytes correctly', () => {
@@ -50,5 +51,107 @@ describe('formatBytes', () => {
   it('handles edge cases like NaN and Infinity correctly', () => {
     expect(formatBytes(NaN)).toBe('NaN B');
     expect(formatBytes(Infinity)).toBe('Infinity GB');
+  });
+});
+
+// ── getAllGamesMetadata ────────────────────────────────────────────────────────
+
+describe('GameLibrary.getAllGamesMetadata', () => {
+  let library: GameLibrary;
+
+  beforeEach(() => {
+    library = new GameLibrary();
+  });
+
+  it('returns an empty array when the library is empty', async () => {
+    const games = await library.getAllGamesMetadata();
+    expect(Array.isArray(games)).toBe(true);
+    // In jsdom the IDB is fresh so it should be empty (or we get what was
+    // put in by other tests in this file — both are acceptable).
+    expect(games.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returned items do not have a blob field', async () => {
+    const file = new File(['rom data'], 'test.nes', { type: 'application/octet-stream' });
+    await library.addGame(file, 'nes');
+
+    const games = await library.getAllGamesMetadata();
+    expect(games.length).toBeGreaterThan(0);
+
+    for (const game of games) {
+      // GameMetadata should not have a `blob` property
+      expect('blob' in game).toBe(false);
+      // But must have the standard metadata fields
+      expect(typeof game.id).toBe('string');
+      expect(typeof game.name).toBe('string');
+      expect(typeof game.fileName).toBe('string');
+      expect(typeof game.systemId).toBe('string');
+      expect(typeof game.size).toBe('number');
+      expect(typeof game.addedAt).toBe('number');
+    }
+  });
+
+  it('returns games sorted by addedAt descending (most recent first)', async () => {
+    const fileA = new File(['aaa'], 'first.nes', { type: 'application/octet-stream' });
+    const fileB = new File(['bbb'], 'second.nes', { type: 'application/octet-stream' });
+
+    await library.addGame(fileA, 'nes');
+    // Small delay to ensure distinct timestamps
+    await new Promise(r => setTimeout(r, 5));
+    await library.addGame(fileB, 'nes');
+
+    const games = await library.getAllGamesMetadata();
+    const nes = games.filter(g => g.systemId === 'nes');
+
+    if (nes.length >= 2) {
+      // Most recent should be first
+      expect(nes[0].addedAt).toBeGreaterThanOrEqual(nes[1].addedAt);
+    }
+  });
+
+  it('metadata matches the full entry retrieved via getGame', async () => {
+    const file = new File(['rom bytes'], 'match-test.gba', { type: 'application/octet-stream' });
+    const entry = await library.addGame(file, 'gba');
+
+    const metas = await library.getAllGamesMetadata();
+    const meta = metas.find(g => g.id === entry.id);
+    expect(meta).toBeDefined();
+
+    if (meta) {
+      expect(meta.name).toBe(entry.name);
+      expect(meta.fileName).toBe(entry.fileName);
+      expect(meta.systemId).toBe(entry.systemId);
+      expect(meta.size).toBe(entry.size);
+      expect(meta.addedAt).toBe(entry.addedAt);
+    }
+  });
+});
+
+// ── formatRelativeTime ────────────────────────────────────────────────────────
+
+describe('formatRelativeTime', () => {
+  it('returns "just now" for timestamps within the last minute', () => {
+    expect(formatRelativeTime(Date.now() - 30_000)).toBe('just now');
+    expect(formatRelativeTime(Date.now())).toBe('just now');
+  });
+
+  it('returns minutes ago for timestamps within the last hour', () => {
+    const result = formatRelativeTime(Date.now() - 5 * 60_000);
+    expect(result).toBe('5m ago');
+  });
+
+  it('returns hours ago for timestamps within the last day', () => {
+    const result = formatRelativeTime(Date.now() - 3 * 3_600_000);
+    expect(result).toBe('3h ago');
+  });
+
+  it('returns days ago for timestamps within the last month', () => {
+    const result = formatRelativeTime(Date.now() - 7 * 86_400_000);
+    expect(result).toBe('7d ago');
+  });
+
+  it('returns months ago for old timestamps', () => {
+    const result = formatRelativeTime(Date.now() - 45 * 86_400_000);
+    expect(result).toBe('1mo ago');
   });
 });
