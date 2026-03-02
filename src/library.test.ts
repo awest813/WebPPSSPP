@@ -15,6 +15,10 @@ describe('formatBytes', () => {
     expect(formatBytes(1024)).toBe('1 KB');
   });
 
+  it('formats exactly 2 KB correctly', () => {
+    expect(formatBytes(2048)).toBe('2 KB');
+  });
+
   it('formats bytes between 1 KB and 1 MB correctly', () => {
     expect(formatBytes(1536)).toBe('2 KB'); // 1.5 KB rounded to 2 KB by toFixed(0)
     expect(formatBytes(1048575)).toBe('1024 KB');
@@ -24,6 +28,10 @@ describe('formatBytes', () => {
     expect(formatBytes(1048576)).toBe('1.0 MB');
   });
 
+  it('formats exactly 2 MB correctly', () => {
+    expect(formatBytes(2097152)).toBe('2.0 MB');
+  });
+
   it('formats bytes between 1 MB and 1 GB correctly', () => {
     expect(formatBytes(1572864)).toBe('1.5 MB');
     expect(formatBytes(1073741823)).toBe('1024.0 MB');
@@ -31,6 +39,10 @@ describe('formatBytes', () => {
 
   it('formats exactly 1 GB correctly', () => {
     expect(formatBytes(1073741824)).toBe('1.0 GB');
+  });
+
+  it('formats exactly 2 GB correctly', () => {
+    expect(formatBytes(2147483648)).toBe('2.0 GB');
   });
 
   it('formats very large values correctly', () => {
