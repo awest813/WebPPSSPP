@@ -27,9 +27,30 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Keep the output readable; minification is fine for production
     rollupOptions: {
       input: "index.html",
+      output: {
+        /**
+         * Code splitting strategy (Phase 5):
+         *
+         * - core: emulator engine, system definitions, performance detection,
+         *         game library, saves, BIOS — everything needed for the initial
+         *         paint and first game launch.
+         * - tools: archive extraction and ROM patching — lazily loaded only
+         *          when the user drops a ZIP or patch file. Keeps the initial
+         *          bundle ~15 KB smaller.
+         * - touch: virtual gamepad overlay — lazily loaded only on first game
+         *          start on a touch device.
+         */
+        manualChunks(id: string) {
+          if (id.includes("/src/archive.") || id.includes("/src/patcher.")) {
+            return "tools";
+          }
+          if (id.includes("/src/touchControls.")) {
+            return "touch";
+          }
+        },
+      },
     },
   },
 });

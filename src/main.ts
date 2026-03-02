@@ -29,7 +29,7 @@ import { buildDOM, initUI, showLanding,
          buildLandingControls, showTierDowngradePrompt,
          promptAutoSaveRestore,
          resolveSystemAndAdd } from "./ui.js";
-import { applyPatch } from "./patcher.js";
+import { isTouchDevice } from "./touchControls.js";
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
 
 // ── Settings schema ───────────────────────────────────────────────────────────
@@ -46,6 +46,12 @@ export interface Settings {
   useWebGPU:       boolean;
   /** Whether to auto-save on tab close / visibility hidden. */
   autoSaveEnabled: boolean;
+  /** Whether to show touch controls on touch-capable devices. */
+  touchControls:   boolean;
+  /** Whether haptic feedback fires on virtual button presses (Android only). */
+  hapticFeedback:  boolean;
+  /** Whether to lock screen orientation to landscape while a game runs. */
+  orientationLock: boolean;
 }
 
 const STORAGE_KEY = "retrovault-settings";
@@ -58,6 +64,9 @@ const DEFAULT_SETTINGS: Settings = {
   showAudioVis:    false,
   useWebGPU:       false,
   autoSaveEnabled: true,
+  touchControls:   isTouchDevice(),
+  hapticFeedback:  true,
+  orientationLock: true,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -90,6 +99,15 @@ function loadSettings(): Settings {
       autoSaveEnabled: typeof parsed.autoSaveEnabled === "boolean"
         ? parsed.autoSaveEnabled
         : DEFAULT_SETTINGS.autoSaveEnabled,
+      touchControls: typeof parsed.touchControls === "boolean"
+        ? parsed.touchControls
+        : DEFAULT_SETTINGS.touchControls,
+      hapticFeedback: typeof parsed.hapticFeedback === "boolean"
+        ? parsed.hapticFeedback
+        : DEFAULT_SETTINGS.hapticFeedback,
+      orientationLock: typeof parsed.orientationLock === "boolean"
+        ? parsed.orientationLock
+        : DEFAULT_SETTINGS.orientationLock,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -102,6 +120,45 @@ function saveSettings(s: Settings): void {
   } catch {
     console.warn("[retrovault] Could not persist settings to localStorage.");
   }
+}
+
+// ── PWA install prompt ────────────────────────────────────────────────────────
+
+/**
+ * The `beforeinstallprompt` event fires on Chrome/Edge/Android when the PWA
+ * install criteria are met. We capture it here and expose a function that the
+ * UI can call to show the native install dialog.
+ *
+ * `promptPWAInstall` is set globally so the Settings panel can access it
+ * without requiring the UI module to import from main (circular dep).
+ */
+declare global {
+  interface Window {
+    __retrovault?: Record<string, unknown>;
+    __pwaInstallPrompt?: () => Promise<void>;
+  }
+}
+
+let _deferredInstallEvent: { prompt(): Promise<void> } | null = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  _deferredInstallEvent = e as unknown as { prompt(): Promise<void> };
+  // Notify any already-rendered settings panel that the install button can appear
+  document.dispatchEvent(new CustomEvent("retrovault:installPromptReady"));
+});
+
+/** Call from the UI to show the browser's "Add to Home Screen" dialog. */
+export async function promptPWAInstall(): Promise<boolean> {
+  if (!_deferredInstallEvent) return false;
+  await _deferredInstallEvent.prompt();
+  _deferredInstallEvent = null;
+  return true;
+}
+
+/** True when the PWA install prompt is available. */
+export function canInstallPWA(): boolean {
+  return _deferredInstallEvent !== null;
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -129,6 +186,9 @@ function main(): void {
   let currentGameFile: File | Blob | null = null;
   let currentGameFileName: string | null = null;
   let currentSystemId: string | null = null;
+
+  // Lazy-create the touch controls overlay only when a game starts on a touch device
+  let touchOverlay: import("./touchControls.js").TouchControlsOverlay | null = null;
 
   // 4a. Preconnect to CDN early for faster game launches
   emulator.preconnect();
@@ -184,6 +244,28 @@ function main(): void {
     const gameName = file.name.replace(/\.[^.]+$/, "");
     settings.lastGameName = gameName;
     saveSettings(settings);
+
+    // Orientation lock — auto-lock to landscape on mobile when a game starts.
+    // Gracefully ignored on desktop and iOS (which lacks the lock API).
+    if (settings.orientationLock && "orientation" in screen) {
+      (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })
+        .lock?.("landscape-primary")
+        .catch(() => { /* not supported on this device/browser */ });
+    }
+
+    // Touch controls — lazily initialise and attach to the EJS container.
+    if (settings.touchControls && isTouchDevice()) {
+      const ejsContainer = document.getElementById("ejs-container");
+      if (ejsContainer) {
+        if (!touchOverlay) {
+          const { TouchControlsOverlay } = await import("./touchControls.js");
+          touchOverlay = new TouchControlsOverlay(ejsContainer, systemId, settings.hapticFeedback);
+        } else {
+          touchOverlay.setSystem(systemId);
+          touchOverlay.setHapticEnabled(settings.hapticFeedback);
+        }
+      }
+    }
 
     // Update current-game tracking for tier-downgrade re-launch
     currentGameFile     = file;
@@ -242,14 +324,16 @@ function main(): void {
     });
   };
 
-  // 5a. Wire patch application callback
+  // 5a. Wire patch application callback (patcher lazily loaded — not in initial bundle)
   const onApplyPatch = async (gameId: string, patchFile: File): Promise<void> => {
     const entry = await library.getGame(gameId);
     if (!entry) throw new Error("Game not found in library");
 
     const romBuffer   = await entry.blob.arrayBuffer();
     const patchBuffer = await patchFile.arrayBuffer();
-    const patched     = applyPatch(romBuffer, patchBuffer);
+
+    const { applyPatch } = await import("./patcher.js");
+    const patched = applyPatch(romBuffer, patchBuffer);
 
     const patchedBlob = new Blob([patched], { type: entry.blob.type });
     const patchedFile = new File([patchedBlob], entry.fileName, { type: entry.blob.type });
@@ -342,6 +426,15 @@ function main(): void {
   const onReturnToLibrary = (): void => {
     if (emulator.state !== "running" && emulator.state !== "paused") return;
     if (emulator.state === "running") emulator.pause();
+
+    // Release orientation lock when leaving the game view
+    try {
+      (screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.();
+    } catch { /* not supported */ }
+
+    // Hide touch controls overlay
+    touchOverlay?.hide();
+
     hideEjsContainer();
     showLanding();
     document.title = "RetroVault";
@@ -367,11 +460,18 @@ function main(): void {
       if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
         emulator.preWarmWebGPU().catch(() => {});
       }
+      // Sync haptic feedback setting to the active overlay in real time
+      if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {
+        touchOverlay.setHapticEnabled(patch.hapticFeedback);
+      }
     },
     onReturnToLibrary,
     getCurrentGameId:   () => currentGameId,
     getCurrentGameName: () => settings.lastGameName,
     getCurrentSystemId: () => currentSystemId,
+    getTouchOverlay:    () => touchOverlay,
+    canInstallPWA,
+    onInstallPWA:       promptPWAInstall,
   });
 
   // 8. If user returns to landing, rebuild landing header controls with a Resume button

@@ -59,9 +59,13 @@ import {
   createThumbnail,
   downloadBlob,
 } from "./saves.js";
-import { detectArchiveFormat, extractFromZip, isArchiveExtension } from "./archive.js";
-import { PATCH_EXTENSIONS } from "./patcher.js";
 import type { Settings } from "./main.js";
+import type { TouchControlsOverlay } from "./touchControls.js";
+
+// ── PWA install callbacks (set once from initUI) ───────────────────────────────
+// Stored at module level to avoid threading through many function signatures.
+let _canInstallPWA: (() => boolean) | undefined;
+let _onInstallPWA:  (() => Promise<boolean>) | undefined;
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
@@ -245,9 +249,15 @@ export interface UIOptions {
   onApplyPatch:      (gameId: string, patchFile: File) => Promise<void>;
   onFileChosen:      (file: File) => Promise<void>;
   /** Current game tracking — needed for save gallery access */
-  getCurrentGameId:  () => string | null;
+  getCurrentGameId:   () => string | null;
   getCurrentGameName: () => string | null;
   getCurrentSystemId: () => string | null;
+  /** Access the active touch controls overlay (may be null). */
+  getTouchOverlay?:   () => TouchControlsOverlay | null;
+  /** Returns true when the PWA install prompt is available. */
+  canInstallPWA?:     () => boolean;
+  /** Trigger the browser's "Add to Home Screen" dialog. */
+  onInstallPWA?:      () => Promise<boolean>;
 }
 
 /** Wire all DOM events, emulator callbacks, and render the initial library. */
@@ -255,7 +265,12 @@ export function initUI(opts: UIOptions): void {
   const { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps,
           onLaunchGame, onSettingsChange, onReturnToLibrary,
           onApplyPatch, onFileChosen,
-          getCurrentGameId, getCurrentGameName, getCurrentSystemId } = opts;
+          getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+          getTouchOverlay, canInstallPWA, onInstallPWA } = opts;
+
+  // Register PWA install callbacks for use in the settings panel
+  _canInstallPWA = canInstallPWA;
+  _onInstallPWA  = onInstallPWA;
 
   // ── File drop / pick ──────────────────────────────────────────────────────
   const fileInput = el<HTMLInputElement>("#file-input");
@@ -339,9 +354,15 @@ export function initUI(opts: UIOptions): void {
     document.title = `${name} — RetroVault`;
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
-      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId
+      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+      getTouchOverlay
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
+    // Show touch controls overlay after DOM settles
+    if (settings.touchControls) {
+      const overlay = getTouchOverlay?.();
+      if (overlay) requestAnimationFrame(() => overlay.show());
+    }
   };
 
   // ── Resume game (triggered by "▶ Resume" button via retrovault:resumeGame) ─
@@ -355,9 +376,14 @@ export function initUI(opts: UIOptions): void {
     setStatusGame(name);
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
-      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId
+      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+      getTouchOverlay
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
+    if (settings.touchControls) {
+      const overlay = getTouchOverlay?.();
+      if (overlay) requestAnimationFrame(() => overlay.show());
+    }
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -719,6 +745,11 @@ function pickSystem(
 
 // ── Resolve system then add to library and launch ─────────────────────────────
 
+// Patch-file extensions — inlined to avoid importing patcher.ts eagerly
+const PATCH_EXT_SET = new Set(["ips", "bps", "ups"]);
+// Archive extensions — inlined to avoid importing archive.ts eagerly
+const ARCHIVE_EXT_SET = new Set(["zip", "7z"]);
+
 export async function resolveSystemAndAdd(
   file:          File,
   library:       GameLibrary,
@@ -729,15 +760,16 @@ export async function resolveSystemAndAdd(
 ): Promise<void> {
   // ── Patch file detection ─────────────────────────────────────────────────
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  if (PATCH_EXTENSIONS.has(ext)) {
+  if (PATCH_EXT_SET.has(ext)) {
     await handlePatchFileDrop(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     return;
   }
 
-  // ── Archive extraction ───────────────────────────────────────────────────
+  // ── Archive extraction (lazily loaded — not in initial JS bundle) ────────
   let resolvedFile = file;
 
-  if (isArchiveExtension(ext)) {
+  if (ARCHIVE_EXT_SET.has(ext)) {
+    const { detectArchiveFormat, extractFromZip } = await import("./archive.js");
     const fmt = await detectArchiveFormat(file);
     if (fmt === "zip") {
       showLoadingOverlay();
@@ -1091,14 +1123,15 @@ export function buildLandingControls(
 }
 
 function buildInGameControls(
-  emulator:          PSPEmulator,
-  settings:          Settings,
-  onSettingsChange:  (patch: Partial<Settings>) => void,
-  onReturnToLibrary: () => void,
-  saveLibrary?:      SaveStateLibrary,
-  getCurrentGameId?: () => string | null,
+  emulator:           PSPEmulator,
+  settings:           Settings,
+  onSettingsChange:   (patch: Partial<Settings>) => void,
+  onReturnToLibrary:  () => void,
+  saveLibrary?:       SaveStateLibrary,
+  getCurrentGameId?:  () => string | null,
   getCurrentGameName?: () => string | null,
-  getCurrentSystemId?: () => string | null
+  getCurrentSystemId?: () => string | null,
+  getTouchOverlay?:   (() => TouchControlsOverlay | null) | undefined
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
@@ -1150,6 +1183,24 @@ function buildInGameControls(
     emulator.setFPSMonitorEnabled(settings.showFPS);
   });
 
+  // Touch controls edit button (touch devices only)
+  const overlay = getTouchOverlay?.();
+  let btnTouch: HTMLButtonElement | null = null;
+  if (overlay) {
+    btnTouch = make("button", {
+      class: "btn",
+      title: "Edit touch control layout",
+    }, "🎮 Edit") as HTMLButtonElement;
+
+    let editMode = false;
+    btnTouch.addEventListener("click", () => {
+      editMode = !editMode;
+      overlay.setEditing(editMode);
+      btnTouch!.className = editMode ? "btn btn--active" : "btn";
+      btnTouch!.textContent = editMode ? "✓ Done" : "🎮 Edit";
+    });
+  }
+
   // Volume control
   let preMuteVolume = settings.volume > 0 ? settings.volume : 0.7;
 
@@ -1186,7 +1237,14 @@ function buildInGameControls(
   });
 
   volWrap.append(volBtn, volSlider);
-  container.append(btnLibrary, btnSave, btnLoad, btnSaves, btnReset, btnFPS, volWrap);
+  const controls: (HTMLElement | null)[] = [
+    btnLibrary, btnSave, btnLoad, btnSaves, btnReset, btnFPS,
+    btnTouch,
+    volWrap,
+  ];
+  for (const ctrl of controls) {
+    if (ctrl) container.appendChild(ctrl);
+  }
   updateHeaderOverflow();
 }
 
@@ -1531,6 +1589,93 @@ function buildSettingsContent(
     perfSection.appendChild(row);
   }
 
+  // ── Mobile & PWA section ─────────────────────────────────────────────────
+  const mobileSection = make("div", { class: "settings-section" });
+  mobileSection.appendChild(make("h4", { class: "settings-section__title" }, "Mobile & PWA"));
+
+  // PWA install button (shown when the browser offers an install prompt)
+  const installRow = make("div", { class: "pwa-install-row" });
+  const buildInstallBtn = () => {
+    installRow.innerHTML = "";
+    if (!_canInstallPWA?.()) {
+      const note = make("p", { class: "settings-help" },
+        "To install RetroVault as an app, open this page in Chrome or Edge on Android, " +
+        "then tap the browser menu \u2192 \u201cAdd to Home Screen\u201d."
+      );
+      installRow.appendChild(note);
+      return;
+    }
+    const btnInstall = make("button", { class: "btn btn--primary pwa-install-btn" },
+      "📲 Install RetroVault App"
+    );
+    btnInstall.addEventListener("click", async () => {
+      if (!_onInstallPWA) return;
+      const installed = await _onInstallPWA();
+      if (installed) {
+        btnInstall.textContent = "\u2713 Installing\u2026";
+        btnInstall.setAttribute("disabled", "true");
+      }
+    });
+    installRow.appendChild(btnInstall);
+  };
+  buildInstallBtn();
+  // Re-render when the install prompt becomes available
+  document.addEventListener("retrovault:installPromptReady", () => buildInstallBtn(), { once: true });
+  mobileSection.appendChild(installRow);
+
+  // Touch controls toggle
+  const touchRow = make("label", { class: "radio-row" });
+  const touchCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
+  touchCheck.checked = settings.touchControls;
+  touchCheck.addEventListener("change", () => {
+    onSettingsChange({ touchControls: touchCheck.checked });
+  });
+  const touchTxt = make("span", { class: "radio-row__text" });
+  touchTxt.append(
+    make("span", { class: "radio-row__label" }, "Virtual gamepad"),
+    make("span", { class: "radio-row__desc" },
+      "Show on-screen touch buttons while a game is running (touch devices only). " +
+      "Tap \u201c\uD83C\uDFAE Edit\u201d in the game header to rearrange button positions."
+    )
+  );
+  touchRow.append(touchCheck, touchTxt);
+  mobileSection.appendChild(touchRow);
+
+  // Haptic feedback toggle
+  const hapticRow = make("label", { class: "radio-row" });
+  const hapticCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
+  hapticCheck.checked = settings.hapticFeedback;
+  hapticCheck.addEventListener("change", () => {
+    onSettingsChange({ hapticFeedback: hapticCheck.checked });
+  });
+  const hapticTxt = make("span", { class: "radio-row__text" });
+  hapticTxt.append(
+    make("span", { class: "radio-row__label" }, "Haptic feedback"),
+    make("span", { class: "radio-row__desc" },
+      "Vibrate briefly on virtual button presses (Android Chrome only; iOS ignores this)"
+    )
+  );
+  hapticRow.append(hapticCheck, hapticTxt);
+  mobileSection.appendChild(hapticRow);
+
+  // Orientation lock toggle
+  const orientRow = make("label", { class: "radio-row" });
+  const orientCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
+  orientCheck.checked = settings.orientationLock;
+  orientCheck.addEventListener("change", () => {
+    onSettingsChange({ orientationLock: orientCheck.checked });
+  });
+  const orientTxt = make("span", { class: "radio-row__text" });
+  orientTxt.append(
+    make("span", { class: "radio-row__label" }, "Lock to landscape"),
+    make("span", { class: "radio-row__desc" },
+      "Automatically rotate to landscape orientation when a game starts (Android Chrome; " +
+      "iOS Safari does not support orientation locking)"
+    )
+  );
+  orientRow.append(orientCheck, orientTxt);
+  mobileSection.appendChild(orientRow);
+
   // ── FPS Overlay toggle ────────────────────────────────────────────────────
   const fpsRow = make("label", { class: "radio-row" });
   const fpsCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
@@ -1841,7 +1986,7 @@ function buildSettingsContent(
   }
   sysSection.appendChild(sysList);
 
-  container.append(perfSection, deviceSection, libSection, biosSection, sysSection);
+  container.append(perfSection, mobileSection, deviceSection, libSection, biosSection, sysSection);
 }
 
 // ── Multi-disc game picker ─────────────────────────────────────────────────────

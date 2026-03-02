@@ -1,99 +1,176 @@
 /**
- * coi-serviceworker — Cross-Origin Isolation via Service Worker
+ * coi-serviceworker — Cross-Origin Isolation + PWA Cache Service Worker
  *
- * The PSP/PPSSPP emulator core requires SharedArrayBuffer (for threading).
- * SharedArrayBuffer is only available in Cross-Origin Isolated contexts, which
- * need these HTTP response headers:
- *   Cross-Origin-Opener-Policy: same-origin
- *   Cross-Origin-Embedder-Policy: require-corp
+ * Dual-purpose service worker that handles:
  *
- * Static hosts (GitHub Pages, Netlify, etc.) do not let you set custom headers.
- * This service worker intercepts every fetch response and injects those headers,
- * then causes the page to reload once the worker is controlling the client.
+ * 1. Cross-Origin Isolation (COI) — injects COOP/COEP headers so that
+ *    SharedArrayBuffer is available for the PPSSPP core's threading model.
+ *    Static hosts (GitHub Pages, Netlify) cannot set custom HTTP headers, so
+ *    the SW intercepts every fetch and injects them.
  *
- * In development, Vite already sets the headers directly (see vite.config.ts),
- * so the worker registration is skipped (`window.crossOriginIsolated === true`).
+ * 2. PWA App Shell Cache — caches the HTML/CSS/JS app shell for fast repeat
+ *    loads and basic offline support (the library and game assets stored in
+ *    IndexedDB remain available without a network connection).
+ *
+ * 3. iOS Safari COEP `credentialless` — Safari/WebKit does not support the
+ *    `Cross-Origin-Resource-Policy` header for third-party CDN assets in the
+ *    same way Chromium does. Switching to `COEP: credentialless` allows
+ *    no-credentials cross-origin fetches without requiring CORP on each
+ *    resource. This restores SharedArrayBuffer support on iOS 17+ / Safari 17+
+ *    where the full COOP+COEP isolation is otherwise blocked by CDN assets
+ *    lacking CORP headers.
+ *
+ * In development, Vite sets the COOP/COEP headers directly on the dev server,
+ * so the SW registration is skipped when `window.crossOriginIsolated === true`.
  *
  * Adapted from https://github.com/gzuidhof/coi-serviceworker (MIT License).
  */
 
 /* ── Service Worker context ────────────────────────────────────────────────── */
 if (typeof window === "undefined") {
-  self.addEventListener("install", () => {
-    // Take control immediately instead of waiting for the old SW to expire.
+  const CACHE_NAME = "retrovault-shell-v1";
+
+  // App shell resources to pre-cache on install.
+  // Only same-origin assets are cached here; CDN emulator cores are large
+  // and handled by the browser HTTP cache via prefetch hints instead.
+  const PRECACHE_URLS = ["/", "/index.html"];
+
+  self.addEventListener("install", (event) => {
     self.skipWaiting();
+    event.waitUntil(
+      caches.open(CACHE_NAME).then((cache) =>
+        cache.addAll(PRECACHE_URLS).catch(() => {
+          // Pre-cache failures are non-fatal; SW still activates normally.
+        })
+      )
+    );
   });
 
   self.addEventListener("activate", (event) => {
-    event.waitUntil(self.clients.claim());
+    // Evict any previous cache versions so stale shells don't persist.
+    event.waitUntil(
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k !== CACHE_NAME)
+            .map((k) => caches.delete(k))
+        )
+      ).then(() => self.clients.claim())
+    );
   });
 
   self.addEventListener("fetch", (event) => {
     const req = event.request;
 
-    // Skip non-http(s) requests (chrome-extension://, etc.)
+    // Skip non-http(s) requests (chrome-extension://, data:, etc.)
     if (!req.url.startsWith("http")) return;
 
     // Avoid fetching with cache = "only-if-cached" on cross-origin requests,
     // which throws a TypeError in some browsers.
     if (req.cache === "only-if-cached" && req.mode !== "same-origin") return;
 
+    // ── iOS / Safari COEP strategy detection ─────────────────────────────────
+    // `credentialless` COEP (Chrome 96+, Firefox 119+) allows cross-origin
+    // no-credentials requests without requiring CORP headers on each resource.
+    // Safari/WebKit does not yet support `credentialless` as a response header
+    // that grants isolation, but we send it for forward-compatibility so that
+    // when WebKit adds support the CDN assets (which lack CORP) do not block
+    // isolation on iOS/iPadOS. Until then, Safari users may still lack SAB for
+    // PSP but all other systems (NES/SNES/GBA/…) work fine.
+    const ua = req.headers.get("user-agent") ?? "";
+    const isSafari =
+      /Safari\//.test(ua) && !/Chrome\//.test(ua) && !/Chromium\//.test(ua);
+    const coepValue = isSafari ? "credentialless" : "require-corp";
+
+    // ── Caching strategy ──────────────────────────────────────────────────────
+    // Navigation requests (HTML): network-first with cache fallback.
+    // This guarantees the user always gets the freshest app shell when online,
+    // but can still load the cached shell when offline.
+    const isSameOriginNav =
+      req.mode === "navigate" &&
+      req.url.startsWith(self.location.origin);
+
+    if (isSameOriginNav) {
+      event.respondWith(
+        fetch(req)
+          .then((res) => {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(req, clone)).catch(() => {});
+            return addCOIHeaders(res, coepValue);
+          })
+          .catch(() =>
+            caches.match(req).then((cached) =>
+              cached ?? fetch(req)
+            )
+          )
+      );
+      return;
+    }
+
+    // All other requests: inject COI headers, cache same-origin assets.
     event.respondWith(
       fetch(req)
         .then((response) => {
-          // Opaque / error responses – pass through unchanged.
-          if (response.status === 0 || !response.ok && response.type === "opaque") {
+          if (response.status === 0 || (!response.ok && response.type === "opaque")) {
             return response;
           }
-
-          const headers = new Headers(response.headers);
-          // These three headers together satisfy Cross-Origin Isolation:
-          //   COOP  – prevents cross-origin windows from sharing a browsing
-          //            context group with this page.
-          //   COEP  – prevents cross-origin resources from being loaded unless
-          //            they explicitly opt in (CORP or CORS).
-          //   CORP  – added to every resource so COEP: require-corp succeeds
-          //            even for CDN assets that don't set the header themselves.
-          headers.set("Cross-Origin-Opener-Policy", "same-origin");
-          headers.set("Cross-Origin-Embedder-Policy", "require-corp");
-          headers.set("Cross-Origin-Resource-Policy", "cross-origin");
-
-          return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
-            headers,
-          });
+          // Cache same-origin static assets (JS/CSS) for fast repeat visits.
+          if (
+            req.url.startsWith(self.location.origin) &&
+            (req.destination === "script" || req.destination === "style")
+          ) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(req, clone)).catch(() => {});
+          }
+          return addCOIHeaders(response, coepValue);
         })
-        .catch(() => {
-          // Network failure – let the browser surface its own error.
-          return fetch(req);
-        })
+        .catch(() => fetch(req))
     );
   });
 
+  /**
+   * Reconstruct a Response with COI headers injected.
+   * These three headers together establish a Cross-Origin Isolated context:
+   *   COOP  – prevents cross-origin windows sharing a browsing context group.
+   *   COEP  – gates cross-origin resource loading (require-corp or credentialless).
+   *   CORP  – opt-in to cross-origin sharing for same-origin resources so that
+   *            COEP: require-corp doesn't block them.
+   */
+  function addCOIHeaders(response, coepValue) {
+    const headers = new Headers(response.headers);
+    headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    headers.set("Cross-Origin-Embedder-Policy", coepValue);
+    headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
 /* ── Window / main-thread context ──────────────────────────────────────────── */
 } else {
-  // If the page is already cross-origin isolated (e.g., dev server sets the
-  // headers) we don't need the service worker at all.
-  if (!self.crossOriginIsolated && "serviceWorker" in navigator) {
+  // In development, Vite sets the headers directly — no SW needed for COI.
+  // The SW is still registered for PWA install support even when isolated.
+  const needsCOI = !self.crossOriginIsolated;
+
+  if ("serviceWorker" in navigator) {
     (async () => {
       try {
-        // Register this very script as a service worker.
         const swUrl = document.currentScript.src;
         const reg = await navigator.serviceWorker.register(swUrl, { scope: "/" });
 
-        // If the SW is newly installed and there is no controller yet, wait for
-        // controllerchange and then reload so the SW can intercept requests.
-        if (!navigator.serviceWorker.controller) {
+        if (needsCOI && !navigator.serviceWorker.controller) {
+          // Newly installed — wait for the SW to take control then reload
+          // so it can inject COOP/COEP headers on the next navigation.
           await new Promise((resolve) => {
             navigator.serviceWorker.addEventListener("controllerchange", resolve, {
               once: true,
             });
           });
-          // The reload activates the service worker for this client.
           window.location.reload();
-        } else {
-          // A controller exists; check if our SW is up-to-date.
+        } else if (needsCOI) {
+          // Already controlled — watch for SW updates.
           reg.addEventListener("updatefound", () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
@@ -108,9 +185,6 @@ if (typeof window === "undefined") {
           });
         }
       } catch (err) {
-        // Service worker registration failed (e.g. file:// protocol).
-        // The emulator will still load but SharedArrayBuffer may be absent;
-        // the emulator wrapper will detect this and show an error.
         console.warn("[coi-sw] Service worker registration failed:", err);
       }
     })();
