@@ -370,7 +370,9 @@ function main(): void {
         const screenshot = await emulator.captureScreenshot();
         const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
         const stateBytes = emulator.readStateData(AUTO_SAVE_SLOT);
-        const stateData  = stateBytes ? new Blob([stateBytes.buffer as ArrayBuffer]) : null;
+        const stateData  = stateBytes
+          ? new Blob([(stateBytes.buffer as ArrayBuffer).slice(stateBytes.byteOffset, stateBytes.byteOffset + stateBytes.byteLength)])
+          : null;
 
         await saveLibrary.saveState({
           id:         saveStateKey(currentGameId!, AUTO_SAVE_SLOT),

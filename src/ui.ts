@@ -1058,7 +1058,8 @@ async function handleM3UFile(
     }
   } catch { /* ignore */ }
 
-  // Launch — blob URLs will be revoked by the browser when the page unloads
+  // Launch — blob URLs remain valid for the emulator's disc-swap lifetime.
+  // They are revoked on error; on success the page lifetime manages them.
   try {
     await onLaunchGame(syntheticFile, system.id);
   } catch (err) {
@@ -1268,7 +1269,9 @@ async function persistSaveMetadata(
     const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
 
     const stateBytes = emulator.readStateData(slot);
-    const stateData  = stateBytes ? new Blob([stateBytes.buffer as ArrayBuffer]) : null;
+    const stateData  = stateBytes
+      ? new Blob([(stateBytes.buffer as ArrayBuffer).slice(stateBytes.byteOffset, stateBytes.byteOffset + stateBytes.byteLength)])
+      : null;
 
     const entry: SaveStateEntry = {
       id:         saveStateKey(gameId, slot),
@@ -1419,7 +1422,7 @@ async function renderSaveSlots(
             if (written) {
               emulator.quickLoad(slot);
             } else {
-              emulator.quickLoad(slot);
+              showError("Could not restore save state — the emulator filesystem is not ready.");
             }
           }).catch(() => {
             emulator.quickLoad(slot);
@@ -2035,7 +2038,6 @@ export function showMultiDiscPicker(
     ));
 
     const fileMap = new Map<string, File>();
-    const rows: Array<{ fileName: string; statusEl: HTMLElement; inputEl: HTMLInputElement }> = [];
 
     for (const fileName of discFileNames) {
       const row      = make("div", { class: "multidisc-row" });
@@ -2060,7 +2062,6 @@ export function showMultiDiscPicker(
 
       row.append(status, fileInput2, label, btn);
       box.appendChild(row);
-      rows.push({ fileName, statusEl: status, inputEl: fileInput2 });
     }
 
     const footer     = make("div", { class: "confirm-footer" });

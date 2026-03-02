@@ -201,7 +201,7 @@ export class TouchControlsOverlay {
     if (!this._overlay) return;
     this._overlay.classList.toggle("touch-controls--editing", editing);
     // Update each button's cursor and add/remove edit label
-    for (const [id, el] of this._buttonEls) {
+    for (const el of this._buttonEls.values()) {
       el.style.cursor = editing ? "grab" : "";
       const editHint = el.querySelector(".tc-edit-hint");
       if (editing && !editHint) {
@@ -212,7 +212,6 @@ export class TouchControlsOverlay {
       } else if (!editing && editHint) {
         editHint.remove();
       }
-      void id; // used via _buttonEls key
     }
   }
 

@@ -334,8 +334,8 @@ export class PSPEmulator {
   private _audioWorkletCtx: AudioContext | null = null;
   private _audioWorkletNode: AudioWorkletNode | null = null;
   private _audioUnderruns = 0;
-  /** Consecutive seconds the average FPS has been below the low-FPS threshold. */
-  private _lowFPSSeconds = 0;
+  /** Timestamp (ms) when sustained low FPS was first detected; 0 when FPS is healthy. */
+  private _lowFPSStartTime = 0;
   /** Timestamp (ms) of the last low-FPS quality suggestion, to debounce warnings. */
   private _lastQualitySuggestionTime = 0;
 
@@ -1328,18 +1328,21 @@ export class PSPEmulator {
    * A 60-second cooldown prevents spamming the user during loading screens.
    */
   private _checkAdaptiveQuality(averageFPS: number): void {
-    const LOW_FPS_THRESHOLD_HZ  = 25;
-    const TRIGGER_SECONDS        = 10;
-    const COOLDOWN_MS            = 60_000;
+    const LOW_FPS_THRESHOLD_HZ = 25;
+    const TRIGGER_MS           = 10_000; // 10 consecutive seconds
+    const COOLDOWN_MS          = 60_000;
+    const now                  = performance.now();
 
     if (averageFPS > 0 && averageFPS < LOW_FPS_THRESHOLD_HZ) {
-      this._lowFPSSeconds++;
+      if (this._lowFPSStartTime === 0) {
+        this._lowFPSStartTime = now;
+      }
       if (
-        this._lowFPSSeconds >= TRIGGER_SECONDS &&
-        performance.now() - this._lastQualitySuggestionTime > COOLDOWN_MS
+        now - this._lowFPSStartTime >= TRIGGER_MS &&
+        now - this._lastQualitySuggestionTime > COOLDOWN_MS
       ) {
-        this._lastQualitySuggestionTime = performance.now();
-        this._lowFPSSeconds = 0;
+        this._lastQualitySuggestionTime = now;
+        this._lowFPSStartTime = 0;
         this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
         console.warn(
           `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
@@ -1348,8 +1351,7 @@ export class PSPEmulator {
         );
       }
     } else {
-      // FPS recovered — reset the counter
-      this._lowFPSSeconds = 0;
+      this._lowFPSStartTime = 0;
     }
   }
 

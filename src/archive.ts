@@ -103,170 +103,164 @@ export async function detectArchiveFormat(blob: Blob): Promise<ArchiveFormat> {
 export async function extractFromZip(
   blob: Blob
 ): Promise<{ name: string; blob: Blob } | null> {
-  try {
-    const buffer = await blob.arrayBuffer();
-    const view   = new DataView(buffer);
-    const bytes  = new Uint8Array(buffer);
+  const buffer = await blob.arrayBuffer();
+  const view   = new DataView(buffer);
+  const bytes  = new Uint8Array(buffer);
 
-    if (!hasZipMagic(buffer)) return null;
+  if (!hasZipMagic(buffer)) return null;
 
-    // ── Locate End-of-Central-Directory record ──────────────────────────────
-    // EOCD is at least 22 bytes; search backwards from the file end.
-    // A ZIP comment of up to 65535 bytes can follow the EOCD.
-    const maxSearch = Math.max(0, bytes.length - 22 - 65535);
-    let eocdOffset  = -1;
+  // ── Locate End-of-Central-Directory record ────────────────────────────────
+  // EOCD is at least 22 bytes; search backwards from the file end.
+  // A ZIP comment of up to 65535 bytes can follow the EOCD.
+  const maxSearch = Math.max(0, bytes.length - 22 - 65535);
+  let eocdOffset  = -1;
 
-    for (let i = bytes.length - 22; i >= maxSearch; i--) {
-      if (readUint32LE(view, i) === EOCD_MAGIC) {
-        eocdOffset = i;
-        break;
+  for (let i = bytes.length - 22; i >= maxSearch; i--) {
+    if (readUint32LE(view, i) === EOCD_MAGIC) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset < 0) return null;
+
+  let centralDirSize   = readUint32LE(view, eocdOffset + 12);
+  let centralDirOffset = readUint32LE(view, eocdOffset + 16);
+
+  // ── ZIP64 fallback ────────────────────────────────────────────────────────
+  // If the EOCD values are 0xFFFFFFFF, the real values are in the
+  // ZIP64 End-of-Central-Directory record located just before the EOCD locator.
+  if (centralDirSize === 0xffffffff || centralDirOffset === 0xffffffff) {
+    const zip64LocOffset = eocdOffset - 20;
+    if (zip64LocOffset >= 0 && readUint32LE(view, zip64LocOffset) === 0x07064b50) {
+      const zip64EocdOffset = Number(
+        BigInt(readUint32LE(view, zip64LocOffset + 8)) |
+        (BigInt(readUint32LE(view, zip64LocOffset + 12)) << 32n)
+      );
+      if (readUint32LE(view, zip64EocdOffset) === ZIP64_EOCD_MAGIC) {
+        // 64-bit fields at known positions — read as two 32-bit LE words
+        const readUint64LE = (o: number) =>
+          Number(
+            BigInt(readUint32LE(view, o)) |
+            (BigInt(readUint32LE(view, o + 4)) << 32n)
+          );
+        centralDirSize   = readUint64LE(zip64EocdOffset + 40);
+        centralDirOffset = readUint64LE(zip64EocdOffset + 48);
       }
     }
+  }
 
-    if (eocdOffset < 0) return null;
+  // ── Parse central directory ───────────────────────────────────────────────
+  const entries: CentralDirEntry[] = [];
+  let pos = centralDirOffset;
+  const cdEnd = centralDirOffset + centralDirSize;
 
-    let centralDirSize   = readUint32LE(view, eocdOffset + 12);
-    let centralDirOffset = readUint32LE(view, eocdOffset + 16);
+  while (pos < cdEnd && pos + 46 <= bytes.length) {
+    if (readUint32LE(view, pos) !== CENTRAL_DIR_MAGIC) break;
 
-    // ── ZIP64 fallback ──────────────────────────────────────────────────────
-    // If the EOCD values are 0xFFFFFFFF, the real values are in the
-    // ZIP64 End-of-Central-Directory record located just before the EOCD locator.
-    if (centralDirSize === 0xffffffff || centralDirOffset === 0xffffffff) {
-      const zip64LocOffset = eocdOffset - 20;
-      if (zip64LocOffset >= 0 && readUint32LE(view, zip64LocOffset) === 0x07064b50) {
-        const zip64EocdOffset = Number(
-          BigInt(readUint32LE(view, zip64LocOffset + 8)) |
-          (BigInt(readUint32LE(view, zip64LocOffset + 12)) << 32n)
-        );
-        if (readUint32LE(view, zip64EocdOffset) === ZIP64_EOCD_MAGIC) {
-          // 64-bit fields at known positions — read as two 32-bit LE words
-          const readUint64LE = (o: number) =>
-            Number(
-              BigInt(readUint32LE(view, o)) |
-              (BigInt(readUint32LE(view, o + 4)) << 32n)
-            );
-          centralDirSize   = readUint64LE(zip64EocdOffset + 40);
-          centralDirOffset = readUint64LE(zip64EocdOffset + 48);
-        }
-      }
-    }
+    const compressionMethod  = readUint16LE(view, pos + 10);
+    const compressedSize     = readUint32LE(view, pos + 20);
+    const uncompressedSize   = readUint32LE(view, pos + 24);
+    const fileNameLength     = readUint16LE(view, pos + 28);
+    const extraFieldLength   = readUint16LE(view, pos + 30);
+    const commentLength      = readUint16LE(view, pos + 32);
+    const localHeaderOffset  = readUint32LE(view, pos + 42);
 
-    // ── Parse central directory ─────────────────────────────────────────────
-    const entries: CentralDirEntry[] = [];
-    let pos = centralDirOffset;
-    const cdEnd = centralDirOffset + centralDirSize;
+    const nameSlice = bytes.slice(pos + 46, pos + 46 + fileNameLength);
+    const name      = decodeName(nameSlice);
 
-    while (pos < cdEnd && pos + 46 <= bytes.length) {
-      if (readUint32LE(view, pos) !== CENTRAL_DIR_MAGIC) break;
-
-      const compressionMethod  = readUint16LE(view, pos + 10);
-      const compressedSize     = readUint32LE(view, pos + 20);
-      const uncompressedSize   = readUint32LE(view, pos + 24);
-      const fileNameLength     = readUint16LE(view, pos + 28);
-      const extraFieldLength   = readUint16LE(view, pos + 30);
-      const commentLength      = readUint16LE(view, pos + 32);
-      const localHeaderOffset  = readUint32LE(view, pos + 42);
-
-      const nameSlice = bytes.slice(pos + 46, pos + 46 + fileNameLength);
-      const name      = decodeName(nameSlice);
-
-      entries.push({
-        name,
-        compressionMethod,
-        compressedSize,
-        uncompressedSize,
-        localHeaderOffset,
-      });
-
-      pos += 46 + fileNameLength + extraFieldLength + commentLength;
-    }
-
-    if (entries.length === 0) return null;
-
-    // ── Choose which entry to extract ───────────────────────────────────────
-    // Prefer files whose extension is a known ROM format.
-    // Directories end with "/" and are skipped.
-    const knownExts = new Set(ALL_EXTENSIONS);
-    const isDir = (e: CentralDirEntry) => e.name.endsWith("/") || e.uncompressedSize === 0;
-
-    const romCandidates = entries.filter(e => {
-      if (isDir(e)) return false;
-      const ext = e.name.split(".").pop()?.toLowerCase() ?? "";
-      return knownExts.has(ext);
+    entries.push({
+      name,
+      compressionMethod,
+      compressedSize,
+      uncompressedSize,
+      localHeaderOffset,
     });
 
-    const target =
-      romCandidates[0] ??
-      entries.find(e => !isDir(e)) ??
-      null;
+    pos += 46 + fileNameLength + extraFieldLength + commentLength;
+  }
 
-    if (!target) return null;
+  if (entries.length === 0) return null;
 
-    // ── Read local file header to find the compressed data offset ───────────
-    const lhBase = target.localHeaderOffset;
-    if (lhBase + 30 > bytes.length) return null;
-    if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;
+  // ── Choose which entry to extract ─────────────────────────────────────────
+  // Prefer files whose extension is a known ROM format.
+  // Directories end with "/" and are skipped.
+  const knownExts = new Set(ALL_EXTENSIONS);
+  const isDir = (e: CentralDirEntry) => e.name.endsWith("/") || e.uncompressedSize === 0;
 
-    const lhFileNameLen = readUint16LE(view, lhBase + 26);
-    const lhExtraLen    = readUint16LE(view, lhBase + 28);
-    const dataStart     = lhBase + 30 + lhFileNameLen + lhExtraLen;
-    const dataEnd2      = dataStart + target.compressedSize;
+  const romCandidates = entries.filter(e => {
+    if (isDir(e)) return false;
+    const ext = e.name.split(".").pop()?.toLowerCase() ?? "";
+    return knownExts.has(ext);
+  });
 
-    if (dataEnd2 > bytes.length) return null;
+  const target =
+    romCandidates[0] ??
+    entries.find(e => !isDir(e)) ??
+    null;
 
-    const compressedSlice = bytes.slice(dataStart, dataEnd2);
+  if (!target) return null;
 
-    // ── Decompress ──────────────────────────────────────────────────────────
-    let resultBlob: Blob;
+  // ── Read local file header to find the compressed data offset ─────────────
+  const lhBase = target.localHeaderOffset;
+  if (lhBase + 30 > bytes.length) return null;
+  if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;
 
-    if (target.compressionMethod === COMPRESS_STORED) {
-      resultBlob = new Blob([compressedSlice]);
+  const lhFileNameLen = readUint16LE(view, lhBase + 26);
+  const lhExtraLen    = readUint16LE(view, lhBase + 28);
+  const dataStart     = lhBase + 30 + lhFileNameLen + lhExtraLen;
+  const dataEnd2      = dataStart + target.compressedSize;
 
-    } else if (target.compressionMethod === COMPRESS_DEFLATE) {
-      if (typeof DecompressionStream === "undefined") {
-        throw new Error(
-          "Your browser does not support DecompressionStream. " +
-          "Please extract the ZIP manually or use Chrome 80+ / Firefox 113+ / Safari 16.4+."
-        );
-      }
-      const ds     = new DecompressionStream("deflate-raw");
-      const writer = ds.writable.getWriter();
-      const reader = ds.readable.getReader();
+  if (dataEnd2 > bytes.length) return null;
 
-      writer.write(compressedSlice);
-      writer.close();
+  const compressedSlice = bytes.slice(dataStart, dataEnd2);
 
-      const chunks: Uint8Array[] = [];
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) chunks.push(value);
-      }
+  // ── Decompress ────────────────────────────────────────────────────────────
+  let resultBlob: Blob;
 
-      const totalLen  = chunks.reduce((n, c) => n + c.length, 0);
-      const output    = new Uint8Array(totalLen);
-      let writeOffset = 0;
-      for (const chunk of chunks) {
-        output.set(chunk, writeOffset);
-        writeOffset += chunk.length;
-      }
-      resultBlob = new Blob([output]);
+  if (target.compressionMethod === COMPRESS_STORED) {
+    resultBlob = new Blob([compressedSlice]);
 
-    } else {
+  } else if (target.compressionMethod === COMPRESS_DEFLATE) {
+    if (typeof DecompressionStream === "undefined") {
       throw new Error(
-        `Unsupported ZIP compression method ${target.compressionMethod}. ` +
-        "Only Stored (0) and Deflate (8) are supported."
+        "Your browser does not support DecompressionStream. " +
+        "Please extract the ZIP manually or use Chrome 80+ / Firefox 113+ / Safari 16.4+."
       );
     }
+    const ds     = new DecompressionStream("deflate-raw");
+    const writer = ds.writable.getWriter();
+    const reader = ds.readable.getReader();
 
-    // Return just the final path component as the filename
-    const shortName = target.name.replace(/\\/g, "/").split("/").pop() ?? target.name;
-    return { name: shortName, blob: resultBlob };
+    writer.write(compressedSlice);
+    writer.close();
 
-  } catch (err) {
-    // Surface the error message for user-facing feedback
-    throw err;
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+
+    const totalLen  = chunks.reduce((n, c) => n + c.length, 0);
+    const output    = new Uint8Array(totalLen);
+    let writeOffset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, writeOffset);
+      writeOffset += chunk.length;
+    }
+    resultBlob = new Blob([output]);
+
+  } else {
+    throw new Error(
+      `Unsupported ZIP compression method ${target.compressionMethod}. ` +
+      "Only Stored (0) and Deflate (8) are supported."
+    );
   }
+
+  // Return just the final path component as the filename
+  const shortName = target.name.replace(/\\/g, "/").split("/").pop() ?? target.name;
+  return { name: shortName, blob: resultBlob };
 }
 
 /**
