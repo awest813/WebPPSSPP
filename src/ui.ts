@@ -238,7 +238,7 @@ export function initUI(opts: UIOptions): void {
   let dragDepth = 0;
 
   const handleFileChosen = (file: File) => {
-    resolveSystemAndAdd(file, library, settings, onLaunchGame);
+    resolveSystemAndAdd(file, library, settings, onLaunchGame, emulator);
   };
 
   fileInput.addEventListener("change", () => {
@@ -343,6 +343,14 @@ export function initUI(opts: UIOptions): void {
   // ── Landing header controls ───────────────────────────────────────────────
   buildLandingControls(settings, deviceCaps, library, onSettingsChange, emulator, onLaunchGame);
 
+  // ── Keep overflow indicator current on resize ─────────────────────────────
+  if (typeof ResizeObserver !== "undefined") {
+    const headerActions = document.getElementById("header-actions");
+    if (headerActions) {
+      new ResizeObserver(updateHeaderOverflow).observe(headerActions);
+    }
+  }
+
   // ── Initial library render ────────────────────────────────────────────────
   renderLibrary(library, settings, onLaunchGame, emulator);
 }
@@ -435,7 +443,11 @@ function buildGameCard(
   }, "✕");
   btnRemove.addEventListener("click", async (e) => {
     e.stopPropagation();
-    if (!confirm(`Remove "${game.name}" from your library?\n\nThe file will not be deleted from your device.`)) return;
+    const confirmed = await showConfirmDialog(
+      `"${game.name}" will be removed from your library. The file will not be deleted from your device.`,
+      { title: "Remove Game", confirmLabel: "Remove", isDanger: true }
+    );
+    if (!confirmed) return;
     await library.removeGame(game.id);
     renderLibrary(library, settings, onLaunchGame, emulatorRef);
   });
@@ -518,6 +530,66 @@ function volIcon(volume: number): string {
   return "🔊";
 }
 
+// ── Custom confirm dialog ─────────────────────────────────────────────────────
+
+/**
+ * Custom confirm dialog — replaces the browser's native `confirm()`.
+ * Returns a Promise that resolves to true (confirmed) or false (cancelled).
+ * Unlike native confirm(), this is non-blocking and styled consistently,
+ * and works correctly in PWA standalone mode (where confirm() may be suppressed).
+ */
+function showConfirmDialog(
+  message: string,
+  opts: { title?: string; confirmLabel?: string; isDanger?: boolean } = {}
+): Promise<boolean> {
+  const { title, confirmLabel = "Confirm", isDanger = false } = opts;
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box     = make("div", {
+      class: "confirm-box",
+      role: "dialog",
+      "aria-modal": "true",
+    });
+    if (title) box.setAttribute("aria-label", title);
+
+    if (title) {
+      box.appendChild(make("h3", { class: "confirm-title" }, title));
+    }
+    box.appendChild(make("p", { class: "confirm-body" }, message));
+
+    const footer     = make("div", { class: "confirm-footer" });
+    const btnCancel  = make("button", { class: "btn" }, "Cancel");
+    const btnConfirm = make("button", {
+      class: isDanger ? "btn btn--danger-filled" : "btn btn--primary",
+    }, confirmLabel);
+    footer.append(btnCancel, btnConfirm);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const close = (result: boolean) => {
+      document.removeEventListener("keydown", onKey);
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
+      resolve(result);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(false); }
+    };
+
+    btnCancel.addEventListener("click",  () => close(false));
+    btnConfirm.addEventListener("click", () => close(true));
+    overlay.addEventListener("click",    (e) => { if (e.target === overlay) close(false); });
+    document.addEventListener("keydown", onKey);
+
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      btnConfirm.focus();
+    });
+  });
+}
+
 // ── System picker modal ───────────────────────────────────────────────────────
 
 /**
@@ -574,7 +646,8 @@ async function resolveSystemAndAdd(
   file:         File,
   library:      GameLibrary,
   settings:     Settings,
-  onLaunchGame: (file: File, systemId: string) => Promise<void>
+  onLaunchGame: (file: File, systemId: string) => Promise<void>,
+  emulatorRef?: PSPEmulator
 ): Promise<void> {
   const detected = detectSystem(file.name);
 
@@ -598,8 +671,9 @@ async function resolveSystemAndAdd(
   try {
     const existing = await library.findByFileName(file.name, system.id);
     if (existing) {
-      const playExisting = confirm(
-        `"${existing.name}" is already in your library.\n\nPlay the existing copy?`
+      const playExisting = await showConfirmDialog(
+        `"${existing.name}" is already in your library.`,
+        { title: "Already in Library", confirmLabel: "Play Existing" }
       );
       if (!playExisting) return;
 
@@ -626,7 +700,7 @@ async function resolveSystemAndAdd(
     const entry = await library.addGame(file, system.id);
     settings.lastGameName = entry.name;
     // Re-render library in the background — we'll show it when the game ends
-    renderLibrary(library, settings, onLaunchGame);
+    renderLibrary(library, settings, onLaunchGame, emulatorRef);
     await onLaunchGame(file, system.id);
   } catch (err) {
     hideLoadingOverlay();
@@ -636,16 +710,34 @@ async function resolveSystemAndAdd(
 
 // ── Header controls ───────────────────────────────────────────────────────────
 
-function buildLandingControls(
+export function buildLandingControls(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     PSPEmulator,
-  onLaunchGame?:    (file: File, systemId: string) => Promise<void>
+  onLaunchGame?:    (file: File, systemId: string) => Promise<void>,
+  onResumeGame?:    () => void
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
+
+  // Resume button — only present when returning from a paused game
+  if (onResumeGame) {
+    const btnResume = make("button", { class: "btn btn--primary", title: "Return to the paused game" }, "▶ Resume");
+    btnResume.addEventListener("click", onResumeGame);
+    container.appendChild(btnResume);
+  }
+
+  // Low-spec / Chromebook indicator
+  if (deviceCaps.isLowSpec || deviceCaps.isChromOS) {
+    const label = deviceCaps.isChromOS ? "⚡ Chromebook" : "⚡ Low-spec";
+    const tip   = deviceCaps.isChromOS
+      ? "Chromebook detected — Performance mode recommended"
+      : "Performance mode recommended for this device";
+    const chip = make("span", { class: "perf-chip perf-chip--warn", title: tip }, label);
+    container.appendChild(chip);
+  }
 
   const btnSettings = make("button", { class: "btn", title: "Settings", "aria-label": "Open settings" });
   btnSettings.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -665,17 +757,8 @@ function buildLandingControls(
     openSettingsPanel(settings, deviceCaps, library, onSettingsChange, emulatorRef, onLaunchGame);
   });
 
-  // Low-spec / Chromebook indicator
-  if (deviceCaps.isLowSpec || deviceCaps.isChromOS) {
-    const label = deviceCaps.isChromOS ? "⚡ Chromebook" : "⚡ Low-spec";
-    const tip   = deviceCaps.isChromOS
-      ? "Chromebook detected — Performance mode recommended"
-      : "Performance mode recommended for this device";
-    const chip = make("span", { class: "perf-chip perf-chip--warn", title: tip }, label);
-    container.appendChild(chip);
-  }
-
   container.appendChild(btnSettings);
+  updateHeaderOverflow();
 }
 
 function buildInGameControls(
@@ -697,8 +780,12 @@ function buildInGameControls(
   btnLoad.addEventListener("click", () => emulator.quickLoad(1));
 
   const btnReset = make("button", { class: "btn btn--danger", title: "Reset game (F1)" }, "↺ Reset");
-  btnReset.addEventListener("click", () => {
-    if (confirm("Reset the game? Unsaved progress will be lost.")) emulator.reset();
+  btnReset.addEventListener("click", async () => {
+    const confirmed = await showConfirmDialog(
+      "Unsaved progress will be lost.",
+      { title: "Reset Game?", confirmLabel: "Reset", isDanger: true }
+    );
+    if (confirmed) emulator.reset();
   });
 
   // FPS toggle button
@@ -752,6 +839,7 @@ function buildInGameControls(
 
   volWrap.append(volBtn, volSlider);
   container.append(btnLibrary, btnSave, btnLoad, btnReset, btnFPS, volWrap);
+  updateHeaderOverflow();
 }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
@@ -896,9 +984,13 @@ function buildSettingsContent(
     statsEl.textContent = `${count} game${count !== 1 ? "s" : ""} · ${formatBytes(total)} stored locally`;
   }).catch(() => { statsEl.textContent = "Could not load library stats."; });
 
-  const btnClear = make("button", { class: "btn btn--danger", style: "margin-top:10px" }, "Clear Library");
+  const btnClear = make("button", { class: "btn btn--danger settings-clear-btn" }, "Clear Library");
   btnClear.addEventListener("click", async () => {
-    if (!confirm("Remove all games from your library?\n\nThis will delete all stored ROM data. This cannot be undone.")) return;
+    const confirmed = await showConfirmDialog(
+      "This will delete all stored ROM data and cannot be undone.",
+      { title: "Clear Library?", confirmLabel: "Clear All", isDanger: true }
+    );
+    if (!confirmed) return;
     await library.clearAll();
     document.getElementById("settings-panel")!.hidden = true;
     document.title = "RetroVault";
@@ -1010,6 +1102,22 @@ export function resetPerfSuggestion(): void {
   _lowFPSCount = 0;
   _perfSuggestionShown = false;
   document.getElementById("perf-suggestion")?.remove();
+}
+
+// ── Header overflow indicator ─────────────────────────────────────────────────
+
+/**
+ * Toggle the `overflows` class on the header actions container.
+ * The CSS uses this to apply a right-edge fade gradient that signals
+ * to the user that more controls are accessible via horizontal scroll.
+ */
+function updateHeaderOverflow(): void {
+  const actions = document.getElementById("header-actions");
+  if (!actions) return;
+  // Use rAF so layout is settled before measuring scrollWidth
+  requestAnimationFrame(() => {
+    actions.classList.toggle("overflows", actions.scrollWidth > actions.clientWidth);
+  });
 }
 
 // ── State-driven DOM updates ──────────────────────────────────────────────────

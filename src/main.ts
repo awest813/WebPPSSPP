@@ -23,7 +23,8 @@ import { PSPEmulator }   from "./emulator.js";
 import { GameLibrary }   from "./library.js";
 import { detectCapabilities, checkBatteryStatus } from "./performance.js";
 import { buildDOM, initUI, showLanding,
-         hideEjsContainer, renderLibrary, openSettingsPanel } from "./ui.js";
+         hideEjsContainer, renderLibrary, openSettingsPanel,
+         buildLandingControls } from "./ui.js";
 import type { PerformanceMode } from "./performance.js";
 
 // ── Settings schema ───────────────────────────────────────────────────────────
@@ -179,36 +180,12 @@ function main(): void {
     onReturnToLibrary,
   });
 
-  // 8. If user returns to landing, rebuild landing header controls
+  // 8. If user returns to landing, rebuild landing header controls with a Resume button
   document.addEventListener("retrovault:returnToLibrary", () => {
-    const container = document.getElementById("header-actions");
-    if (!container) return;
-    container.innerHTML = "";
-
-    // Resume button — only shown while a game is paused
-    const btnResume = document.createElement("button");
-    btnResume.className = "btn btn--primary";
-    btnResume.textContent = "▶ Resume";
-    btnResume.title = "Return to the paused game";
-    btnResume.addEventListener("click", onResumeGame);
-    container.appendChild(btnResume);
-
-    const btnSettings = document.createElement("button");
-    btnSettings.className = "btn";
-    btnSettings.textContent = "⚙ Settings";
-    btnSettings.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("retrovault:openSettings"));
-    });
-    if (deviceCaps.isLowSpec || deviceCaps.isChromOS) {
-      const chip = document.createElement("span");
-      chip.className = "perf-chip perf-chip--warn";
-      chip.textContent = deviceCaps.isChromOS ? "⚡ Chromebook" : "⚡ Low-spec";
-      chip.title = deviceCaps.isChromOS
-        ? "Chromebook detected — Performance mode recommended"
-        : "Performance mode recommended for this device";
-      container.appendChild(chip);
-    }
-    container.appendChild(btnSettings);
+    buildLandingControls(settings, deviceCaps, library, (patch) => {
+      Object.assign(settings, patch);
+      saveSettings(settings);
+    }, emulator, onLaunchGame, onResumeGame);
   });
 
   document.addEventListener("retrovault:openSettings", () => {
