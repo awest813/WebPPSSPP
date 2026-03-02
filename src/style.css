@@ -90,6 +90,13 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.app-header__actions::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 /* ── Main area ────────────────────────────────────────────── */
@@ -485,25 +492,34 @@ body {
   transform: translateX(-50%);
   z-index: 30;
   max-width: min(90vw, 580px);
+  width: max-content;
   background: color-mix(in srgb, var(--c-danger) 14%, var(--c-surface));
   border: 1px solid var(--c-danger);
   border-radius: var(--radius);
-  padding: 12px 16px;
+  padding: 10px 12px 10px 16px;
   font-size: 0.85rem;
   line-height: 1.6;
   color: var(--c-text);
   display: none;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Flex layout keeps close button pinned right regardless of message length */
+  align-items: flex-start;
+  gap: 10px;
 }
 
 #error-banner.visible {
-  display: block;
+  display: flex;
+}
+
+#error-message {
+  flex: 1;
+  min-width: 0;
 }
 
 .error-close {
-  float: right;
-  margin-left: 12px;
+  flex-shrink: 0;
+  margin-top: 1px;
   background: none;
   border: none;
   cursor: pointer;

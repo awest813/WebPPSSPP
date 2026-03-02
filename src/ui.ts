@@ -155,8 +155,8 @@ export function buildDOM(app: HTMLElement): void {
 
       <!-- Error banner -->
       <div id="error-banner" role="alert" aria-live="assertive">
-        <button class="error-close" id="error-close" title="Dismiss" aria-label="Dismiss error">✕</button>
         <span id="error-message"></span>
+        <button class="error-close" id="error-close" title="Dismiss" aria-label="Dismiss error">✕</button>
       </div>
 
       <!-- System picker modal -->
@@ -422,13 +422,20 @@ function buildGameCard(
 
   // Launch on click or Enter
   const launch = async () => {
+    showLoadingOverlay();
+    setLoadingMessage(`Loading ${game.name}…`);
     try {
       const entry = await library.getGame(game.id);
-      if (!entry) { showError(`Game "${game.name}" not found in library.`); return; }
+      if (!entry) {
+        hideLoadingOverlay();
+        showError(`Game "${game.name}" not found in library.`);
+        return;
+      }
       const file = new File([entry.blob], entry.fileName, { type: entry.blob.type });
       await library.markPlayed(game.id);
       await onLaunchGame(file, entry.systemId);
     } catch (err) {
+      hideLoadingOverlay();
       showError(`Failed to load game: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
@@ -448,6 +455,7 @@ function systemIcon(systemId: string): string {
     gba:       "🎯",
     gbc:       "🟢",
     gb:        "⬜",
+    nds:       "📱",
     n64:       "🎮",
     psx:       "🔵",
     segaMD:    "⚡",
@@ -541,6 +549,33 @@ async function resolveSystemAndAdd(
     if (!system) return; // user cancelled
   } else {
     system = detected;
+  }
+
+  // Duplicate detection — offer to play the existing library entry instead
+  try {
+    const existing = await library.findByFileName(file.name, system.id);
+    if (existing) {
+      const playExisting = confirm(
+        `"${existing.name}" is already in your library.\n\nPlay the existing copy?`
+      );
+      if (!playExisting) return;
+
+      showLoadingOverlay();
+      setLoadingMessage(`Loading ${existing.name}…`);
+      try {
+        const entry = await library.getGame(existing.id);
+        if (!entry) throw new Error("Library entry not found.");
+        const existingFile = new File([entry.blob], entry.fileName, { type: entry.blob.type });
+        await library.markPlayed(existing.id);
+        await onLaunchGame(existingFile, entry.systemId);
+      } catch (err) {
+        hideLoadingOverlay();
+        showError(`Could not load game: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+  } catch {
+    // If duplicate check fails, fall through and add normally
   }
 
   showLoadingOverlay();
@@ -885,6 +920,13 @@ function updateStatusDot(state: EmulatorState): void {
   label.textContent = labels[state];
 
   if (state === "loading") showLoadingOverlay();
+
+  // Clear game/system metadata when returning to a neutral state
+  if (state === "idle" || state === "error") {
+    setStatusGame("—");
+    setStatusSystem("—");
+    setStatusTier(null);
+  }
 }
 
 // ── Visibility helpers ────────────────────────────────────────────────────────
@@ -923,13 +965,26 @@ function setStatusTier(tier: PerformanceTier | null): void {
   const el2 = document.getElementById("status-tier");
   if (el2) el2.textContent = tier ? formatTierLabel(tier) : "—";
 }
+let _errorDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function showError(msg: string): void {
   const banner = document.getElementById("error-banner");
   const msgEl  = document.getElementById("error-message");
   if (!banner || !msgEl) return;
   msgEl.textContent = msg;
   banner.classList.add("visible");
+
+  // Auto-dismiss after 8 s (cancelled if user manually dismisses or a new error arrives)
+  if (_errorDismissTimer !== null) clearTimeout(_errorDismissTimer);
+  _errorDismissTimer = setTimeout(() => {
+    hideError();
+    _errorDismissTimer = null;
+  }, 8000);
 }
 export function hideError(): void {
+  if (_errorDismissTimer !== null) {
+    clearTimeout(_errorDismissTimer);
+    _errorDismissTimer = null;
+  }
   document.getElementById("error-banner")?.classList.remove("visible");
 }

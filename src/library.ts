@@ -120,6 +120,15 @@ export class GameLibrary {
   }
 
   /**
+   * Find an existing entry with the same fileName and systemId.
+   * Used for duplicate detection before adding a new game.
+   */
+  async findByFileName(fileName: string, systemId: string): Promise<GameEntry | null> {
+    const games = await this.getAllGames();
+    return games.find(g => g.fileName === fileName && g.systemId === systemId) ?? null;
+  }
+
+  /**
    * Remove a game by id.
    */
   async removeGame(id: string): Promise<void> {

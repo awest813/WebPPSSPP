@@ -259,8 +259,9 @@ export class PSPEmulator {
       return;
     }
 
-    // Tear down the previous session so a new game can be launched from the library.
-    if (this._state === "running" || this._state === "paused") {
+    // Tear down any previous session (running, paused, or broken error state)
+    // so a new game can be launched cleanly from the library.
+    if (this._state !== "idle") {
       this._teardown();
     }
 
