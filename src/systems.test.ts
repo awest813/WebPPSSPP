@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { detectSystem, getSystemById } from './systems';
+import { detectSystem, getSystemById, SYSTEMS } from './systems';
 
 describe('systems performance profiles', () => {
   describe('detectSystem', () => {
+    it('correctly maps all unique extensions to their corresponding systems', () => {
+      // Test all supported extensions to ensure mapping acts as expected.
+      // We check that the detected system is either the single system or
+      // an array of candidates that includes the system.
+      for (const system of SYSTEMS) {
+        for (const ext of system.extensions) {
+          const detected = detectSystem(`test_file.${ext}`);
+          if (Array.isArray(detected)) {
+            expect(detected.some(s => s.id === system.id)).toBe(true);
+          } else {
+            expect(detected).not.toBeNull();
+            expect(detected!.id).toBe(system.id);
+          }
+        }
+      }
+    });
+
     it('detects Nintendo DS files', () => {
       const detected = detectSystem('mario.nds');
       expect(Array.isArray(detected)).toBe(false);
@@ -31,6 +48,24 @@ describe('systems performance profiles', () => {
 
       const noExtDetected = detectSystem('game_without_extension');
       expect(noExtDetected).toBeNull();
+    });
+
+    it('returns array of candidates for ambiguous extensions', () => {
+      // We manually mock an ambiguous extension mapping if the current list does not have one
+      // However, we can simply rely on our previous test mapping logic ensuring `Array.isArray` behaves correctly
+      // Let's test standard ambiguity resolution by finding an ambiguous extension dynamically or ensuring coverage works
+      // Since AMBIGUOUS_EXT is private, we will find an ambiguous extension from SYSTEMS
+      const extCounts = new Map<string, number>();
+      SYSTEMS.forEach(s => s.extensions.forEach(e => {
+        extCounts.set(e, (extCounts.get(e) || 0) + 1);
+      }));
+
+      const ambiguousExts = Array.from(extCounts.entries()).filter(([_, c]) => c > 1).map(([e, _]) => e);
+      if (ambiguousExts.length > 0) {
+        const detected = detectSystem(`game.${ambiguousExts[0]}`);
+        expect(Array.isArray(detected)).toBe(true);
+        expect((detected as any[]).length).toBeGreaterThan(1);
+      }
     });
   });
 
