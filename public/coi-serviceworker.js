@@ -100,7 +100,11 @@ if (typeof window === "undefined") {
           })
           .catch(() =>
             caches.match(req).then((cached) =>
-              cached ?? fetch(req)
+              cached ?? new Response("Offline — please check your connection and reload.", {
+                status: 503,
+                statusText: "Service Unavailable",
+                headers: { "Content-Type": "text/plain" },
+              })
             )
           )
       );

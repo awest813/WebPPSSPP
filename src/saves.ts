@@ -67,13 +67,9 @@ function openDB(): Promise<IDBDatabase> {
       }
 
       if (oldVersion < 2) {
-        // v2: label field added — existing entries get empty label via read-write
-        // The field is optional so no structural migration needed; entries just
-        // won't have the key until next save. We still bump the version to allow
-        // future migrations from this baseline.
         const store = req.transaction!.objectStore(STORE_NAME);
         if (!store.indexNames.contains("label")) {
-          // index not strictly needed but enables fast label searches in the future
+          store.createIndex("label", "label", { unique: false });
         }
       }
     };

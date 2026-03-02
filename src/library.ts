@@ -29,6 +29,8 @@
  *   blob        Blob     — the actual ROM file stored in IDB
  */
 
+import type { PerformanceTier } from "./performance.js";
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface GameEntry {
@@ -376,8 +378,6 @@ export class GameLibrary {
  */
 
 const TIER_PROFILE_PREFIX = "rv:tier:";
-
-export type PerformanceTier = "low" | "medium" | "high" | "ultra";
 
 export function getGameTierProfile(gameId: string): PerformanceTier | null {
   try {

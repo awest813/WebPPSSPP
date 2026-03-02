@@ -226,8 +226,8 @@ function main(): void {
 
   // In idle time: load and pre-compile cached shaders from previous sessions
   if ("requestIdleCallback" in window) {
-    window.requestIdleCallback?.(() => emulator.preWarmShaderCache().catch(() => {}));
-    window.requestIdleCallback?.(() => emulator.prefetchLoader());
+    window.requestIdleCallback!(() => emulator.preWarmShaderCache().catch(() => {}));
+    window.requestIdleCallback!(() => emulator.prefetchLoader());
   } else {
     setTimeout(() => emulator.preWarmShaderCache().catch(() => {}), 3000);
     setTimeout(() => emulator.prefetchLoader(), 2000);
