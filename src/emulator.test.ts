@@ -605,7 +605,7 @@ describe('PSPEmulator', () => {
 
     it('does not fire onLowFPS before 10 seconds of sustained low FPS', () => {
       const lowFPSEvents: number[] = [];
-      emulator.onLowFPS = (fps) => lowFPSEvents.push(fps);
+      emulator.onLowFPS = (fps) => { lowFPSEvents.push(fps); };
 
       const baseTime = 1_000_000;
 
@@ -622,7 +622,7 @@ describe('PSPEmulator', () => {
 
     it('fires onLowFPS after 10 actual seconds of sustained low FPS', () => {
       const lowFPSEvents: number[] = [];
-      emulator.onLowFPS = (fps) => lowFPSEvents.push(fps);
+      emulator.onLowFPS = (fps) => { lowFPSEvents.push(fps); };
 
       const baseTime = 2_000_000;
 
@@ -641,7 +641,7 @@ describe('PSPEmulator', () => {
 
     it('resets the timer when FPS recovers, then requires another 10 s', () => {
       const lowFPSEvents: number[] = [];
-      emulator.onLowFPS = (fps) => lowFPSEvents.push(fps);
+      emulator.onLowFPS = (fps) => { lowFPSEvents.push(fps); };
 
       const baseTime = 3_000_000;
       vi.spyOn(performance, 'now').mockReturnValue(baseTime);
@@ -666,7 +666,7 @@ describe('PSPEmulator', () => {
 
     it('does not fire onLowFPS a second time within the 60 s cooldown', () => {
       const lowFPSEvents: number[] = [];
-      emulator.onLowFPS = (fps) => lowFPSEvents.push(fps);
+      emulator.onLowFPS = (fps) => { lowFPSEvents.push(fps); };
 
       const baseTime = 4_000_000;
       vi.spyOn(performance, 'now').mockReturnValue(baseTime);

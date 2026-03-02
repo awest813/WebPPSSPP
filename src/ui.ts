@@ -1023,6 +1023,11 @@ async function handleM3UFile(
 
   try {
     await onLaunchGame(syntheticFile, system.id);
+    // Revoke the disc blob URLs when the user returns to the library. The emulator
+    // core keeps its own reference via the loaded game URL, so revoking here is
+    // safe once the game has started — the emulator holds the data, not the URL.
+    const revokeOnReturn = () => { blobUrls.forEach(u => URL.revokeObjectURL(u)); };
+    document.addEventListener("retrovault:returnToLibrary", revokeOnReturn, { once: true });
   } catch (err) {
     hideLoadingOverlay();
     showError(`Multi-disc launch failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -1797,7 +1802,9 @@ function buildDisplayTab(
     (v) => onSettingsChange({ orientationLock: v })
   ));
 
-  // WebGPU section
+  container.append(overlaySection, mobileSection);
+
+  // WebGPU section — appended last so Overlays and Mobile always appear first
   if (deviceCaps.webgpuAvailable) {
     const gpuSection = make("div", { class: "settings-section" });
     gpuSection.appendChild(make("h4", { class: "settings-section__title" }, "GPU Post-Processing"));
@@ -1834,8 +1841,6 @@ function buildDisplayTab(
 
     container.appendChild(gpuSection);
   }
-
-  container.append(overlaySection, mobileSection);
 }
 
 // ── Library tab ───────────────────────────────────────────────────────────────
@@ -2328,7 +2333,13 @@ export function showError(msg: string): void {
   const banner = document.getElementById("error-banner");
   const msgEl  = document.getElementById("error-message");
   if (!banner || !msgEl) return;
-  msgEl.textContent = msg;
+  msgEl.textContent = "";
+  // Render newlines as <br> so multi-paragraph error messages display correctly
+  const lines = msg.split("\n");
+  lines.forEach((line, i) => {
+    if (i > 0) msgEl.appendChild(document.createElement("br"));
+    msgEl.appendChild(document.createTextNode(line));
+  });
   banner.classList.add("visible");
   if (_errorDismissTimer !== null) clearTimeout(_errorDismissTimer);
   _errorDismissTimer = setTimeout(() => { hideError(); _errorDismissTimer = null; }, 8000);

@@ -1275,10 +1275,12 @@ export class PSPEmulator {
         this._triggerAutoSave();
         window.EJS_emulator?.pause?.();
         this._fpsMonitor.stop();
+        this._setState("paused");
       } else if (!document.hidden && this._pausedByVisibility) {
         this._pausedByVisibility = false;
         window.EJS_emulator?.resume?.();
         this._fpsMonitor.start();
+        this._setState("running");
       }
     };
 

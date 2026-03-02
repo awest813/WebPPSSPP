@@ -499,6 +499,12 @@ function main(): void {
       if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {
         touchOverlay.setHapticEnabled(patch.hapticFeedback);
       }
+      // Show or hide the touch controls overlay immediately when the setting changes
+      // while a game is running so the user sees the effect without relaunching.
+      if (typeof patch.touchControls === "boolean" && touchOverlay) {
+        if (patch.touchControls) touchOverlay.show();
+        else touchOverlay.hide();
+      }
     },
     onReturnToLibrary,
     getCurrentGameId:   () => currentGameId,
