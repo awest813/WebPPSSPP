@@ -392,6 +392,7 @@ function main(): void {
           gameName,
           systemId:   currentSystemId!,
           slot:       AUTO_SAVE_SLOT,
+          label:      "Auto-Save",
           timestamp:  Date.now(),
           thumbnail,
           stateData,

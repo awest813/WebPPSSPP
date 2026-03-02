@@ -35,8 +35,8 @@ describe('saveStateKey', () => {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 describe('Constants', () => {
-  it('MAX_SAVE_SLOTS is 4', () => {
-    expect(MAX_SAVE_SLOTS).toBe(4);
+  it('MAX_SAVE_SLOTS is 8', () => {
+    expect(MAX_SAVE_SLOTS).toBe(8);
   });
 
   it('AUTO_SAVE_SLOT is 0', () => {
@@ -58,6 +58,7 @@ describe('SaveStateLibrary', () => {
       gameName:   overrides.gameName ?? 'Test Game',
       systemId:   overrides.systemId ?? 'nes',
       slot,
+      label:      overrides.label ?? (slot === AUTO_SAVE_SLOT ? 'Auto-Save' : `Slot ${slot}`),
       timestamp:  overrides.timestamp ?? Date.now(),
       thumbnail:  'thumbnail' in overrides ? overrides.thumbnail! : null,
       stateData:  'stateData' in overrides ? overrides.stateData! : new Blob(['state-data']),
