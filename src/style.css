@@ -20,6 +20,7 @@
   --c-accent-h:  #6fa3ff;
   --c-danger:    #e05252;
   --c-warn:      #e0a052;
+  --c-success:   #2e7d32;
   --c-success:   #52c97a;
   --c-text:      #d8dce8;
   --c-text-dim:  #7a8099;
@@ -1605,4 +1606,28 @@ body {
     animation: none;
     border-color: rgba(79,142,247,0.6);
   }
+}
+
+/* ── Info toast (success / neutral notifications) ──────────────────────────── */
+
+.info-toast {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 950;
+  padding: 0.65rem 1.2rem;
+  background: var(--c-success, #2e7d32);
+  color: #fff;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  transform: translateY(-100%);
+  transition: transform 0.25s ease;
+}
+
+.info-toast.visible {
+  transform: translateY(0);
 }

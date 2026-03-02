@@ -363,6 +363,7 @@ export function initUI(opts: UIOptions): void {
       const overlay = getTouchOverlay?.();
       if (overlay) requestAnimationFrame(() => overlay.show());
     }
+    document.dispatchEvent(new CustomEvent("retrovault:gameStarted"));
   };
 
   // ── Resume game (triggered by "▶ Resume" button via retrovault:resumeGame) ─
@@ -1267,7 +1268,7 @@ async function persistSaveMetadata(
     const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
 
     const stateBytes = emulator.readStateData(slot);
-    const stateData  = stateBytes ? new Blob([stateBytes.slice().buffer]) : null;
+    const stateData  = stateBytes ? new Blob([stateBytes.buffer as ArrayBuffer]) : null;
 
     const entry: SaveStateEntry = {
       id:         saveStateKey(gameId, slot),
@@ -1870,9 +1871,9 @@ function buildSettingsContent(
       try {
         const count = await saveLibrary.migrateSaves(source.id, target.id, target.name);
         if (count > 0) {
-          showError(`Migrated ${count} save state${count !== 1 ? "s" : ""} from "${source.name}" to "${target.name}".`);
+          showInfoToast(`Migrated ${count} save state${count !== 1 ? "s" : ""} from "${source.name}" to "${target.name}".`);
         } else {
-          showError(`No saves found for "${source.name}".`);
+          showInfoToast(`No saves found for "${source.name}".`);
         }
       } catch (err) {
         showError(`Migration failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -2454,4 +2455,36 @@ export function hideError(): void {
     _errorDismissTimer = null;
   }
   document.getElementById("error-banner")?.classList.remove("visible");
+}
+
+/**
+ * Show a non-blocking info/success toast that auto-dismisses after 5 s.
+ * Uses the same positioning as the error banner but with a neutral style.
+ */
+export function showInfoToast(msg: string): void {
+  const existing = document.getElementById("info-toast");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "info-toast";
+  toast.className = "info-toast";
+  toast.setAttribute("role", "status");
+  toast.textContent = msg;
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "error-close";
+  closeBtn.textContent = "✕";
+  closeBtn.setAttribute("aria-label", "Dismiss");
+  closeBtn.addEventListener("click", () => {
+    toast.classList.remove("visible");
+    setTimeout(() => toast.remove(), 200);
+  });
+  toast.appendChild(closeBtn);
+  document.body.appendChild(toast);
+
+  requestAnimationFrame(() => toast.classList.add("visible"));
+  setTimeout(() => {
+    toast.classList.remove("visible");
+    setTimeout(() => toast.remove(), 200);
+  }, 5000);
 }

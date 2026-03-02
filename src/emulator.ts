@@ -172,6 +172,7 @@ class FPSMonitor {
     this._targetFPS = targetFPS;
     this._windowSize = 60;
     this._ring = new Float64Array(this._windowSize);
+    this._tick = this._tick.bind(this);
   }
 
   set onUpdate(cb: ((snapshot: FPSSnapshot) => void) | undefined) {
@@ -188,7 +189,6 @@ class FPSMonitor {
     this._frameCount = 0;
     this._lastTime = performance.now();
     this._enabled = true;
-    this._tick = this._tick.bind(this);
     this._rafId = requestAnimationFrame(this._tick);
   }
 

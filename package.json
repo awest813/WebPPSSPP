@@ -1,7 +1,7 @@
 {
-  "name": "web-psp-emulator",
+  "name": "retrovault",
   "version": "1.0.0",
-  "description": "Web PSP Emulator powered by EmulatorJS (PPSSPP core) and Vite",
+  "description": "Browser-based multi-system retro game emulator powered by EmulatorJS and WebAssembly",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -274,28 +274,34 @@ function main(): void {
     currentGameId       = gameId ?? null;
 
     // Check for auto-save restore opportunity
+    let pendingAutoRestore: Uint8Array | null = null;
     if (gameId && settings.autoSaveEnabled) {
       try {
         const shouldRestore = await promptAutoSaveRestore(saveLibrary, gameId);
         if (shouldRestore) {
           const autoState = await saveLibrary.getState(gameId, AUTO_SAVE_SLOT);
           if (autoState?.stateData) {
-            const stateBytes = new Uint8Array(await autoState.stateData.arrayBuffer());
-            // We'll write the state data after the emulator launches and load it
-            const origOnGameStart = emulator.onGameStart;
-            emulator.onGameStart = () => {
-              origOnGameStart?.();
-              setTimeout(() => {
-                if (emulator.writeStateData(AUTO_SAVE_SLOT, stateBytes)) {
-                  emulator.quickLoad(AUTO_SAVE_SLOT);
-                }
-              }, 500);
-            };
+            pendingAutoRestore = new Uint8Array(await autoState.stateData.arrayBuffer());
           }
         }
       } catch {
         // Auto-save restore is best-effort
       }
+    }
+
+    // One-shot auto-restore: inject via a listener that removes itself after firing,
+    // avoiding the stale-handler leak of monkey-patching emulator.onGameStart.
+    if (pendingAutoRestore) {
+      const stateBytes = pendingAutoRestore;
+      const restoreHandler = () => {
+        document.removeEventListener("retrovault:gameStarted", restoreHandler);
+        setTimeout(() => {
+          if (emulator.writeStateData(AUTO_SAVE_SLOT, stateBytes)) {
+            emulator.quickLoad(AUTO_SAVE_SLOT);
+          }
+        }, 500);
+      };
+      document.addEventListener("retrovault:gameStarted", restoreHandler);
     }
 
     // Apply per-game tier profile if no explicit override was requested
@@ -361,7 +367,7 @@ function main(): void {
         const screenshot = await emulator.captureScreenshot();
         const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
         const stateBytes = emulator.readStateData(AUTO_SAVE_SLOT);
-        const stateData  = stateBytes ? new Blob([stateBytes.slice().buffer]) : null;
+        const stateData  = stateBytes ? new Blob([stateBytes.buffer as ArrayBuffer]) : null;
 
         await saveLibrary.saveState({
           id:         saveStateKey(currentGameId!, AUTO_SAVE_SLOT),

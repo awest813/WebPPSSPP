@@ -934,7 +934,10 @@ export const SYSTEMS: SystemInfo[] = [
   },
 ];
 
-// ── Extension lookup tables ───────────────────────────────────────────────────
+// ── Lookup tables ─────────────────────────────────────────────────────────────
+
+/** System id → SystemInfo for O(1) lookup. */
+const SYSTEM_BY_ID: Map<string, SystemInfo> = new Map();
 
 /** Extension → single unambiguous system. */
 const UNIQUE_EXT: Map<string, SystemInfo> = new Map();
@@ -944,6 +947,7 @@ const AMBIGUOUS_EXT: Map<string, SystemInfo[]> = new Map();
 (function buildMaps() {
   const extToSystems = new Map<string, SystemInfo[]>();
   for (const sys of SYSTEMS) {
+    SYSTEM_BY_ID.set(sys.id, sys);
     for (const ext of sys.extensions) {
       if (!extToSystems.has(ext)) extToSystems.set(ext, []);
       extToSystems.get(ext)!.push(sys);
@@ -978,7 +982,7 @@ export function detectSystem(
   return null;
 }
 
-/** Look up a system by its EJS core identifier. */
+/** Look up a system by its EJS core identifier (O(1) via Map). */
 export function getSystemById(id: string): SystemInfo | undefined {
-  return SYSTEMS.find(s => s.id === id);
+  return SYSTEM_BY_ID.get(id);
 }

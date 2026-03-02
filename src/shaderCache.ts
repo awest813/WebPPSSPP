@@ -117,6 +117,7 @@ interface ParallelShaderExt {
 // ── ShaderCache class ─────────────────────────────────────────────────────────
 
 export class ShaderCache {
+  private _writesSinceEviction = 0;
   /**
    * Load all cached shader programs from IndexedDB.
    * Returns an empty array if the cache is empty or IDB is unavailable.
@@ -155,13 +156,18 @@ export class ShaderCache {
       };
       await idbPut(store, entry);
 
-      // LRU eviction: trim to MAX_PROGRAMS by lastUsed ascending
-      const all = await idbGetAll<CachedProgram>(store);
-      if (all.length > MAX_PROGRAMS) {
-        all.sort((a, b) => a.lastUsed - b.lastUsed);
-        const toDelete = all.slice(0, all.length - MAX_PROGRAMS);
-        for (const old of toDelete) {
-          store.delete(old.key);
+      // LRU eviction: only check every 10 writes to avoid reading
+      // all records on every shader compilation.
+      this._writesSinceEviction++;
+      if (this._writesSinceEviction >= 10) {
+        this._writesSinceEviction = 0;
+        const all = await idbGetAll<CachedProgram>(store);
+        if (all.length > MAX_PROGRAMS) {
+          all.sort((a, b) => a.lastUsed - b.lastUsed);
+          const toDelete = all.slice(0, all.length - MAX_PROGRAMS);
+          for (const old of toDelete) {
+            store.delete(old.key);
+          }
         }
       }
     } catch {
