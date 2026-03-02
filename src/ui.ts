@@ -11,6 +11,10 @@
  *   loading    — spinner during emulator boot
  *   error      — dismissible error banner
  *
+ * FPS overlay:
+ *   Shown in-game when settings.showFPS is true. Displays current / average
+ *   FPS, performance tier, and dropped-frame count.
+ *
  * Keyboard shortcuts (global, while emulator is running):
  *   F5  → Quick Save slot 1
  *   F7  → Quick Load slot 1
@@ -21,6 +25,7 @@
 import {
   PSPEmulator,
   type EmulatorState,
+  type FPSSnapshot,
 } from "./emulator.js";
 import {
   SYSTEMS,
@@ -39,6 +44,7 @@ import {
   type DeviceCapabilities,
   type PerformanceMode,
   formatCapabilitiesSummary,
+  formatTierLabel,
 } from "./performance.js";
 import type { Settings } from "./main.js";
 
@@ -131,6 +137,13 @@ export function buildDOM(app: HTMLElement): void {
       <!-- EmulatorJS mount point (hidden until a game launches) -->
       <div id="ejs-container">
         <div id="ejs-player"></div>
+        <!-- FPS overlay (positioned over the game canvas) -->
+        <div id="fps-overlay" class="fps-overlay" hidden>
+          <span id="fps-current">-- FPS</span>
+          <span id="fps-avg" class="fps-detail">avg --</span>
+          <span id="fps-tier" class="fps-detail"></span>
+          <span id="fps-dropped" class="fps-detail fps-warn" hidden>0 dropped</span>
+        </div>
       </div>
 
       <!-- Loading overlay -->
@@ -193,6 +206,10 @@ export function buildDOM(app: HTMLElement): void {
         <span class="status-item__label">Game:</span>
         <span class="status-item__value" id="status-game">—</span>
       </div>
+      <div class="status-item hide-mobile">
+        <span class="status-item__label">Tier:</span>
+        <span class="status-item__value" id="status-tier">—</span>
+      </div>
     </footer>
   `;
 }
@@ -253,6 +270,11 @@ export function initUI(opts: UIOptions): void {
   // ── Error banner ──────────────────────────────────────────────────────────
   el("#error-close").addEventListener("click", hideError);
 
+  // ── FPS overlay wiring ────────────────────────────────────────────────────
+  emulator.onFPSUpdate = (snapshot) => {
+    if (settings.showFPS) updateFPSOverlay(snapshot, emulator);
+  };
+
   // ── Emulator lifecycle → DOM ──────────────────────────────────────────────
   emulator.onStateChange = (state) => updateStatusDot(state);
   emulator.onProgress    = (msg)   => setLoadingMessage(msg);
@@ -268,8 +290,10 @@ export function initUI(opts: UIOptions): void {
     const name = settings.lastGameName ?? "Unknown";
     setStatusSystem(sys ? sys.shortName : "—");
     setStatusGame(name);
+    setStatusTier(emulator.activeTier);
     document.title = `${name} — RetroVault`;
     buildInGameControls(emulator, settings, onSettingsChange, onReturnToLibrary);
+    showFPSOverlay(settings.showFPS);
   };
 
   // ── Resume game (triggered by "▶ Resume" button via retrovault:resumeGame) ─
@@ -282,6 +306,7 @@ export function initUI(opts: UIOptions): void {
     setStatusSystem(sys ? sys.shortName : "—");
     setStatusGame(name);
     buildInGameControls(emulator, settings, onSettingsChange, onReturnToLibrary);
+    showFPSOverlay(settings.showFPS);
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -576,6 +601,18 @@ function buildInGameControls(
     if (confirm("Reset the game? Unsaved progress will be lost.")) emulator.reset();
   });
 
+  // FPS toggle button
+  const btnFPS = make("button", {
+    class: settings.showFPS ? "btn btn--active" : "btn",
+    title: "Toggle FPS overlay",
+  }, "FPS");
+  btnFPS.addEventListener("click", () => {
+    settings.showFPS = !settings.showFPS;
+    onSettingsChange({ showFPS: settings.showFPS });
+    btnFPS.className = settings.showFPS ? "btn btn--active" : "btn";
+    showFPSOverlay(settings.showFPS);
+  });
+
   // Volume control
   const volWrap  = make("label", { class: "btn vol-control", style: "cursor:default" });
   const volIcon  = make("span", {}, settings.volume === 0 ? "🔇" : "🔊");
@@ -593,7 +630,7 @@ function buildInGameControls(
   });
 
   volWrap.append(volIcon, volSlider);
-  container.append(btnLibrary, btnSave, btnLoad, btnReset, volWrap);
+  container.append(btnLibrary, btnSave, btnLoad, btnReset, btnFPS, volWrap);
 }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
@@ -627,13 +664,13 @@ function buildSettingsContent(
   const perfSection = make("div", { class: "settings-section" });
   perfSection.appendChild(make("h4", { class: "settings-section__title" }, "Performance Mode"));
   perfSection.appendChild(make("p", { class: "settings-help" },
-    "Controls rendering resolution and frameskip for demanding systems (PSP, N64)."
+    "Controls rendering resolution, frameskip, and GPU settings for demanding systems (PSP, N64)."
   ));
 
   const modes: Array<{ value: PerformanceMode; label: string; desc: string }> = [
-    { value: "auto",        label: "Auto (recommended)", desc: "Detected: " + (deviceCaps.isLowSpec ? "Performance" : "Quality") },
-    { value: "performance", label: "Performance",        desc: "1× resolution, auto frameskip — best for low-spec devices" },
-    { value: "quality",     label: "Quality",            desc: "Higher resolution, no frameskip" },
+    { value: "auto",        label: `Auto (recommended)`, desc: `Detected tier: ${formatTierLabel(deviceCaps.tier)} → ${deviceCaps.isLowSpec || deviceCaps.tier === "medium" ? "Performance" : "Quality"} mode` },
+    { value: "performance", label: "Performance",        desc: "1× resolution, auto frameskip, lazy texture caching — best for low-spec devices" },
+    { value: "quality",     label: "Quality",            desc: "Higher resolution, texture upscaling, no frameskip" },
   ];
 
   for (const m of modes) {
@@ -652,6 +689,22 @@ function buildSettingsContent(
     perfSection.appendChild(row);
   }
 
+  // ── FPS Overlay toggle ────────────────────────────────────────────────────
+  const fpsRow = make("label", { class: "radio-row" });
+  const fpsCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
+  fpsCheck.checked = settings.showFPS;
+  fpsCheck.addEventListener("change", () => {
+    onSettingsChange({ showFPS: fpsCheck.checked });
+    showFPSOverlay(fpsCheck.checked);
+  });
+  const fpsTxt = make("span", { class: "radio-row__text" });
+  fpsTxt.append(
+    make("span", { class: "radio-row__label" }, "Show FPS overlay"),
+    make("span", { class: "radio-row__desc"  }, "Display real-time framerate and performance tier while playing")
+  );
+  fpsRow.append(fpsCheck, fpsTxt);
+  perfSection.appendChild(fpsRow);
+
   // ── Device Info ───────────────────────────────────────────────────────────
   const deviceSection = make("div", { class: "settings-section" });
   deviceSection.appendChild(make("h4", { class: "settings-section__title" }, "Device Info"));
@@ -659,10 +712,29 @@ function buildSettingsContent(
   const capText = formatCapabilitiesSummary(deviceCaps);
   deviceSection.appendChild(make("p", { class: "device-info" }, capText));
 
-  const tierBadge = make("span", {
-    class: deviceCaps.isLowSpec ? "tier-badge tier-badge--warn" : "tier-badge tier-badge--ok",
-  }, deviceCaps.isLowSpec ? "⚡ Low-spec — Performance mode recommended" : "✓ Good hardware for emulation");
+  // Tier badge with score
+  const tierText = `${formatTierLabel(deviceCaps.tier)} tier (GPU score: ${deviceCaps.gpuBenchmarkScore}/100)`;
+  const tierClass = deviceCaps.tier === "low"
+    ? "tier-badge tier-badge--warn"
+    : deviceCaps.tier === "medium"
+      ? "tier-badge tier-badge--mid"
+      : "tier-badge tier-badge--ok";
+  const tierBadge = make("span", { class: tierClass }, tierText);
   deviceSection.appendChild(tierBadge);
+
+  // GPU capabilities
+  const gpuDetails = make("div", { class: "device-info-details" });
+  gpuDetails.appendChild(make("p", { class: "device-info" },
+    `Max texture size: ${deviceCaps.gpuCaps.maxTextureSize}px`));
+  if (deviceCaps.gpuCaps.anisotropicFiltering) {
+    gpuDetails.appendChild(make("p", { class: "device-info" },
+      `Anisotropic filtering: ${deviceCaps.gpuCaps.maxAnisotropy}×`));
+  }
+  gpuDetails.appendChild(make("p", { class: "device-info" },
+    `Float textures: ${deviceCaps.gpuCaps.floatTextures ? "Yes" : "No"}`));
+  gpuDetails.appendChild(make("p", { class: "device-info" },
+    `Instanced arrays: ${deviceCaps.gpuCaps.instancedArrays ? "Yes" : "No"}`));
+  deviceSection.appendChild(gpuDetails);
 
   const webglRow = make("p", { class: "device-info" },
     `WebGL 2: ${document.createElement("canvas").getContext("webgl2") ? "✓ Available" : "✗ Not available"}`
@@ -713,6 +785,42 @@ function buildSettingsContent(
   container.append(perfSection, deviceSection, libSection, sysSection);
 }
 
+// ── FPS overlay ───────────────────────────────────────────────────────────────
+
+function showFPSOverlay(show: boolean): void {
+  const overlay = document.getElementById("fps-overlay");
+  if (overlay) overlay.hidden = !show;
+}
+
+function updateFPSOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
+  const currentEl = document.getElementById("fps-current");
+  const avgEl     = document.getElementById("fps-avg");
+  const tierEl    = document.getElementById("fps-tier");
+  const droppedEl = document.getElementById("fps-dropped");
+
+  if (currentEl) {
+    currentEl.textContent = `${snapshot.current} FPS`;
+    // Colour-code: green ≥50, yellow ≥30, red <30
+    currentEl.className = snapshot.current >= 50
+      ? "fps-good"
+      : snapshot.current >= 30
+        ? "fps-ok"
+        : "fps-bad";
+  }
+  if (avgEl) avgEl.textContent = `avg ${snapshot.average}`;
+  if (tierEl && emulator.activeTier) {
+    tierEl.textContent = formatTierLabel(emulator.activeTier);
+  }
+  if (droppedEl) {
+    if (snapshot.droppedFrames > 0) {
+      droppedEl.textContent = `${snapshot.droppedFrames} dropped`;
+      droppedEl.hidden = false;
+    } else {
+      droppedEl.hidden = true;
+    }
+  }
+}
+
 // ── State-driven DOM updates ──────────────────────────────────────────────────
 
 function updateStatusDot(state: EmulatorState): void {
@@ -760,6 +868,10 @@ export function setStatusGame(name: string): void {
 export function setStatusSystem(name: string): void {
   const el2 = document.getElementById("status-system");
   if (el2) el2.textContent = name;
+}
+function setStatusTier(tier: string | null): void {
+  const el2 = document.getElementById("status-tier");
+  if (el2) el2.textContent = tier ? formatTierLabel(tier as any) : "—";
 }
 export function showError(msg: string): void {
   const banner = document.getElementById("error-banner");

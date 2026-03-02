@@ -1,5 +1,5 @@
 /**
- * emulator.ts — Multi-system EmulatorJS wrapper
+ * emulator.ts — Multi-system EmulatorJS wrapper with performance enhancements
  *
  * EmulatorJS is loaded from the CDN at runtime by injecting a <script> tag for
  * "data/loader.js". It exposes its runtime entirely through globals:
@@ -8,15 +8,19 @@
  *   - window.EJS_ready        callback – fires once the emulator UI is built
  *   - window.EJS_onGameStart  callback – fires once the game is actually running
  *
- * Supported systems are defined in systems.ts. Each system declares:
- *   - needsThreads  → whether SharedArrayBuffer is required
- *   - needsWebGL2   → whether a WebGL 2 context is required
- *   - perfSettings  → RetroArch core-option overrides for low-spec devices
- *   - qualitySettings → overrides for quality mode
+ * Performance enhancements:
+ *   - Core preloading: <link rel="preconnect"> and prefetch hints for CDN
+ *   - Tier-aware settings: picks the right PPSSPP config per hardware tier
+ *   - Page Visibility API: auto-pauses when tab is hidden to save resources
+ *   - FPS monitoring: tracks real-time framerate via rAF for diagnostics
+ *   - Memory-aware blob management: revokes URLs promptly, warns on large ROMs
  */
 
 import { getSystemById, type SystemInfo } from "./systems.js";
-import { resolveMode, type PerformanceMode, type DeviceCapabilities } from "./performance.js";
+import {
+  resolveMode, resolveTier,
+  type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
+} from "./performance.js";
 
 // ── EJS global type declarations ─────────────────────────────────────────────
 
@@ -54,9 +58,109 @@ interface EJSEmulatorInstance {
 
 export const EJS_CDN_BASE = "https://cdn.emulatorjs.org/stable/data/";
 
+/** Warn when a ROM file exceeds this size (500 MB). */
+const LARGE_ROM_THRESHOLD = 500 * 1024 * 1024;
+
 // ── State machine ─────────────────────────────────────────────────────────────
 
 export type EmulatorState = "idle" | "loading" | "running" | "paused" | "error";
+
+// ── FPS monitor ───────────────────────────────────────────────────────────────
+
+export interface FPSSnapshot {
+  /** Current instantaneous FPS. */
+  current: number;
+  /** Average FPS over the sampling window. */
+  average: number;
+  /** Minimum FPS seen in the sampling window. */
+  min: number;
+  /** Maximum FPS seen in the sampling window. */
+  max: number;
+  /** Number of dropped frames (below 50% of target). */
+  droppedFrames: number;
+}
+
+class FPSMonitor {
+  private _rafId: number | null = null;
+  private _frameTimes: number[] = [];
+  private _lastTime = 0;
+  private _droppedFrames = 0;
+  private _targetFPS = 60;
+  private _windowSize = 60; // samples to keep
+  private _onUpdate?: (snapshot: FPSSnapshot) => void;
+
+  constructor(targetFPS = 60) {
+    this._targetFPS = targetFPS;
+  }
+
+  set onUpdate(cb: ((snapshot: FPSSnapshot) => void) | undefined) {
+    this._onUpdate = cb;
+  }
+
+  start(): void {
+    if (this._rafId !== null) return;
+    this._frameTimes = [];
+    this._droppedFrames = 0;
+    this._lastTime = performance.now();
+    this._tick = this._tick.bind(this);
+    this._rafId = requestAnimationFrame(this._tick);
+  }
+
+  stop(): void {
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+  }
+
+  getSnapshot(): FPSSnapshot {
+    if (this._frameTimes.length === 0) {
+      return { current: 0, average: 0, min: 0, max: 0, droppedFrames: 0 };
+    }
+
+    const times = this._frameTimes;
+    const current = times.length > 0 ? 1000 / times[times.length - 1] : 0;
+    const avg = times.reduce((s, t) => s + t, 0) / times.length;
+    const average = avg > 0 ? 1000 / avg : 0;
+    const min = 1000 / Math.max(...times);
+    const max = 1000 / Math.min(...times.filter(t => t > 0));
+
+    return {
+      current: Math.round(current),
+      average: Math.round(average),
+      min: Math.round(min),
+      max: isFinite(max) ? Math.round(max) : 0,
+      droppedFrames: this._droppedFrames,
+    };
+  }
+
+  private _tick(now: number): void {
+    const delta = now - this._lastTime;
+    this._lastTime = now;
+
+    if (delta > 0 && delta < 1000) {
+      this._frameTimes.push(delta);
+
+      // Trim to window size
+      if (this._frameTimes.length > this._windowSize) {
+        this._frameTimes.shift();
+      }
+
+      // Detect dropped frames: frame time > 2× target interval
+      const targetInterval = 1000 / this._targetFPS;
+      if (delta > targetInterval * 2) {
+        this._droppedFrames++;
+      }
+
+      // Notify every 10 frames
+      if (this._frameTimes.length % 10 === 0) {
+        this._onUpdate?.(this.getSnapshot());
+      }
+    }
+
+    this._rafId = requestAnimationFrame(this._tick);
+  }
+}
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -72,25 +176,78 @@ export interface LaunchOptions {
   deviceCaps: DeviceCapabilities;
 }
 
-// ── PSPEmulator → MultiEmulator ───────────────────────────────────────────────
+// ── PSPEmulator ───────────────────────────────────────────────────────────────
 
 export class PSPEmulator {
   private _state: EmulatorState = "idle";
   private _blobUrl: string | null = null;
   private readonly _playerId: string;
   private _currentSystem: SystemInfo | null = null;
+  private _fpsMonitor: FPSMonitor;
+  private _visibilityHandler: (() => void) | null = null;
+  private _pausedByVisibility = false;
+  private _preconnected = false;
+  private _activeTier: PerformanceTier | null = null;
 
   onStateChange?: (state: EmulatorState) => void;
   onProgress?:    (msg:   string)        => void;
   onError?:       (msg:   string)        => void;
   onGameStart?:   ()                     => void;
+  onFPSUpdate?:   (snapshot: FPSSnapshot) => void;
 
   constructor(playerId: string) {
     this._playerId = playerId;
+    this._fpsMonitor = new FPSMonitor(60);
+    this._fpsMonitor.onUpdate = (snap) => this.onFPSUpdate?.(snap);
   }
 
   get state(): EmulatorState { return this._state; }
   get currentSystem(): SystemInfo | null { return this._currentSystem; }
+  get activeTier(): PerformanceTier | null { return this._activeTier; }
+
+  /** Get the current FPS snapshot (call anytime while running). */
+  getFPS(): FPSSnapshot { return this._fpsMonitor.getSnapshot(); }
+
+  // ── Preloading ────────────────────────────────────────────────────────────
+
+  /**
+   * Inject preconnect and dns-prefetch hints for the EmulatorJS CDN.
+   * Call once at startup to reduce latency when a game is launched.
+   */
+  preconnect(): void {
+    if (this._preconnected) return;
+    this._preconnected = true;
+
+    const cdnOrigin = new URL(EJS_CDN_BASE).origin;
+
+    // DNS prefetch
+    const dns = document.createElement("link");
+    dns.rel = "dns-prefetch";
+    dns.href = cdnOrigin;
+    document.head.appendChild(dns);
+
+    // Preconnect (includes TLS handshake)
+    const pc = document.createElement("link");
+    pc.rel = "preconnect";
+    pc.href = cdnOrigin;
+    pc.crossOrigin = "anonymous";
+    document.head.appendChild(pc);
+  }
+
+  /**
+   * Prefetch the EmulatorJS loader script so it's in the browser cache
+   * before the user actually launches a game.
+   */
+  prefetchLoader(): void {
+    const loaderUrl = `${EJS_CDN_BASE}loader.js`;
+    if (document.querySelector(`link[href="${loaderUrl}"]`)) return;
+
+    const link = document.createElement("link");
+    link.rel = "prefetch";
+    link.href = loaderUrl;
+    link.as = "script";
+    document.head.appendChild(link);
+  }
 
   // ── launch ──────────────────────────────────────────────────────────────────
 
@@ -118,6 +275,14 @@ export class PSPEmulator {
     if (system.needsWebGL2   && !this._checkWebGL2())            return;
     if (!this._validateFile(opts.file, system))                  return;
 
+    // ── Large ROM warning ───────────────────────────────────────────────────
+    if (opts.file.size > LARGE_ROM_THRESHOLD) {
+      console.warn(
+        `[RetroVault] Large ROM detected (${(opts.file.size / 1024 / 1024).toFixed(0)} MB). ` +
+        `This may cause memory pressure in the browser. Consider using a CSO/compressed format.`
+      );
+    }
+
     this._setState("loading");
     this._emit("onProgress", "Preparing game file…");
 
@@ -129,11 +294,21 @@ export class PSPEmulator {
 
       this._emit("onProgress", "Initialising EmulatorJS…");
 
-      // ── Resolve performance settings ──────────────────────────────────────
-      const mode        = resolveMode(opts.performanceMode, opts.deviceCaps);
-      const ejsSettings = mode === "performance"
-        ? system.perfSettings
-        : system.qualitySettings;
+      // ── Resolve performance settings (tier-aware) ───────────────────────
+      const tier = resolveTier(opts.performanceMode, opts.deviceCaps);
+      this._activeTier = tier;
+
+      let ejsSettings: Record<string, string>;
+
+      // Use tier-specific settings if available, else fall back to binary mode
+      if (system.tierSettings && system.tierSettings[tier]) {
+        ejsSettings = { ...system.tierSettings[tier] };
+      } else {
+        const mode = resolveMode(opts.performanceMode, opts.deviceCaps);
+        ejsSettings = mode === "performance"
+          ? system.perfSettings
+          : system.qualitySettings;
+      }
 
       // ── Set EJS globals ───────────────────────────────────────────────────
       window.EJS_player        = `#${this._playerId}`;
@@ -159,6 +334,8 @@ export class PSPEmulator {
 
       window.EJS_onGameStart = () => {
         this._setState("running");
+        this._fpsMonitor.start();
+        this._installVisibilityHandler();
         this.onGameStart?.();
       };
 
@@ -204,17 +381,53 @@ export class PSPEmulator {
   pause(): void {
     if (this._state !== "running") return;
     window.EJS_emulator?.pause?.();
+    this._fpsMonitor.stop();
     this._setState("paused");
   }
 
   resume(): void {
     if (this._state !== "paused") return;
     window.EJS_emulator?.resume?.();
+    this._fpsMonitor.start();
     this._setState("running");
   }
 
   dispose(): void {
     this._teardown();
+  }
+
+  // ── Page Visibility ─────────────────────────────────────────────────────────
+
+  /**
+   * Auto-pause emulation when the browser tab is hidden.
+   * This frees CPU/GPU resources and prevents unnecessary battery drain.
+   */
+  private _installVisibilityHandler(): void {
+    this._removeVisibilityHandler();
+
+    this._visibilityHandler = () => {
+      if (document.hidden && this._state === "running") {
+        this._pausedByVisibility = true;
+        window.EJS_emulator?.pause?.();
+        this._fpsMonitor.stop();
+        // Don't change _state — the user didn't explicitly pause.
+        // We resume transparently when the tab is visible again.
+      } else if (!document.hidden && this._pausedByVisibility) {
+        this._pausedByVisibility = false;
+        window.EJS_emulator?.resume?.();
+        this._fpsMonitor.start();
+      }
+    };
+
+    document.addEventListener("visibilitychange", this._visibilityHandler);
+  }
+
+  private _removeVisibilityHandler(): void {
+    if (this._visibilityHandler) {
+      document.removeEventListener("visibilitychange", this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+    this._pausedByVisibility = false;
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
@@ -278,6 +491,8 @@ export class PSPEmulator {
    * resets all EJS globals so the loader re-initialises cleanly.
    */
   private _teardown(): void {
+    this._fpsMonitor.stop();
+    this._removeVisibilityHandler();
     this._revokeBlobUrl();
     document.querySelector("script[data-ejs-loader]")?.remove();
     const playerEl = document.getElementById(this._playerId);
@@ -286,6 +501,7 @@ export class PSPEmulator {
     delete window.EJS_ready;
     delete window.EJS_onGameStart;
     this._currentSystem = null;
+    this._activeTier = null;
     this._setState("idle");
   }
 

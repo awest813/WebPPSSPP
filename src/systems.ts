@@ -4,7 +4,13 @@
  * EmulatorJS supports many systems via RetroArch cores. Each system
  * definition here maps to an EmulatorJS core identifier plus metadata
  * used throughout the UI (badges, colours, performance settings).
+ *
+ * PSP settings are now tier-aware: low / medium / high / ultra each
+ * map to a different combination of PPSSPP RetroArch core options for
+ * optimal performance-to-quality ratio on each hardware class.
  */
+
+import type { PerformanceTier } from "./performance.js";
 
 // ── System definition ─────────────────────────────────────────────────────────
 
@@ -32,6 +38,148 @@ export interface SystemInfo {
    * EJS_Settings overrides applied in normal "quality" mode.
    */
   qualitySettings: Record<string, string>;
+  /**
+   * Optional tier-aware settings for systems that benefit from granular
+   * tuning (PSP, N64). When present, these override perfSettings/qualitySettings.
+   */
+  tierSettings?: Record<PerformanceTier, Record<string, string>>;
+}
+
+// ── PPSSPP tier-specific core options ─────────────────────────────────────────
+
+/**
+ * Comprehensive PPSSPP RetroArch core options tuned for each hardware tier.
+ *
+ * Option reference (PPSSPP libretro):
+ *   ppsspp_internal_resolution  — Rendering resolution multiplier (1–10)
+ *   ppsspp_auto_frameskip       — Dynamic frameskip to maintain speed
+ *   ppsspp_frameskip            — Fixed number of frames to skip (0–9)
+ *   ppsspp_frameskip_type       — "Number of frames" or "Percent of FPS"
+ *   ppsspp_fast_memory          — Skip memory access safety checks (faster)
+ *   ppsspp_block_transfer_gpu   — Use GPU for block transfers (faster rendering)
+ *   ppsspp_texture_scaling_level — Texture upscale factor (1–5, 1=off)
+ *   ppsspp_texture_scaling_type  — Upscale algorithm (xBRZ, hybrid, etc.)
+ *   ppsspp_texture_filtering     — Anisotropic filtering level
+ *   ppsspp_texture_deposterize   — Reduce colour banding in textures
+ *   ppsspp_gpu_hardware_transform — Hardware vertex transform (vs software)
+ *   ppsspp_vertex_cache          — Cache transformed vertices (faster)
+ *   ppsspp_lazy_texture_caching  — Skip re-hashing unchanged textures
+ *   ppsspp_retain_changed_textures — Keep modified textures in VRAM
+ *   ppsspp_spline_quality        — Spline/bezier curve quality (low/medium/high)
+ *   ppsspp_software_skinning     — GPU-side vertex skinning
+ *   ppsspp_io_timing_method      — I/O timing (fast/host/simulate UMD)
+ *   ppsspp_lower_resolution_for_effects — Reduce resolution for post-processing
+ *   ppsspp_inflight_frames       — CPU-GPU pipeline depth (improves throughput)
+ *   ppsspp_rendering_mode        — Buffered vs non-buffered rendering
+ *   ppsspp_cpu_core              — JIT vs interpreter
+ */
+const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  // ── Low: maximum performance, minimum quality ──────────────────────────────
+  low: {
+    ppsspp_internal_resolution: "1",        // Native 480×272
+    ppsspp_auto_frameskip: "enabled",
+    ppsspp_frameskip: "1",
+    ppsspp_frameskip_type: "Number of frames",
+    ppsspp_fast_memory: "enabled",
+    ppsspp_block_transfer_gpu: "enabled",
+    ppsspp_texture_scaling_level: "1",      // No upscaling
+    ppsspp_texture_scaling_type: "xBRZ",
+    ppsspp_texture_filtering: "auto",
+    ppsspp_texture_deposterize: "disabled",
+    ppsspp_gpu_hardware_transform: "enabled",
+    ppsspp_vertex_cache: "enabled",
+    ppsspp_lazy_texture_caching: "enabled", // Skip re-hashing
+    ppsspp_retain_changed_textures: "disabled",
+    ppsspp_spline_quality: "low",
+    ppsspp_software_skinning: "enabled",
+    ppsspp_io_timing_method: "Fast",
+    ppsspp_lower_resolution_for_effects: "2",  // Half resolution effects
+    ppsspp_inflight_frames: "2",
+    ppsspp_rendering_mode: "buffered",
+    ppsspp_cpu_core: "JIT",
+  },
+
+  // ── Medium: balanced — small quality bumps where cheap ─────────────────────
+  medium: {
+    ppsspp_internal_resolution: "1",        // Still native for CPU headroom
+    ppsspp_auto_frameskip: "enabled",
+    ppsspp_frameskip: "0",                  // Only auto-skip, not forced
+    ppsspp_frameskip_type: "Number of frames",
+    ppsspp_fast_memory: "enabled",
+    ppsspp_block_transfer_gpu: "enabled",
+    ppsspp_texture_scaling_level: "1",
+    ppsspp_texture_scaling_type: "xBRZ",
+    ppsspp_texture_filtering: "auto",
+    ppsspp_texture_deposterize: "enabled",
+    ppsspp_gpu_hardware_transform: "enabled",
+    ppsspp_vertex_cache: "enabled",
+    ppsspp_lazy_texture_caching: "enabled",
+    ppsspp_retain_changed_textures: "enabled",
+    ppsspp_spline_quality: "medium",
+    ppsspp_software_skinning: "enabled",
+    ppsspp_io_timing_method: "Fast",
+    ppsspp_lower_resolution_for_effects: "0",  // Full resolution
+    ppsspp_inflight_frames: "2",
+    ppsspp_rendering_mode: "buffered",
+    ppsspp_cpu_core: "JIT",
+  },
+
+  // ── High: quality focus with sensible limits ───────────────────────────────
+  high: {
+    ppsspp_internal_resolution: "2",        // 2× (960×544)
+    ppsspp_auto_frameskip: "disabled",
+    ppsspp_frameskip: "0",
+    ppsspp_frameskip_type: "Number of frames",
+    ppsspp_fast_memory: "enabled",
+    ppsspp_block_transfer_gpu: "enabled",
+    ppsspp_texture_scaling_level: "2",      // 2× texture upscale
+    ppsspp_texture_scaling_type: "xBRZ",
+    ppsspp_texture_filtering: "auto",
+    ppsspp_texture_deposterize: "enabled",
+    ppsspp_gpu_hardware_transform: "enabled",
+    ppsspp_vertex_cache: "enabled",
+    ppsspp_lazy_texture_caching: "disabled", // More accurate
+    ppsspp_retain_changed_textures: "enabled",
+    ppsspp_spline_quality: "high",
+    ppsspp_software_skinning: "enabled",
+    ppsspp_io_timing_method: "Fast",
+    ppsspp_lower_resolution_for_effects: "0",
+    ppsspp_inflight_frames: "3",
+    ppsspp_rendering_mode: "buffered",
+    ppsspp_cpu_core: "JIT",
+  },
+
+  // ── Ultra: maximum quality ─────────────────────────────────────────────────
+  ultra: {
+    ppsspp_internal_resolution: "3",        // 3× (1440×816)
+    ppsspp_auto_frameskip: "disabled",
+    ppsspp_frameskip: "0",
+    ppsspp_frameskip_type: "Number of frames",
+    ppsspp_fast_memory: "enabled",
+    ppsspp_block_transfer_gpu: "enabled",
+    ppsspp_texture_scaling_level: "3",      // 3× texture upscale
+    ppsspp_texture_scaling_type: "xBRZ",
+    ppsspp_texture_filtering: "auto",
+    ppsspp_texture_deposterize: "enabled",
+    ppsspp_gpu_hardware_transform: "enabled",
+    ppsspp_vertex_cache: "enabled",
+    ppsspp_lazy_texture_caching: "disabled",
+    ppsspp_retain_changed_textures: "enabled",
+    ppsspp_spline_quality: "high",
+    ppsspp_software_skinning: "enabled",
+    ppsspp_io_timing_method: "Fast",
+    ppsspp_lower_resolution_for_effects: "0",
+    ppsspp_inflight_frames: "3",
+    ppsspp_rendering_mode: "buffered",
+    ppsspp_cpu_core: "JIT",
+  },
+};
+
+/**
+ * Get the appropriate PPSSPP settings for a given performance tier.
+ */
+export function getPSPSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...PSP_TIER_SETTINGS[tier] };
 }
 
 // ── Supported systems ─────────────────────────────────────────────────────────
@@ -46,18 +194,19 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: true,
     needsWebGL2: true,
     qualitySettings: {
-      ppsspp_internal_resolution: "2",   // 2× (960×544)
+      ppsspp_internal_resolution: "2",
       ppsspp_auto_frameskip: "disabled",
       ppsspp_frameskip: "0",
       ppsspp_fast_memory: "enabled",
     },
     perfSettings: {
-      ppsspp_internal_resolution: "1",   // 1× native (480×272)
+      ppsspp_internal_resolution: "1",
       ppsspp_auto_frameskip: "enabled",
       ppsspp_frameskip: "1",
       ppsspp_fast_memory: "enabled",
       ppsspp_block_transfer_gpu: "enabled",
     },
+    tierSettings: PSP_TIER_SETTINGS,
   },
   {
     id: "nes",

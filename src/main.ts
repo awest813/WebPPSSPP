@@ -10,6 +10,7 @@
  *   6. Handle game launch requests (from library cards or file drop)
  *   7. Handle "return to library" (page is NOT reloaded — EJS is hidden)
  *   8. Persist settings changes
+ *   9. Preconnect to CDN and prefetch loader for faster game launches
  *
  * Persistence:
  *   - Settings (volume, performanceMode, etc.) → localStorage (small, sync)
@@ -31,6 +32,8 @@ export interface Settings {
   volume:          number;
   lastGameName:    string | null;
   performanceMode: PerformanceMode;
+  /** Whether to show the FPS overlay while a game is running. */
+  showFPS:         boolean;
 }
 
 const STORAGE_KEY = "retrovault-settings";
@@ -39,6 +42,7 @@ const DEFAULT_SETTINGS: Settings = {
   volume:          0.7,
   lastGameName:    null,
   performanceMode: "auto",
+  showFPS:         false,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -59,6 +63,9 @@ function loadSettings(): Settings {
       performanceMode: validModes.includes(parsed.performanceMode as PerformanceMode)
         ? (parsed.performanceMode as PerformanceMode)
         : DEFAULT_SETTINGS.performanceMode,
+      showFPS: typeof parsed.showFPS === "boolean"
+        ? parsed.showFPS
+        : DEFAULT_SETTINGS.showFPS,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -90,6 +97,15 @@ function main(): void {
   // 4. Instantiate services
   const emulator = new PSPEmulator("ejs-player");
   const library  = new GameLibrary();
+
+  // 4a. Preconnect to CDN early for faster game launches
+  emulator.preconnect();
+  // Prefetch the loader script in idle time
+  if ("requestIdleCallback" in window) {
+    (window as any).requestIdleCallback(() => emulator.prefetchLoader());
+  } else {
+    setTimeout(() => emulator.prefetchLoader(), 2000);
+  }
 
   // 5. Wire launch callback
   const onLaunchGame = async (file: File, systemId: string): Promise<void> => {
@@ -185,6 +201,7 @@ function main(): void {
     window.__retrovault = { emulator, library, settings, deviceCaps };
     console.info("[RetroVault] Dev mode. Access `window.__retrovault` in the console.");
     console.info("Device capabilities:", deviceCaps);
+    console.info(`Hardware tier: ${deviceCaps.tier} (GPU score: ${deviceCaps.gpuBenchmarkScore}/100)`);
     console.info("Settings:", settings);
   }
 
