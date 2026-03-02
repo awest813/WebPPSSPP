@@ -56,8 +56,9 @@ export type GameMetadata = Omit<GameEntry, "blob">;
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DB_NAME    = "retrovault";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "games";
+const INDEX_FILE_SYSTEM = "fileNameSystemId";
 
 // ── Database helper ───────────────────────────────────────────────────────────
 
@@ -71,12 +72,24 @@ function openDB(): Promise<IDBDatabase> {
   _dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db    = req.result;
-      const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
-      store.createIndex("systemId",     "systemId",     { unique: false });
-      store.createIndex("addedAt",      "addedAt",      { unique: false });
-      store.createIndex("lastPlayedAt", "lastPlayedAt", { unique: false });
+      const oldVersion = event.oldVersion;
+
+      if (oldVersion < 1) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
+        store.createIndex("systemId",     "systemId",     { unique: false });
+        store.createIndex("addedAt",      "addedAt",      { unique: false });
+        store.createIndex("lastPlayedAt", "lastPlayedAt", { unique: false });
+        store.createIndex(INDEX_FILE_SYSTEM, ["fileName", "systemId"], { unique: false });
+      }
+
+      if (oldVersion < 2) {
+        const store = req.transaction?.objectStore(STORE_NAME);
+        if (store && !store.indexNames.contains(INDEX_FILE_SYSTEM)) {
+          store.createIndex(INDEX_FILE_SYSTEM, ["fileName", "systemId"], { unique: false });
+        }
+      }
     };
 
     req.onsuccess = () => {
@@ -191,6 +204,25 @@ export class GameLibrary {
    * Uses metadata-only scan instead of loading full blob data.
    */
   async findByFileName(fileName: string, systemId: string): Promise<GameEntry | null> {
+    const db = await openDB();
+    const store = tx(db, "readonly");
+
+    // Fast path: compound index lookup by [fileName, systemId]
+    try {
+      if (store.indexNames.contains(INDEX_FILE_SYSTEM)) {
+        const idx = store.index(INDEX_FILE_SYSTEM);
+        const match = await promisify<GameEntry | undefined>(idx.get([fileName, systemId]));
+        if (match) {
+          setCachedBlob(match.id, match.blob);
+          return match;
+        }
+        return null;
+      }
+    } catch {
+      // Fallback below for older / unexpected index states.
+    }
+
+    // Fallback for legacy DB/index states: metadata scan.
     const meta = await this.getAllGamesMetadata();
     const match = meta.find(g => g.fileName === fileName && g.systemId === systemId);
     if (!match) return null;
