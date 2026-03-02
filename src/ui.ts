@@ -463,7 +463,13 @@ function pickSystem(
 
     panel.hidden = false;
 
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      close(null);
+    };
+
     const close = (result: SystemInfo | null) => {
+      document.removeEventListener("keydown", onEsc);
       panel.hidden = true;
       resolve(result);
     };
@@ -471,7 +477,7 @@ function pickSystem(
     const onClose = () => close(null);
     closeBtn.addEventListener("click",   onClose, { once: true });
     backdrop.addEventListener("click",   onClose, { once: true });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(null); }, { once: true });
+    document.addEventListener("keydown", onEsc);
   });
 }
 
@@ -606,12 +612,25 @@ export function openSettingsPanel(
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
+  const previousFocus = document.activeElement as HTMLElement | null;
+
   buildSettingsContent(content, settings, deviceCaps, library, onSettingsChange);
   panel.hidden = false;
 
-  const close = () => { panel.hidden = true; };
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    close();
+  };
+
+  const close = () => {
+    panel.hidden = true;
+    document.removeEventListener("keydown", onEsc);
+    previousFocus?.focus();
+  };
+
   document.getElementById("settings-close")!.onclick = close;
   document.getElementById("settings-backdrop")!.onclick = close;
+  document.addEventListener("keydown", onEsc);
 }
 
 function buildSettingsContent(
