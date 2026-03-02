@@ -14,11 +14,23 @@
  *   3. The processed frame is rendered to a GPUCanvasContext backed by a
  *      <canvas> element that overlays the original emulator canvas.
  *
+ * Performance optimisations:
+ *   - Bind groups are cached and only recreated when the source texture
+ *     handle changes (i.e. on canvas resize), not on every frame.
+ *   - A single pre-allocated Float32Array is reused for uniform uploads,
+ *     eliminating per-frame heap allocations.
+ *   - _pixelsToBlob uses a DataView-based 32-bit word swap to vectorize the
+ *     BGRA→RGBA conversion, cutting the per-pixel branch count in half.
+ *   - Pipeline WGSL sources are persisted to the shader cache on first build
+ *     so they can be pre-compiled on subsequent session startups.
+ *
  * Screenshot capture:
  *   captureScreenshotAsync() copies the post-processed frame to a staging
  *   GPUBuffer, maps it asynchronously via mapAsync(), and converts the
  *   pixel data to a JPEG Blob without synchronous GPU stalls.
  */
+
+import { shaderCache } from "./shaderCache.js";
 
 // ── WebGPU enum constants (numeric to avoid runtime dependency on globals) ────
 // These values are stable and part of the WebGPU spec.
@@ -27,6 +39,7 @@ const SHADER_STAGE_FRAGMENT = 0x2;
 
 const BUFFER_UNIFORM   = 0x0040;
 const BUFFER_COPY_DST  = 0x0008;
+const BUFFER_COPY_SRC  = 0x0004;
 const BUFFER_MAP_READ  = 0x0001;
 
 const TEX_BINDING          = 0x04;
@@ -179,9 +192,11 @@ interface EffectPipeline {
   pipeline: GPURenderPipeline;
   bindGroupLayout: GPUBindGroupLayout;
   uniformBuffer: GPUBuffer | null;
+  /** WGSL source strings built into this pipeline (vertex, fragment). */
+  wgslSources: { vertex: string; fragment: string };
 }
 
-function buildEffectPipeline(
+export function buildEffectPipeline(
   device: GPUDevice,
   effect: PostProcessEffect,
   format: GPUTextureFormat,
@@ -227,7 +242,7 @@ function buildEffectPipeline(
     ? device.createBuffer({ size: 32, usage: BUFFER_UNIFORM | BUFFER_COPY_DST })
     : null;
 
-  return { pipeline, bindGroupLayout, uniformBuffer };
+  return { pipeline, bindGroupLayout, uniformBuffer, wgslSources: { vertex: FULLSCREEN_VERTEX, fragment: fragmentCode } };
 }
 
 // ── WebGPUPostProcessor ───────────────────────────────────────────────────────
@@ -248,13 +263,63 @@ export class WebGPUPostProcessor {
   private _lastSourceWidth = 0;
   private _lastSourceHeight = 0;
 
+  /**
+   * Cached bind group for the current source texture + pipeline combination.
+   * Invalidated whenever the source texture handle changes (canvas resize).
+   * Re-creating the bind group every frame was the single largest per-frame
+   * allocation; caching it brings that to zero in the steady state.
+   */
+  private _cachedBindGroup: GPUBindGroup | null = null;
+  private _cachedBindGroupTexture: GPUTexture | null = null;
+
+  /**
+   * Pre-allocated Float32Array for uniform uploads.
+   * Reusing this buffer avoids a 32-byte heap allocation every rAF tick.
+   */
+  private readonly _uniformData = new Float32Array(8);
+
+  // ── GPU timestamp query state ─────────────────────────────────────────────
+  /**
+   * Timestamp query set (2 timestamps: begin + end of the render pass).
+   * Null when the device does not support the "timestamp-query" feature.
+   */
+  private _querySet: GPUQuerySet | null = null;
+  /**
+   * GPU buffer used to resolve timestamp queries into raw 64-bit nanosecond
+   * values. Size = 2 timestamps × 8 bytes.
+   */
+  private _queryResolveBuffer: GPUBuffer | null = null;
+  /**
+   * Staging buffer used to read the resolved timestamps back to the CPU
+   * asynchronously. Mapped every GPU_TIMER_SAMPLE_INTERVAL frames.
+   */
+  private _queryReadbackBuffer: GPUBuffer | null = null;
+  /** Counts rendered frames since the last timestamp readback. */
+  private _framesSinceTimerSample = 0;
+  /** How many frames to render between GPU timer readback operations. */
+  private static readonly _GPU_TIMER_SAMPLE_INTERVAL = 60;
+  /**
+   * Latest measured GPU frame render time in milliseconds.
+   * Updated asynchronously; may lag by ~1 frame interval.
+   */
+  private _lastGPUFrameTimeMs: number | null = null;
+  /** Whether a timer readback is already in flight. */
+  private _timerReadbackPending = false;
+
   constructor(device: GPUDevice, config?: Partial<PostProcessConfig>) {
     this._device = device;
     this._config = { ...DEFAULT_POST_PROCESS_CONFIG, ...config };
+    this._initTimestampQuery();
   }
 
   get active(): boolean { return this._active; }
   get config(): PostProcessConfig { return { ...this._config }; }
+  /**
+   * Most recently measured GPU render time for the post-processing pass in ms.
+   * Updated asynchronously once per ~60 frames. Returns null until the first
+   * measurement completes or when timestamp queries are unsupported.
+   */
+  get lastGPUFrameTimeMs(): number | null { return this._lastGPUFrameTimeMs; }
 
   /**
    * Attach the post-processor to a source canvas (the emulator's WebGL canvas).
@@ -319,6 +384,8 @@ export class WebGPUPostProcessor {
     this._effectPipeline?.uniformBuffer?.destroy();
     this._effectPipeline = null;
     this._sampler = null;
+    this._invalidateBindGroupCache();
+    this._destroyTimestampQuery();
   }
 
   /** Update post-processing configuration. Rebuilds the pipeline if the effect changes. */
@@ -328,6 +395,9 @@ export class WebGPUPostProcessor {
 
     if (this._config.effect !== prevEffect) {
       this._rebuildPipeline();
+      // Changing the pipeline invalidates the cached bind group because the
+      // bind group layout changes with the effect.
+      this._invalidateBindGroupCache();
     }
 
     if (this._active) {
@@ -409,6 +479,14 @@ export class WebGPUPostProcessor {
         this._currentEffect,
         this._presentFormat,
       );
+
+      // Persist the WGSL sources so subsequent session startups can pre-warm
+      // the GPU shader compiler via shaderCache.preCompileWGSL().
+      if (this._currentEffect !== "none") {
+        const { vertex, fragment } = this._effectPipeline.wgslSources;
+        shaderCache.recordWGSL(vertex, `${this._currentEffect}-vertex`).catch(() => {});
+        shaderCache.recordWGSL(fragment, `${this._currentEffect}-fragment`).catch(() => {});
+      }
     } catch (err) {
       console.warn("[RetroVault] Failed to build WebGPU post-process pipeline:", err);
       this._effectPipeline = null;
@@ -433,6 +511,9 @@ export class WebGPUPostProcessor {
 
     this._lastSourceWidth = width;
     this._lastSourceHeight = height;
+
+    // The texture handle changed — the cached bind group must be recreated.
+    this._invalidateBindGroupCache();
   }
 
   private _destroySourceTexture(): void {
@@ -440,6 +521,50 @@ export class WebGPUPostProcessor {
     this._sourceTexture = null;
     this._lastSourceWidth = 0;
     this._lastSourceHeight = 0;
+    this._invalidateBindGroupCache();
+  }
+
+  /**
+   * Drop the cached bind group.
+   * Called whenever the source texture or pipeline changes so the next
+   * _renderFrame call recreates it against the current handles.
+   */
+  private _invalidateBindGroupCache(): void {
+    this._cachedBindGroup = null;
+    this._cachedBindGroupTexture = null;
+  }
+
+  /**
+   * Return the cached bind group, creating it if necessary.
+   *
+   * The bind group wraps the source texture view, sampler, and uniform buffer.
+   * Since none of these change between frames (only the uniform *values* change,
+   * which are uploaded via writeBuffer to the same GPUBuffer), the bind group
+   * object itself can be reused indefinitely — until the source texture handle
+   * is replaced due to a canvas resize or pipeline switch.
+   */
+  private _ensureBindGroup(): GPUBindGroup | null {
+    if (!this._effectPipeline || !this._sourceTexture || !this._sampler) return null;
+
+    // Cache hit: same texture and same pipeline
+    if (this._cachedBindGroup && this._cachedBindGroupTexture === this._sourceTexture) {
+      return this._cachedBindGroup;
+    }
+
+    const entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: this._sourceTexture.createView() },
+      { binding: 1, resource: this._sampler },
+    ];
+    if (this._effectPipeline.uniformBuffer) {
+      entries.push({ binding: 2, resource: { buffer: this._effectPipeline.uniformBuffer } });
+    }
+
+    this._cachedBindGroup = this._device.createBindGroup({
+      layout: this._effectPipeline.bindGroupLayout,
+      entries,
+    });
+    this._cachedBindGroupTexture = this._sourceTexture;
+    return this._cachedBindGroup;
   }
 
   private _renderFrame(targetView?: GPUTextureView): void {
@@ -471,39 +596,62 @@ export class WebGPUPostProcessor {
       return;
     }
 
-    // Write uniforms
+    // Upload uniforms — reuses the pre-allocated Float32Array
     this._writeUniforms(srcW, srcH);
 
-    // Build bind group (must be recreated if texture changes)
-    const entries: GPUBindGroupEntry[] = [
-      { binding: 0, resource: this._sourceTexture.createView() },
-      { binding: 1, resource: this._sampler },
-    ];
-    if (this._effectPipeline.uniformBuffer) {
-      entries.push({ binding: 2, resource: { buffer: this._effectPipeline.uniformBuffer } });
-    }
-
-    const bindGroup = this._device.createBindGroup({
-      layout: this._effectPipeline.bindGroupLayout,
-      entries,
-    });
+    // Retrieve the cached (or freshly created) bind group
+    const bindGroup = this._ensureBindGroup();
+    if (!bindGroup) return;
 
     const view = targetView ?? this._gpuContext.getCurrentTexture().createView();
 
     const encoder = this._device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
+
+    // Attach timestamp writes when the query set is available and this is a
+    // regular (non-capture) frame (targetView is undefined during normal rAF).
+    const useTimer = this._querySet !== null && targetView === undefined;
+    const renderPassDesc: GPURenderPassDescriptor = {
       colorAttachments: [{
         view,
         loadOp: "clear",
         storeOp: "store",
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
       }],
-    });
+    };
+    if (useTimer && this._querySet) {
+      (renderPassDesc as GPURenderPassDescriptor & {
+        timestampWrites?: { querySet: GPUQuerySet; beginningOfPassWriteIndex: number; endOfPassWriteIndex: number };
+      }).timestampWrites = {
+        querySet: this._querySet,
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: 1,
+      };
+    }
+
+    const pass = encoder.beginRenderPass(renderPassDesc);
 
     pass.setPipeline(this._effectPipeline.pipeline);
     pass.setBindGroup(0, bindGroup);
     pass.draw(3);
     pass.end();
+
+    // Resolve timestamps into the resolve buffer once per sample interval
+    if (useTimer && this._querySet && this._queryResolveBuffer) {
+      encoder.resolveQuerySet(this._querySet, 0, 2, this._queryResolveBuffer, 0);
+
+      this._framesSinceTimerSample++;
+      if (
+        this._framesSinceTimerSample >= WebGPUPostProcessor._GPU_TIMER_SAMPLE_INTERVAL &&
+        !this._timerReadbackPending &&
+        this._queryReadbackBuffer
+      ) {
+        this._framesSinceTimerSample = 0;
+        encoder.copyBufferToBuffer(this._queryResolveBuffer, 0, this._queryReadbackBuffer, 0, 16);
+        this._device.queue.submit([encoder.finish()]);
+        this._readbackGPUTimestamp();
+        return;
+      }
+    }
 
     this._device.queue.submit([encoder.finish()]);
   }
@@ -511,7 +659,8 @@ export class WebGPUPostProcessor {
   private _writeUniforms(width: number, height: number): void {
     if (!this._effectPipeline?.uniformBuffer) return;
 
-    const data = new Float32Array(8);
+    // Reuse the pre-allocated buffer — no heap allocation
+    const data = this._uniformData;
 
     switch (this._currentEffect) {
       case "crt":
@@ -560,9 +709,93 @@ export class WebGPUPostProcessor {
     if (this._canvas) this._canvas.style.display = "none";
   }
 
+  // ── GPU timestamp query helpers ──────────────────────────────────────────
+
+  /**
+   * Attempt to create timestamp query resources.
+   * Silently no-ops when the "timestamp-query" feature is not available —
+   * this keeps the rest of the pipeline unaffected on unsupported devices.
+   */
+  private _initTimestampQuery(): void {
+    try {
+      const features = this._device.features as Set<string>;
+      if (!features.has("timestamp-query")) return;
+
+      // 2 query slots: index 0 = render pass begin, index 1 = render pass end
+      this._querySet = this._device.createQuerySet({ type: "timestamp", count: 2 });
+
+      // Buffer to hold the resolved 64-bit nanosecond timestamps (2 × 8 bytes)
+      this._queryResolveBuffer = this._device.createBuffer({
+        size: 16,
+        usage: BUFFER_COPY_SRC | (0x0200 /* QUERY_RESOLVE */),
+      });
+
+      // Staging buffer for async CPU readback
+      this._queryReadbackBuffer = this._device.createBuffer({
+        size: 16,
+        usage: BUFFER_COPY_DST | BUFFER_MAP_READ,
+      });
+    } catch {
+      // Timestamp queries are optional — clean up any partial state
+      this._destroyTimestampQuery();
+    }
+  }
+
+  private _destroyTimestampQuery(): void {
+    this._querySet?.destroy();
+    this._querySet = null;
+    this._queryResolveBuffer?.destroy();
+    this._queryResolveBuffer = null;
+    this._queryReadbackBuffer?.destroy();
+    this._queryReadbackBuffer = null;
+    this._timerReadbackPending = false;
+    this._lastGPUFrameTimeMs = null;
+  }
+
+  /**
+   * Asynchronously read back the latest timestamp pair and compute the GPU
+   * frame time. Uses mapAsync() in a non-blocking fashion; results are
+   * stored in _lastGPUFrameTimeMs and accessible via the public getter.
+   */
+  private _readbackGPUTimestamp(): void {
+    if (!this._queryReadbackBuffer || this._timerReadbackPending) return;
+    this._timerReadbackPending = true;
+
+    this._queryReadbackBuffer.mapAsync(MAP_MODE_READ).then(() => {
+      try {
+        if (!this._queryReadbackBuffer) return;
+        const mapped = this._queryReadbackBuffer.getMappedRange();
+        // Two BigInt64 timestamps: [beginNs, endNs]
+        const view = new BigInt64Array(mapped);
+        const beginNs = view[0];
+        const endNs   = view[1];
+        if (endNs > beginNs) {
+          // Convert nanoseconds to milliseconds
+          this._lastGPUFrameTimeMs = Number(endNs - beginNs) / 1_000_000;
+        }
+      } finally {
+        this._queryReadbackBuffer?.unmap();
+        this._timerReadbackPending = false;
+      }
+    }).catch(() => {
+      this._timerReadbackPending = false;
+    });
+  }
+
   /**
    * Convert raw BGRA/RGBA pixel data to a JPEG Blob via an offscreen canvas.
-   * Handles the BGRA→RGBA channel swap that most WebGPU implementations use.
+   *
+   * For BGRA formats (most WebGPU implementations) the R and B channels must
+   * be swapped before writing into ImageData. Rather than a per-pixel
+   * conditional branch this implementation reads each pixel as a 32-bit
+   * integer and rotates the bytes — a single operation per pixel that the
+   * JIT compiler can often vectorize.
+   *
+   * BGRA word layout (little-endian): 0xAARRGGBB stored as [ B, G, R, A ]
+   * After swap we need RGBA in memory:                     [ R, G, B, A ]
+   *
+   * The rotation: new_word = (word & 0xFF00FF00) | ((word >> 16) & 0xFF) | ((word & 0xFF) << 16)
+   * effectively swaps bytes 0↔2 while leaving bytes 1 and 3 in place.
    */
   private _pixelsToBlob(
     data: Uint8Array,
@@ -581,20 +814,32 @@ export class WebGPUPostProcessor {
         const imageData = ctx.createImageData(width, height);
         const isBGRA = this._presentFormat === "bgra8unorm";
 
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            const srcIdx = y * bytesPerRow + x * 4;
-            const dstIdx = (y * width + x) * 4;
-            if (isBGRA) {
-              imageData.data[dstIdx + 0] = data[srcIdx + 2]; // R ← B
-              imageData.data[dstIdx + 1] = data[srcIdx + 1]; // G
-              imageData.data[dstIdx + 2] = data[srcIdx + 0]; // B ← R
-            } else {
-              imageData.data[dstIdx + 0] = data[srcIdx + 0];
-              imageData.data[dstIdx + 1] = data[srcIdx + 1];
-              imageData.data[dstIdx + 2] = data[srcIdx + 2];
+        if (isBGRA) {
+          // Fast path: use a 32-bit view to swap R↔B channels with bit manipulation.
+          // Each pixel is read as one uint32 word; we swap the byte at position 0
+          // (blue, in BGRA little-endian) with the byte at position 2 (red).
+          const src32 = new Uint32Array(data.buffer, data.byteOffset);
+          const dst32 = new Uint32Array(imageData.data.buffer);
+
+          for (let y = 0; y < height; y++) {
+            const srcRowBase = (y * bytesPerRow) >> 2;
+            const dstRowBase = y * width;
+            for (let x = 0; x < width; x++) {
+              const word = src32[srcRowBase + x];
+              // Swap bytes 0 (B) and 2 (R): keep G (byte 1) and A (byte 3) in place.
+              dst32[dstRowBase + x] =
+                (word & 0xFF00FF00) |
+                ((word & 0x00FF0000) >>> 16) |
+                ((word & 0x000000FF) << 16);
             }
-            imageData.data[dstIdx + 3] = data[srcIdx + 3];
+          }
+        } else {
+          // RGBA path: copy row by row to handle bytesPerRow padding
+          const dst = imageData.data;
+          for (let y = 0; y < height; y++) {
+            const srcOffset = y * bytesPerRow;
+            const dstOffset = y * width * 4;
+            dst.set(data.subarray(srcOffset, srcOffset + width * 4), dstOffset);
           }
         }
 

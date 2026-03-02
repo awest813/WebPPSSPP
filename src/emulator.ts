@@ -30,6 +30,7 @@ import {
 import { shaderCache } from "./shaderCache.js";
 import {
   WebGPUPostProcessor,
+  buildEffectPipeline,
   type PostProcessConfig,
   type PostProcessEffect,
   DEFAULT_POST_PROCESS_CONFIG,
@@ -831,6 +832,21 @@ export class PSPEmulator {
       const passEncoder = encoder.beginComputePass();
       passEncoder.end();
       device.queue.submit([encoder.finish()]);
+
+      // Pre-compile the CRT and sharpen post-process pipelines so the
+      // first activation of WebGPU post-processing has no shader stall.
+      // Also record their WGSL sources in the persistent cache so they can
+      // be re-warmed on subsequent launches via preCompileWGSL().
+      try {
+        const presentFormat = navigator.gpu.getPreferredCanvasFormat();
+        for (const effect of ["crt", "sharpen"] as const) {
+          buildEffectPipeline(device, effect, presentFormat);
+        }
+        // Persist the pipeline WGSL sources for future sessions
+        void shaderCache.preCompileWGSL(device);
+      } catch {
+        // Post-process pipeline pre-compilation is best-effort
+      }
 
       const adapterLabel =
         this._webgpuAdapterInfo?.device  ||

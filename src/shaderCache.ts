@@ -1,27 +1,32 @@
 /**
- * shaderCache.ts — WebGL shader source cache backed by IndexedDB
+ * shaderCache.ts — WebGL and WGSL shader source cache backed by IndexedDB
  *
- * Persists GLSL vertex + fragment shader source strings across sessions so
- * that the GPU driver's internal shader cache can be pre-warmed on subsequent
- * launches. On first visit the browser must compile every shader from source;
- * on repeat visits the driver typically has a binary in its disk cache — this
- * module ensures those shaders are presented to the compiler early (during
- * idle time) so the first rendered frame has no recompile stutter.
+ * Persists GLSL vertex + fragment shader source strings (and WGSL module
+ * sources) across sessions so that the GPU driver's internal shader cache can
+ * be pre-warmed on subsequent launches. On first visit the browser must
+ * compile every shader from source; on repeat visits the driver typically has
+ * a binary in its disk cache — this module ensures those shaders are presented
+ * to the compiler early (during idle time) so the first rendered frame has no
+ * recompile stutter.
  *
  * Design constraints:
  *   - WebGL has no standard API to save/restore compiled GPU binaries
  *   - We store GLSL source text (small, typically <4 KB per program)
- *   - Pre-compilation runs on a throw-away off-screen canvas so it never
- *     interferes with the game's WebGL context
- *   - The cache is capped at MAX_PROGRAMS to avoid unbounded IDB growth
+ *   - WGSL sources are stored under a separate object store and pre-compiled
+ *     via GPUDevice.createShaderModule() — also best-effort and async
+ *   - Pre-compilation runs on a throw-away off-screen canvas / device so it
+ *     never interferes with the game's WebGL/WebGPU context
+ *   - The GLSL cache is capped at MAX_PROGRAMS to avoid unbounded IDB growth
  *   - KHR_parallel_shader_compile is used when available to avoid stalling
- *     the main thread during pre-compilation
+ *     the main thread during GLSL pre-compilation
  */
 
 const CACHE_DB_NAME    = "retrovault-shaders";
-const CACHE_DB_VERSION = 1;
+const CACHE_DB_VERSION = 2;
 const CACHE_STORE      = "programs";
+const WGSL_STORE       = "wgslModules";
 const MAX_PROGRAMS     = 64;
+const MAX_WGSL_MODULES = 32;
 
 export interface CachedProgram {
   /** Stable key: djb2 hash of vsSource + "\0" + fsSource. */
@@ -29,6 +34,18 @@ export interface CachedProgram {
   vsSource: string;
   fsSource: string;
   /** Number of times this program pair has been recorded (for eviction). */
+  hits:     number;
+  /** Unix timestamp (ms) of the last access (for LRU eviction). */
+  lastUsed: number;
+}
+
+export interface CachedWGSLModule {
+  /** Stable key: djb2 hash of the WGSL source. */
+  key:      string;
+  source:   string;
+  /** Descriptive label for debugging (e.g. "crt-fragment"). */
+  label:    string;
+  /** Number of times this module has been recorded (for eviction). */
   hits:     number;
   /** Unix timestamp (ms) of the last access (for LRU eviction). */
   lastUsed: number;
@@ -46,9 +63,27 @@ function openCacheDB(): Promise<IDBDatabase> {
   _cacheDBPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(CACHE_DB_NAME, CACHE_DB_VERSION);
 
-    req.onupgradeneeded = () => {
-      const store = req.result.createObjectStore(CACHE_STORE, { keyPath: "key" });
-      store.createIndex("lastUsed", "lastUsed", { unique: false });
+    req.onupgradeneeded = (event) => {
+      const db = req.result;
+
+      // v1: GLSL program store (may already exist when upgrading from v1→v2)
+      if (!db.objectStoreNames.contains(CACHE_STORE)) {
+        const store = db.createObjectStore(CACHE_STORE, { keyPath: "key" });
+        store.createIndex("lastUsed", "lastUsed", { unique: false });
+      } else if (event.oldVersion < 2) {
+        // Ensure the index exists on the existing store
+        const txn = (event.target as IDBOpenDBRequest).transaction!;
+        const existingStore = txn.objectStore(CACHE_STORE);
+        if (!existingStore.indexNames.contains("lastUsed")) {
+          existingStore.createIndex("lastUsed", "lastUsed", { unique: false });
+        }
+      }
+
+      // v2: WGSL module store (new in version 2)
+      if (!db.objectStoreNames.contains(WGSL_STORE)) {
+        const wgslStore = db.createObjectStore(WGSL_STORE, { keyPath: "key" });
+        wgslStore.createIndex("lastUsed", "lastUsed", { unique: false });
+      }
     };
 
     req.onsuccess = () => {
@@ -106,6 +141,10 @@ function hashString(s: string): string {
 
 export function shaderProgramKey(vsSource: string, fsSource: string): string {
   return hashString(vsSource + "\0" + fsSource);
+}
+
+export function wgslModuleKey(source: string): string {
+  return hashString(source);
 }
 
 // ── KHR_parallel_shader_compile ───────────────────────────────────────────────
@@ -277,6 +316,119 @@ export class ShaderCache {
       });
     } catch {
       return 0;
+    }
+  }
+
+  // ── WGSL module cache ──────────────────────────────────────────────────────
+
+  /**
+   * Record a WGSL shader module source so it can be pre-compiled on the next
+   * session startup. Call this alongside GPU pipeline builds so the sources
+   * are persisted for subsequent warm-up runs.
+   *
+   * Uses the same LRU eviction strategy as the GLSL cache, capped at
+   * MAX_WGSL_MODULES entries.
+   */
+  async recordWGSL(source: string, label = ""): Promise<void> {
+    try {
+      const db  = await openCacheDB();
+      const key = wgslModuleKey(source);
+      const txn = db.transaction(WGSL_STORE, "readwrite");
+      const store = txn.objectStore(WGSL_STORE);
+
+      const existing = await idbGet<CachedWGSLModule>(store, key);
+      const entry: CachedWGSLModule = {
+        key,
+        source,
+        label,
+        hits:     (existing?.hits ?? 0) + 1,
+        lastUsed: Date.now(),
+      };
+      await idbPut(store, entry);
+
+      // LRU eviction at MAX_WGSL_MODULES
+      const all = await idbGetAll<CachedWGSLModule>(store);
+      if (all.length > MAX_WGSL_MODULES) {
+        all.sort((a, b) => a.lastUsed - b.lastUsed);
+        const toDelete = all.slice(0, all.length - MAX_WGSL_MODULES);
+        for (const old of toDelete) {
+          store.delete(old.key);
+        }
+      }
+    } catch {
+      // Best-effort — must never block gameplay
+    }
+  }
+
+  /**
+   * Load all cached WGSL module entries from IndexedDB.
+   * Returns an empty array if the cache is empty or IDB is unavailable.
+   */
+  async loadWGSL(): Promise<CachedWGSLModule[]> {
+    try {
+      const db    = await openCacheDB();
+      const store = db.transaction(WGSL_STORE, "readonly").objectStore(WGSL_STORE);
+      return await idbGetAll<CachedWGSLModule>(store);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Pre-compile all cached WGSL modules using the provided GPUDevice.
+   *
+   * Calling device.createShaderModule() is sufficient to trigger the browser's
+   * WGSL→native-binary compilation path and prime the GPU process shader
+   * cache. The module objects are discarded immediately after creation.
+   *
+   * This should be called after preWarmWebGPU() has acquired a GPUDevice,
+   * ideally in a requestIdleCallback so it does not block the UI thread.
+   */
+  async preCompileWGSL(device: GPUDevice): Promise<void> {
+    try {
+      const modules = await this.loadWGSL();
+      if (modules.length === 0) return;
+
+      for (const m of modules) {
+        try {
+          // createShaderModule() is non-blocking; the browser compiles
+          // asynchronously. The resulting module is intentionally unused —
+          // we only need the side-effect of warming the shader compiler cache.
+          device.createShaderModule({ code: m.source, label: m.label || undefined });
+        } catch {
+          // A broken cached entry should not abort the rest of the pre-warm
+        }
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Total number of cached WGSL modules. */
+  async countWGSL(): Promise<number> {
+    try {
+      const db = await openCacheDB();
+      return await new Promise<number>((resolve, reject) => {
+        const req = db.transaction(WGSL_STORE, "readonly").objectStore(WGSL_STORE).count();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror   = () => reject(req.error);
+      });
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Remove all cached WGSL modules. */
+  async clearWGSL(): Promise<void> {
+    try {
+      const db = await openCacheDB();
+      await new Promise<void>((resolve, reject) => {
+        const req = db.transaction(WGSL_STORE, "readwrite").objectStore(WGSL_STORE).clear();
+        req.onsuccess = () => resolve();
+        req.onerror   = () => reject(req.error);
+      });
+    } catch {
+      // best-effort
     }
   }
 }

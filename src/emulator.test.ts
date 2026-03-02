@@ -276,6 +276,10 @@ describe('PSPEmulator', () => {
           }),
           createShaderModule: vi.fn().mockReturnValue({}),
           createRenderPipeline: vi.fn().mockReturnValue({}),
+          createBindGroupLayout: vi.fn().mockReturnValue({}),
+          createPipelineLayout: vi.fn().mockReturnValue({}),
+          createBuffer: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+          features: new Set<string>(),
           queue: { submit: vi.fn() },
           destroy: vi.fn(),
         };
@@ -290,7 +294,10 @@ describe('PSPEmulator', () => {
           requestDevice: vi.fn().mockResolvedValue(mockDevice),
         };
         Object.defineProperty(navigator, 'gpu', {
-          value: { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) },
+          value: {
+            requestAdapter: vi.fn().mockResolvedValue(mockAdapter),
+            getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
+          },
           configurable: true,
           writable: true,
         });
@@ -314,6 +321,10 @@ describe('PSPEmulator', () => {
           }),
           createShaderModule: vi.fn().mockReturnValue({}),
           createRenderPipeline: vi.fn().mockReturnValue({}),
+          createBindGroupLayout: vi.fn().mockReturnValue({}),
+          createPipelineLayout: vi.fn().mockReturnValue({}),
+          createBuffer: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+          features: new Set<string>(),
           queue: { submit: vi.fn() },
           destroy: vi.fn(),
         };
@@ -322,7 +333,10 @@ describe('PSPEmulator', () => {
           requestDevice: vi.fn().mockResolvedValue(mockDevice),
         };
         Object.defineProperty(navigator, 'gpu', {
-          value: { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) },
+          value: {
+            requestAdapter: vi.fn().mockResolvedValue(mockAdapter),
+            getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
+          },
           configurable: true,
           writable: true,
         });
@@ -342,6 +356,10 @@ describe('PSPEmulator', () => {
           }),
           createShaderModule: vi.fn().mockReturnValue({}),
           createRenderPipeline: vi.fn().mockReturnValue({}),
+          createBindGroupLayout: vi.fn().mockReturnValue({}),
+          createPipelineLayout: vi.fn().mockReturnValue({}),
+          createBuffer: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+          features: new Set<string>(),
           queue: { submit: vi.fn() },
           destroy: vi.fn(),
         };
@@ -356,7 +374,10 @@ describe('PSPEmulator', () => {
           requestDevice: vi.fn().mockResolvedValue(mockDevice),
         };
         Object.defineProperty(navigator, 'gpu', {
-          value: { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) },
+          value: {
+            requestAdapter: vi.fn().mockResolvedValue(mockAdapter),
+            getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
+          },
           configurable: true,
           writable: true,
         });
@@ -420,6 +441,10 @@ describe('PSPEmulator', () => {
           }),
           createShaderModule: createShaderModuleSpy,
           createRenderPipeline: createRenderPipelineSpy,
+          createBindGroupLayout: vi.fn().mockReturnValue({}),
+          createPipelineLayout: vi.fn().mockReturnValue({}),
+          createBuffer: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+          features: new Set<string>(),
           queue: { submit: vi.fn() },
           destroy: vi.fn(),
         };
@@ -428,6 +453,7 @@ describe('PSPEmulator', () => {
             requestAdapter: vi.fn().mockResolvedValue({
               requestDevice: vi.fn().mockResolvedValue(mockDevice),
             }),
+            getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
           },
           configurable: true,
           writable: true,
@@ -436,12 +462,19 @@ describe('PSPEmulator', () => {
         const freshEmulator = new PSPEmulator('test-player');
         await freshEmulator.preWarmWebGPU();
 
-        expect(createShaderModuleSpy).toHaveBeenCalledOnce();
-        expect(createRenderPipelineSpy).toHaveBeenCalledOnce();
-        // Verify the shader code contains WGSL entry points
-        const shaderCode = (createShaderModuleSpy.mock.calls[0] as [{ code: string }])[0].code;
-        expect(shaderCode).toContain('@vertex');
-        expect(shaderCode).toContain('@fragment');
+        // The warm-up builds: 1 minimal WGSL module + 2 effect pipelines (crt, sharpen)
+        // Each pipeline = 1 vertex module + 1 fragment module → 4 additional modules
+        // Total: ≥ 1 (minimal) + 4 (effects) = ≥ 5 createShaderModule calls
+        expect(createShaderModuleSpy.mock.calls.length).toBeGreaterThanOrEqual(5);
+        // Pipeline builds: 1 minimal + 2 effect pipelines
+        expect(createRenderPipelineSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+
+        // Verify the first module contains WGSL entry points
+        const allCodes = createShaderModuleSpy.mock.calls.map(
+          (c: unknown[]) => (c[0] as { code: string }).code
+        );
+        expect(allCodes.some((c: string) => c.includes('@vertex'))).toBe(true);
+        expect(allCodes.some((c: string) => c.includes('@fragment'))).toBe(true);
       });
 
       it('still warms the compute queue even if WGSL pipeline compilation fails', async () => {
@@ -455,6 +488,10 @@ describe('PSPEmulator', () => {
             throw new Error('WGSL not supported');
           }),
           createRenderPipeline: vi.fn(),
+          createBindGroupLayout: vi.fn().mockReturnValue({}),
+          createPipelineLayout: vi.fn().mockReturnValue({}),
+          createBuffer: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+          features: new Set<string>(),
           queue: { submit: submitSpy },
           destroy: vi.fn(),
         };
@@ -463,6 +500,7 @@ describe('PSPEmulator', () => {
             requestAdapter: vi.fn().mockResolvedValue({
               requestDevice: vi.fn().mockResolvedValue(mockDevice),
             }),
+            getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
           },
           configurable: true,
           writable: true,
@@ -489,6 +527,10 @@ describe('PSPEmulator', () => {
         }),
         createShaderModule: vi.fn().mockReturnValue({}),
         createRenderPipeline: vi.fn().mockReturnValue({}),
+        createBindGroupLayout: vi.fn().mockReturnValue({}),
+        createPipelineLayout: vi.fn().mockReturnValue({}),
+        createBuffer: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+        features: new Set<string>(),
         queue: { submit: vi.fn() },
         destroy: destroySpy,
       };
@@ -499,6 +541,7 @@ describe('PSPEmulator', () => {
             isFallbackAdapter: false,
             requestDevice: vi.fn().mockResolvedValue(mockDevice),
           }),
+          getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
         },
         configurable: true,
         writable: true,

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   WebGPUPostProcessor,
   DEFAULT_POST_PROCESS_CONFIG,
+  buildEffectPipeline,
   type PostProcessConfig,
 } from "./webgpuPostProcess";
 
@@ -43,6 +44,8 @@ function createMockGPUDevice() {
     copyTextureToBuffer: vi.fn(),
     finish: vi.fn().mockReturnValue({}),
     beginComputePass: vi.fn().mockReturnValue({ end: vi.fn() }),
+    resolveQuerySet: vi.fn(),
+    copyBufferToBuffer: vi.fn(),
     label: "",
   };
 
@@ -56,6 +59,8 @@ function createMockGPUDevice() {
     createPipelineLayout: vi.fn().mockReturnValue({}),
     createBindGroup: vi.fn().mockReturnValue({}),
     createCommandEncoder: vi.fn().mockReturnValue(mockEncoder),
+    createQuerySet: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+    features: new Set<string>(),
     queue: {
       submit: vi.fn(),
       writeBuffer: vi.fn(),
@@ -105,6 +110,12 @@ describe("WebGPUPostProcessor", () => {
       expect(pp.config.effect).toBe("crt");
       expect(pp.config.scanlineIntensity).toBe(0.3);
       expect(pp.config.curvature).toBe(DEFAULT_POST_PROCESS_CONFIG.curvature);
+    });
+
+    it("exposes lastGPUFrameTimeMs getter (null before any frame)", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+      expect(pp.lastGPUFrameTimeMs).toBeNull();
     });
   });
 
@@ -213,6 +224,65 @@ describe("WebGPUPostProcessor", () => {
       );
       expect(hasUniform).toBe(false);
     });
+  });
+
+  describe("bind group caching", () => {
+    it("createBindGroup is not called on every updateConfig call when only params change", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      // Build the initial CRT pipeline
+      pp.updateConfig({ effect: "crt" });
+      const bindGroupCallsAfterInit = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      // Changing parameters only should NOT trigger a new bind group
+      pp.updateConfig({ scanlineIntensity: 0.3 });
+      pp.updateConfig({ curvature: 0.05 });
+      const bindGroupCallsAfterParamChanges = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      expect(bindGroupCallsAfterParamChanges).toBe(bindGroupCallsAfterInit);
+    });
+
+    it("bind group cache is invalidated when effect (pipeline) changes", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "crt" });
+      const beforeSwitch = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      // Switching effect invalidates the cache — next render will recreate it
+      pp.updateConfig({ effect: "sharpen" });
+      const afterSwitch = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      // The bind group itself is only created on the first _renderFrame call,
+      // but the pipeline switch should not create one prematurely.
+      expect(afterSwitch).toBe(beforeSwitch);
+    });
+  });
+});
+
+describe("buildEffectPipeline", () => {
+  it("returns wgslSources with vertex and fragment code for CRT", () => {
+    const { device } = createMockGPUDevice();
+    const result = buildEffectPipeline(device as unknown as GPUDevice, "crt", "bgra8unorm");
+    expect(result.wgslSources.vertex).toContain("@vertex");
+    expect(result.wgslSources.fragment).toContain("@fragment");
+    expect(result.wgslSources.fragment).toContain("scanlineIntensity");
+  });
+
+  it("returns wgslSources with vertex and fragment code for sharpen", () => {
+    const { device } = createMockGPUDevice();
+    const result = buildEffectPipeline(device as unknown as GPUDevice, "sharpen", "bgra8unorm");
+    expect(result.wgslSources.vertex).toContain("@vertex");
+    expect(result.wgslSources.fragment).toContain("sharpenAmount");
+  });
+
+  it("returns wgslSources for passthrough (none) effect", () => {
+    const { device } = createMockGPUDevice();
+    const result = buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
+    expect(result.wgslSources.vertex).toContain("@vertex");
+    expect(result.wgslSources.fragment).toContain("@fragment");
+    expect(result.uniformBuffer).toBeNull();
   });
 });
 
