@@ -374,6 +374,11 @@ export function initUI(opts: UIOptions): void {
     }
   });
 
+  // Ensure overlay work is paused while browsing the library.
+  document.addEventListener("retrovault:returnToLibrary", () => {
+    showFPSOverlay(false);
+  });
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   document.addEventListener("keydown", (e) => {
     if (emulator.state !== "running") return;
@@ -406,6 +411,7 @@ type SortMode = "lastPlayed" | "name" | "added" | "system";
 let _librarySearchQuery = "";
 let _librarySortMode: SortMode = "lastPlayed";
 let _librarySystemFilter = "";
+let _librarySearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 export async function renderLibrary(
   library:       GameLibrary,
@@ -515,7 +521,11 @@ function _wireLibraryControls(
     searchEl.value = _librarySearchQuery;
     searchEl.addEventListener("input", () => {
       _librarySearchQuery = searchEl.value;
-      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      if (_librarySearchDebounce !== null) clearTimeout(_librarySearchDebounce);
+      _librarySearchDebounce = setTimeout(() => {
+        _librarySearchDebounce = null;
+        void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      }, 120);
     });
   }
 
@@ -2150,6 +2160,11 @@ class AudioVisualiser {
   private readonly _TARGET_INTERVAL = 1000 / 30;
 
   start(emulatorRef?: import("./emulator.js").PSPEmulator): boolean {
+    if (this._rafId !== null) {
+      if (this._canvas) this._canvas.hidden = false;
+      return this._ctx !== null;
+    }
+
     this._canvas = document.getElementById("fps-visualiser") as HTMLCanvasElement | null;
     if (!this._canvas) return false;
     this._2d = this._canvas.getContext("2d");
@@ -2188,6 +2203,8 @@ class AudioVisualiser {
     if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
     try { this._analyser?.disconnect(); } catch { /* ignore */ }
     this._analyser = null;
+    this._buffer = null;
+    this._ctx = null;
     if (this._canvas) this._canvas.hidden = true;
   }
 

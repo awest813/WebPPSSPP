@@ -116,7 +116,8 @@ export function defaultSlotLabel(slot: number): string {
  */
 export function stateBytesToBlob(stateBytes: Uint8Array | null | undefined): Blob | null {
   if (!stateBytes || stateBytes.byteLength === 0) return null;
-  return new Blob([stateBytes], { type: "application/octet-stream" });
+  const normalized = Uint8Array.from(stateBytes);
+  return new Blob([normalized], { type: "application/octet-stream" });
 }
 
 // ── SaveStateLibrary ──────────────────────────────────────────────────────────
