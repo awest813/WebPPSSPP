@@ -20,6 +20,7 @@
 
 import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
+import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail, stateBytesToBlob } from "./saves.js";
@@ -193,6 +194,7 @@ function main(): void {
   let currentGameFile: File | Blob | null = null;
   let currentGameFileName: string | null = null;
   let currentSystemId: string | null = null;
+  let pendingAutoRestoreCancel: (() => void) | null = null;
 
   // Lazy-create the touch controls overlay only when a game starts on a touch device
   let touchOverlay: import("./touchControls.js").TouchControlsOverlay | null = null;
@@ -256,6 +258,10 @@ function main(): void {
     gameId?: string,
     tierOverride?: PerformanceTier
   ): Promise<void> => {
+    // Cancel any stale pending restore handler from an earlier launch attempt.
+    pendingAutoRestoreCancel?.();
+    pendingAutoRestoreCancel = null;
+
     const gameName = file.name.replace(/\.[^.]+$/, "");
     settings.lastGameName = gameName;
     saveSettings(settings);
@@ -307,19 +313,19 @@ function main(): void {
     // One-shot auto-restore: inject via a listener that removes itself after firing,
     // avoiding the stale-handler leak of monkey-patching emulator.onGameStart.
     if (pendingAutoRestore) {
-      const stateBytes = pendingAutoRestore;
-      const restoreHandler = () => {
-        document.removeEventListener("retrovault:gameStarted", restoreHandler);
-        // Allow the emulator's first frame to render before injecting the save
-        // state. 500 ms is a conservative buffer; on low-end devices the core
-        // needs a moment to become ready for a loadstate call.
-        setTimeout(() => {
-          if (emulator.writeStateData(AUTO_SAVE_SLOT, stateBytes)) {
-            emulator.quickLoad(AUTO_SAVE_SLOT);
-          }
-        }, 500);
+      const registration = scheduleAutoRestoreOnGameStart({
+        emulator,
+        stateBytes: pendingAutoRestore,
+        slot: AUTO_SAVE_SLOT,
+        delayMs: 500,
+        onConsumed: () => {
+          pendingAutoRestoreCancel = null;
+        },
+      });
+      pendingAutoRestoreCancel = () => {
+        registration.cancel();
+        pendingAutoRestoreCancel = null;
       };
-      document.addEventListener("retrovault:gameStarted", restoreHandler);
     }
 
     // Apply per-game tier profile if no explicit override was requested
@@ -346,6 +352,13 @@ function main(): void {
       tierOverride:    resolvedTier,
       biosUrl,
     });
+
+    // launch() reports failures via state/onError instead of throwing.
+    // Ensure failed launches don't leave stale pending restore handlers.
+    if (emulator.state === "error") {
+      pendingAutoRestoreCancel?.();
+      pendingAutoRestoreCancel = null;
+    }
   };
 
   // 5a. Wire patch application callback (patcher lazily loaded — not in initial bundle)
