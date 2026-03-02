@@ -7,7 +7,6 @@ import type { DeviceCapabilities } from "./performance.js";
 
 declare global {
   interface Window {
-    __onLaunchGame?: (file: File, systemId: string) => Promise<void>;
     __retrovault?: {
       emulator: PSPEmulator;
       library: GameLibrary;
