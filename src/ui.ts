@@ -43,6 +43,7 @@ import {
 import {
   type DeviceCapabilities,
   type PerformanceMode,
+  type PerformanceTier,
   formatCapabilitiesSummary,
   formatTierLabel,
 } from "./performance.js";
@@ -890,9 +891,9 @@ export function setStatusSystem(name: string): void {
   const el2 = document.getElementById("status-system");
   if (el2) el2.textContent = name;
 }
-function setStatusTier(tier: string | null): void {
+function setStatusTier(tier: PerformanceTier | null): void {
   const el2 = document.getElementById("status-tier");
-  if (el2) el2.textContent = tier ? formatTierLabel(tier as any) : "—";
+  if (el2) el2.textContent = tier ? formatTierLabel(tier) : "—";
 }
 export function showError(msg: string): void {
   const banner = document.getElementById("error-banner");

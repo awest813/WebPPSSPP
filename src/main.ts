@@ -102,7 +102,7 @@ function main(): void {
   emulator.preconnect();
   // Prefetch the loader script in idle time
   if ("requestIdleCallback" in window) {
-    (window as any).requestIdleCallback(() => emulator.prefetchLoader());
+    window.requestIdleCallback?.(() => emulator.prefetchLoader());
   } else {
     setTimeout(() => emulator.prefetchLoader(), 2000);
   }
@@ -197,7 +197,6 @@ function main(): void {
 
   // 9. Dev helpers
   if (import.meta.env.DEV) {
-    // @ts-expect-error dev debug
     window.__retrovault = { emulator, library, settings, deviceCaps };
     console.info("[RetroVault] Dev mode. Access `window.__retrovault` in the console.");
     console.info("Device capabilities:", deviceCaps);
