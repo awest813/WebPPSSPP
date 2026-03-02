@@ -10,6 +10,7 @@
  *   - WebGL draw-call micro-benchmark → GPU throughput tier
  *   - WebGL capability probing → max texture size, extensions
  *   - Battery Status API (async) → dynamic tier downgrade on low battery
+ *   - Web Audio API (async) → base latency, AudioWorklet availability
  *
  * Performance tiers (replaces the old binary low/high split):
  *   - "low"    — software GPU, ≤2 cores, <4 GB RAM, or Chromebook class
@@ -43,10 +44,20 @@ export interface GPUCapabilities {
   maxAnisotropy: number;
   /** Whether float textures are available. */
   floatTextures: boolean;
+  /** Whether half-float (fp16) textures are available. */
+  halfFloatTextures: boolean;
   /** Whether instanced rendering is available. */
   instancedArrays: boolean;
   /** Whether WebGL 2 is available. */
   webgl2: boolean;
+  /** Whether OES_vertex_array_object or native WebGL2 VAOs are available. */
+  vertexArrayObject: boolean;
+  /** Whether any S3TC / ETC / ASTC compressed texture format is supported. */
+  compressedTextures: boolean;
+  /** Maximum color attachments for Multiple Render Targets (MRT). */
+  maxColorAttachments: number;
+  /** Whether WEBGL_multi_draw is available (batched draw calls in one API call). */
+  multiDraw: boolean;
 }
 
 export interface DeviceCapabilities {
@@ -91,6 +102,26 @@ export interface BatteryStatus {
   level: number | null;
   /** True when level < 0.2 and not charging (triggers conservative mode). */
   isLowBattery: boolean;
+}
+
+/**
+ * Audio system capabilities probed via the Web Audio API.
+ * Used to tune audio buffer sizes and select low-latency code paths.
+ */
+export interface AudioCapabilities {
+  /** Estimated round-trip audio output latency in ms, or null if unavailable. */
+  baseLatencyMs: number | null;
+  /** Full output latency including hardware buffering in ms, or null if unavailable. */
+  outputLatencyMs: number | null;
+  /** Whether AudioWorklet is supported (enables low-latency custom DSP). */
+  audioWorklet: boolean;
+  /** The native sample rate of the audio output device in Hz. */
+  sampleRate: number | null;
+  /**
+   * Suggested audio buffer tier: "low" = minimal latency (≤8 ms base),
+   * "medium" = comfortable (≤20 ms), "high" = conservative (>20 ms or unknown).
+   */
+  suggestedBufferTier: "low" | "medium" | "high";
 }
 
 // ── Software renderer detection ───────────────────────────────────────────────
@@ -198,8 +229,13 @@ function probeGPU(): GPUCapabilities {
     anisotropicFiltering: false,
     maxAnisotropy: 0,
     floatTextures: false,
+    halfFloatTextures: false,
     instancedArrays: false,
     webgl2: false,
+    vertexArrayObject: false,
+    compressedTextures: false,
+    maxColorAttachments: 1,
+    multiDraw: false,
   };
 
   try {
@@ -229,13 +265,53 @@ function probeGPU(): GPUCapabilities {
     // Float textures
     const floatTextures = !!(
       gl.getExtension("OES_texture_float") ||
-      (gl instanceof WebGL2RenderingContext)  // WebGL2 has float textures built-in
+      (gl instanceof WebGL2RenderingContext)
     );
 
-    // Instanced arrays
+    // Half-float textures — important for HDR render targets and post-processing
+    const halfFloatTextures = !!(
+      gl.getExtension("OES_texture_half_float") ||
+      (gl instanceof WebGL2RenderingContext)
+    );
+
+    // Instanced arrays (critical for efficient 3D batch rendering)
     const instancedArrays = !!(
       gl.getExtension("ANGLE_instanced_arrays") ||
       (gl instanceof WebGL2RenderingContext)
+    );
+
+    // Vertex Array Objects — eliminate per-draw state setup overhead
+    const vertexArrayObject = !!(
+      gl.getExtension("OES_vertex_array_object") ||
+      (gl instanceof WebGL2RenderingContext)
+    );
+
+    // Compressed texture support — reduces VRAM bandwidth, allows larger texture sets
+    const compressedTextures = !!(
+      gl.getExtension("WEBGL_compressed_texture_s3tc") ||
+      gl.getExtension("WEBGL_compressed_texture_etc") ||
+      gl.getExtension("WEBGL_compressed_texture_astc") ||
+      gl.getExtension("WEBGL_compressed_texture_pvrtc") ||
+      gl.getExtension("WEBKIT_WEBGL_compressed_texture_pvrtc")
+    );
+
+    // Multiple Render Targets — used by deferred rendering and post-processing
+    let maxColorAttachments = 1;
+    if (gl instanceof WebGL2RenderingContext) {
+      maxColorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS) as number;
+    } else {
+      const drawBuffersExt = gl.getExtension("WEBGL_draw_buffers");
+      if (drawBuffersExt) {
+        maxColorAttachments = gl.getParameter(
+          drawBuffersExt.MAX_COLOR_ATTACHMENTS_WEBGL
+        ) as number;
+      }
+    }
+
+    // WEBGL_multi_draw — batches multiple draw calls into one API call, reducing CPU overhead
+    const multiDraw = !!(
+      gl.getExtension("WEBGL_multi_draw") ||
+      (gl instanceof WebGL2RenderingContext && gl.getExtension("WEBGL_multi_draw"))
     );
 
     return {
@@ -248,8 +324,13 @@ function probeGPU(): GPUCapabilities {
       anisotropicFiltering: anisoExt !== null,
       maxAnisotropy,
       floatTextures,
+      halfFloatTextures,
       instancedArrays,
       webgl2: isWebGL2,
+      vertexArrayObject,
+      compressedTextures,
+      maxColorAttachments,
+      multiDraw,
     };
   } catch {
     return defaults;
@@ -258,15 +339,22 @@ function probeGPU(): GPUCapabilities {
 
 // ── GPU micro-benchmark ───────────────────────────────────────────────────────
 
+/** Minimal VAO extension interface — typed to avoid `any` while staying portable. */
+interface VAOExtension {
+  createVertexArrayOES(): WebGLVertexArrayObject | null;
+  bindVertexArrayOES(vao: WebGLVertexArrayObject | null): void;
+  deleteVertexArrayOES(vao: WebGLVertexArrayObject | null): void;
+}
+
 /**
  * Run a quick WebGL draw-call micro-benchmark to estimate GPU throughput.
  *
- * Draws a configurable number of fullscreen quads and measures how many
- * the GPU can handle in a fixed time budget. Returns a score 0–100.
+ * Uses VAOs when available (WebGL2 / OES_vertex_array_object) to better
+ * represent the real rendering workload of 3D game cores, which batch
+ * vertex state into VAOs to reduce per-draw CPU overhead.
  *
- * This is intentionally lightweight (≤12ms) to avoid blocking startup,
- * especially on Chromebooks and other low-spec hardware where blocking
- * the main thread during detection hurts perceived load time.
+ * Returns a score 0–100. Intentionally lightweight (≤12ms) to avoid
+ * blocking startup, especially on Chromebooks and low-spec hardware.
  */
 function benchmarkGPU(): number {
   try {
@@ -274,10 +362,10 @@ function benchmarkGPU(): number {
     canvas.width = 256;
     canvas.height = 256;
 
-    const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    const gl2 = canvas.getContext("webgl2") as WebGL2RenderingContext | null;
+    const gl  = gl2 ?? canvas.getContext("webgl") as WebGLRenderingContext | null;
     if (!gl) return 0;
 
-    // Simple vertex + fragment shaders
     const vs = gl.createShader(gl.VERTEX_SHADER)!;
     gl.shaderSource(vs, `
       attribute vec2 a_pos;
@@ -301,7 +389,6 @@ function benchmarkGPU(): number {
 
     const uVal = gl.getUniformLocation(prog, "u_val");
 
-    // Fullscreen quad
     const buf = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(
@@ -311,36 +398,66 @@ function benchmarkGPU(): number {
     );
 
     const aPos = gl.getAttribLocation(prog, "a_pos");
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
-    // Warm up
+    // Use VAO when available to reduce per-draw attribute-setup overhead.
+    // This more accurately reflects 3D game workloads where VAOs are ubiquitous.
+    let vaoExt: VAOExtension | null = null;
+    let vao: WebGLVertexArrayObject | null = null;
+
+    if (gl2) {
+      vao = gl2.createVertexArray();
+      gl2.bindVertexArray(vao);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      gl2.bindVertexArray(null);
+    } else {
+      // OES_vertex_array_object has a compatible shape — cast via unknown
+      const rawExt = gl.getExtension("OES_vertex_array_object");
+      if (rawExt) {
+        vaoExt = rawExt as unknown as VAOExtension;
+        vao = vaoExt.createVertexArrayOES();
+        vaoExt.bindVertexArrayOES(vao);
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+        vaoExt.bindVertexArrayOES(null);
+      } else {
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      }
+    }
+
+    // Warm up — flush driver lazy-init before timing
     for (let i = 0; i < 10; i++) {
+      if (gl2 && vao) gl2.bindVertexArray(vao);
+      else if (vaoExt && vao) vaoExt.bindVertexArrayOES(vao);
       gl.uniform1f(uVal, i * 0.1);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     gl.finish();
 
     // Timed run: count draw calls in a fixed budget.
-    // Budget reduced to 12ms (vs 16ms) to be less intrusive on slow startup
-    // paths — especially on Chromebooks where the main thread is under pressure.
+    // 12ms budget is intentionally short to be non-intrusive on slow devices.
     const BUDGET_MS = 12;
     let drawCalls = 0;
     const start = performance.now();
 
     while (performance.now() - start < BUDGET_MS) {
       for (let batch = 0; batch < 50; batch++) {
+        if (gl2 && vao) gl2.bindVertexArray(vao);
+        else if (vaoExt && vao) vaoExt.bindVertexArrayOES(vao);
         gl.uniform1f(uVal, (drawCalls & 0xff) / 255);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         drawCalls++;
       }
+      // flush() instead of finish() to avoid synchronous GPU stall on
+      // tiled-rendering mobile/Chromebook GPUs.
       gl.flush();
     }
-    // Use flush() instead of finish() here to avoid a synchronous GPU stall
-    // that could add unpredictable latency on tiled-rendering mobile/Chromebook GPUs.
     gl.flush();
 
     // Cleanup
+    if (gl2 && vao) gl2.deleteVertexArray(vao);
+    else if (vaoExt && vao) vaoExt.deleteVertexArrayOES(vao);
     gl.deleteBuffer(buf);
     gl.deleteShader(vs);
     gl.deleteShader(fs);
@@ -392,11 +509,17 @@ function classifyTier(
   // GPU benchmark contribution (0–40 points)
   points += Math.round(gpuScore * 0.4);
 
-  // GPU capability bonuses (0–10 points)
-  if (gpuCaps.maxTextureSize >= 8192) points += 3;
-  if (gpuCaps.anisotropicFiltering)   points += 2;
-  if (gpuCaps.floatTextures)          points += 2;
-  if (gpuCaps.instancedArrays)        points += 3;
+  // GPU capability bonuses (0–16 points)
+  if (gpuCaps.maxTextureSize >= 8192)    points += 3;
+  if (gpuCaps.anisotropicFiltering)      points += 2;
+  if (gpuCaps.floatTextures)             points += 2;
+  if (gpuCaps.instancedArrays)           points += 3;
+  // Additional modern-GPU bonuses: MRT, VAO, and batch-draw support are
+  // reliable indicators of a capable GPU/driver stack.
+  if (gpuCaps.maxColorAttachments >= 4)  points += 2;
+  if (gpuCaps.vertexArrayObject)         points += 1;
+  if (gpuCaps.multiDraw)                 points += 1;
+  if (gpuCaps.compressedTextures)        points += 2;
 
   // Chrome OS / Chromebook penalty: these devices use power-constrained
   // ARM/Intel Celeron SoCs and often throttle under sustained GPU load.
@@ -487,6 +610,57 @@ export async function checkBatteryStatus(): Promise<BatteryStatus | null> {
   }
 }
 
+// ── Audio capabilities (async) ────────────────────────────────────────────────
+
+/**
+ * Probe Web Audio API capabilities to inform audio buffer sizing.
+ *
+ * Creates a temporary AudioContext (immediately suspended to avoid autoplay
+ * restrictions) to read hardware latency values. The context is closed after
+ * probing to release system audio resources.
+ *
+ * `suggestedBufferTier` maps directly to PPSSPP's `ppsspp_audio_latency`:
+ *   - "low"    → 0 (minimum buffer, ≤8 ms base latency — low-latency hardware)
+ *   - "medium" → 1 (standard buffer, ≤20 ms — typical laptop/desktop audio)
+ *   - "high"   → 2 (conservative buffer, >20 ms or unknown — USB/Bluetooth audio)
+ */
+export async function detectAudioCapabilities(): Promise<AudioCapabilities> {
+  const audioWorklet = typeof AudioWorkletNode !== "undefined";
+  const fallback: AudioCapabilities = {
+    baseLatencyMs: null,
+    outputLatencyMs: null,
+    audioWorklet,
+    sampleRate: null,
+    suggestedBufferTier: "medium",
+  };
+
+  try {
+    const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return fallback;
+
+    // Construct suspended so we don't trigger autoplay policy.
+    const ctx = new AudioContextCtor({ latencyHint: "playback" });
+    await ctx.suspend();
+
+    const baseLatencyMs    = (ctx.baseLatency   ?? null) !== null ? (ctx.baseLatency   * 1000) : null;
+    const outputLatencyMs  = (ctx.outputLatency  ?? null) !== null ? (ctx.outputLatency * 1000) : null;
+    const sampleRate       = ctx.sampleRate;
+
+    await ctx.close();
+
+    let suggestedBufferTier: AudioCapabilities["suggestedBufferTier"] = "medium";
+    if (baseLatencyMs !== null) {
+      if (baseLatencyMs <= 8)  suggestedBufferTier = "low";
+      else if (baseLatencyMs <= 20) suggestedBufferTier = "medium";
+      else                     suggestedBufferTier = "high";
+    }
+
+    return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, suggestedBufferTier };
+  } catch {
+    return fallback;
+  }
+}
+
 // ── Effective mode resolution ─────────────────────────────────────────────────
 
 /**
@@ -554,6 +728,9 @@ export function formatDetailedSummary(caps: DeviceCapabilities): string {
   if (caps.gpuCaps.anisotropicFiltering) {
     lines.push(`Anisotropic: ${caps.gpuCaps.maxAnisotropy}×`);
   }
+  if (caps.gpuCaps.webgl2)             lines.push("WebGL 2: yes");
+  if (caps.gpuCaps.multiDraw)          lines.push("Multi-draw: yes");
+  if (caps.gpuCaps.compressedTextures) lines.push("Compressed textures: yes");
   if (caps.isChromOS) {
     lines.push("Device: Chromebook (conservative tier applied)");
   }

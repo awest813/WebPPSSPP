@@ -114,7 +114,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_software_skinning: "enabled",
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "2",
-    ppsspp_inflight_frames: "2",
+    // 1 in-flight frame reduces GPU command buffer memory pressure on low-VRAM devices
+    ppsspp_inflight_frames: "1",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "2",
@@ -131,7 +132,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_unsafe_func_replacements: "enabled",
   },
 
-  // ── Medium: balanced — small quality bumps where cheap ─────────────────────
+  // ── Medium: balanced — quality bumps where cost is low ─────────────────────
   medium: {
     ppsspp_internal_resolution: "1",
     ppsspp_auto_frameskip: "enabled",
@@ -155,13 +156,16 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "1",
-    ppsspp_audio_resampling: "disabled",
+    // Enable resampling at medium: the CPU cost is modest and audio quality
+    // is noticeably better, especially for music-heavy titles.
+    ppsspp_audio_resampling: "enabled",
     ppsspp_locked_cpu_speed: "0",
     ppsspp_force_max_fps: "60",
     ppsspp_cheats: "enabled",
     ppsspp_skip_buffer_effects: "enabled",
     ppsspp_disable_slow_framebuf_effects: "enabled",
-    ppsspp_gpu_anisotropic_filtering: "off",
+    // 2x anisotropic filtering is nearly free on any discrete GPU
+    ppsspp_gpu_anisotropic_filtering: "2x",
     ppsspp_texture_shader: "Off",
     ppsspp_change_emulated_psp_cpu_clock: "0",
     ppsspp_separate_io_thread: "enabled",
@@ -198,7 +202,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_cheats: "enabled",
     ppsspp_skip_buffer_effects: "disabled",
     ppsspp_disable_slow_framebuf_effects: "disabled",
-    ppsspp_gpu_anisotropic_filtering: "2x",
+    // 4x anisotropic: strong texture quality improvement on oblique surfaces
+    ppsspp_gpu_anisotropic_filtering: "4x",
     ppsspp_texture_shader: "Off",
     ppsspp_change_emulated_psp_cpu_clock: "0",
     ppsspp_separate_io_thread: "enabled",
@@ -213,7 +218,9 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_frameskip_type: "Number of frames",
     ppsspp_fast_memory: "enabled",
     ppsspp_block_transfer_gpu: "enabled",
-    ppsspp_texture_scaling_level: "4",
+    // 5× texture scaling via xBRZ gives the clearest texture upscale without
+    // introducing the blur artifacts of bilinear-only approaches.
+    ppsspp_texture_scaling_level: "5",
     ppsspp_texture_scaling_type: "xBRZ",
     ppsspp_texture_filtering: "auto",
     ppsspp_texture_deposterize: "enabled",
@@ -228,6 +235,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_inflight_frames: "3",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
+    // Minimum audio buffer for the lowest possible audio latency on capable hardware
     ppsspp_audio_latency: "0",
     ppsspp_audio_resampling: "enabled",
     ppsspp_locked_cpu_speed: "0",
@@ -235,9 +243,13 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_cheats: "enabled",
     ppsspp_skip_buffer_effects: "disabled",
     ppsspp_disable_slow_framebuf_effects: "disabled",
-    ppsspp_gpu_anisotropic_filtering: "4x",
-    ppsspp_texture_shader: "Off",
-    ppsspp_change_emulated_psp_cpu_clock: "0",
+    // 16x anisotropic: maximum texture quality on high-refresh-rate surfaces
+    ppsspp_gpu_anisotropic_filtering: "16x",
+    // GPU-side xBRZ texture shader: sharpens textures in-flight without CPU cost
+    ppsspp_texture_shader: "xBRZ",
+    // Lock emulated PSP CPU to full 333 MHz: improves compatibility with titles
+    // that run at reduced clock by default and benefits CPU-limited games.
+    ppsspp_change_emulated_psp_cpu_clock: "333",
     ppsspp_separate_io_thread: "enabled",
     ppsspp_unsafe_func_replacements: "enabled",
   },
@@ -245,6 +257,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
 
 const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
+    // Rice plugin: lightest-weight RDP; skips most accuracy features.
     "mupen64plus-rdp-plugin": "rice",
     "mupen64plus-resolution-factor": "1",
     "mupen64plus-cpucore": "dynamic_recompiler",
@@ -288,6 +301,7 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     "mupen64plus-cpucore": "dynamic_recompiler",
     "mupen64plus-framerate": "fullspeed",
     "mupen64plus-virefresh": "auto",
+    // 3-point bilinear filtering: better texture quality than standard bilinear
     "mupen64plus-BilinearMode": "3point",
     "mupen64plus-EnableFBEmulation": "True",
     "mupen64plus-EnableCopyColorToRDRAM": "Async",
@@ -295,7 +309,9 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     "mupen64plus-EnableCopyColorFromRDRAM": "True",
     "mupen64plus-EnableLOD": "True",
     "mupen64plus-EnableHWLighting": "True",
-    "mupen64plus-txFilterMode": "None",
+    // Smooth filtering 1: gentle texture smoothing that removes pixel crawl
+    // without the blurriness of stronger filters.
+    "mupen64plus-txFilterMode": "Smooth filtering 1",
     "mupen64plus-txHiresEnable": "False",
     "mupen64plus-EnableNoise": "True",
     "mupen64plus-astick-deadzone": "15",
@@ -303,6 +319,7 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
   ultra: {
     "mupen64plus-rdp-plugin": "gliden64",
+    // 4× internal resolution for sharp, clean geometry at high DPI
     "mupen64plus-resolution-factor": "4",
     "mupen64plus-cpucore": "dynamic_recompiler",
     "mupen64plus-framerate": "fullspeed",
@@ -314,7 +331,11 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     "mupen64plus-EnableCopyColorFromRDRAM": "True",
     "mupen64plus-EnableLOD": "True",
     "mupen64plus-EnableHWLighting": "True",
-    "mupen64plus-txFilterMode": "Smooth filtering 1",
+    // Smooth filtering 4: strongest smoothing pass — appropriate at 4× res
+    // where the original pixel grid is no longer visible.
+    "mupen64plus-txFilterMode": "Smooth filtering 4",
+    // Enhancement mode preserves original texture data while applying filters
+    "mupen64plus-txEnhancementMode": "As Is",
     "mupen64plus-txHiresEnable": "False",
     "mupen64plus-EnableNoise": "True",
     "mupen64plus-astick-deadzone": "15",
@@ -455,6 +476,7 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_filter: "nearest",
     beetle_psx_dither_mode: "internal",
     beetle_psx_cd_access_method: "sync",
+    // Interpreter is slower but avoids dynarec bugs on low-spec hardware
     beetle_psx_cpu_dynarec: "disabled",
     beetle_psx_dynarec_invalidate: "full",
     beetle_psx_pgxp_mode: "disabled",
@@ -486,36 +508,44 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   high: {
     beetle_psx_internal_resolution: "2x",
     beetle_psx_frame_duping_enable: "disabled",
+    // Bilinear filtering smooths textures at higher internal resolutions
     beetle_psx_filter: "bilinear",
     beetle_psx_dither_mode: "internal",
     beetle_psx_cd_access_method: "async",
     beetle_psx_cpu_dynarec: "enabled",
     beetle_psx_dynarec_invalidate: "full",
+    // PGXP memory mode: fixes the wobbly polygon effect on PS1 3D geometry
     beetle_psx_pgxp_mode: "memory",
     beetle_psx_pgxp_texture: "enabled",
     beetle_psx_pgxp_vertex: "enabled",
     beetle_psx_analog_calibration: "enabled",
     beetle_psx_widescreen_hack: "disabled",
     beetle_psx_skip_deinterlacing: "disabled",
-    beetle_psx_gpu_overclock: "2x",
+    // 4x GPU overclock gives the PS1's GPU more headroom for high-res rendering
+    beetle_psx_gpu_overclock: "4x",
     beetle_psx_cd_fastload: "6x",
   },
   ultra: {
-    beetle_psx_internal_resolution: "4x",
+    // 8x internal resolution: extremely sharp geometry at the cost of GPU bandwidth
+    beetle_psx_internal_resolution: "8x",
     beetle_psx_frame_duping_enable: "disabled",
     beetle_psx_filter: "bilinear",
     beetle_psx_dither_mode: "internal",
     beetle_psx_cd_access_method: "async",
     beetle_psx_cpu_dynarec: "enabled",
     beetle_psx_dynarec_invalidate: "full",
-    beetle_psx_pgxp_mode: "memory",
+    // Full PGXP: fixes 3D geometry warping and texture perspective correction
+    beetle_psx_pgxp_mode: "memory+cpu",
     beetle_psx_pgxp_texture: "enabled",
     beetle_psx_pgxp_vertex: "enabled",
     beetle_psx_analog_calibration: "enabled",
     beetle_psx_widescreen_hack: "disabled",
     beetle_psx_skip_deinterlacing: "disabled",
-    beetle_psx_gpu_overclock: "4x",
+    // 8x GPU overclock: maximises rendering throughput for high-res output
+    beetle_psx_gpu_overclock: "8x",
     beetle_psx_cd_fastload: "8x",
+    // GTE overclock: reduces geometry transformation lag for smoother animations
+    beetle_psx_gte_overclock: "enabled",
   },
 };
 

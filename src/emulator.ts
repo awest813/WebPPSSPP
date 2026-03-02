@@ -10,18 +10,21 @@
  *
  * Performance enhancements:
  *   - Core preloading: <link rel="preconnect"> and prefetch hints for CDN
- *   - Per-system core prefetching: eagerly fetch WASM cores before launch
+ *   - Per-system core prefetching: eagerly fetch both JS glue + WASM cores
+ *   - WASM streaming compilation: triggers ahead-of-time compile via fetch()
  *   - Blob-direct launch: accepts Blob directly, skipping File copy overhead
- *   - Tier-aware settings: picks the right PPSSPP config per hardware tier
+ *   - Tier-aware settings: picks the right core config per hardware tier
+ *   - Audio latency adaptation: tunes audio buffer based on detected HW latency
  *   - Page Visibility API: auto-pauses when tab is hidden to save resources
  *   - WebGL context pre-warming: reduces cold-start jank on first launch
  *   - FPS monitoring: ring-buffer-based framerate tracking via rAF
+ *   - Adaptive quality suggestions: logs warnings when sustained FPS is low
  *   - Memory-aware blob management: revokes URLs promptly, warns on large ROMs
  */
 
 import { getSystemById, type SystemInfo } from "./systems.js";
 import {
-  resolveMode, resolveTier,
+  resolveMode, resolveTier, detectAudioCapabilities,
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
 } from "./performance.js";
 
@@ -68,14 +71,32 @@ let cachedWebGL2Support: boolean | null = null;
 
 /**
  * Maps EJS core ids to their CDN core filenames for prefetching.
- * These are the most performance-critical (3D) cores that benefit
- * from being in the browser cache before the user launches a game.
+ *
+ * Each 3D core entry includes both the JS glue module and the .wasm binary.
+ * Prefetching both ensures they land in the browser HTTP cache before the
+ * user launches a game, eliminating the largest download delay (10–30 MB).
+ *
+ * The .wasm files are also eligible for WebAssembly streaming compilation
+ * (triggered separately in prefetchCore) which lets the browser compile
+ * the WASM ahead-of-time while it is still downloading.
  */
-const CORE_PREFETCH_MAP: Record<string, string> = {
-  psp:    "cores/ppsspp_libretro.js",
-  n64:    "cores/mupen64plus_next_libretro.js",
-  psx:    "cores/mednafen_psx_hw_libretro.js",
-  nds:    "cores/desmume2015_libretro.js",
+const CORE_PREFETCH_MAP: Record<string, { js: string; wasm: string }> = {
+  psp: {
+    js:   "cores/ppsspp_libretro.js",
+    wasm: "cores/ppsspp_libretro.wasm",
+  },
+  n64: {
+    js:   "cores/mupen64plus_next_libretro.js",
+    wasm: "cores/mupen64plus_next_libretro.wasm",
+  },
+  psx: {
+    js:   "cores/mednafen_psx_hw_libretro.js",
+    wasm: "cores/mednafen_psx_hw_libretro.wasm",
+  },
+  nds: {
+    js:   "cores/desmume2015_libretro.js",
+    wasm: "cores/desmume2015_libretro.wasm",
+  },
 };
 
 // ── State machine ─────────────────────────────────────────────────────────────
@@ -243,17 +264,26 @@ export class PSPEmulator {
   private _activeTier: PerformanceTier | null = null;
   private _prefetchedCores = new Set<string>();
   private _webglPreWarmed = false;
+  /** Consecutive seconds the average FPS has been below the low-FPS threshold. */
+  private _lowFPSSeconds = 0;
+  /** Timestamp (ms) of the last low-FPS quality suggestion, to debounce warnings. */
+  private _lastQualitySuggestionTime = 0;
 
   onStateChange?: (state: EmulatorState) => void;
   onProgress?:    (msg:   string)        => void;
   onError?:       (msg:   string)        => void;
   onGameStart?:   ()                     => void;
   onFPSUpdate?:   (snapshot: FPSSnapshot) => void;
+  /**
+   * Fired when the FPS monitor detects sustained low performance.
+   * Callers can surface this to the user (e.g. suggest switching to
+   * Performance mode or a lower tier).
+   */
+  onLowFPS?:      (averageFPS: number, tier: PerformanceTier | null) => void;
 
   constructor(playerId: string) {
     this._playerId = playerId;
     this._fpsMonitor = new FPSMonitor(60);
-    this._fpsMonitor.onUpdate = (snap) => this.onFPSUpdate?.(snap);
   }
 
   get state(): EmulatorState { return this._state; }
@@ -321,31 +351,63 @@ export class PSPEmulator {
    * cache before the user launches a game. This eliminates the largest
    * download delay (10–30 MB WASM files for PSP/N64/PS1).
    *
+   * Prefetches both the JS glue module and the .wasm binary, and additionally
+   * attempts WebAssembly streaming compilation of the .wasm so the browser
+   * can compile it ahead-of-time while it downloads — further cutting startup
+   * latency when the user eventually launches a game.
+   *
    * Call this when the user's library contains games for a given system,
    * or when hovering over a game card for that system.
    */
   prefetchCore(systemId: string): void {
     if (this._prefetchedCores.has(systemId)) return;
-    const corePath = CORE_PREFETCH_MAP[systemId];
-    if (!corePath) return;
+    const corePaths = CORE_PREFETCH_MAP[systemId];
+    if (!corePaths) return;
 
     this._prefetchedCores.add(systemId);
-    const coreUrl = `${EJS_CDN_BASE}${corePath}`;
 
-    if (document.querySelector(`link[href="${coreUrl}"]`)) return;
+    const jsUrl   = `${EJS_CDN_BASE}${corePaths.js}`;
+    const wasmUrl = `${EJS_CDN_BASE}${corePaths.wasm}`;
 
-    const link = document.createElement("link");
-    link.rel = "prefetch";
-    link.href = coreUrl;
-    link.as = "script";
-    link.crossOrigin = "anonymous";
-    document.head.appendChild(link);
+    // Prefetch the JS glue
+    if (!document.querySelector(`link[href="${jsUrl}"]`)) {
+      const jsLink = document.createElement("link");
+      jsLink.rel = "prefetch";
+      jsLink.href = jsUrl;
+      jsLink.as = "script";
+      jsLink.crossOrigin = "anonymous";
+      document.head.appendChild(jsLink);
+    }
+
+    // Prefetch the WASM binary
+    if (!document.querySelector(`link[href="${wasmUrl}"]`)) {
+      const wasmLink = document.createElement("link");
+      wasmLink.rel = "prefetch";
+      wasmLink.href = wasmUrl;
+      wasmLink.as = "fetch";
+      wasmLink.crossOrigin = "anonymous";
+      document.head.appendChild(wasmLink);
+    }
+
+    // Attempt streaming WASM compilation: fetch + compile in parallel so the
+    // compiled module is ready before the JS glue code requests it.
+    // This is best-effort — failures are silently ignored.
+    if (typeof WebAssembly?.compileStreaming === "function") {
+      fetch(wasmUrl, { mode: "cors", credentials: "omit" })
+        .then(res => WebAssembly.compileStreaming(res))
+        .catch(() => { /* streaming compile failed — loader will compile at runtime */ });
+    }
   }
 
   /**
-   * Pre-warm a WebGL context to eliminate cold-start GPU initialization
-   * overhead on the first game launch. Creates and immediately destroys
-   * a throwaway context so the GPU driver is loaded and ready.
+   * Pre-warm the WebGL driver and compile a minimal shader program to
+   * eliminate cold-start GPU initialisation overhead on the first game launch.
+   *
+   * A plain `gl.clear()` call only warms the context creation path.
+   * Compiling a vertex + fragment shader and performing a draw call forces
+   * the GPU driver to also load its shader compiler and pipeline cache,
+   * which is the largest source of first-frame jank on Windows (ANGLE/D3D)
+   * and macOS (Metal via WebGL translation layer).
    */
   preWarmWebGL(): void {
     if (this._webglPreWarmed) return;
@@ -353,16 +415,44 @@ export class PSPEmulator {
 
     try {
       const canvas = document.createElement("canvas");
-      canvas.width = 1;
-      canvas.height = 1;
+      canvas.width = 16;
+      canvas.height = 16;
       const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-      if (gl) {
-        gl.clearColor(0, 0, 0, 1);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.flush();
-        const ext = gl.getExtension("WEBGL_lose_context");
-        ext?.loseContext();
-      }
+      if (!gl) return;
+
+      // Compile and link a minimal shader program to warm the shader compiler
+      const vs = gl.createShader(gl.VERTEX_SHADER)!;
+      gl.shaderSource(vs, "attribute vec2 p; void main(){ gl_Position=vec4(p,0,1); }");
+      gl.compileShader(vs);
+
+      const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+      gl.shaderSource(fs, "precision lowp float; void main(){ gl_FragColor=vec4(0); }");
+      gl.compileShader(fs);
+
+      const prog = gl.createProgram()!;
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      gl.useProgram(prog);
+
+      const buf = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, 0,1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, "p");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.flush();
+
+      // Clean up and release the context — the GPU driver stays warm
+      gl.deleteBuffer(buf);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteProgram(prog);
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     } catch {
       // Pre-warming is best-effort
     }
@@ -411,6 +501,12 @@ export class PSPEmulator {
 
     this._revokeBlobUrl();
 
+    // ── Probe audio latency in parallel with blob URL creation ─────────────
+    // detectAudioCapabilities() is async and short; running it before we reach
+    // the EJS globals section means we can use the result to override the
+    // audio buffer size if the hardware reports unusually high latency.
+    const audioCapabilitiesPromise = detectAudioCapabilities();
+
     try {
       // Create blob URL directly from the Blob/File — no copy needed
       this._blobUrl = URL.createObjectURL(opts.file);
@@ -431,6 +527,29 @@ export class PSPEmulator {
         ejsSettings = mode === "performance"
           ? { ...system.perfSettings }
           : { ...system.qualitySettings };
+      }
+
+      // ── Audio latency adaptation ─────────────────────────────────────────
+      // Override the audio buffer size from tier defaults when the hardware
+      // reports a different latency profile.  This prevents crackles on
+      // Bluetooth/USB audio devices (high base latency) and allows the
+      // minimum buffer on DACs with very low output latency.
+      const audioCaps = await audioCapabilitiesPromise;
+      if (audioCaps && opts.systemId === "psp" && "ppsspp_audio_latency" in ejsSettings) {
+        const tierLatency = ejsSettings["ppsspp_audio_latency"];
+        const hwBufTier   = audioCaps.suggestedBufferTier;
+        // Only promote to a larger buffer — never shrink below what the tier chose.
+        // A tier that already chose "2" (large) stays at "2" regardless of hardware.
+        const tierNumeric = parseInt(tierLatency, 10);
+        const hwNumeric   = hwBufTier === "high" ? 2 : hwBufTier === "medium" ? 1 : 0;
+        if (hwNumeric > tierNumeric) {
+          ejsSettings["ppsspp_audio_latency"] = String(hwNumeric);
+          console.info(
+            `[RetroVault] Audio: hardware latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
+            `suggests buffer tier "${hwBufTier}"; upgrading ppsspp_audio_latency ` +
+            `from ${tierLatency} → ${hwNumeric}.`
+          );
+        }
       }
 
       // ── Set EJS globals ───────────────────────────────────────────────────
@@ -457,6 +576,10 @@ export class PSPEmulator {
 
       window.EJS_onGameStart = () => {
         this._setState("running");
+        this._fpsMonitor.onUpdate = (snap) => {
+          this.onFPSUpdate?.(snap);
+          this._checkAdaptiveQuality(snap.average);
+        };
         this._fpsMonitor.start();
         this._installVisibilityHandler();
         this._installContextLossHandler();
@@ -593,6 +716,42 @@ export class PSPEmulator {
       canvas.removeEventListener("webglcontextlost", this._contextLossHandler);
     }
     this._contextLossHandler = null;
+  }
+
+  // ── Adaptive quality monitoring ──────────────────────────────────────────────
+
+  /**
+   * Called every ~10 frames with the current average FPS.
+   *
+   * If the average stays below 25 FPS for more than 10 consecutive seconds
+   * the game is definitively struggling on this hardware. We fire `onLowFPS`
+   * so the UI layer can surface a "Switch to Performance mode?" suggestion.
+   * A 60-second cooldown prevents spamming the user during loading screens.
+   */
+  private _checkAdaptiveQuality(averageFPS: number): void {
+    const LOW_FPS_THRESHOLD_HZ  = 25;
+    const TRIGGER_SECONDS        = 10;
+    const COOLDOWN_MS            = 60_000;
+
+    if (averageFPS > 0 && averageFPS < LOW_FPS_THRESHOLD_HZ) {
+      this._lowFPSSeconds++;
+      if (
+        this._lowFPSSeconds >= TRIGGER_SECONDS &&
+        performance.now() - this._lastQualitySuggestionTime > COOLDOWN_MS
+      ) {
+        this._lastQualitySuggestionTime = performance.now();
+        this._lowFPSSeconds = 0;
+        this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
+        console.warn(
+          `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
+          `detected on tier "${this._activeTier}". ` +
+          "Consider switching to Performance mode for a smoother experience."
+        );
+      }
+    } else {
+      // FPS recovered — reset the counter
+      this._lowFPSSeconds = 0;
+    }
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────

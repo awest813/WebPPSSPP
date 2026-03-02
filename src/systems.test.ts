@@ -69,14 +69,16 @@ describe('systems performance profiles', () => {
   });
 
   describe('PSP audio resampling settings', () => {
-    it('disables resampling on low and medium tiers to save CPU', () => {
+    it('disables resampling on low tier to save CPU', () => {
       const psp = getSystemById('psp');
       expect(psp?.tierSettings?.low?.ppsspp_audio_resampling).toBe('disabled');
-      expect(psp?.tierSettings?.medium?.ppsspp_audio_resampling).toBe('disabled');
     });
 
-    it('enables resampling on high and ultra tiers for better quality', () => {
+    it('enables resampling on medium, high and ultra tiers for better quality', () => {
       const psp = getSystemById('psp');
+      // Medium tier enables resampling: the CPU cost is modest and audio
+      // quality is noticeably better for music-heavy PSP titles.
+      expect(psp?.tierSettings?.medium?.ppsspp_audio_resampling).toBe('enabled');
       expect(psp?.tierSettings?.high?.ppsspp_audio_resampling).toBe('enabled');
       expect(psp?.tierSettings?.ultra?.ppsspp_audio_resampling).toBe('enabled');
     });
@@ -153,7 +155,9 @@ describe('systems performance profiles', () => {
     it('uses higher resolution on high and ultra tiers', () => {
       const psx = getSystemById('psx');
       expect(psx?.tierSettings?.high?.beetle_psx_internal_resolution).toBe('2x');
-      expect(psx?.tierSettings?.ultra?.beetle_psx_internal_resolution).toBe('4x');
+      // Ultra tier uses 8× for maximum sharpness — GPU overhead is acceptable
+      // on the high-end hardware that qualifies for this tier.
+      expect(psx?.tierSettings?.ultra?.beetle_psx_internal_resolution).toBe('8x');
     });
 
     it('enables frame duping on low and medium tiers to save GPU cycles', () => {
@@ -175,7 +179,7 @@ describe('systems performance profiles', () => {
       expect(lowSettings.beetle_psx_frame_duping_enable).toBe('enabled');
 
       const ultraSettings = getPSXSettingsForTier('ultra');
-      expect(ultraSettings.beetle_psx_internal_resolution).toBe('4x');
+      expect(ultraSettings.beetle_psx_internal_resolution).toBe('8x');
     });
   });
 
