@@ -459,6 +459,15 @@ function systemIcon(systemId: string): string {
   return icons[systemId] ?? "🎮";
 }
 
+// ── Volume helpers ────────────────────────────────────────────────────────────
+
+/** Return the appropriate speaker emoji for a given volume level. */
+function volIcon(volume: number): string {
+  if (volume === 0) return "🔇";
+  if (volume < 0.5) return "🔉";
+  return "🔊";
+}
+
 // ── System picker modal ───────────────────────────────────────────────────────
 
 /**
@@ -622,23 +631,42 @@ function buildInGameControls(
     showFPSOverlay(settings.showFPS);
   });
 
-  // Volume control
-  const volWrap  = make("label", { class: "btn vol-control", style: "cursor:default" });
-  const volIcon  = make("span", {}, settings.volume === 0 ? "🔇" : "🔊");
+  // Volume control — icon acts as a mute toggle; slider sets precise level
+  let preMuteVolume = settings.volume > 0 ? settings.volume : 0.7;
+
+  const volWrap = make("div", { class: "btn vol-control" });
+
+  const volBtn = make("button", {
+    class: "vol-mute-btn",
+    title: "Toggle mute",
+    "aria-label": "Toggle mute",
+  }) as HTMLButtonElement;
+  volBtn.textContent = volIcon(settings.volume);
+
   const volSlider = make("input", {
     type: "range", min: "0", max: "1", step: "0.05",
     value: String(settings.volume),
     "aria-label": "Volume",
   }) as HTMLInputElement;
 
-  volSlider.addEventListener("input", () => {
-    const v = Number(volSlider.value);
-    emulator.setVolume(v);
-    onSettingsChange({ volume: v });
-    volIcon.textContent = v === 0 ? "🔇" : v < 0.5 ? "🔉" : "🔊";
+  volBtn.addEventListener("click", () => {
+    const newVol = settings.volume > 0 ? 0 : preMuteVolume;
+    if (settings.volume > 0) preMuteVolume = settings.volume;
+    emulator.setVolume(newVol);
+    volSlider.value = String(newVol);
+    onSettingsChange({ volume: newVol });
+    volBtn.textContent = volIcon(newVol);
   });
 
-  volWrap.append(volIcon, volSlider);
+  volSlider.addEventListener("input", () => {
+    const v = Number(volSlider.value);
+    if (v > 0) preMuteVolume = v;
+    emulator.setVolume(v);
+    onSettingsChange({ volume: v });
+    volBtn.textContent = volIcon(v);
+  });
+
+  volWrap.append(volBtn, volSlider);
   container.append(btnLibrary, btnSave, btnLoad, btnReset, btnFPS, volWrap);
 }
 
