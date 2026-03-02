@@ -84,16 +84,16 @@ Improved persistence, portability, and crash-recovery for save data.
 
 ---
 
-## Phase 5 — Mobile & PWA 📅 (Planned)
+## Phase 5 — Mobile & PWA ✅ (Complete)
 
 First-class mobile experience and installability.
 
-- [ ] **Progressive Web App**: Service worker + `manifest.json` to enable "Add to Home Screen" installation on Android/iOS
-- [ ] **Touch control layout editor**: Drag-and-drop virtual button positioning with per-game profiles
-- [ ] **Haptic feedback**: `navigator.vibrate()` for button presses on Android Chrome
-- [ ] **Orientation lock**: Auto-lock to landscape when a game is running on mobile
-- [ ] **iOS Safari improvements**: Investigate COOP/COEP alternatives (`credentialless` COEP) to restore PSP thread support on WebKit without the service worker reload dance
-- [ ] **Reduce initial bundle size**: Code-split the library and emulator modules; lazy-load the system selection UI so the initial paint is under 50 KB
+- [x] **Progressive Web App**: Extended `coi-serviceworker.js` into a combined COI + PWA cache service worker. Caches the app shell on install (network-first for HTML, cache-first for same-origin JS/CSS) for fast repeat loads and offline support. `beforeinstallprompt` is captured and surfaced as an "Install RetroVault App" button in the Settings panel.
+- [x] **Touch control layout editor**: `src/touchControls.ts` — `TouchControlsOverlay` renders 12 draggable virtual buttons (D-pad, ABXY, L/R, Start/Select) over the emulator canvas. Buttons are repositioned by drag-and-drop; positions are persisted to `localStorage` per system. A "🎮 Edit / ✓ Done" toggle in the in-game header enters/exits layout edit mode. Key events are dispatched using RetroArch default bindings.
+- [x] **Haptic feedback**: `navigator.vibrate(12)` on press, `vibrate(6)` on release via `vibratePress()` / `vibrateRelease()` helpers in `touchControls.ts`. Toggled in Settings ("Haptic feedback"); no-op on iOS and desktop.
+- [x] **Orientation lock**: `screen.orientation.lock("landscape-primary")` called when a game starts (when the setting is enabled); `screen.orientation.unlock()` on return to library. Gracefully ignored on iOS Safari and desktop browsers that do not expose the lock API.
+- [x] **iOS Safari improvements**: `coi-serviceworker.js` now detects Safari/WebKit via the `User-Agent` header and uses `Cross-Origin-Embedder-Policy: credentialless` instead of `require-corp`. `credentialless` COEP (Chrome 96+, Firefox 119+) allows no-credentials cross-origin fetches without requiring CORP headers on CDN assets; this unblocks SharedArrayBuffer on iOS 17+ / Safari 17+ where CDN resources lack CORP. A settings note explains the current status for users.
+- [x] **Reduce initial bundle size**: Dynamic `import()` for `archive.ts` (loaded on ZIP drop) and `patcher.ts` (loaded on patch drop / patch button click). `touchControls.ts` lazy-loaded on first game start on touch devices. Vite `manualChunks` creates separate `tools` and `touch` browser-cacheable chunks; the main gzip bundle is ~8 KB smaller than Phase 4.
 
 ---
 

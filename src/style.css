@@ -1504,3 +1504,105 @@ body {
   line-height: 1.5;
   margin-bottom: 12px;
 }
+
+/* ── PWA install (Phase 5) ─────────────────────────────────── */
+.pwa-install-row {
+  margin-bottom: 10px;
+}
+
+.pwa-install-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 9px 16px;
+  font-size: 0.9rem;
+}
+
+/* ── Touch controls overlay (Phase 5) ─────────────────────── */
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  user-select: none;
+  touch-action: none;
+}
+
+.touch-controls--editing {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 9.9%,
+    rgba(255,255,255,0.04) 10%
+  ),
+  repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 9.9%,
+    rgba(255,255,255,0.04) 10%
+  );
+}
+
+.tc-btn {
+  position: absolute;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+  border: 2px solid rgba(255,255,255,0.22);
+  pointer-events: all;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+  transition: background 0.08s ease, border-color 0.08s ease, transform 0.08s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  letter-spacing: 0.02em;
+}
+
+.tc-btn--pressed {
+  transform: scale(0.88);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.55), inset 0 2px 4px rgba(0,0,0,0.35);
+}
+
+.touch-controls--editing .tc-btn {
+  cursor: grab;
+  border-style: dashed;
+  border-color: rgba(255,255,255,0.45);
+  animation: tc-pulse 2s infinite;
+}
+
+.touch-controls--editing .tc-btn:active {
+  cursor: grabbing;
+}
+
+@keyframes tc-pulse {
+  0%, 100% { border-color: rgba(255,255,255,0.45); }
+  50%       { border-color: rgba(79,142,247,0.8); }
+}
+
+.tc-edit-hint {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  font-size: 0.6rem;
+  background: var(--c-accent);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .touch-controls--editing .tc-btn {
+    animation: none;
+    border-color: rgba(79,142,247,0.6);
+  }
+}
