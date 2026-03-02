@@ -107,7 +107,7 @@ function main(): void {
   };
 
   // Expose for settings panel's "Clear Library" button
-  (window as any).__onLaunchGame = onLaunchGame;
+  window.__onLaunchGame = onLaunchGame;
 
   // 6a. Resume a paused game — shows the emulator, hides library
   const onResumeGame = (): void => {

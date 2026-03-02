@@ -712,7 +712,7 @@ function buildSettingsContent(
     document.getElementById("settings-panel")!.hidden = true;
     document.title = "RetroVault";
     // Re-render
-    const onLaunchGame = (window as any).__onLaunchGame as (f: File, s: string) => Promise<void>;
+    const onLaunchGame = window.__onLaunchGame;
     if (onLaunchGame) renderLibrary(library, settings, onLaunchGame);
   });
   libSection.appendChild(btnClear);
