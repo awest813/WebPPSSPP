@@ -37,4 +37,18 @@ describe('formatBytes', () => {
     expect(formatBytes(1610612736)).toBe('1.5 GB');
     expect(formatBytes(10737418240)).toBe('10.0 GB');
   });
+
+  it('formats negative byte values correctly', () => {
+    expect(formatBytes(-1)).toBe('-1 B');
+    expect(formatBytes(-1024)).toBe('-1024 B');
+  });
+
+  it('formats fractional byte values correctly', () => {
+    expect(formatBytes(15.5)).toBe('15.5 B');
+  });
+
+  it('handles edge cases like NaN and Infinity correctly', () => {
+    expect(formatBytes(NaN)).toBe('NaN B');
+    expect(formatBytes(Infinity)).toBe('Infinity GB');
+  });
 });
