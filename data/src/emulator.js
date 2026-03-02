@@ -4837,6 +4837,119 @@ class EmulatorJS {
         this.gameManager.setVariable(option, value);
         this.saveSettings();
     }
+    _addMenuOption(title, id, options, defaultOption, parentElement, useParentParent, context) {
+        if (Array.isArray(this.config.hideSettings) && this.config.hideSettings.includes(id)) {
+            return;
+        }
+        const { home, nested, menus, allOpts, funcs, getValue, setValue } = context;
+
+        parentElement = parentElement || home;
+        const transitionElement = useParentParent ? parentElement.parentElement.parentElement : parentElement;
+        const menuOption = this.createElement("div");
+        menuOption.classList.add("ejs_settings_main_bar");
+        const span = this.createElement("span");
+        span.innerText = title;
+
+        const current = this.createElement("div");
+        current.innerText = "";
+        current.classList.add("ejs_settings_main_bar_selected");
+        span.appendChild(current);
+
+        menuOption.appendChild(span);
+        parentElement.appendChild(menuOption);
+
+        const menu = this.createElement("div");
+        menus.push(menu);
+        const menuChild = this.createElement("div");
+        menu.setAttribute("hidden", "");
+        menuChild.classList.add("ejs_parent_option_div");
+
+        const optionsMenu = this.createElement("div");
+        optionsMenu.classList.add("ejs_setting_menu");
+
+        const button = this.createElement("button");
+        const goToHome = () => {
+            transitionElement.removeAttribute("hidden");
+            menu.setAttribute("hidden", "");
+            const homeSize = this.getElementSize(transitionElement);
+            nested.style.width = (homeSize.width + 20) + "px";
+            nested.style.height = homeSize.height + "px";
+        }
+        this.addEventListener(menuOption, "click", (e) => {
+            const targetSize = this.getElementSize(menu);
+            nested.style.width = (targetSize.width + 20) + "px";
+            nested.style.height = targetSize.height + "px";
+            menu.removeAttribute("hidden");
+            optionsMenu.scrollTo(0, 0);
+            transitionElement.setAttribute("hidden", "");
+        })
+        this.addEventListener(button, "click", goToHome);
+
+        button.type = "button";
+        button.classList.add("ejs_back_button");
+        menuChild.appendChild(button);
+        const pageTitle = this.createElement("span");
+        pageTitle.innerText = title;
+        pageTitle.classList.add("ejs_menu_text_a");
+        button.appendChild(pageTitle);
+
+        let buttons = [];
+        let opts = options;
+        if (Array.isArray(options)) {
+            opts = {};
+            for (let i = 0; i < options.length; i++) {
+                opts[options[i]] = options[i];
+            }
+        }
+        allOpts[id] = opts;
+
+        funcs.push((title) => {
+            if (id !== title) return;
+            const val = getValue(id);
+            for (let j = 0; j < buttons.length; j++) {
+                buttons[j].classList.toggle("ejs_option_row_selected", buttons[j].getAttribute("ejs_value") === val);
+            }
+            this.menuOptionChanged(id, val);
+            current.innerText = opts[val];
+        });
+
+        for (const opt in opts) {
+            const optionButton = this.createElement("button");
+            buttons.push(optionButton);
+            optionButton.setAttribute("ejs_value", opt);
+            optionButton.type = "button";
+            optionButton.value = opts[opt];
+            optionButton.classList.add("ejs_option_row");
+            optionButton.classList.add("ejs_button_style");
+
+            this.addEventListener(optionButton, "click", (e) => {
+                setValue(id, opt);
+                for (let j = 0; j < buttons.length; j++) {
+                    buttons[j].classList.remove("ejs_option_row_selected");
+                }
+                optionButton.classList.add("ejs_option_row_selected");
+                this.menuOptionChanged(id, opt);
+                current.innerText = opts[opt];
+                goToHome();
+            })
+            if (defaultOption === opt) {
+                optionButton.classList.add("ejs_option_row_selected");
+                this.menuOptionChanged(id, opt);
+                current.innerText = opts[opt];
+            }
+
+            const msg = this.createElement("span");
+            msg.innerText = opts[opt];
+            optionButton.appendChild(msg);
+
+            optionsMenu.appendChild(optionButton);
+        }
+
+        menuChild.appendChild(optionsMenu);
+
+        menu.appendChild(menuChild);
+        nested.appendChild(menu);
+    }
     setupDisksMenu() {
         this.disksMenu = this.createElement("div");
         this.disksMenu.classList.add("ejs_settings_parent");
@@ -4881,96 +4994,18 @@ class EmulatorJS {
             funcs.forEach(e => e(title));
         }
         let allOpts = {};
+        const context = {
+            home,
+            nested,
+            menus,
+            allOpts,
+            funcs,
+            getValue: (id) => this.disks[id],
+            setValue: (id, opt) => { this.disks[id] = opt; }
+        };
 
-        // TODO - Why is this duplicated?
         const addToMenu = (title, id, options, defaultOption) => {
-            const span = this.createElement("span");
-            span.innerText = title;
-
-            const current = this.createElement("div");
-            current.innerText = "";
-            current.classList.add("ejs_settings_main_bar_selected");
-            span.appendChild(current);
-
-            const menu = this.createElement("div");
-            menus.push(menu);
-            menu.setAttribute("hidden", "");
-            menu.classList.add("ejs_parent_option_div");
-            const button = this.createElement("button");
-            const goToHome = () => {
-                const homeSize = this.getElementSize(home);
-                nested.style.width = (homeSize.width + 20) + "px";
-                nested.style.height = homeSize.height + "px";
-                menu.setAttribute("hidden", "");
-                home.removeAttribute("hidden");
-            }
-            this.addEventListener(button, "click", goToHome);
-
-            button.type = "button";
-            button.classList.add("ejs_back_button");
-            menu.appendChild(button);
-            const pageTitle = this.createElement("span");
-            pageTitle.innerText = title;
-            pageTitle.classList.add("ejs_menu_text_a");
-            button.appendChild(pageTitle);
-
-            const optionsMenu = this.createElement("div");
-            optionsMenu.classList.add("ejs_setting_menu");
-
-            let buttons = [];
-            let opts = options;
-            if (Array.isArray(options)) {
-                opts = {};
-                for (let i = 0; i < options.length; i++) {
-                    opts[options[i]] = options[i];
-                }
-            }
-            allOpts[id] = opts;
-
-            funcs.push((title) => {
-                if (id !== title) return;
-                for (let j = 0; j < buttons.length; j++) {
-                    buttons[j].classList.toggle("ejs_option_row_selected", buttons[j].getAttribute("ejs_value") === this.disks[id]);
-                }
-                this.menuOptionChanged(id, this.disks[id]);
-                current.innerText = opts[this.disks[id]];
-            });
-
-            for (const opt in opts) {
-                const optionButton = this.createElement("button");
-                buttons.push(optionButton);
-                optionButton.setAttribute("ejs_value", opt);
-                optionButton.type = "button";
-                optionButton.value = opts[opt];
-                optionButton.classList.add("ejs_option_row");
-                optionButton.classList.add("ejs_button_style");
-
-                this.addEventListener(optionButton, "click", (e) => {
-                    this.disks[id] = opt;
-                    for (let j = 0; j < buttons.length; j++) {
-                        buttons[j].classList.remove("ejs_option_row_selected");
-                    }
-                    optionButton.classList.add("ejs_option_row_selected");
-                    this.menuOptionChanged(id, opt);
-                    current.innerText = opts[opt];
-                    goToHome();
-                })
-                if (defaultOption === opt) {
-                    optionButton.classList.add("ejs_option_row_selected");
-                    this.menuOptionChanged(id, opt);
-                    current.innerText = opts[opt];
-                }
-
-                const msg = this.createElement("span");
-                msg.innerText = opts[opt];
-                optionButton.appendChild(msg);
-
-                optionsMenu.appendChild(optionButton);
-            }
-
-            home.appendChild(optionsMenu);
-
-            nested.appendChild(menu);
+            this._addMenuOption(title, id, options, defaultOption, home, false, context);
         }
 
         if (this.gameManager.getDiskCount() > 1) {
@@ -5161,118 +5196,18 @@ class EmulatorJS {
             funcs.forEach(e => e(title));
         }
         let allOpts = {};
+        const context = {
+            home,
+            nested,
+            menus,
+            allOpts,
+            funcs,
+            getValue: (id) => settings[id],
+            setValue: (id, opt) => this.changeSettingOption(id, opt)
+        };
 
         const addToMenu = (title, id, options, defaultOption, parentElement, useParentParent) => {
-            if (Array.isArray(this.config.hideSettings) && this.config.hideSettings.includes(id)) {
-                return;
-            }
-            parentElement = parentElement || home;
-            const transitionElement = useParentParent ? parentElement.parentElement.parentElement : parentElement;
-            const menuOption = this.createElement("div");
-            menuOption.classList.add("ejs_settings_main_bar");
-            const span = this.createElement("span");
-            span.innerText = title;
-
-            const current = this.createElement("div");
-            current.innerText = "";
-            current.classList.add("ejs_settings_main_bar_selected");
-            span.appendChild(current);
-
-            menuOption.appendChild(span);
-            parentElement.appendChild(menuOption);
-
-            const menu = this.createElement("div");
-            menus.push(menu);
-            const menuChild = this.createElement("div");
-            menu.setAttribute("hidden", "");
-            menuChild.classList.add("ejs_parent_option_div");
-
-            const optionsMenu = this.createElement("div");
-            optionsMenu.classList.add("ejs_setting_menu");
-
-            const button = this.createElement("button");
-            const goToHome = () => {
-                transitionElement.removeAttribute("hidden");
-                menu.setAttribute("hidden", "");
-                const homeSize = this.getElementSize(transitionElement);
-                nested.style.width = (homeSize.width + 20) + "px";
-                nested.style.height = homeSize.height + "px";
-                transitionElement.removeAttribute("hidden");
-            }
-            this.addEventListener(menuOption, "click", (e) => {
-                const targetSize = this.getElementSize(menu);
-                nested.style.width = (targetSize.width + 20) + "px";
-                nested.style.height = targetSize.height + "px";
-                menu.removeAttribute("hidden");
-                optionsMenu.scrollTo(0, 0);
-                transitionElement.setAttribute("hidden", "");
-                transitionElement.setAttribute("hidden", "");
-            })
-            this.addEventListener(button, "click", goToHome);
-
-            button.type = "button";
-            button.classList.add("ejs_back_button");
-            menuChild.appendChild(button);
-            const pageTitle = this.createElement("span");
-            pageTitle.innerText = title;
-            pageTitle.classList.add("ejs_menu_text_a");
-            button.appendChild(pageTitle);
-
-            let buttons = [];
-            let opts = options;
-            if (Array.isArray(options)) {
-                opts = {};
-                for (let i = 0; i < options.length; i++) {
-                    opts[options[i]] = options[i];
-                }
-            }
-            allOpts[id] = opts;
-
-            funcs.push((title) => {
-                if (id !== title) return;
-                for (let j = 0; j < buttons.length; j++) {
-                    buttons[j].classList.toggle("ejs_option_row_selected", buttons[j].getAttribute("ejs_value") === settings[id]);
-                }
-                this.menuOptionChanged(id, settings[id]);
-                current.innerText = opts[settings[id]];
-            });
-
-            for (const opt in opts) {
-                const optionButton = this.createElement("button");
-                buttons.push(optionButton);
-                optionButton.setAttribute("ejs_value", opt);
-                optionButton.type = "button";
-                optionButton.value = opts[opt];
-                optionButton.classList.add("ejs_option_row");
-                optionButton.classList.add("ejs_button_style");
-
-                this.addEventListener(optionButton, "click", (e) => {
-                    this.changeSettingOption(id, opt);
-                    for (let j = 0; j < buttons.length; j++) {
-                        buttons[j].classList.remove("ejs_option_row_selected");
-                    }
-                    optionButton.classList.add("ejs_option_row_selected");
-                    this.menuOptionChanged(id, opt);
-                    current.innerText = opts[opt];
-                    goToHome();
-                })
-                if (defaultOption === opt) {
-                    optionButton.classList.add("ejs_option_row_selected");
-                    this.menuOptionChanged(id, opt);
-                    current.innerText = opts[opt];
-                }
-
-                const msg = this.createElement("span");
-                msg.innerText = opts[opt];
-                optionButton.appendChild(msg);
-
-                optionsMenu.appendChild(optionButton);
-            }
-
-            menuChild.appendChild(optionsMenu);
-
-            menu.appendChild(menuChild);
-            nested.appendChild(menu);
+            this._addMenuOption(title, id, options, defaultOption, parentElement, useParentParent, context);
         }
         const cores = this.getCores();
         const core = cores[this.getCore(true)];
