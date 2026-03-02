@@ -47,6 +47,12 @@ import {
   formatCapabilitiesSummary,
   formatTierLabel,
 } from "./performance.js";
+import {
+  BiosLibrary,
+  BIOS_REQUIREMENTS,
+} from "./bios.js";
+import { detectArchiveFormat, extractFromZip, isArchiveExtension } from "./archive.js";
+import { PATCH_EXTENSIONS } from "./patcher.js";
 import type { Settings } from "./main.js";
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -219,19 +225,23 @@ export function buildDOM(app: HTMLElement): void {
 // ── Public init ───────────────────────────────────────────────────────────────
 
 export interface UIOptions {
-  emulator:         PSPEmulator;
-  library:          GameLibrary;
-  settings:         Settings;
-  deviceCaps:       DeviceCapabilities;
-  onLaunchGame:     (file: File, systemId: string, gameId?: string) => Promise<void>;
-  onSettingsChange: (patch: Partial<Settings>) => void;
+  emulator:          PSPEmulator;
+  library:           GameLibrary;
+  biosLibrary:       BiosLibrary;
+  settings:          Settings;
+  deviceCaps:        DeviceCapabilities;
+  onLaunchGame:      (file: File, systemId: string, gameId?: string) => Promise<void>;
+  onSettingsChange:  (patch: Partial<Settings>) => void;
   onReturnToLibrary: () => void;
+  onApplyPatch:      (gameId: string, patchFile: File) => Promise<void>;
+  onFileChosen:      (file: File) => Promise<void>;
 }
 
 /** Wire all DOM events, emulator callbacks, and render the initial library. */
 export function initUI(opts: UIOptions): void {
-  const { emulator, library, settings, deviceCaps,
-          onLaunchGame, onSettingsChange, onReturnToLibrary } = opts;
+  const { emulator, library, biosLibrary, settings, deviceCaps,
+          onLaunchGame, onSettingsChange, onReturnToLibrary,
+          onApplyPatch, onFileChosen } = opts;
 
   // ── File drop / pick ──────────────────────────────────────────────────────
   const fileInput = el<HTMLInputElement>("#file-input");
@@ -239,7 +249,7 @@ export function initUI(opts: UIOptions): void {
   let dragDepth = 0;
 
   const handleFileChosen = (file: File) => {
-    resolveSystemAndAdd(file, library, settings, onLaunchGame, emulator);
+    onFileChosen(file);
   };
 
   fileInput.addEventListener("change", () => {
@@ -341,8 +351,11 @@ export function initUI(opts: UIOptions): void {
     }
   });
 
+  // ── Patch file drop on game cards (delegate) ─────────────────────────────
+  // Handled via #library-grid data-game-id and the patcher flow in main.ts
+
   // ── Landing header controls ───────────────────────────────────────────────
-  buildLandingControls(settings, deviceCaps, library, onSettingsChange, emulator, onLaunchGame);
+  buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame);
 
   // ── Keep overflow indicator current on resize ─────────────────────────────
   if (typeof ResizeObserver !== "undefined") {
@@ -353,16 +366,17 @@ export function initUI(opts: UIOptions): void {
   }
 
   // ── Initial library render ────────────────────────────────────────────────
-  renderLibrary(library, settings, onLaunchGame, emulator);
+  renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
 }
 
 // ── Library rendering ─────────────────────────────────────────────────────────
 
 export async function renderLibrary(
-  library:      GameLibrary,
-  settings:     Settings,
-  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
-  emulatorRef?: PSPEmulator
+  library:       GameLibrary,
+  settings:      Settings,
+  onLaunchGame:  (file: File, systemId: string, gameId?: string) => Promise<void>,
+  emulatorRef?:  PSPEmulator,
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
 ): Promise<void> {
   const grid         = document.getElementById("library-grid");
   const countEl      = document.getElementById("library-count");
@@ -396,17 +410,18 @@ export async function renderLibrary(
   grid.innerHTML = "";
   const fragment = document.createDocumentFragment();
   for (const game of games) {
-    fragment.appendChild(buildGameCard(game, library, settings, onLaunchGame, emulatorRef));
+    fragment.appendChild(buildGameCard(game, library, settings, onLaunchGame, emulatorRef, onApplyPatch));
   }
   grid.appendChild(fragment);
 }
 
 function buildGameCard(
-  game:         GameMetadata,
-  library:      GameLibrary,
-  settings:     Settings,
-  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
-  emulatorRef?: PSPEmulator
+  game:          GameMetadata,
+  library:       GameLibrary,
+  settings:      Settings,
+  onLaunchGame:  (file: File, systemId: string, gameId?: string) => Promise<void>,
+  emulatorRef?:  PSPEmulator,
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
 ): HTMLElement {
   const system = getSystemById(game.systemId);
 
@@ -450,14 +465,49 @@ function buildGameCard(
     );
     if (!confirmed) return;
     await library.removeGame(game.id);
-    renderLibrary(library, settings, onLaunchGame, emulatorRef);
+    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+  });
+
+  // Patch button — hidden input triggered on click
+  const patchInput = make("input", {
+    type: "file",
+    accept: ".ips,.bps,.ups",
+    "aria-label": `Apply patch to ${game.name}`,
+    style: "display:none",
+  }) as HTMLInputElement;
+
+  const btnPatch = make("button", {
+    class: "game-card__patch",
+    title: "Apply IPS/BPS/UPS patch",
+    "aria-label": `Apply patch to ${game.name}`,
+  }, "⊕");
+
+  btnPatch.addEventListener("click", (e) => {
+    e.stopPropagation();
+    patchInput.click();
+  });
+
+  patchInput.addEventListener("change", async () => {
+    const patchFile = patchInput.files?.[0];
+    if (!patchFile || !onApplyPatch) return;
+    patchInput.value = "";
+    try {
+      showLoadingOverlay();
+      setLoadingMessage(`Applying patch to ${game.name}…`);
+      await onApplyPatch(game.id, patchFile);
+      hideLoadingOverlay();
+      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    } catch (err) {
+      hideLoadingOverlay();
+      showError(`Patch failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   });
 
   const playOverlay = make("div", { class: "game-card__play-overlay", "aria-hidden": "true" });
   const playBtn     = make("div", { class: "game-card__play-btn" }, "▶");
   playOverlay.appendChild(playBtn);
 
-  card.append(icon, info, btnRemove, playOverlay);
+  card.append(icon, info, patchInput, btnPatch, btnRemove, playOverlay);
 
   // Preload blob on hover/focus for instant launch.
   // Also prefetch the WASM core for this system's emulator.
@@ -504,20 +554,26 @@ function buildGameCard(
 /** System emoji/icon for game cards. */
 function systemIcon(systemId: string): string {
   const icons: Record<string, string> = {
-    psp:       "🎮",
-    nes:       "🕹",
-    snes:      "🕹",
-    gba:       "🎯",
-    gbc:       "🟢",
-    gb:        "⬜",
-    nds:       "📱",
-    n64:       "🎮",
-    psx:       "🔵",
-    segaMD:    "⚡",
-    segaGG:    "🔶",
-    segaMS:    "📺",
-    atari2600: "👾",
-    arcade:    "🕹",
+    psp:        "🎮",
+    nes:        "🕹",
+    snes:       "🕹",
+    gba:        "🎯",
+    gbc:        "🟢",
+    gb:         "⬜",
+    nds:        "📱",
+    n64:        "🎮",
+    psx:        "🔵",
+    segaMD:     "⚡",
+    segaGG:     "🔶",
+    segaMS:     "📺",
+    atari2600:  "👾",
+    arcade:     "🕹",
+    segaSaturn: "💫",
+    segaDC:     "🌀",
+    mame2003:   "🕹",
+    atari7800:  "👾",
+    lynx:       "📟",
+    ngp:        "🔴",
   };
   return icons[systemId] ?? "🎮";
 }
@@ -643,34 +699,80 @@ function pickSystem(
 
 // ── Resolve system then add to library and launch ─────────────────────────────
 
-async function resolveSystemAndAdd(
-  file:         File,
-  library:      GameLibrary,
-  settings:     Settings,
-  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
-  emulatorRef?: PSPEmulator
+export async function resolveSystemAndAdd(
+  file:          File,
+  library:       GameLibrary,
+  settings:      Settings,
+  onLaunchGame:  (file: File, systemId: string, gameId?: string) => Promise<void>,
+  emulatorRef?:  PSPEmulator,
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
 ): Promise<void> {
-  const detected = detectSystem(file.name);
+  // ── Patch file detection ─────────────────────────────────────────────────
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (PATCH_EXTENSIONS.has(ext)) {
+    await handlePatchFileDrop(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    return;
+  }
+
+  // ── Archive extraction ───────────────────────────────────────────────────
+  let resolvedFile = file;
+
+  if (isArchiveExtension(ext)) {
+    const fmt = await detectArchiveFormat(file);
+    if (fmt === "zip") {
+      showLoadingOverlay();
+      setLoadingMessage("Extracting archive…");
+      try {
+        const extracted = await extractFromZip(file);
+        if (!extracted) {
+          hideLoadingOverlay();
+          showError("Could not find a ROM file inside the ZIP archive.");
+          return;
+        }
+        resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
+        setLoadingMessage("Archive extracted. Adding to library…");
+      } catch (err) {
+        hideLoadingOverlay();
+        showError(`Archive extraction failed: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    } else if (fmt === "7z") {
+      showError(
+        "7-Zip (.7z) files cannot be extracted automatically.\n" +
+        "Please extract the ROM manually and drop the extracted file."
+      );
+      return;
+    }
+  }
+
+  const detected = detectSystem(resolvedFile.name);
 
   let system: SystemInfo | null = null;
 
   if (detected === null) {
+    hideLoadingOverlay();
     showError(
-      `Unrecognised file type: "${file.name}".\n` +
+      `Unrecognised file type: "${resolvedFile.name}".\n` +
       `Supported extensions: ${ALL_EXTENSIONS.map(e => `.${e}`).join("  ·  ")}`
     );
     return;
   } else if (Array.isArray(detected)) {
-    system = await pickSystem(file.name, detected);
+    hideLoadingOverlay();
+    system = await pickSystem(resolvedFile.name, detected);
     if (!system) return; // user cancelled
   } else {
     system = detected;
   }
 
-  // Duplicate detection — offer to play the existing library entry instead.
-  // findByFileName returns a full GameEntry (including blob), so no second getGame() needed.
+  // ── Multi-disc .m3u handling ─────────────────────────────────────────────
+  if (resolvedFile.name.toLowerCase().endsWith(".m3u")) {
+    await handleM3UFile(resolvedFile, system, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    return;
+  }
+
+  // ── Duplicate detection ──────────────────────────────────────────────────
   try {
-    const existing = await library.findByFileName(file.name, system.id);
+    const existing = await library.findByFileName(resolvedFile.name, system.id);
     if (existing) {
       const playExisting = await showConfirmDialog(
         `"${existing.name}" is already in your library.`,
@@ -681,9 +783,9 @@ async function resolveSystemAndAdd(
       showLoadingOverlay();
       setLoadingMessage(`Loading ${existing.name}…`);
       try {
-      const existingFile = new File([existing.blob], existing.fileName, { type: existing.blob.type });
-      await library.markPlayed(existing.id);
-      await onLaunchGame(existingFile, existing.systemId, existing.id);
+        const existingFile = new File([existing.blob], existing.fileName, { type: existing.blob.type });
+        await library.markPlayed(existing.id);
+        await onLaunchGame(existingFile, existing.systemId, existing.id);
       } catch (err) {
         hideLoadingOverlay();
         showError(`Could not load game: ${err instanceof Error ? err.message : String(err)}`);
@@ -691,21 +793,225 @@ async function resolveSystemAndAdd(
       return;
     }
   } catch {
-    // If duplicate check fails, fall through and add normally
+    // duplicate check failed — fall through
   }
 
   showLoadingOverlay();
   setLoadingMessage("Adding game to library…");
 
   try {
-    const entry = await library.addGame(file, system.id);
+    const entry = await library.addGame(resolvedFile, system.id);
     settings.lastGameName = entry.name;
-    // Re-render library in the background — we'll show it when the game ends
-    renderLibrary(library, settings, onLaunchGame, emulatorRef);
-    await onLaunchGame(file, system.id, entry.id);
+    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    await onLaunchGame(resolvedFile, system.id, entry.id);
   } catch (err) {
     hideLoadingOverlay();
     showError(`Could not add game: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ── Patch file drop handler ───────────────────────────────────────────────────
+
+async function handlePatchFileDrop(
+  patchFile:     File,
+  library:       GameLibrary,
+  settings:      Settings,
+  onLaunchGame:  (file: File, systemId: string, gameId?: string) => Promise<void>,
+  emulatorRef?:  PSPEmulator,
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
+): Promise<void> {
+  if (!onApplyPatch) {
+    showError("Patch application is not available.");
+    return;
+  }
+
+  let games: GameMetadata[];
+  try {
+    games = await library.getAllGamesMetadata();
+  } catch {
+    games = [];
+  }
+
+  if (games.length === 0) {
+    showError("Your library is empty. Add a game before applying a patch.");
+    return;
+  }
+
+  // Build a picker dialog listing library games
+  const chosen = await showGamePickerDialog(
+    "Apply Patch to Game",
+    `Select the game to patch with "${patchFile.name}":`,
+    games
+  );
+  if (!chosen) return;
+
+  try {
+    showLoadingOverlay();
+    setLoadingMessage(`Applying patch to ${chosen.name}…`);
+    await onApplyPatch(chosen.id, patchFile);
+    hideLoadingOverlay();
+    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+  } catch (err) {
+    hideLoadingOverlay();
+    showError(`Patch failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ── Simple game picker dialog ─────────────────────────────────────────────────
+
+function showGamePickerDialog(
+  title:   string,
+  message: string,
+  games:   GameMetadata[]
+): Promise<GameMetadata | null> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box     = make("div", {
+      class:      "confirm-box",
+      role:       "dialog",
+      "aria-modal": "true",
+      "aria-label": title,
+    });
+
+    box.appendChild(make("h3", { class: "confirm-title" }, title));
+    box.appendChild(make("p",  { class: "confirm-body"  }, message));
+
+    const list = make("div", { class: "game-picker-list" });
+    for (const game of games) {
+      const sys = getSystemById(game.systemId);
+      const btn = make("button", { class: "game-picker-btn" });
+      const badge = make("span", { class: "sys-badge" }, sys?.shortName ?? game.systemId);
+      badge.style.background = sys?.color ?? "#555";
+      btn.append(badge, document.createTextNode(" " + game.name));
+      btn.addEventListener("click", () => close(game));
+      list.appendChild(btn);
+    }
+    box.appendChild(list);
+
+    const cancelBtn = make("button", { class: "btn" }, "Cancel");
+    cancelBtn.addEventListener("click", () => close(null));
+    box.appendChild(cancelBtn);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const close = (result: GameMetadata | null) => {
+      document.removeEventListener("keydown", onKey);
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
+      resolve(result);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(null); }
+    };
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", onKey);
+    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+  });
+}
+
+// ── Multi-disc .m3u handler ───────────────────────────────────────────────────
+
+async function handleM3UFile(
+  m3uFile:       File,
+  system:        SystemInfo,
+  library:       GameLibrary,
+  settings:      Settings,
+  onLaunchGame:  (file: File, systemId: string, gameId?: string) => Promise<void>,
+  emulatorRef?:  PSPEmulator,
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
+): Promise<void> {
+  let m3uText: string;
+  try {
+    m3uText = await m3uFile.text();
+  } catch {
+    showError("Could not read the .m3u file.");
+    return;
+  }
+
+  const discFileNames = parseM3U(m3uText);
+  if (discFileNames.length === 0) {
+    showError("The .m3u file is empty or contains no disc entries.");
+    return;
+  }
+
+  // Check whether all disc blobs are already stored in the library
+  const storedDiscs = new Map<string, { id: string; blob: Blob }>();
+  for (const fn of discFileNames) {
+    try {
+      const entry = await library.findByFileName(fn, system.id);
+      if (entry) storedDiscs.set(fn, { id: entry.id, blob: entry.blob });
+    } catch { /* ignore */ }
+  }
+
+  let discFiles: Map<string, File>;
+  const missingDiscs = discFileNames.filter(fn => !storedDiscs.has(fn));
+
+  if (missingDiscs.length > 0) {
+    // Ask the user to supply missing disc files
+    const userPicked = await showMultiDiscPicker(missingDiscs);
+    if (!userPicked) return;
+
+    showLoadingOverlay();
+    setLoadingMessage("Storing disc images…");
+
+    // Store each provided disc in the library
+    for (const [fn, f] of userPicked) {
+      try {
+        const entry = await library.addGame(f, system.id);
+        storedDiscs.set(fn, { id: entry.id, blob: f });
+      } catch { /* ignore */ }
+    }
+
+    discFiles = userPicked;
+  } else {
+    discFiles = new Map();
+    for (const [fn, { blob }] of storedDiscs) {
+      discFiles.set(fn, new File([blob], fn));
+    }
+    showLoadingOverlay();
+    setLoadingMessage("Preparing multi-disc game…");
+  }
+
+  // Build a synthetic .m3u with blob URLs for each disc
+  const blobUrls: string[] = [];
+  const syntheticLines: string[] = [];
+  for (const fn of discFileNames) {
+    const discFile = discFiles.get(fn) ?? (storedDiscs.get(fn) ? new File([storedDiscs.get(fn)!.blob], fn) : null);
+    if (!discFile) {
+      hideLoadingOverlay();
+      showError(`Disc file not found: "${fn}"`);
+      return;
+    }
+    const url = URL.createObjectURL(discFile);
+    blobUrls.push(url);
+    syntheticLines.push(url);
+  }
+
+  const syntheticM3U = new Blob([syntheticLines.join("\n")], { type: "text/plain" });
+  const syntheticFile = new File([syntheticM3U], m3uFile.name, { type: "text/plain" });
+
+  // Store/update the .m3u itself in the library
+  const gameName = m3uFile.name.replace(/\.[^.]+$/, "");
+  settings.lastGameName = gameName;
+
+  try {
+    const existing = await library.findByFileName(m3uFile.name, system.id);
+    if (!existing) {
+      await library.addGame(m3uFile, system.id);
+      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    }
+  } catch { /* ignore */ }
+
+  // Launch — blob URLs will be revoked by the browser when the page unloads
+  try {
+    await onLaunchGame(syntheticFile, system.id);
+  } catch (err) {
+    hideLoadingOverlay();
+    showError(`Multi-disc launch failed: ${err instanceof Error ? err.message : String(err)}`);
+    blobUrls.forEach(u => URL.revokeObjectURL(u));
   }
 }
 
@@ -715,6 +1021,7 @@ export function buildLandingControls(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
+  biosLibrary:      BiosLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
@@ -755,7 +1062,7 @@ export function buildLandingControls(
   </svg> Settings`;
 
   btnSettings.addEventListener("click", () => {
-    openSettingsPanel(settings, deviceCaps, library, onSettingsChange, emulatorRef, onLaunchGame);
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame);
   });
 
   container.appendChild(btnSettings);
@@ -849,6 +1156,7 @@ export function openSettingsPanel(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
+  biosLibrary:      BiosLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>
@@ -857,7 +1165,7 @@ export function openSettingsPanel(
   const content = document.getElementById("settings-content")!;
   const previousFocus = document.activeElement as HTMLElement | null;
 
-  buildSettingsContent(content, settings, deviceCaps, library, onSettingsChange, emulatorRef, onLaunchGame);
+  buildSettingsContent(content, settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame);
   panel.hidden = false;
 
   const onEsc = (e: KeyboardEvent) => {
@@ -881,6 +1189,7 @@ function buildSettingsContent(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
+  biosLibrary:      BiosLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>
@@ -1043,7 +1352,85 @@ function buildSettingsContent(
     document.title = "RetroVault";
     if (onLaunchGame) renderLibrary(library, settings, onLaunchGame, emulatorRef);
   });
+  // (onApplyPatch not available here; library re-render is enough)
   libSection.appendChild(btnClear);
+
+  // ── BIOS Management ───────────────────────────────────────────────────────
+  const biosSection = make("div", { class: "settings-section" });
+  biosSection.appendChild(make("h4", { class: "settings-section__title" }, "BIOS Files"));
+  biosSection.appendChild(make("p", { class: "settings-help" },
+    "Some systems (Saturn, Dreamcast, PS1) require BIOS files to run games. " +
+    "Upload your legally obtained BIOS files below."
+  ));
+
+  const biosGrid = make("div", { class: "bios-grid" });
+  biosSection.appendChild(biosGrid);
+
+  // Which systems have BIOS requirements
+  const biosSystemIds = Object.keys(BIOS_REQUIREMENTS);
+
+  for (const sysId of biosSystemIds) {
+    const sysInfo = SYSTEMS.find(s => s.id === sysId);
+    if (!sysInfo) continue;
+    const reqs = BIOS_REQUIREMENTS[sysId]!;
+
+    const sysBlock = make("div", { class: "bios-system" });
+
+    const sysHeader = make("div", { class: "bios-system__header" });
+    const sysBadge  = make("span", { class: "sys-badge" }, sysInfo.shortName);
+    sysBadge.style.background = sysInfo.color;
+    sysHeader.append(sysBadge, document.createTextNode(" " + sysInfo.name));
+    sysBlock.appendChild(sysHeader);
+
+    for (const req of reqs) {
+      const row        = make("div", { class: "bios-row" });
+      const statusDot  = make("span", { class: "bios-dot bios-dot--unknown" });
+      const label      = make("span", { class: "bios-label" });
+      label.textContent = req.displayName;
+      const desc       = make("span", { class: "bios-desc" }, req.description);
+      const requiredBadge = req.required
+        ? make("span", { class: "bios-required" }, "Required")
+        : make("span", { class: "bios-optional" }, "Optional");
+
+      const uploadInput = make("input", {
+        type: "file",
+        accept: ".bin,.img,.rom",
+        "aria-label": `Upload ${req.displayName}`,
+        style: "display:none",
+      }) as HTMLInputElement;
+
+      const uploadBtn = make("button", { class: "btn bios-upload-btn" }, "Upload");
+      uploadBtn.addEventListener("click", () => uploadInput.click());
+
+      uploadInput.addEventListener("change", async () => {
+        const file = uploadInput.files?.[0];
+        if (!file) return;
+        uploadInput.value = "";
+        try {
+          await biosLibrary.addBios(file, sysId);
+          statusDot.className = "bios-dot bios-dot--ok";
+          uploadBtn.textContent = "Replace";
+        } catch (err) {
+          showError(`BIOS upload failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+
+      // Check current status async
+      biosLibrary.findBios(sysId, req.fileName).then(found => {
+        if (found) {
+          statusDot.className   = "bios-dot bios-dot--ok";
+          uploadBtn.textContent = "Replace";
+        } else if (req.required) {
+          statusDot.className = "bios-dot bios-dot--missing";
+        }
+      }).catch(() => {});
+
+      row.append(statusDot, uploadInput, label, requiredBadge, desc, uploadBtn);
+      sysBlock.appendChild(row);
+    }
+
+    biosGrid.appendChild(sysBlock);
+  }
 
   // ── Supported Systems ─────────────────────────────────────────────────────
   const sysSection = make("div", { class: "settings-section" });
@@ -1057,7 +1444,110 @@ function buildSettingsContent(
   }
   sysSection.appendChild(sysList);
 
-  container.append(perfSection, deviceSection, libSection, sysSection);
+  container.append(perfSection, deviceSection, libSection, biosSection, sysSection);
+}
+
+// ── Multi-disc game picker ─────────────────────────────────────────────────────
+
+/**
+ * Parse a .m3u playlist file and return the list of disc filenames it references.
+ */
+export function parseM3U(content: string): string[] {
+  return content
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && !line.startsWith("#"))
+    .map(line => line.split(/[/\\]/).pop() ?? line); // basename only
+}
+
+/**
+ * Show a multi-disc game picker dialog.
+ * The user must provide each disc file referenced in the .m3u.
+ * Returns a Map of filename → Blob, or null if the user cancels.
+ */
+export function showMultiDiscPicker(
+  discFileNames: string[]
+): Promise<Map<string, File> | null> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box     = make("div", {
+      class: "confirm-box multidisc-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Multi-Disc Game Setup",
+    });
+
+    box.appendChild(make("h3", { class: "confirm-title" }, "Multi-Disc Game"));
+    box.appendChild(make("p", { class: "confirm-body" },
+      `This game spans ${discFileNames.length} disc${discFileNames.length !== 1 ? "s" : ""}. ` +
+      "Please select each disc image file:"
+    ));
+
+    const fileMap = new Map<string, File>();
+    const rows: Array<{ fileName: string; statusEl: HTMLElement; inputEl: HTMLInputElement }> = [];
+
+    for (const fileName of discFileNames) {
+      const row      = make("div", { class: "multidisc-row" });
+      const status   = make("span", { class: "bios-dot bios-dot--missing" });
+      const label    = make("span", { class: "multidisc-label" }, fileName);
+      const fileInput2 = make("input", {
+        type: "file",
+        style: "display:none",
+        "aria-label": `Select ${fileName}`,
+      }) as HTMLInputElement;
+      const btn = make("button", { class: "btn" }, "Select…");
+
+      btn.addEventListener("click", () => fileInput2.click());
+      fileInput2.addEventListener("change", () => {
+        const f = fileInput2.files?.[0];
+        if (!f) return;
+        fileMap.set(fileName, f);
+        status.className = "bios-dot bios-dot--ok";
+        btn.textContent  = f.name;
+        checkAllSelected();
+      });
+
+      row.append(status, fileInput2, label, btn);
+      box.appendChild(row);
+      rows.push({ fileName, statusEl: status, inputEl: fileInput2 });
+    }
+
+    const footer     = make("div", { class: "confirm-footer" });
+    const btnCancel  = make("button", { class: "btn" }, "Cancel");
+    const btnConfirm = make("button", {
+      class: "btn btn--primary",
+      disabled: "true",
+    }, "Launch Game");
+
+    footer.append(btnCancel, btnConfirm);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const checkAllSelected = () => {
+      const allReady = discFileNames.every(fn => fileMap.has(fn));
+      if (allReady) btnConfirm.removeAttribute("disabled");
+      else          btnConfirm.setAttribute("disabled", "true");
+    };
+
+    const close = (result: Map<string, File> | null) => {
+      document.removeEventListener("keydown", onKey);
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
+      resolve(result);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(null); }
+    };
+
+    btnCancel.addEventListener("click",  () => close(null));
+    btnConfirm.addEventListener("click", () => close(fileMap));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", onKey);
+
+    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+  });
 }
 
 // ── Tier downgrade prompt ─────────────────────────────────────────────────────

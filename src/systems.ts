@@ -30,6 +30,11 @@ export interface SystemInfo {
   /** Whether the core requires a WebGL 2 context. */
   needsWebGL2: boolean;
   /**
+   * Whether this system requires a BIOS file to operate.
+   * When true, RetroVault will check the BIOS store before launch.
+   */
+  needsBios?: boolean;
+  /**
    * EJS_Settings overrides applied in "performance" (low-spec) mode.
    * Keys are RetroArch core-option names; values are strings.
    */
@@ -570,6 +575,116 @@ export function getPSXSettingsForTier(tier: PerformanceTier): Record<string, str
   return { ...PSX_TIER_SETTINGS[tier] };
 }
 
+/**
+ * Get the appropriate Beetle Saturn settings for a given performance tier.
+ */
+export function getSaturnSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...SATURN_TIER_SETTINGS[tier] };
+}
+
+/**
+ * Get the appropriate Flycast (Dreamcast) settings for a given performance tier.
+ */
+export function getDreamcastSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...DREAMCAST_TIER_SETTINGS[tier] };
+}
+
+// ── Sega Saturn (Beetle Saturn) tier settings ─────────────────────────────────
+
+const SATURN_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    beetle_saturn_resolution: "1x(native)",
+    beetle_saturn_deinterlace_method: "weave",
+    beetle_saturn_horizontal_overscan: "disabled",
+    beetle_saturn_analog_stick_deadzone: "15%",
+    beetle_saturn_region_detect: "Auto",
+    beetle_saturn_multitap_port1: "disabled",
+    beetle_saturn_multitap_port2: "disabled",
+    beetle_saturn_virtuagun_input: "disabled",
+    beetle_saturn_shared_ext: "disabled",
+  },
+  medium: {
+    beetle_saturn_resolution: "2x",
+    beetle_saturn_deinterlace_method: "bob",
+    beetle_saturn_horizontal_overscan: "enabled",
+    beetle_saturn_analog_stick_deadzone: "15%",
+    beetle_saturn_region_detect: "Auto",
+    beetle_saturn_multitap_port1: "disabled",
+    beetle_saturn_multitap_port2: "disabled",
+    beetle_saturn_virtuagun_input: "disabled",
+    beetle_saturn_shared_ext: "disabled",
+  },
+  high: {
+    beetle_saturn_resolution: "4x",
+    beetle_saturn_deinterlace_method: "bob",
+    beetle_saturn_horizontal_overscan: "enabled",
+    beetle_saturn_analog_stick_deadzone: "15%",
+    beetle_saturn_region_detect: "Auto",
+    beetle_saturn_multitap_port1: "disabled",
+    beetle_saturn_multitap_port2: "disabled",
+    beetle_saturn_virtuagun_input: "disabled",
+    beetle_saturn_shared_ext: "disabled",
+  },
+  ultra: {
+    // 8x internal resolution for crisp sprite-heavy 2D and 3D geometry
+    beetle_saturn_resolution: "8x",
+    beetle_saturn_deinterlace_method: "yadif",
+    beetle_saturn_horizontal_overscan: "enabled",
+    beetle_saturn_analog_stick_deadzone: "15%",
+    beetle_saturn_region_detect: "Auto",
+    beetle_saturn_multitap_port1: "disabled",
+    beetle_saturn_multitap_port2: "disabled",
+    beetle_saturn_virtuagun_input: "disabled",
+    beetle_saturn_shared_ext: "disabled",
+  },
+};
+
+// ── Dreamcast (Flycast) tier settings ─────────────────────────────────────────
+
+const DREAMCAST_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    flycast_internal_resolution: "640x480",
+    flycast_anisotropic_filtering: "off",
+    flycast_pvr_texture_upscaling: "1",
+    flycast_enable_dsp: "disabled",
+    flycast_synchronous_rendering: "enabled",
+    flycast_enable_rttb: "disabled",
+    flycast_div_matching: "enabled",
+    flycast_auto_skip_frame: "enabled",
+  },
+  medium: {
+    flycast_internal_resolution: "1280x960",
+    flycast_anisotropic_filtering: "4",
+    flycast_pvr_texture_upscaling: "1",
+    flycast_enable_dsp: "enabled",
+    flycast_synchronous_rendering: "enabled",
+    flycast_enable_rttb: "disabled",
+    flycast_div_matching: "enabled",
+    flycast_auto_skip_frame: "disabled",
+  },
+  high: {
+    flycast_internal_resolution: "1920x1440",
+    flycast_anisotropic_filtering: "8",
+    flycast_pvr_texture_upscaling: "2",
+    flycast_enable_dsp: "enabled",
+    flycast_synchronous_rendering: "disabled",
+    flycast_enable_rttb: "enabled",
+    flycast_div_matching: "enabled",
+    flycast_auto_skip_frame: "disabled",
+  },
+  ultra: {
+    // 2560×1920 internal: 4× native Dreamcast resolution on high-end GPUs
+    flycast_internal_resolution: "2560x1920",
+    flycast_anisotropic_filtering: "16",
+    flycast_pvr_texture_upscaling: "4",
+    flycast_enable_dsp: "enabled",
+    flycast_synchronous_rendering: "disabled",
+    flycast_enable_rttb: "enabled",
+    flycast_div_matching: "enabled",
+    flycast_auto_skip_frame: "disabled",
+  },
+};
+
 // ── Supported systems ─────────────────────────────────────────────────────────
 
 export const SYSTEMS: SystemInfo[] = [
@@ -680,7 +795,7 @@ export const SYSTEMS: SystemInfo[] = [
     id: "psx",
     name: "PlayStation 1",
     shortName: "PS1",
-    extensions: ["pbp", "chd", "cue", "img", "mdf", "ccd"],
+    extensions: ["pbp", "chd", "cue", "img", "mdf", "ccd", "m3u"],
     color: "#003087",
     needsThreads: false,
     needsWebGL2: false,
@@ -738,6 +853,80 @@ export const SYSTEMS: SystemInfo[] = [
     shortName: "Arcade",
     extensions: ["zip"],
     color: "#e67e22",
+    needsThreads: false,
+    needsWebGL2: false,
+    qualitySettings: {},
+    perfSettings: {},
+  },
+
+  // ── Phase 3 additions ──────────────────────────────────────────────────────
+
+  {
+    id: "segaSaturn",
+    name: "Sega Saturn",
+    shortName: "Saturn",
+    extensions: ["cue", "chd", "mdf", "img", "ccd", "m3u"],
+    color: "#6b4c9a",
+    needsThreads: false,
+    needsWebGL2: false,
+    needsBios: true,
+    qualitySettings: SATURN_TIER_SETTINGS.high,
+    perfSettings: SATURN_TIER_SETTINGS.low,
+    tierSettings: SATURN_TIER_SETTINGS,
+  },
+  {
+    id: "segaDC",
+    name: "Dreamcast",
+    shortName: "DC",
+    extensions: ["cdi", "gdi", "chd", "m3u"],
+    color: "#e07b20",
+    needsThreads: false,
+    needsWebGL2: false,
+    needsBios: true,
+    qualitySettings: DREAMCAST_TIER_SETTINGS.high,
+    perfSettings: DREAMCAST_TIER_SETTINGS.low,
+    tierSettings: DREAMCAST_TIER_SETTINGS,
+  },
+  {
+    id: "mame2003",
+    name: "Arcade (MAME 2003+)",
+    shortName: "MAME+",
+    extensions: ["zip", "7z"],
+    color: "#8b1a1a",
+    needsThreads: false,
+    needsWebGL2: false,
+    qualitySettings: {},
+    perfSettings: {},
+  },
+  {
+    id: "atari7800",
+    name: "Atari 7800",
+    shortName: "7800",
+    extensions: ["a78", "bin"],
+    color: "#8b6000",
+    needsThreads: false,
+    needsWebGL2: false,
+    qualitySettings: {},
+    perfSettings: {},
+  },
+  {
+    id: "lynx",
+    name: "Atari Lynx",
+    shortName: "Lynx",
+    extensions: ["lnx", "lyx"],
+    color: "#2a8b6e",
+    needsThreads: false,
+    needsWebGL2: false,
+    needsBios: false,
+    qualitySettings: {},
+    perfSettings: {},
+  },
+  {
+    id: "ngp",
+    name: "Neo Geo Pocket",
+    shortName: "NGP",
+    extensions: ["ngp", "ngc", "ngpc"],
+    color: "#cc2222",
     needsThreads: false,
     needsWebGL2: false,
     qualitySettings: {},

@@ -43,6 +43,7 @@ declare global {
     EJS_volume:        number;
     EJS_DEBUG_XX:      boolean;
     EJS_Settings?:     Record<string, string>;
+    EJS_biosUrl?:      string;
     EJS_ready?:        () => void;
     EJS_onGameStart?:  () => void;
     EJS_emulator?:     EJSEmulatorInstance;
@@ -106,6 +107,15 @@ const CORE_PREFETCH_MAP: Record<string, { js: string; wasm: string }> = {
   nds: {
     js:   "cores/desmume2015_libretro.js",
     wasm: "cores/desmume2015_libretro.wasm",
+  },
+  // ── Phase 3 additions ────────────────────────────────────────────────────
+  segaSaturn: {
+    js:   "cores/mednafen_saturn_libretro.js",
+    wasm: "cores/mednafen_saturn_libretro.wasm",
+  },
+  segaDC: {
+    js:   "cores/flycast_libretro.js",
+    wasm: "cores/flycast_libretro.wasm",
   },
 };
 
@@ -262,6 +272,12 @@ export interface LaunchOptions {
    * Used by the auto-downgrade flow when re-launching at a lower quality tier.
    */
   tierOverride?: PerformanceTier;
+  /**
+   * Blob URL for the system BIOS file (e.g. PS1 SCPH-5501, Saturn BIOS).
+   * Set EJS_biosUrl when provided. The caller is responsible for revoking
+   * this URL after launch (the emulator holds it for the session duration).
+   */
+  biosUrl?: string;
 }
 
 // ── PSPEmulator ───────────────────────────────────────────────────────────────
@@ -277,6 +293,7 @@ export class PSPEmulator {
   private _pausedByVisibility = false;
   private _preconnected = false;
   private _activeTier: PerformanceTier | null = null;
+  private _biosUrl: string | null = null;
   private _prefetchedCores = new Set<string>();
   private _webglPreWarmed = false;
   private _pspPipelineWarmed = false;
@@ -913,6 +930,14 @@ export class PSPEmulator {
       window.EJS_volume        = opts.volume;
       window.EJS_DEBUG_XX      = false;
 
+      if (opts.biosUrl) {
+        window.EJS_biosUrl = opts.biosUrl;
+        this._biosUrl      = opts.biosUrl;
+      } else {
+        delete window.EJS_biosUrl;
+        this._biosUrl = null;
+      }
+
       if (Object.keys(ejsSettings).length > 0) {
         window.EJS_Settings = ejsSettings;
       } else {
@@ -1181,6 +1206,7 @@ export class PSPEmulator {
     delete window.EJS_emulator;
     delete window.EJS_ready;
     delete window.EJS_onGameStart;
+    delete window.EJS_biosUrl;
     this._currentSystem = null;
     this._activeTier = null;
     this._setState("idle");
@@ -1199,6 +1225,10 @@ export class PSPEmulator {
     if (this._blobUrl) {
       URL.revokeObjectURL(this._blobUrl);
       this._blobUrl = null;
+    }
+    if (this._biosUrl) {
+      URL.revokeObjectURL(this._biosUrl);
+      this._biosUrl = null;
     }
   }
 

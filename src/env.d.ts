@@ -2,6 +2,7 @@
 
 import type { PSPEmulator } from "./emulator.js";
 import type { GameLibrary } from "./library.js";
+import type { BiosLibrary } from "./bios.js";
 import type { Settings } from "./main.js";
 import type { DeviceCapabilities } from "./performance.js";
 
@@ -10,6 +11,7 @@ declare global {
     __retrovault?: {
       emulator: PSPEmulator;
       library: GameLibrary;
+      biosLibrary: BiosLibrary;
       settings: Settings;
       deviceCaps: DeviceCapabilities;
     };

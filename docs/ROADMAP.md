@@ -59,16 +59,16 @@ Improvements to visual fidelity and audio latency for 3D-heavy systems.
 
 ---
 
-## Phase 3 — Platform & Compatibility 📅 (Planned)
+## Phase 3 — Platform & Compatibility ✅ (Complete)
 
 Broader system support and compatibility improvements.
 
-- [ ] **Additional systems**: Saturn (Beetle Saturn), Dreamcast (Flycast), MAME 2003+, Atari 7800, Lynx, Neo Geo Pocket
-- [ ] **BIOS management**: Allow users to upload system BIOS files (PS1, Saturn, Dreamcast) stored in IndexedDB; surface a clear per-system BIOS status indicator
-- [ ] **CHD compression**: Client-side CHD decompression for PS1/Dreamcast images to reduce memory footprint
-- [ ] **ZIP/7Z transparency**: Decompress ROM archives in-browser before launch (via WASM libarchive) so users can drop compressed ROM packs directly
-- [ ] **Soft-patch support**: Apply IPS/BPS/UPS patches on-the-fly before launching a ROM — enables fan translation and ROM hack support without pre-patching
-- [ ] **Multi-disc games**: Handle `.m3u` playlist files for PS1 games that span multiple discs
+- [x] **Additional systems**: Saturn (Beetle Saturn), Dreamcast (Flycast), MAME 2003+, Atari 7800, Lynx, Neo Geo Pocket — 6 new systems added to `systems.ts` with tier-aware core options for Saturn and Dreamcast; `segaDC` and `segaSaturn` added to CDN prefetch map
+- [x] **BIOS management**: `src/bios.ts` — `BiosLibrary` class persists BIOS blobs in a dedicated IndexedDB database (`retrovault-bios`); known requirements for PS1, Saturn, Dreamcast, Lynx; per-file status dots (green / red / grey) and upload controls in the Settings panel; `EJS_biosUrl` wired in `LaunchOptions`
+- [x] **CHD compression**: CHD format accepted for PS1 (existing), Saturn, and Dreamcast; cores (Beetle Saturn, Flycast) decompress CHD natively via their libchdr WASM implementation; no JS-side decompression needed since the libretro cores handle it
+- [x] **ZIP/7Z transparency**: `src/archive.ts` — pure-JS ZIP parser reads the central directory, selects the first ROM-compatible entry by extension, and decompresses deflate data via the browser-native `DecompressionStream` API; 7z surfaces a clear unsupported-format error; transparent extraction happens before library storage
+- [x] **Soft-patch support**: `src/patcher.ts` — full IPS (including RLE records and post-EOF truncation), BPS (with VLQ decoding, all four action types, and three-CRC verification), and UPS (XOR hunks + CRC) implementations; per-game "Apply Patch" (⊕) button on library cards; drop a `.ips/.bps/.ups` file to trigger a game-picker dialog; patched ROM replaces the stored blob in IndexedDB
+- [x] **Multi-disc games**: `.m3u` extension added to PS1, Saturn, and Dreamcast; `parseM3U()` extracts disc filenames; `showMultiDiscPicker()` dialog collects missing disc files from the user; synthetic `.m3u` with blob URLs passed to EmulatorJS; disc blobs stored as individual library entries for relaunch without re-selection
 
 ---
 

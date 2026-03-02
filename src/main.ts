@@ -21,10 +21,13 @@
 import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
+import { BiosLibrary }   from "./bios.js";
 import { detectCapabilities, checkBatteryStatus } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
-         buildLandingControls, showTierDowngradePrompt } from "./ui.js";
+         buildLandingControls, showTierDowngradePrompt,
+         resolveSystemAndAdd } from "./ui.js";
+import { applyPatch } from "./patcher.js";
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
 
 // ── Settings schema ───────────────────────────────────────────────────────────
@@ -108,8 +111,9 @@ function main(): void {
   const settings = loadSettings();
 
   // 4. Instantiate services
-  const emulator = new PSPEmulator("ejs-player");
-  const library  = new GameLibrary();
+  const emulator    = new PSPEmulator("ejs-player");
+  const library     = new GameLibrary();
+  const biosLibrary = new BiosLibrary();
 
   // Track the currently loaded game for tier-downgrade re-launch
   let currentGameId:   string | null = null;
@@ -126,8 +130,9 @@ function main(): void {
   // Pre-warm the PSP pipeline cache (PSP-representative shader patterns)
   emulator.warmUpPSPPipeline();
 
-  // Pre-warm IndexedDB connection to eliminate cold-open latency
+  // Pre-warm IndexedDB connections to eliminate cold-open latency
   library.warmUp().catch(() => {});
+  biosLibrary.warmUp().catch(() => {});
 
   // Pre-warm WebGPU if the user has opted in and it is available
   if (settings.useWebGPU && deviceCaps.webgpuAvailable) {
@@ -180,6 +185,18 @@ function main(): void {
     const savedTier    = gameId ? getGameTierProfile(gameId) : null;
     const resolvedTier = tierOverride ?? savedTier ?? undefined;
 
+    // Resolve BIOS URL for systems that need it (PS1, Saturn, Dreamcast, Lynx)
+    let biosUrl: string | undefined;
+    try {
+      const primaryBios = await biosLibrary.getPrimaryBiosUrl(systemId);
+      if (primaryBios) {
+        biosUrl = primaryBios;
+        // Blob URL will be revoked by PSPEmulator._revokeBlobUrl on teardown
+      }
+    } catch {
+      // BIOS lookup failure is non-fatal — emulator may run without BIOS
+    }
+
     await emulator.launch({
       file,
       volume:          settings.volume,
@@ -187,7 +204,34 @@ function main(): void {
       performanceMode: settings.performanceMode,
       deviceCaps,
       tierOverride:    resolvedTier,
+      biosUrl,
     });
+  };
+
+  // 5a. Wire patch application callback
+  const onApplyPatch = async (gameId: string, patchFile: File): Promise<void> => {
+    const entry = await library.getGame(gameId);
+    if (!entry) throw new Error("Game not found in library");
+
+    const romBuffer   = await entry.blob.arrayBuffer();
+    const patchBuffer = await patchFile.arrayBuffer();
+    const patched     = applyPatch(romBuffer, patchBuffer);
+
+    const patchedBlob = new Blob([patched], { type: entry.blob.type });
+    const patchedFile = new File([patchedBlob], entry.fileName, { type: entry.blob.type });
+
+    // Update the stored blob in the library
+    await library.removeGame(gameId);
+    const newEntry = await library.addGame(patchedFile, entry.systemId);
+    console.info(
+      `[RetroVault] Patch applied: "${patchFile.name}" → "${entry.name}" ` +
+      `(${entry.size} → ${newEntry.size} bytes)`
+    );
+  };
+
+  // 5b. Wire the unified file-chosen handler (handles archives, patches, ROMs, m3u)
+  const onFileChosen = async (file: File): Promise<void> => {
+    await resolveSystemAndAdd(file, library, settings, onLaunchGame, emulator, onApplyPatch);
   };
 
   // 5a. Wire auto tier downgrade — triggered by onLowFPS
@@ -240,7 +284,7 @@ function main(): void {
     showLanding();
     document.title = "RetroVault";
 
-    void renderLibrary(library, settings, onLaunchGame, emulator);
+    void renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
     document.dispatchEvent(new CustomEvent("retrovault:returnToLibrary"));
   };
 
@@ -248,9 +292,12 @@ function main(): void {
   initUI({
     emulator,
     library,
+    biosLibrary,
     settings,
     deviceCaps,
     onLaunchGame,
+    onApplyPatch,
+    onFileChosen,
     onSettingsChange: (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
@@ -264,14 +311,14 @@ function main(): void {
 
   // 8. If user returns to landing, rebuild landing header controls with a Resume button
   document.addEventListener("retrovault:returnToLibrary", () => {
-    buildLandingControls(settings, deviceCaps, library, (patch) => {
+    buildLandingControls(settings, deviceCaps, library, biosLibrary, (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
     }, emulator, onLaunchGame, onResumeGame);
   });
 
   document.addEventListener("retrovault:openSettings", () => {
-    openSettingsPanel(settings, deviceCaps, library, (patch) => {
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
     }, emulator, onLaunchGame);
@@ -279,7 +326,7 @@ function main(): void {
 
   // 9. Dev helpers
   if (import.meta.env.DEV) {
-    window.__retrovault = { emulator, library, settings, deviceCaps };
+    window.__retrovault = { emulator, library, biosLibrary, settings, deviceCaps };
     console.info("[RetroVault] Dev mode. Access `window.__retrovault` in the console.");
     console.info("Device capabilities:", deviceCaps);
     console.info(`Hardware tier: ${deviceCaps.tier} (GPU score: ${deviceCaps.gpuBenchmarkScore}/100)`);
