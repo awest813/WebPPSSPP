@@ -439,7 +439,7 @@ describe('PSPEmulator', () => {
         expect(createShaderModuleSpy).toHaveBeenCalledOnce();
         expect(createRenderPipelineSpy).toHaveBeenCalledOnce();
         // Verify the shader code contains WGSL entry points
-        const shaderCode = createShaderModuleSpy.mock.calls[0][0].code as string;
+        const shaderCode = (createShaderModuleSpy.mock.calls[0] as [{ code: string }])[0].code;
         expect(shaderCode).toContain('@vertex');
         expect(shaderCode).toContain('@fragment');
       });

@@ -10,7 +10,11 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vitest/coverage-v8": "^4.0.18",
     "@webgpu/types": "^0.1.69",
+    "eslint": "^10.0.2",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^28.1.0",
     "puppeteer": "^24.37.5",

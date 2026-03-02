@@ -357,7 +357,7 @@ export class PSPEmulator {
    * Callers can surface this to the user (e.g. suggest switching to
    * Performance mode or a lower tier).
    */
-  onLowFPS?:      (averageFPS: number, tier: PerformanceTier | null) => void;
+  onLowFPS?:      (averageFPS: number, tier: PerformanceTier | null) => void | Promise<void>;
   /** Fired when an audio underrun is detected via the AudioWorklet processor. */
   onAudioUnderrun?: (count: number) => void;
   /**
@@ -1384,7 +1384,7 @@ export class PSPEmulator {
       ) {
         this._lastQualitySuggestionTime = now;
         this._lowFPSStartTime = 0;
-        this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
+        void this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
         console.warn(
           `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
           `detected on tier "${this._activeTier}". ` +

@@ -310,6 +310,9 @@ function main(): void {
       const stateBytes = pendingAutoRestore;
       const restoreHandler = () => {
         document.removeEventListener("retrovault:gameStarted", restoreHandler);
+        // Allow the emulator's first frame to render before injecting the save
+        // state. 500 ms is a conservative buffer; on low-end devices the core
+        // needs a moment to become ready for a loadstate call.
         setTimeout(() => {
           if (emulator.writeStateData(AUTO_SAVE_SLOT, stateBytes)) {
             emulator.quickLoad(AUTO_SAVE_SLOT);
@@ -377,7 +380,7 @@ function main(): void {
   emulator.onAutoSave = () => {
     if (!settings.autoSaveEnabled || !currentGameId || !currentSystemId) return;
     const gameName = settings.lastGameName ?? "Unknown";
-    (async () => {
+    void (async () => {
       try {
         const screenshot = await emulator.captureScreenshotAsync();
         const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
