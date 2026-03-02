@@ -104,7 +104,6 @@ class FPSMonitor {
     this._frameTimes = [];
     this._droppedFrames = 0;
     this._lastTime = performance.now();
-    this._tick = this._tick.bind(this);
     this._rafId = requestAnimationFrame(this._tick);
   }
 
@@ -136,7 +135,7 @@ class FPSMonitor {
     };
   }
 
-  private _tick(now: number): void {
+  private _tick = (now: number): void => {
     const delta = now - this._lastTime;
     this._lastTime = now;
 
@@ -161,7 +160,7 @@ class FPSMonitor {
     }
 
     this._rafId = requestAnimationFrame(this._tick);
-  }
+  };
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -291,7 +290,8 @@ export class PSPEmulator {
     this._revokeBlobUrl();
 
     try {
-      this._blobUrl = URL.createObjectURL(opts.file);
+      const blobUrl = URL.createObjectURL(opts.file);
+      this._blobUrl = blobUrl;
       const gameName = opts.file.name.replace(/\.[^.]+$/, "");
 
       this._emit("onProgress", "Initialising EmulatorJS…");
@@ -315,7 +315,7 @@ export class PSPEmulator {
       // ── Set EJS globals ───────────────────────────────────────────────────
       window.EJS_player        = `#${this._playerId}`;
       window.EJS_core          = system.id;
-      window.EJS_gameUrl       = this._blobUrl;
+      window.EJS_gameUrl       = blobUrl;
       window.EJS_gameName      = gameName;
       window.EJS_pathtodata    = EJS_CDN_BASE;
       window.EJS_startOnLoaded = true;
@@ -367,13 +367,13 @@ export class PSPEmulator {
   quickSave(slot = 1): void {
     const emu = window.EJS_emulator;
     if (!emu?.gameManager?.supportsStates?.()) return;
-    emu.gameManager?.quickSave(slot);
+    emu.gameManager.quickSave(slot);
   }
 
   quickLoad(slot = 1): void {
     const emu = window.EJS_emulator;
     if (!emu?.gameManager?.supportsStates?.()) return;
-    emu.gameManager?.quickLoad(slot);
+    emu.gameManager.quickLoad(slot);
   }
 
   setVolume(volume: number): void {

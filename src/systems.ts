@@ -234,13 +234,6 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
-/**
- * Get the appropriate PPSSPP settings for a given performance tier.
- */
-export function getPSPSettingsForTier(tier: PerformanceTier): Record<string, string> {
-  return { ...PSP_TIER_SETTINGS[tier] };
-}
-
 // ── Supported systems ─────────────────────────────────────────────────────────
 
 export const SYSTEMS: SystemInfo[] = [

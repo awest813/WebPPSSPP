@@ -393,13 +393,3 @@ export function formatCapabilitiesSummary(caps: DeviceCapabilities): string {
   return `${ram} · ${cores} · ${gpu}`;
 }
 
-export function formatDetailedSummary(caps: DeviceCapabilities): string {
-  const lines: string[] = [];
-  lines.push(`Tier: ${formatTierLabel(caps.tier)} (score: ${caps.gpuBenchmarkScore}/100)`);
-  lines.push(formatCapabilitiesSummary(caps));
-  lines.push(`Max texture: ${caps.gpuCaps.maxTextureSize}px`);
-  if (caps.gpuCaps.anisotropicFiltering) {
-    lines.push(`Anisotropic: ${caps.gpuCaps.maxAnisotropy}×`);
-  }
-  return lines.join("\n");
-}

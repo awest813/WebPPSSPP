@@ -448,6 +448,7 @@ function systemIcon(systemId: string): string {
     gba:       "🎯",
     gbc:       "🟢",
     gb:        "⬜",
+    nds:       "📟",
     n64:       "🎮",
     psx:       "🔵",
     segaMD:    "⚡",
