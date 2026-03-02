@@ -341,7 +341,7 @@ export function initUI(opts: UIOptions): void {
   });
 
   // ── Landing header controls ───────────────────────────────────────────────
-  buildLandingControls(settings, deviceCaps, library, onSettingsChange, emulator);
+  buildLandingControls(settings, deviceCaps, library, onSettingsChange, emulator, onLaunchGame);
 
   // ── Initial library render ────────────────────────────────────────────────
   renderLibrary(library, settings, onLaunchGame, emulator);
@@ -460,7 +460,8 @@ function buildGameCard(
   card.addEventListener("mouseenter", triggerPreload);
   card.addEventListener("focusin", triggerPreload);
 
-  // Launch using blob-direct path — avoids the expensive new File([blob]) copy
+  // Launch using blob-direct path — avoids the expensive new File([blob]) copy.
+  // game.fileName and game.systemId come from GameMetadata so no second IDB read needed.
   const launch = async () => {
     showLoadingOverlay();
     setLoadingMessage(`Loading ${game.name}…`);
@@ -472,16 +473,9 @@ function buildGameCard(
         return;
       }
 
-      const entry = await library.getGame(game.id);
-      if (!entry) {
-        hideLoadingOverlay();
-        showError(`Game "${game.name}" not found in library.`);
-        return;
-      }
-
-      const file = new File([blob], entry.fileName, { type: blob.type });
+      const file = new File([blob], game.fileName, { type: blob.type });
       await library.markPlayed(game.id);
-      await onLaunchGame(file, entry.systemId);
+      await onLaunchGame(file, game.systemId);
     } catch (err) {
       hideLoadingOverlay();
       showError(`Failed to load game: ${err instanceof Error ? err.message : String(err)}`);
@@ -599,7 +593,8 @@ async function resolveSystemAndAdd(
     system = detected;
   }
 
-  // Duplicate detection — offer to play the existing library entry instead
+  // Duplicate detection — offer to play the existing library entry instead.
+  // findByFileName returns a full GameEntry (including blob), so no second getGame() needed.
   try {
     const existing = await library.findByFileName(file.name, system.id);
     if (existing) {
@@ -611,11 +606,9 @@ async function resolveSystemAndAdd(
       showLoadingOverlay();
       setLoadingMessage(`Loading ${existing.name}…`);
       try {
-        const entry = await library.getGame(existing.id);
-        if (!entry) throw new Error("Library entry not found.");
-        const existingFile = new File([entry.blob], entry.fileName, { type: entry.blob.type });
+        const existingFile = new File([existing.blob], existing.fileName, { type: existing.blob.type });
         await library.markPlayed(existing.id);
-        await onLaunchGame(existingFile, entry.systemId);
+        await onLaunchGame(existingFile, existing.systemId);
       } catch (err) {
         hideLoadingOverlay();
         showError(`Could not load game: ${err instanceof Error ? err.message : String(err)}`);
@@ -648,7 +641,8 @@ function buildLandingControls(
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
-  emulatorRef?:     PSPEmulator
+  emulatorRef?:     PSPEmulator,
+  onLaunchGame?:    (file: File, systemId: string) => Promise<void>
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
@@ -668,7 +662,7 @@ function buildLandingControls(
   </svg> Settings`;
 
   btnSettings.addEventListener("click", () => {
-    openSettingsPanel(settings, deviceCaps, library, onSettingsChange, emulatorRef);
+    openSettingsPanel(settings, deviceCaps, library, onSettingsChange, emulatorRef, onLaunchGame);
   });
 
   // Low-spec / Chromebook indicator
@@ -767,13 +761,14 @@ export function openSettingsPanel(
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
-  emulatorRef?:     import("./emulator.js").PSPEmulator
+  emulatorRef?:     import("./emulator.js").PSPEmulator,
+  onLaunchGame?:    (file: File, systemId: string) => Promise<void>
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
   const previousFocus = document.activeElement as HTMLElement | null;
 
-  buildSettingsContent(content, settings, deviceCaps, library, onSettingsChange, emulatorRef);
+  buildSettingsContent(content, settings, deviceCaps, library, onSettingsChange, emulatorRef, onLaunchGame);
   panel.hidden = false;
 
   const onEsc = (e: KeyboardEvent) => {
@@ -798,7 +793,8 @@ function buildSettingsContent(
   deviceCaps:       DeviceCapabilities,
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
-  emulatorRef?:     import("./emulator.js").PSPEmulator
+  emulatorRef?:     import("./emulator.js").PSPEmulator,
+  onLaunchGame?:    (file: File, systemId: string) => Promise<void>
 ): void {
   container.innerHTML = "";
 
@@ -906,9 +902,7 @@ function buildSettingsContent(
     await library.clearAll();
     document.getElementById("settings-panel")!.hidden = true;
     document.title = "RetroVault";
-    // Re-render
-    const onLaunchGame = window.__onLaunchGame;
-    if (onLaunchGame) renderLibrary(library, settings, onLaunchGame);
+    if (onLaunchGame) renderLibrary(library, settings, onLaunchGame, emulatorRef);
   });
   libSection.appendChild(btnClear);
 
