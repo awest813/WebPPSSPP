@@ -295,14 +295,27 @@ describe('extractFromZip', () => {
     expect(result!.name).toBe('game.nes');
   });
 
-  it('falls back to the first non-directory entry when no ROM extension matches', async () => {
+  it('returns null when no ROM-extension entry exists in the ZIP', async () => {
     const content = new Uint8Array([1, 2, 3]);
     const zipBuf  = buildZip('unknown.xyz', content);
     const blob    = new Blob([zipBuf]);
 
     const result = await extractFromZip(blob);
-    expect(result).not.toBeNull();
-    expect(result!.name).toBe('unknown.xyz');
+    expect(result).toBeNull();
+  });
+
+  it('does not treat nested archive files as extractable ROM targets', async () => {
+    const textData = new Uint8Array([0x4f, 0x4b]); // "OK"
+    const zipData  = new Uint8Array([0x50, 0x4b, 0x03, 0x04]); // nested zip header bytes
+
+    const zipBuf = buildZipWithTwoEntries(
+      'notes.txt', textData,
+      'set.zip',   zipData,
+    );
+    const blob = new Blob([zipBuf]);
+
+    const result = await extractFromZip(blob);
+    expect(result).toBeNull();
   });
 
   it('returns just the filename component (strips path prefix)', async () => {

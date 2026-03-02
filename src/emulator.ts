@@ -985,6 +985,7 @@ export class PSPEmulator {
       // tierOverride bypasses auto-detection — used by the tier-downgrade flow
       const tier = opts.tierOverride ?? resolveTier(opts.performanceMode, opts.deviceCaps);
       this._activeTier = tier;
+      this._resetAdaptiveQualityState();
 
       // Reset audio underrun counter for the new session
       this._audioUnderruns = 0;
@@ -1467,6 +1468,7 @@ export class PSPEmulator {
     this._fpsMonitor.stop();
     this._removeVisibilityHandler();
     this._removeContextLossHandler();
+    this._resetAdaptiveQualityState();
     this._detachPostProcessor();
     this._revokeBlobUrl();
     this._disconnectAudioWorklet();
@@ -1480,6 +1482,12 @@ export class PSPEmulator {
     this._currentSystem = null;
     this._activeTier = null;
     this._setState("idle");
+  }
+
+  /** Reset low-FPS detection timers for a new emulator session. */
+  private _resetAdaptiveQualityState(): void {
+    this._lowFPSStartTime = 0;
+    this._lastQualitySuggestionTime = 0;
   }
 
   private _disconnectAudioWorklet(): void {

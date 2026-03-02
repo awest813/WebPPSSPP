@@ -686,6 +686,37 @@ describe('PSPEmulator', () => {
       // Still only one event — the 60 s cooldown is in effect
       expect(lowFPSEvents).toHaveLength(1);
     });
+
+    it('resets low-FPS cooldown state after teardown', () => {
+      const lowFPSEvents: number[] = [];
+      emulator.onLowFPS = (fps) => { lowFPSEvents.push(fps); };
+
+      type EmuLifecycleInternal = {
+        _checkAdaptiveQuality: (fps: number) => void;
+        _teardown: () => void;
+      };
+      const internal = emulator as unknown as EmuLifecycleInternal;
+      const nowSpy = vi.spyOn(performance, 'now');
+      const baseTime = 5_000_000;
+
+      // Trigger initial low-FPS suggestion
+      nowSpy.mockReturnValue(baseTime);
+      internal._checkAdaptiveQuality(20);
+      nowSpy.mockReturnValue(baseTime + 10_100);
+      internal._checkAdaptiveQuality(20);
+      expect(lowFPSEvents).toHaveLength(1);
+
+      // New session boundary
+      internal._teardown();
+
+      // Within the old cooldown window, a fresh 10 s run should trigger again
+      // because teardown resets the adaptive-quality timing state.
+      nowSpy.mockReturnValue(baseTime + 11_000);
+      internal._checkAdaptiveQuality(20);
+      nowSpy.mockReturnValue(baseTime + 21_200);
+      internal._checkAdaptiveQuality(20);
+      expect(lowFPSEvents).toHaveLength(2);
+    });
   });
 
   // ── tierOverride in LaunchOptions ─────────────────────────────────────────

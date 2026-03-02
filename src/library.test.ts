@@ -139,6 +139,47 @@ describe('GameLibrary.getAllGamesMetadata', () => {
   });
 });
 
+// ── updateGameFile ────────────────────────────────────────────────────────────
+
+describe('GameLibrary.updateGameFile', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('updates blob and size while preserving game identity fields', async () => {
+    const original = new File(['original-rom'], 'same-name.gba', { type: 'application/octet-stream' });
+    const entry = await library.addGame(original, 'gba');
+    await library.markPlayed(entry.id);
+
+    const before = await library.getGame(entry.id);
+    expect(before).not.toBeNull();
+
+    const patched = new File(['patched-rom-data'], 'same-name.gba', { type: 'application/octet-stream' });
+    const updated = await library.updateGameFile(entry.id, patched);
+
+    expect(updated).not.toBeNull();
+    expect(updated!.id).toBe(entry.id);
+    expect(updated!.systemId).toBe(entry.systemId);
+    expect(updated!.addedAt).toBe(entry.addedAt);
+    expect(updated!.lastPlayedAt).toBe(before!.lastPlayedAt);
+    expect(updated!.size).toBe(patched.size);
+    expect(updated!.fileName).toBe('same-name.gba');
+
+    const blob = await library.getGameBlob(entry.id);
+    expect(blob).not.toBeNull();
+    expect(await blob!.text()).toBe('patched-rom-data');
+  });
+
+  it('returns null when attempting to update a missing game id', async () => {
+    const patched = new File(['patched-rom-data'], 'missing.gba', { type: 'application/octet-stream' });
+    const result = await library.updateGameFile('missing-id', patched);
+    expect(result).toBeNull();
+  });
+});
+
 // ── Per-game tier profiles ────────────────────────────────────────────────────
 
 describe('getGameTierProfile / saveGameTierProfile / clearGameTierProfile', () => {

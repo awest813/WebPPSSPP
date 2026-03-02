@@ -362,12 +362,14 @@ function main(): void {
     const patchedBlob = new Blob([patched], { type: entry.blob.type });
     const patchedFile = new File([patchedBlob], entry.fileName, { type: entry.blob.type });
 
-    // Update the stored blob in the library
-    await library.removeGame(gameId);
-    const newEntry = await library.addGame(patchedFile, entry.systemId);
+    // Update the stored blob in-place so game identity (save states, tier
+    // profile, history) is preserved.
+    const updatedEntry = await library.updateGameFile(gameId, patchedFile);
+    if (!updatedEntry) throw new Error("Game not found in library");
+
     console.info(
       `[RetroVault] Patch applied: "${patchFile.name}" → "${entry.name}" ` +
-      `(${entry.size} → ${newEntry.size} bytes)`
+      `(${entry.size} → ${updatedEntry.size} bytes)`
     );
   };
 

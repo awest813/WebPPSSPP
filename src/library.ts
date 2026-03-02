@@ -224,6 +224,42 @@ export class GameLibrary {
   }
 
   /**
+   * Replace the stored ROM blob for an existing game while preserving identity.
+   *
+   * This is used by ROM patching flows so save states and per-game settings
+   * remain attached to the same gameId.
+   *
+   * @param id        Existing game id to update.
+   * @param file      New ROM payload.
+   * @param fileName  Optional explicit filename when `file` is a raw Blob.
+   * @returns Updated entry, or null when no game exists for the id.
+   */
+  async updateGameFile(
+    id: string,
+    file: Blob | File,
+    fileName?: string,
+  ): Promise<GameEntry | null> {
+    const db    = await openDB();
+    const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
+    const entry = await promisify<GameEntry | undefined>(store.get(id));
+    if (!entry) return null;
+
+    const nextFileName = file instanceof File
+      ? file.name
+      : (fileName ?? entry.fileName);
+
+    entry.fileName = nextFileName;
+    entry.name     = nextFileName.replace(/\.[^.]+$/, "");
+    entry.size     = file.size;
+    entry.blob     = file;
+
+    await promisify(store.put(entry));
+    setCachedBlob(entry.id, file);
+    invalidateMetadataCache();
+    return entry;
+  }
+
+  /**
    * Get just the ROM blob for a game, using the cache when available.
    * More efficient than getGame() when only the blob is needed for launch.
    */

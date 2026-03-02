@@ -186,7 +186,13 @@ export async function extractFromZip(
   // ── Choose which entry to extract ─────────────────────────────────────────
   // Prefer files whose extension is a known ROM format.
   // Directories end with "/" and are skipped.
-  const knownExts = new Set(ALL_EXTENSIONS);
+  //
+  // Intentionally exclude archive extensions from extraction candidates.
+  // ZIP/7Z packages may be native ROM containers for arcade sets; picking an
+  // inner archive (or an arbitrary non-ROM payload) causes mis-detection.
+  const knownExts = new Set(
+    ALL_EXTENSIONS.filter(ext => ext !== "zip" && ext !== "7z")
+  );
   const isDir = (e: CentralDirEntry) => e.name.endsWith("/") || e.uncompressedSize === 0;
 
   const romCandidates = entries.filter(e => {
@@ -195,10 +201,10 @@ export async function extractFromZip(
     return knownExts.has(ext);
   });
 
-  const target =
-    romCandidates[0] ??
-    entries.find(e => !isDir(e)) ??
-    null;
+  // Do not silently fall back to the first arbitrary file when no ROM-like
+  // entry exists. Returning null allows callers to decide whether the archive
+  // should be treated as a native package (e.g. MAME zip set).
+  const target = romCandidates[0] ?? null;
 
   if (!target) return null;
 

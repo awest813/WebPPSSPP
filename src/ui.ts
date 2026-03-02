@@ -783,8 +783,7 @@ function pickSystem(fileName: string, candidates: SystemInfo[]): Promise<SystemI
 
 // ── Resolve system then add to library and launch ─────────────────────────────
 
-const PATCH_EXT_SET   = new Set(["ips", "bps", "ups"]);
-const ARCHIVE_EXT_SET = new Set(["zip", "7z"]);
+const PATCH_EXT_SET = new Set(["ips", "bps", "ups"]);
 
 export async function resolveSystemAndAdd(
   file:          File,
@@ -802,25 +801,26 @@ export async function resolveSystemAndAdd(
 
   let resolvedFile = file;
 
-  if (ARCHIVE_EXT_SET.has(ext)) {
-    const { detectArchiveFormat, extractFromZip } = await import("./archive.js");
-    const fmt = await detectArchiveFormat(file);
-    if (fmt === "zip") {
-      showLoadingOverlay();
-      setLoadingMessage("Extracting archive…");
-      try {
-        const extracted = await extractFromZip(file);
-        if (!extracted) { hideLoadingOverlay(); showError("Could not find a ROM file inside the ZIP archive."); return; }
+  // ZIP is extraction-capable. 7z is treated as a native package and routed
+  // through normal system detection (MAME 2003+) rather than being blocked.
+  if (ext === "zip") {
+    const { extractFromZip } = await import("./archive.js");
+    showLoadingOverlay();
+    setLoadingMessage("Extracting archive…");
+    try {
+      const extracted = await extractFromZip(file);
+      if (extracted) {
         resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
         setLoadingMessage("Archive extracted. Adding to library…");
-      } catch (err) {
+      } else {
+        // No extractable ROM entry found. Fall back to native package handling
+        // (e.g. arcade/MAME zip sets) via the normal detectSystem flow below.
         hideLoadingOverlay();
-        showError(`Archive extraction failed: ${err instanceof Error ? err.message : String(err)}`);
-        return;
       }
-    } else if (fmt === "7z") {
-      showError("7-Zip (.7z) files cannot be extracted automatically.\nPlease extract the ROM manually and drop the extracted file.");
-      return;
+    } catch {
+      // Extraction is best-effort. If parsing/decompression fails, continue
+      // with the original zip as a native package candidate.
+      hideLoadingOverlay();
     }
   }
 
