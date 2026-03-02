@@ -23,7 +23,7 @@ import { PSPEmulator }   from "./emulator.js";
 import { GameLibrary }   from "./library.js";
 import { detectCapabilities } from "./performance.js";
 import { buildDOM, initUI, showLanding,
-         hideEjsContainer, renderLibrary, openSettingsPanel } from "./ui.js";
+         hideEjsContainer, renderLibrary, openSettingsPanel, showError } from "./ui.js";
 import type { PerformanceMode } from "./performance.js";
 
 // ── Settings schema ───────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ function saveSettings(s: Settings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   } catch {
-    console.warn("[retrovault] Could not persist settings to localStorage.");
+    showError("Could not persist settings to localStorage.");
   }
 }
 
