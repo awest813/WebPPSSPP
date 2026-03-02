@@ -1396,7 +1396,7 @@ async function buildSaveSlotCard(
   if (state) {
     info.appendChild(make("span", { class: "save-slot-card__time" }, formatRelativeTime(state.timestamp)));
   } else {
-    info.appendChild(make("span", { class: "save-slot-card__time save-slot-card__time--empty" }, "No save"));
+    info.appendChild(make("span", { class: "save-slot-card__time save-slot-card__time--empty" }, "Empty"));
   }
 
   // Actions

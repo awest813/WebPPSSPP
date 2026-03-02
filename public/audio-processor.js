@@ -21,7 +21,7 @@ class RetroVaultProcessor extends AudioWorkletProcessor {
     this._underruns = 0;
     this._silentFrames = 0;
     this._framesSinceReport = 0;
-    this._REPORT_INTERVAL = 128; // report every 128 process() calls (~2.9s at 128 frames)
+    this._REPORT_INTERVAL = 128; // report every 128 process() calls (~0.37s at 44.1 kHz / 128-sample blocks)
     this._SILENCE_THRESHOLD = 1e-6;
     this._SILENCE_UNDERRUN_FRAMES = 8; // 8 consecutive silent blocks = possible underrun
   }
