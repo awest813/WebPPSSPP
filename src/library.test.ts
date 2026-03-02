@@ -139,6 +139,39 @@ describe('GameLibrary.getAllGamesMetadata', () => {
   });
 });
 
+// ── findByFileName ────────────────────────────────────────────────────────────
+
+describe('GameLibrary.findByFileName', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('returns the matching game by filename + systemId', async () => {
+    await library.addGame(new File(['nes-rom'], 'shared-name.rom', { type: 'application/octet-stream' }), 'nes');
+    const gbaEntry = await library.addGame(new File(['gba-rom'], 'shared-name.rom', { type: 'application/octet-stream' }), 'gba');
+
+    const found = await library.findByFileName('shared-name.rom', 'gba');
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(gbaEntry.id);
+    expect(found!.systemId).toBe('gba');
+  });
+
+  it('returns null when only filename matches but systemId differs', async () => {
+    await library.addGame(new File(['nes-rom'], 'same-name.bin', { type: 'application/octet-stream' }), 'nes');
+
+    const found = await library.findByFileName('same-name.bin', 'gba');
+    expect(found).toBeNull();
+  });
+
+  it('returns null when no matching game exists', async () => {
+    const found = await library.findByFileName('missing-game.iso', 'psp');
+    expect(found).toBeNull();
+  });
+});
+
 // ── updateGameFile ────────────────────────────────────────────────────────────
 
 describe('GameLibrary.updateGameFile', () => {

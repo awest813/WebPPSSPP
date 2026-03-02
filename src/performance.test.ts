@@ -5,6 +5,8 @@ import {
   isWebGPUAvailable,
   prefersReducedMotion,
   checkBatteryStatus,
+  detectAudioCapabilities,
+  __resetAudioCapabilitiesCacheForTests,
   formatCapabilitiesSummary,
   formatDetailedSummary,
 } from './performance';
@@ -12,6 +14,7 @@ import {
 describe('performance', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetAudioCapabilitiesCacheForTests();
   });
 
   // ── WebGL error resilience ──────────────────────────────────────────────
@@ -209,6 +212,63 @@ describe('performance', () => {
 
       const result = await checkBatteryStatus();
       expect(result).toBeNull();
+    });
+  });
+
+  // ── Audio capability memoization ────────────────────────────────────────
+
+  describe('detectAudioCapabilities memoization', () => {
+    const originalAudioContext = window.AudioContext;
+
+    afterEach(() => {
+      Object.defineProperty(window, 'AudioContext', {
+        value: originalAudioContext,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    it('reuses a memoized probe result across calls', async () => {
+      const ctorSpy = vi.fn(() => ({
+        baseLatency: 0.01,
+        outputLatency: 0.02,
+        sampleRate: 48000,
+        suspend: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      Object.defineProperty(window, 'AudioContext', {
+        value: ctorSpy,
+        configurable: true,
+        writable: true,
+      });
+
+      const first = await detectAudioCapabilities();
+      const second = await detectAudioCapabilities();
+
+      expect(ctorSpy).toHaveBeenCalledTimes(1);
+      expect(second).toEqual(first);
+    });
+
+    it('forceRefresh bypasses the memoized probe', async () => {
+      const ctorSpy = vi.fn(() => ({
+        baseLatency: 0.015,
+        outputLatency: 0.03,
+        sampleRate: 44100,
+        suspend: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      Object.defineProperty(window, 'AudioContext', {
+        value: ctorSpy,
+        configurable: true,
+        writable: true,
+      });
+
+      await detectAudioCapabilities();
+      await detectAudioCapabilities({ forceRefresh: true });
+
+      expect(ctorSpy).toHaveBeenCalledTimes(2);
     });
   });
 

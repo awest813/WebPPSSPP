@@ -124,6 +124,8 @@ export interface AudioCapabilities {
   suggestedBufferTier: "low" | "medium" | "high";
 }
 
+let _audioCapabilitiesPromise: Promise<AudioCapabilities> | null = null;
+
 // ── Software renderer detection ───────────────────────────────────────────────
 
 const SOFTWARE_RENDERER_KEYWORDS = [
@@ -625,41 +627,57 @@ export async function checkBatteryStatus(): Promise<BatteryStatus | null> {
  *   - "medium" → 1 (standard buffer, ≤20 ms — typical laptop/desktop audio)
  *   - "high"   → 2 (conservative buffer, >20 ms or unknown — USB/Bluetooth audio)
  */
-export async function detectAudioCapabilities(): Promise<AudioCapabilities> {
-  const audioWorklet = typeof AudioWorkletNode !== "undefined";
-  const fallback: AudioCapabilities = {
-    baseLatencyMs: null,
-    outputLatencyMs: null,
-    audioWorklet,
-    sampleRate: null,
-    suggestedBufferTier: "medium",
+export async function detectAudioCapabilities(
+  opts: { forceRefresh?: boolean } = {}
+): Promise<AudioCapabilities> {
+  const runProbe = async (): Promise<AudioCapabilities> => {
+    const audioWorklet = typeof AudioWorkletNode !== "undefined";
+    const fallback: AudioCapabilities = {
+      baseLatencyMs: null,
+      outputLatencyMs: null,
+      audioWorklet,
+      sampleRate: null,
+      suggestedBufferTier: "medium",
+    };
+
+    try {
+      const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) return fallback;
+
+      // Construct suspended so we don't trigger autoplay policy.
+      const ctx = new AudioContextCtor({ latencyHint: "playback" });
+      await ctx.suspend();
+
+      const baseLatencyMs    = (ctx.baseLatency   ?? null) !== null ? (ctx.baseLatency   * 1000) : null;
+      const outputLatencyMs  = (ctx.outputLatency  ?? null) !== null ? (ctx.outputLatency * 1000) : null;
+      const sampleRate       = ctx.sampleRate;
+
+      await ctx.close();
+
+      let suggestedBufferTier: AudioCapabilities["suggestedBufferTier"] = "medium";
+      if (baseLatencyMs !== null) {
+        if (baseLatencyMs <= 8)  suggestedBufferTier = "low";
+        else if (baseLatencyMs <= 20) suggestedBufferTier = "medium";
+        else                     suggestedBufferTier = "high";
+      }
+
+      return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, suggestedBufferTier };
+    } catch {
+      return fallback;
+    }
   };
 
-  try {
-    const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextCtor) return fallback;
-
-    // Construct suspended so we don't trigger autoplay policy.
-    const ctx = new AudioContextCtor({ latencyHint: "playback" });
-    await ctx.suspend();
-
-    const baseLatencyMs    = (ctx.baseLatency   ?? null) !== null ? (ctx.baseLatency   * 1000) : null;
-    const outputLatencyMs  = (ctx.outputLatency  ?? null) !== null ? (ctx.outputLatency * 1000) : null;
-    const sampleRate       = ctx.sampleRate;
-
-    await ctx.close();
-
-    let suggestedBufferTier: AudioCapabilities["suggestedBufferTier"] = "medium";
-    if (baseLatencyMs !== null) {
-      if (baseLatencyMs <= 8)  suggestedBufferTier = "low";
-      else if (baseLatencyMs <= 20) suggestedBufferTier = "medium";
-      else                     suggestedBufferTier = "high";
-    }
-
-    return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, suggestedBufferTier };
-  } catch {
-    return fallback;
+  if (!opts.forceRefresh && _audioCapabilitiesPromise) {
+    return _audioCapabilitiesPromise;
   }
+
+  _audioCapabilitiesPromise = runProbe();
+  return _audioCapabilitiesPromise;
+}
+
+/** Test helper to clear memoized audio probe state between tests. */
+export function __resetAudioCapabilitiesCacheForTests(): void {
+  _audioCapabilitiesPromise = null;
 }
 
 // ── Effective mode resolution ─────────────────────────────────────────────────

@@ -55,6 +55,7 @@ import {
   saveStateKey,
   defaultSlotLabel,
   createThumbnail,
+  stateBytesToBlob,
   downloadBlob,
 } from "./saves.js";
 import type { Settings } from "./main.js";
@@ -373,6 +374,11 @@ export function initUI(opts: UIOptions): void {
     }
   });
 
+  // Ensure overlay work is paused while browsing the library.
+  document.addEventListener("retrovault:returnToLibrary", () => {
+    showFPSOverlay(false);
+  });
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   document.addEventListener("keydown", (e) => {
     if (emulator.state !== "running") return;
@@ -405,6 +411,7 @@ type SortMode = "lastPlayed" | "name" | "added" | "system";
 let _librarySearchQuery = "";
 let _librarySortMode: SortMode = "lastPlayed";
 let _librarySystemFilter = "";
+let _librarySearchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 export async function renderLibrary(
   library:       GameLibrary,
@@ -514,7 +521,11 @@ function _wireLibraryControls(
     searchEl.value = _librarySearchQuery;
     searchEl.addEventListener("input", () => {
       _librarySearchQuery = searchEl.value;
-      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      if (_librarySearchDebounce !== null) clearTimeout(_librarySearchDebounce);
+      _librarySearchDebounce = setTimeout(() => {
+        _librarySearchDebounce = null;
+        void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      }, 120);
     });
   }
 
@@ -675,7 +686,7 @@ function buildGameCard(
     try {
       const blob = await library.getGameBlob(game.id);
       if (!blob) { hideLoadingOverlay(); showError(`Game "${game.name}" not found in library.`); return; }
-      const file = new File([blob], game.fileName, { type: blob.type });
+      const file = toLaunchFile(blob, game.fileName);
       await library.markPlayed(game.id);
       await onLaunchGame(file, game.systemId, game.id);
     } catch (err) {
@@ -708,6 +719,12 @@ function volIcon(volume: number): string {
 
 function _escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Reuse stored File objects when possible to avoid unnecessary allocations. */
+function toLaunchFile(blob: Blob, fileName: string): File {
+  if (blob instanceof File && blob.name === fileName) return blob;
+  return new File([blob], fileName, { type: blob.type });
 }
 
 // ── Custom confirm dialog ─────────────────────────────────────────────────────
@@ -855,7 +872,7 @@ export async function resolveSystemAndAdd(
       showLoadingOverlay();
       setLoadingMessage(`Loading ${existing.name}…`);
       try {
-        const existingFile = new File([existing.blob], existing.fileName, { type: existing.blob.type });
+        const existingFile = toLaunchFile(existing.blob, existing.fileName);
         await library.markPlayed(existing.id);
         await onLaunchGame(existingFile, existing.systemId, existing.id);
       } catch (err) {
@@ -976,7 +993,7 @@ async function handleM3UFile(
     } catch { /* ignore */ }
   }
 
-  let discFiles: Map<string, File>;
+  let discFiles: Map<string, Blob>;
   const missingDiscs = discFileNames.filter(fn => !storedDiscs.has(fn));
 
   if (missingDiscs.length > 0) {
@@ -993,7 +1010,7 @@ async function handleM3UFile(
     discFiles = userPicked;
   } else {
     discFiles = new Map();
-    for (const [fn, { blob }] of storedDiscs) { discFiles.set(fn, new File([blob], fn)); }
+    for (const [fn, { blob }] of storedDiscs) { discFiles.set(fn, blob); }
     showLoadingOverlay();
     setLoadingMessage("Preparing multi-disc game…");
   }
@@ -1001,9 +1018,9 @@ async function handleM3UFile(
   const blobUrls: string[] = [];
   const syntheticLines: string[] = [];
   for (const fn of discFileNames) {
-    const discFile = discFiles.get(fn) ?? (storedDiscs.get(fn) ? new File([storedDiscs.get(fn)!.blob], fn) : null);
-    if (!discFile) { hideLoadingOverlay(); showError(`Disc file not found: "${fn}"`); return; }
-    const url = URL.createObjectURL(discFile);
+    const discBlob = discFiles.get(fn) ?? storedDiscs.get(fn)?.blob ?? null;
+    if (!discBlob) { hideLoadingOverlay(); showError(`Disc file not found: "${fn}"`); return; }
+    const url = URL.createObjectURL(discBlob);
     blobUrls.push(url);
     syntheticLines.push(url);
   }
@@ -1226,9 +1243,7 @@ async function persistSaveMetadata(
     const screenshot = await emulator.captureScreenshot();
     const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
     const stateBytes = emulator.readStateData(slot);
-    const stateData  = stateBytes
-      ? new Blob([(stateBytes.buffer as ArrayBuffer).slice(stateBytes.byteOffset, stateBytes.byteOffset + stateBytes.byteLength)])
-      : null;
+    const stateData  = stateBytesToBlob(stateBytes);
 
     // Preserve the user-defined label if one exists
     const existingState = await saveLibrary.getState(gameId, slot);
@@ -2145,6 +2160,11 @@ class AudioVisualiser {
   private readonly _TARGET_INTERVAL = 1000 / 30;
 
   start(emulatorRef?: import("./emulator.js").PSPEmulator): boolean {
+    if (this._rafId !== null) {
+      if (this._canvas) this._canvas.hidden = false;
+      return this._ctx !== null;
+    }
+
     this._canvas = document.getElementById("fps-visualiser") as HTMLCanvasElement | null;
     if (!this._canvas) return false;
     this._2d = this._canvas.getContext("2d");
@@ -2183,6 +2203,8 @@ class AudioVisualiser {
     if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
     try { this._analyser?.disconnect(); } catch { /* ignore */ }
     this._analyser = null;
+    this._buffer = null;
+    this._ctx = null;
     if (this._canvas) this._canvas.hidden = true;
   }
 

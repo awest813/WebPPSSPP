@@ -22,7 +22,7 @@ import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
-import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail } from "./saves.js";
+import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail, stateBytesToBlob } from "./saves.js";
 import { detectCapabilities, checkBatteryStatus } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
@@ -387,9 +387,7 @@ function main(): void {
         const screenshot = await emulator.captureScreenshotAsync();
         const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
         const stateBytes = emulator.readStateData(AUTO_SAVE_SLOT);
-        const stateData  = stateBytes
-          ? new Blob([(stateBytes.buffer as ArrayBuffer).slice(stateBytes.byteOffset, stateBytes.byteOffset + stateBytes.byteLength)])
-          : null;
+        const stateData  = stateBytesToBlob(stateBytes);
 
         await saveLibrary.saveState({
           id:         saveStateKey(currentGameId!, AUTO_SAVE_SLOT),

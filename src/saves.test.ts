@@ -5,6 +5,7 @@ import {
   saveStateKey,
   AUTO_SAVE_SLOT,
   MAX_SAVE_SLOTS,
+  stateBytesToBlob,
   type SaveStateEntry,
 } from './saves';
 
@@ -41,6 +42,35 @@ describe('Constants', () => {
 
   it('AUTO_SAVE_SLOT is 0', () => {
     expect(AUTO_SAVE_SLOT).toBe(0);
+  });
+});
+
+// ── stateBytesToBlob ─────────────────────────────────────────────────────────
+
+describe('stateBytesToBlob', () => {
+  it('returns null for null/undefined input', () => {
+    expect(stateBytesToBlob(null)).toBeNull();
+    expect(stateBytesToBlob(undefined)).toBeNull();
+  });
+
+  it('returns null for empty byte arrays', () => {
+    expect(stateBytesToBlob(new Uint8Array(0))).toBeNull();
+  });
+
+  it('preserves byte content when converting to Blob', async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const blob = stateBytesToBlob(bytes);
+    expect(blob).not.toBeNull();
+    expect(blob!.type).toBe('application/octet-stream');
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(bytes);
+  });
+
+  it('respects Uint8Array byteOffset/byteLength views', async () => {
+    const source = new Uint8Array([10, 20, 30, 40, 50]);
+    const view = source.subarray(1, 4); // [20, 30, 40]
+    const blob = stateBytesToBlob(view);
+    expect(blob).not.toBeNull();
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(new Uint8Array([20, 30, 40]));
   });
 });
 
