@@ -50,67 +50,92 @@ export interface SystemInfo {
 /**
  * Comprehensive PPSSPP RetroArch core options tuned for each hardware tier.
  *
- * Option reference (PPSSPP libretro):
- *   ppsspp_internal_resolution  — Rendering resolution multiplier (1–10)
- *   ppsspp_auto_frameskip       — Dynamic frameskip to maintain speed
- *   ppsspp_frameskip            — Fixed number of frames to skip (0–9)
- *   ppsspp_frameskip_type       — "Number of frames" or "Percent of FPS"
- *   ppsspp_fast_memory          — Skip memory access safety checks (faster)
- *   ppsspp_block_transfer_gpu   — Use GPU for block transfers (faster rendering)
- *   ppsspp_texture_scaling_level — Texture upscale factor (1–5, 1=off)
- *   ppsspp_texture_scaling_type  — Upscale algorithm (xBRZ, hybrid, etc.)
- *   ppsspp_texture_filtering     — Anisotropic filtering level
- *   ppsspp_texture_deposterize   — Reduce colour banding in textures
- *   ppsspp_gpu_hardware_transform — Hardware vertex transform (vs software)
- *   ppsspp_vertex_cache          — Cache transformed vertices (faster)
- *   ppsspp_lazy_texture_caching  — Skip re-hashing unchanged textures
+ * Core rendering & GPU options:
+ *   ppsspp_internal_resolution          — Rendering resolution multiplier (1–10)
+ *   ppsspp_block_transfer_gpu           — Use GPU for block transfers (faster rendering)
+ *   ppsspp_gpu_hardware_transform       — Hardware vertex transform (vs software)
+ *   ppsspp_vertex_cache                 — Cache transformed vertices (faster)
+ *   ppsspp_rendering_mode               — Buffered vs non-buffered rendering
+ *   ppsspp_inflight_frames              — CPU-GPU pipeline depth (improves throughput)
+ *   ppsspp_lower_resolution_for_effects — Reduce resolution for post-processing
+ *   ppsspp_skip_buffer_effects          — Skip expensive framebuffer effects
+ *   ppsspp_disable_slow_framebuf_effects — Disable slow framebuffer operations
+ *   ppsspp_gpu_anisotropic_filtering    — GPU-level anisotropic filtering (off/2x/4x/8x/16x)
+ *
+ * Texture options:
+ *   ppsspp_texture_scaling_level  — Texture upscale factor (1–5, 1=off)
+ *   ppsspp_texture_scaling_type   — Upscale algorithm (xBRZ, hybrid, etc.)
+ *   ppsspp_texture_filtering      — Anisotropic filtering level
+ *   ppsspp_texture_deposterize    — Reduce colour banding in textures
+ *   ppsspp_lazy_texture_caching   — Skip re-hashing unchanged textures
  *   ppsspp_retain_changed_textures — Keep modified textures in VRAM
+ *   ppsspp_texture_shader          — GPU shader for texture replacement
+ *
+ * CPU & frameskip:
+ *   ppsspp_cpu_core              — JIT vs interpreter
+ *   ppsspp_auto_frameskip        — Dynamic frameskip to maintain speed
+ *   ppsspp_frameskip             — Fixed number of frames to skip (0–9)
+ *   ppsspp_frameskip_type        — "Number of frames" or "Percent of FPS"
+ *   ppsspp_fast_memory           — Skip memory access safety checks (faster)
+ *   ppsspp_locked_cpu_speed      — Lock CPU clock (0 = default PSP speed)
+ *   ppsspp_force_max_fps         — Force max FPS cap (0 = uncapped, 60 = standard)
+ *   ppsspp_change_emulated_psp_cpu_clock — Over/underclock emulated PSP CPU (±MHz)
+ *   ppsspp_unsafe_func_replacements — Replace known functions with fast native versions
+ *
+ * I/O & audio:
+ *   ppsspp_io_timing_method      — I/O timing (fast/host/simulate UMD)
+ *   ppsspp_separate_io_thread    — Run I/O on a separate thread (reduces stalls)
+ *   ppsspp_audio_latency         — Audio buffer size: 0=low, 1=medium, 2=high
+ *   ppsspp_audio_resampling      — High-quality audio resampling
+ *
+ * Misc:
  *   ppsspp_spline_quality        — Spline/bezier curve quality (low/medium/high)
  *   ppsspp_software_skinning     — GPU-side vertex skinning
- *   ppsspp_io_timing_method      — I/O timing (fast/host/simulate UMD)
- *   ppsspp_lower_resolution_for_effects — Reduce resolution for post-processing
- *   ppsspp_inflight_frames       — CPU-GPU pipeline depth (improves throughput)
- *   ppsspp_rendering_mode        — Buffered vs non-buffered rendering
- *   ppsspp_cpu_core              — JIT vs interpreter
- *   ppsspp_audio_latency         — Audio output buffer size: 0=low, 1=medium, 2=high
- *                                  Low latency is more responsive but risks glitches on
- *                                  slow hardware; high latency is stable but adds delay.
- *   ppsspp_audio_resampling      — High-quality audio resampling; costs CPU cycles but
- *                                  reduces pitch drift and aliasing artefacts.
+ *   ppsspp_cheats                — Enable cheat engine (minor overhead)
  */
 const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   // ── Low: maximum performance, minimum quality ──────────────────────────────
   low: {
-    ppsspp_internal_resolution: "1",        // Native 480×272
+    ppsspp_internal_resolution: "1",
     ppsspp_auto_frameskip: "enabled",
-    ppsspp_frameskip: "1",
+    ppsspp_frameskip: "3",
     ppsspp_frameskip_type: "Number of frames",
     ppsspp_fast_memory: "enabled",
     ppsspp_block_transfer_gpu: "enabled",
-    ppsspp_texture_scaling_level: "1",      // No upscaling
+    ppsspp_texture_scaling_level: "1",
     ppsspp_texture_scaling_type: "xBRZ",
     ppsspp_texture_filtering: "auto",
     ppsspp_texture_deposterize: "disabled",
     ppsspp_gpu_hardware_transform: "enabled",
     ppsspp_vertex_cache: "enabled",
-    ppsspp_lazy_texture_caching: "enabled", // Skip re-hashing
+    ppsspp_lazy_texture_caching: "enabled",
     ppsspp_retain_changed_textures: "disabled",
     ppsspp_spline_quality: "low",
     ppsspp_software_skinning: "enabled",
     ppsspp_io_timing_method: "Fast",
-    ppsspp_lower_resolution_for_effects: "2",  // Half resolution effects
+    ppsspp_lower_resolution_for_effects: "2",
     ppsspp_inflight_frames: "2",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
-    ppsspp_audio_latency: "2",              // Large buffer — prevents glitches on slow hardware
-    ppsspp_audio_resampling: "disabled",    // Skip resampling to save CPU
+    ppsspp_audio_latency: "2",
+    ppsspp_audio_resampling: "disabled",
+    ppsspp_locked_cpu_speed: "0",
+    ppsspp_force_max_fps: "60",
+    ppsspp_cheats: "enabled",
+    ppsspp_skip_buffer_effects: "enabled",
+    ppsspp_disable_slow_framebuf_effects: "enabled",
+    ppsspp_gpu_anisotropic_filtering: "off",
+    ppsspp_texture_shader: "Off",
+    ppsspp_change_emulated_psp_cpu_clock: "0",
+    ppsspp_separate_io_thread: "enabled",
+    ppsspp_unsafe_func_replacements: "enabled",
   },
 
   // ── Medium: balanced — small quality bumps where cheap ─────────────────────
   medium: {
-    ppsspp_internal_resolution: "1",        // Still native for CPU headroom
+    ppsspp_internal_resolution: "1",
     ppsspp_auto_frameskip: "enabled",
-    ppsspp_frameskip: "0",                  // Only auto-skip, not forced
+    ppsspp_frameskip: "1",
     ppsspp_frameskip_type: "Number of frames",
     ppsspp_fast_memory: "enabled",
     ppsspp_block_transfer_gpu: "enabled",
@@ -125,50 +150,33 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_spline_quality: "medium",
     ppsspp_software_skinning: "enabled",
     ppsspp_io_timing_method: "Fast",
-    ppsspp_lower_resolution_for_effects: "0",  // Full resolution
+    ppsspp_lower_resolution_for_effects: "0",
     ppsspp_inflight_frames: "2",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
-    ppsspp_audio_latency: "1",              // Medium buffer — balanced stability
-    ppsspp_audio_resampling: "disabled",    // Skip resampling to preserve CPU headroom
+    ppsspp_audio_latency: "1",
+    ppsspp_audio_resampling: "disabled",
+    ppsspp_locked_cpu_speed: "0",
+    ppsspp_force_max_fps: "60",
+    ppsspp_cheats: "enabled",
+    ppsspp_skip_buffer_effects: "enabled",
+    ppsspp_disable_slow_framebuf_effects: "enabled",
+    ppsspp_gpu_anisotropic_filtering: "off",
+    ppsspp_texture_shader: "Off",
+    ppsspp_change_emulated_psp_cpu_clock: "0",
+    ppsspp_separate_io_thread: "enabled",
+    ppsspp_unsafe_func_replacements: "enabled",
   },
 
   // ── High: quality focus with sensible limits ───────────────────────────────
   high: {
-    ppsspp_internal_resolution: "2",        // 2× (960×544)
+    ppsspp_internal_resolution: "2",
     ppsspp_auto_frameskip: "disabled",
     ppsspp_frameskip: "0",
     ppsspp_frameskip_type: "Number of frames",
     ppsspp_fast_memory: "enabled",
     ppsspp_block_transfer_gpu: "enabled",
-    ppsspp_texture_scaling_level: "2",      // 2× texture upscale
-    ppsspp_texture_scaling_type: "xBRZ",
-    ppsspp_texture_filtering: "auto",
-    ppsspp_texture_deposterize: "enabled",
-    ppsspp_gpu_hardware_transform: "enabled",
-    ppsspp_vertex_cache: "enabled",
-    ppsspp_lazy_texture_caching: "disabled", // More accurate
-    ppsspp_retain_changed_textures: "enabled",
-    ppsspp_spline_quality: "high",
-    ppsspp_software_skinning: "enabled",
-    ppsspp_io_timing_method: "Fast",
-    ppsspp_lower_resolution_for_effects: "0",
-    ppsspp_inflight_frames: "3",
-    ppsspp_rendering_mode: "buffered",
-    ppsspp_cpu_core: "JIT",
-    ppsspp_audio_latency: "1",              // Medium buffer — good balance at this tier
-    ppsspp_audio_resampling: "enabled",     // Higher quality audio; device has CPU headroom
-  },
-
-  // ── Ultra: maximum quality ─────────────────────────────────────────────────
-  ultra: {
-    ppsspp_internal_resolution: "3",        // 3× (1440×816)
-    ppsspp_auto_frameskip: "disabled",
-    ppsspp_frameskip: "0",
-    ppsspp_frameskip_type: "Number of frames",
-    ppsspp_fast_memory: "enabled",
-    ppsspp_block_transfer_gpu: "enabled",
-    ppsspp_texture_scaling_level: "3",      // 3× texture upscale
+    ppsspp_texture_scaling_level: "2",
     ppsspp_texture_scaling_type: "xBRZ",
     ppsspp_texture_filtering: "auto",
     ppsspp_texture_deposterize: "enabled",
@@ -183,8 +191,55 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_inflight_frames: "3",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
-    ppsspp_audio_latency: "0",              // Minimal latency — powerful device can handle it
-    ppsspp_audio_resampling: "enabled",     // Best audio quality
+    ppsspp_audio_latency: "1",
+    ppsspp_audio_resampling: "enabled",
+    ppsspp_locked_cpu_speed: "0",
+    ppsspp_force_max_fps: "0",
+    ppsspp_cheats: "enabled",
+    ppsspp_skip_buffer_effects: "disabled",
+    ppsspp_disable_slow_framebuf_effects: "disabled",
+    ppsspp_gpu_anisotropic_filtering: "2x",
+    ppsspp_texture_shader: "Off",
+    ppsspp_change_emulated_psp_cpu_clock: "0",
+    ppsspp_separate_io_thread: "enabled",
+    ppsspp_unsafe_func_replacements: "enabled",
+  },
+
+  // ── Ultra: maximum quality ─────────────────────────────────────────────────
+  ultra: {
+    ppsspp_internal_resolution: "4",
+    ppsspp_auto_frameskip: "disabled",
+    ppsspp_frameskip: "0",
+    ppsspp_frameskip_type: "Number of frames",
+    ppsspp_fast_memory: "enabled",
+    ppsspp_block_transfer_gpu: "enabled",
+    ppsspp_texture_scaling_level: "4",
+    ppsspp_texture_scaling_type: "xBRZ",
+    ppsspp_texture_filtering: "auto",
+    ppsspp_texture_deposterize: "enabled",
+    ppsspp_gpu_hardware_transform: "enabled",
+    ppsspp_vertex_cache: "enabled",
+    ppsspp_lazy_texture_caching: "disabled",
+    ppsspp_retain_changed_textures: "enabled",
+    ppsspp_spline_quality: "high",
+    ppsspp_software_skinning: "enabled",
+    ppsspp_io_timing_method: "Fast",
+    ppsspp_lower_resolution_for_effects: "0",
+    ppsspp_inflight_frames: "3",
+    ppsspp_rendering_mode: "buffered",
+    ppsspp_cpu_core: "JIT",
+    ppsspp_audio_latency: "0",
+    ppsspp_audio_resampling: "enabled",
+    ppsspp_locked_cpu_speed: "0",
+    ppsspp_force_max_fps: "0",
+    ppsspp_cheats: "enabled",
+    ppsspp_skip_buffer_effects: "disabled",
+    ppsspp_disable_slow_framebuf_effects: "disabled",
+    ppsspp_gpu_anisotropic_filtering: "4x",
+    ppsspp_texture_shader: "Off",
+    ppsspp_change_emulated_psp_cpu_clock: "0",
+    ppsspp_separate_io_thread: "enabled",
+    ppsspp_unsafe_func_replacements: "enabled",
   },
 };
 
@@ -192,18 +247,78 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
     "mupen64plus-rdp-plugin": "rice",
     "mupen64plus-resolution-factor": "1",
+    "mupen64plus-cpucore": "dynamic_recompiler",
+    "mupen64plus-framerate": "fullspeed",
+    "mupen64plus-virefresh": "auto",
+    "mupen64plus-BilinearMode": "standard",
+    "mupen64plus-EnableFBEmulation": "False",
+    "mupen64plus-EnableCopyColorToRDRAM": "Off",
+    "mupen64plus-EnableCopyDepthToRDRAM": "Off",
+    "mupen64plus-EnableCopyColorFromRDRAM": "False",
+    "mupen64plus-EnableLOD": "False",
+    "mupen64plus-EnableHWLighting": "False",
+    "mupen64plus-txFilterMode": "None",
+    "mupen64plus-txHiresEnable": "False",
+    "mupen64plus-EnableNoise": "False",
+    "mupen64plus-astick-deadzone": "15",
+    "mupen64plus-CountPerOp": "0",
   },
   medium: {
     "mupen64plus-rdp-plugin": "gliden64",
     "mupen64plus-resolution-factor": "1",
+    "mupen64plus-cpucore": "dynamic_recompiler",
+    "mupen64plus-framerate": "fullspeed",
+    "mupen64plus-virefresh": "auto",
+    "mupen64plus-BilinearMode": "standard",
+    "mupen64plus-EnableFBEmulation": "True",
+    "mupen64plus-EnableCopyColorToRDRAM": "Async",
+    "mupen64plus-EnableCopyDepthToRDRAM": "Software",
+    "mupen64plus-EnableCopyColorFromRDRAM": "False",
+    "mupen64plus-EnableLOD": "True",
+    "mupen64plus-EnableHWLighting": "False",
+    "mupen64plus-txFilterMode": "None",
+    "mupen64plus-txHiresEnable": "False",
+    "mupen64plus-EnableNoise": "False",
+    "mupen64plus-astick-deadzone": "15",
+    "mupen64plus-CountPerOp": "0",
   },
   high: {
     "mupen64plus-rdp-plugin": "gliden64",
     "mupen64plus-resolution-factor": "2",
+    "mupen64plus-cpucore": "dynamic_recompiler",
+    "mupen64plus-framerate": "fullspeed",
+    "mupen64plus-virefresh": "auto",
+    "mupen64plus-BilinearMode": "3point",
+    "mupen64plus-EnableFBEmulation": "True",
+    "mupen64plus-EnableCopyColorToRDRAM": "Async",
+    "mupen64plus-EnableCopyDepthToRDRAM": "Software",
+    "mupen64plus-EnableCopyColorFromRDRAM": "True",
+    "mupen64plus-EnableLOD": "True",
+    "mupen64plus-EnableHWLighting": "True",
+    "mupen64plus-txFilterMode": "None",
+    "mupen64plus-txHiresEnable": "False",
+    "mupen64plus-EnableNoise": "True",
+    "mupen64plus-astick-deadzone": "15",
+    "mupen64plus-CountPerOp": "0",
   },
   ultra: {
     "mupen64plus-rdp-plugin": "gliden64",
-    "mupen64plus-resolution-factor": "3",
+    "mupen64plus-resolution-factor": "4",
+    "mupen64plus-cpucore": "dynamic_recompiler",
+    "mupen64plus-framerate": "fullspeed",
+    "mupen64plus-virefresh": "auto",
+    "mupen64plus-BilinearMode": "3point",
+    "mupen64plus-EnableFBEmulation": "True",
+    "mupen64plus-EnableCopyColorToRDRAM": "Async",
+    "mupen64plus-EnableCopyDepthToRDRAM": "Software",
+    "mupen64plus-EnableCopyColorFromRDRAM": "True",
+    "mupen64plus-EnableLOD": "True",
+    "mupen64plus-EnableHWLighting": "True",
+    "mupen64plus-txFilterMode": "Smooth filtering 1",
+    "mupen64plus-txHiresEnable": "False",
+    "mupen64plus-EnableNoise": "True",
+    "mupen64plus-astick-deadzone": "15",
+    "mupen64plus-CountPerOp": "0",
   },
 };
 
@@ -213,24 +328,56 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_cpu_mode: "interpreter",
     desmume_frameskip: "2",
     desmume_internal_resolution: "256x192",
+    desmume_advanced_timing: "disabled",
+    desmume_opengl_mode: "disabled",
+    desmume_color_depth: "16-bit",
+    desmume_gfx_edgemark: "disabled",
+    desmume_gfx_linehack: "enabled",
+    desmume_gfx_txthack: "enabled",
+    desmume_screens_gap: "0",
+    desmume_firmware_language: "Auto",
   },
   medium: {
     desmume_num_cores: "2",
     desmume_cpu_mode: "jit",
     desmume_frameskip: "1",
     desmume_internal_resolution: "256x192",
+    desmume_advanced_timing: "disabled",
+    desmume_opengl_mode: "disabled",
+    desmume_color_depth: "16-bit",
+    desmume_gfx_edgemark: "enabled",
+    desmume_gfx_linehack: "enabled",
+    desmume_gfx_txthack: "disabled",
+    desmume_screens_gap: "0",
+    desmume_firmware_language: "Auto",
   },
   high: {
     desmume_num_cores: "2",
     desmume_cpu_mode: "jit",
     desmume_frameskip: "0",
     desmume_internal_resolution: "512x384",
+    desmume_advanced_timing: "enabled",
+    desmume_opengl_mode: "enabled",
+    desmume_color_depth: "32-bit",
+    desmume_gfx_edgemark: "enabled",
+    desmume_gfx_linehack: "disabled",
+    desmume_gfx_txthack: "disabled",
+    desmume_screens_gap: "0",
+    desmume_firmware_language: "Auto",
   },
   ultra: {
-    desmume_num_cores: "3",
+    desmume_num_cores: "4",
     desmume_cpu_mode: "jit",
     desmume_frameskip: "0",
     desmume_internal_resolution: "1024x768",
+    desmume_advanced_timing: "enabled",
+    desmume_opengl_mode: "enabled",
+    desmume_color_depth: "32-bit",
+    desmume_gfx_edgemark: "enabled",
+    desmume_gfx_linehack: "disabled",
+    desmume_gfx_txthack: "disabled",
+    desmume_screens_gap: "0",
+    desmume_firmware_language: "Auto",
   },
 };
 
@@ -249,10 +396,13 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
 const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
     mgba_skip_bios: "ON",
-    mgba_frameskip: "1",                   // Skip every other frame when needed
-    mgba_color_correction: "disabled",     // Skip colour correction to save CPU
-    mgba_interframe_blending: "disabled",  // No blending pass on slow hardware
+    mgba_frameskip: "1",
+    mgba_color_correction: "disabled",
+    mgba_interframe_blending: "disabled",
     mgba_idle_optimization: "Remove Known",
+    mgba_solar_sensor_level: "0",
+    mgba_allow_opposing_directions: "no",
+    mgba_force_gbp: "OFF",
   },
   medium: {
     mgba_skip_bios: "ON",
@@ -260,13 +410,19 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     mgba_color_correction: "Game Boy Advance",
     mgba_interframe_blending: "disabled",
     mgba_idle_optimization: "Remove Known",
+    mgba_solar_sensor_level: "0",
+    mgba_allow_opposing_directions: "no",
+    mgba_force_gbp: "OFF",
   },
   high: {
     mgba_skip_bios: "ON",
     mgba_frameskip: "0",
     mgba_color_correction: "Game Boy Advance",
-    mgba_interframe_blending: "mix",       // Smooth GBC/GBA translucency effects
+    mgba_interframe_blending: "mix",
     mgba_idle_optimization: "Remove Known",
+    mgba_solar_sensor_level: "0",
+    mgba_allow_opposing_directions: "no",
+    mgba_force_gbp: "OFF",
   },
   ultra: {
     mgba_skip_bios: "ON",
@@ -274,6 +430,9 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     mgba_color_correction: "Game Boy Advance",
     mgba_interframe_blending: "mix",
     mgba_idle_optimization: "Remove Known",
+    mgba_solar_sensor_level: "0",
+    mgba_allow_opposing_directions: "no",
+    mgba_force_gbp: "OFF",
   },
 };
 
@@ -292,17 +451,37 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
 const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
     beetle_psx_internal_resolution: "1x(native)",
-    beetle_psx_frame_duping_enable: "enabled",   // Duplicate unchanged frames to save GPU
-    beetle_psx_filter: "nearest",                // No texture filtering (fastest)
-    beetle_psx_dither_mode: "internal",
-    beetle_psx_cd_access_method: "sync",
-  },
-  medium: {
-    beetle_psx_internal_resolution: "1x(native)",
-    beetle_psx_frame_duping_enable: "disabled",
+    beetle_psx_frame_duping_enable: "enabled",
     beetle_psx_filter: "nearest",
     beetle_psx_dither_mode: "internal",
     beetle_psx_cd_access_method: "sync",
+    beetle_psx_cpu_dynarec: "disabled",
+    beetle_psx_dynarec_invalidate: "full",
+    beetle_psx_pgxp_mode: "disabled",
+    beetle_psx_pgxp_texture: "disabled",
+    beetle_psx_pgxp_vertex: "disabled",
+    beetle_psx_analog_calibration: "disabled",
+    beetle_psx_widescreen_hack: "disabled",
+    beetle_psx_skip_deinterlacing: "enabled",
+    beetle_psx_gpu_overclock: "1x(native)",
+    beetle_psx_cd_fastload: "2x(native)",
+  },
+  medium: {
+    beetle_psx_internal_resolution: "1x(native)",
+    beetle_psx_frame_duping_enable: "enabled",
+    beetle_psx_filter: "nearest",
+    beetle_psx_dither_mode: "internal",
+    beetle_psx_cd_access_method: "async",
+    beetle_psx_cpu_dynarec: "enabled",
+    beetle_psx_dynarec_invalidate: "full",
+    beetle_psx_pgxp_mode: "disabled",
+    beetle_psx_pgxp_texture: "disabled",
+    beetle_psx_pgxp_vertex: "disabled",
+    beetle_psx_analog_calibration: "disabled",
+    beetle_psx_widescreen_hack: "disabled",
+    beetle_psx_skip_deinterlacing: "enabled",
+    beetle_psx_gpu_overclock: "1x(native)",
+    beetle_psx_cd_fastload: "4x",
   },
   high: {
     beetle_psx_internal_resolution: "2x",
@@ -310,6 +489,16 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_filter: "bilinear",
     beetle_psx_dither_mode: "internal",
     beetle_psx_cd_access_method: "async",
+    beetle_psx_cpu_dynarec: "enabled",
+    beetle_psx_dynarec_invalidate: "full",
+    beetle_psx_pgxp_mode: "memory",
+    beetle_psx_pgxp_texture: "enabled",
+    beetle_psx_pgxp_vertex: "enabled",
+    beetle_psx_analog_calibration: "enabled",
+    beetle_psx_widescreen_hack: "disabled",
+    beetle_psx_skip_deinterlacing: "disabled",
+    beetle_psx_gpu_overclock: "2x",
+    beetle_psx_cd_fastload: "6x",
   },
   ultra: {
     beetle_psx_internal_resolution: "4x",
@@ -317,6 +506,16 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_filter: "bilinear",
     beetle_psx_dither_mode: "internal",
     beetle_psx_cd_access_method: "async",
+    beetle_psx_cpu_dynarec: "enabled",
+    beetle_psx_dynarec_invalidate: "full",
+    beetle_psx_pgxp_mode: "memory",
+    beetle_psx_pgxp_texture: "enabled",
+    beetle_psx_pgxp_vertex: "enabled",
+    beetle_psx_analog_calibration: "enabled",
+    beetle_psx_widescreen_hack: "disabled",
+    beetle_psx_skip_deinterlacing: "disabled",
+    beetle_psx_gpu_overclock: "4x",
+    beetle_psx_cd_fastload: "8x",
   },
 };
 

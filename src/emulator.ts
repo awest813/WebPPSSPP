@@ -10,9 +10,12 @@
  *
  * Performance enhancements:
  *   - Core preloading: <link rel="preconnect"> and prefetch hints for CDN
+ *   - Per-system core prefetching: eagerly fetch WASM cores before launch
+ *   - Blob-direct launch: accepts Blob directly, skipping File copy overhead
  *   - Tier-aware settings: picks the right PPSSPP config per hardware tier
  *   - Page Visibility API: auto-pauses when tab is hidden to save resources
- *   - FPS monitoring: tracks real-time framerate via rAF for diagnostics
+ *   - WebGL context pre-warming: reduces cold-start jank on first launch
+ *   - FPS monitoring: ring-buffer-based framerate tracking via rAF
  *   - Memory-aware blob management: revokes URLs promptly, warns on large ROMs
  */
 
@@ -63,6 +66,18 @@ const LARGE_ROM_THRESHOLD = 500 * 1024 * 1024;
 
 let cachedWebGL2Support: boolean | null = null;
 
+/**
+ * Maps EJS core ids to their CDN core filenames for prefetching.
+ * These are the most performance-critical (3D) cores that benefit
+ * from being in the browser cache before the user launches a game.
+ */
+const CORE_PREFETCH_MAP: Record<string, string> = {
+  psp:    "cores/ppsspp_libretro.js",
+  n64:    "cores/mupen64plus_next_libretro.js",
+  psx:    "cores/mednafen_psx_hw_libretro.js",
+  nds:    "cores/desmume2015_libretro.js",
+};
+
 // ── State machine ─────────────────────────────────────────────────────────────
 
 export type EmulatorState = "idle" | "loading" | "running" | "paused" | "error";
@@ -82,31 +97,43 @@ export interface FPSSnapshot {
   droppedFrames: number;
 }
 
+/**
+ * FPS monitor using a fixed-size ring buffer to eliminate array
+ * allocations and shift() overhead. The pre-allocated Float64Array
+ * never grows or shrinks, producing zero GC pressure during gameplay.
+ */
 class FPSMonitor {
   private _rafId: number | null = null;
-  private _frameTimes: number[] = [];
   private _lastTime = 0;
   private _droppedFrames = 0;
-  private _targetFPS = 60;
-  private _windowSize = 60; // samples to keep
-  private _enabled = false;  // only process + notify when actively tracking
+  private _targetFPS: number;
+  private _enabled = false;
   private _onUpdate?: (snapshot: FPSSnapshot) => void;
+  private _frameCount = 0;
+
+  private readonly _windowSize: number;
+  private readonly _ring: Float64Array;
+  private _ringHead = 0;
+  private _ringCount = 0;
 
   constructor(targetFPS = 60) {
     this._targetFPS = targetFPS;
+    this._windowSize = 60;
+    this._ring = new Float64Array(this._windowSize);
   }
 
   set onUpdate(cb: ((snapshot: FPSSnapshot) => void) | undefined) {
     this._onUpdate = cb;
   }
 
-  /** Whether the FPS monitor is actively tracking and notifying. */
   get enabled(): boolean { return this._enabled; }
 
   start(): void {
     if (this._rafId !== null) return;
-    this._frameTimes = [];
+    this._ringHead = 0;
+    this._ringCount = 0;
     this._droppedFrames = 0;
+    this._frameCount = 0;
     this._lastTime = performance.now();
     this._enabled = true;
     this._tick = this._tick.bind(this);
@@ -121,27 +148,35 @@ class FPSMonitor {
     this._enabled = false;
   }
 
-  /**
-   * Pause callbacks without stopping the rAF loop.
-   * Sampling continues (to keep stats accurate) but onUpdate is suppressed.
-   * Call this when the FPS overlay is hidden to avoid unnecessary work
-   * on low-spec devices (Chromebooks, etc.).
-   */
   setCallbackEnabled(active: boolean): void {
     this._enabled = active;
   }
 
   getSnapshot(): FPSSnapshot {
-    if (this._frameTimes.length === 0) {
+    if (this._ringCount === 0) {
       return { current: 0, average: 0, min: 0, max: 0, droppedFrames: 0 };
     }
 
-    const times = this._frameTimes;
-    const current = times.length > 0 ? 1000 / times[times.length - 1] : 0;
-    const avg = times.reduce((s, t) => s + t, 0) / times.length;
-    const average = avg > 0 ? 1000 / avg : 0;
-    const min = 1000 / Math.max(...times);
-    const max = 1000 / Math.min(...times.filter(t => t > 0));
+    const count = this._ringCount;
+    const lastIdx = (this._ringHead - 1 + this._windowSize) % this._windowSize;
+    const lastDelta = this._ring[lastIdx];
+    const current = lastDelta > 0 ? 1000 / lastDelta : 0;
+
+    let sum = 0;
+    let maxDelta = 0;
+    let minDelta = Infinity;
+    for (let i = 0; i < count; i++) {
+      const idx = (this._ringHead - count + i + this._windowSize) % this._windowSize;
+      const d = this._ring[idx];
+      sum += d;
+      if (d > maxDelta) maxDelta = d;
+      if (d > 0 && d < minDelta) minDelta = d;
+    }
+
+    const avgDelta = sum / count;
+    const average = avgDelta > 0 ? 1000 / avgDelta : 0;
+    const min = maxDelta > 0 ? 1000 / maxDelta : 0;
+    const max = isFinite(minDelta) && minDelta > 0 ? 1000 / minDelta : 0;
 
     return {
       current: Math.round(current),
@@ -157,21 +192,17 @@ class FPSMonitor {
     this._lastTime = now;
 
     if (delta > 0 && delta < 1000) {
-      this._frameTimes.push(delta);
+      this._ring[this._ringHead] = delta;
+      this._ringHead = (this._ringHead + 1) % this._windowSize;
+      if (this._ringCount < this._windowSize) this._ringCount++;
+      this._frameCount++;
 
-      // Trim to window size
-      if (this._frameTimes.length > this._windowSize) {
-        this._frameTimes.shift();
-      }
-
-      // Detect dropped frames: frame time > 2× target interval
       const targetInterval = 1000 / this._targetFPS;
       if (delta > targetInterval * 2) {
         this._droppedFrames++;
       }
 
-      // Only notify when enabled and every 10 frames to reduce DOM churn
-      if (this._enabled && this._frameTimes.length % 10 === 0) {
+      if (this._enabled && this._frameCount % 10 === 0) {
         this._onUpdate?.(this.getSnapshot());
       }
     }
@@ -183,7 +214,10 @@ class FPSMonitor {
 // ── Public types ──────────────────────────────────────────────────────────────
 
 export interface LaunchOptions {
-  file: File;
+  /** The ROM file or blob. Blob avoids the copy overhead of new File([blob]). */
+  file: File | Blob;
+  /** Original filename — required when file is a raw Blob. */
+  fileName?: string;
   /** Volume 0–1. */
   volume: number;
   /** EmulatorJS core/system id, e.g. "psp", "nes", "gba". */
@@ -207,6 +241,8 @@ export class PSPEmulator {
   private _pausedByVisibility = false;
   private _preconnected = false;
   private _activeTier: PerformanceTier | null = null;
+  private _prefetchedCores = new Set<string>();
+  private _webglPreWarmed = false;
 
   onStateChange?: (state: EmulatorState) => void;
   onProgress?:    (msg:   string)        => void;
@@ -280,6 +316,58 @@ export class PSPEmulator {
     document.head.appendChild(link);
   }
 
+  /**
+   * Prefetch the WASM core for a specific system so it's in the browser
+   * cache before the user launches a game. This eliminates the largest
+   * download delay (10–30 MB WASM files for PSP/N64/PS1).
+   *
+   * Call this when the user's library contains games for a given system,
+   * or when hovering over a game card for that system.
+   */
+  prefetchCore(systemId: string): void {
+    if (this._prefetchedCores.has(systemId)) return;
+    const corePath = CORE_PREFETCH_MAP[systemId];
+    if (!corePath) return;
+
+    this._prefetchedCores.add(systemId);
+    const coreUrl = `${EJS_CDN_BASE}${corePath}`;
+
+    if (document.querySelector(`link[href="${coreUrl}"]`)) return;
+
+    const link = document.createElement("link");
+    link.rel = "prefetch";
+    link.href = coreUrl;
+    link.as = "script";
+    link.crossOrigin = "anonymous";
+    document.head.appendChild(link);
+  }
+
+  /**
+   * Pre-warm a WebGL context to eliminate cold-start GPU initialization
+   * overhead on the first game launch. Creates and immediately destroys
+   * a throwaway context so the GPU driver is loaded and ready.
+   */
+  preWarmWebGL(): void {
+    if (this._webglPreWarmed) return;
+    this._webglPreWarmed = true;
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      if (gl) {
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.flush();
+        const ext = gl.getExtension("WEBGL_lose_context");
+        ext?.loseContext();
+      }
+    } catch {
+      // Pre-warming is best-effort
+    }
+  }
+
   // ── launch ──────────────────────────────────────────────────────────────────
 
   async launch(opts: LaunchOptions): Promise<void> {
@@ -288,8 +376,6 @@ export class PSPEmulator {
       return;
     }
 
-    // Tear down any previous session (running, paused, or broken error state)
-    // so a new game can be launched cleanly from the library.
     if (this._state !== "idle") {
       this._teardown();
     }
@@ -305,7 +391,12 @@ export class PSPEmulator {
     // ── Pre-flight checks (conditional per system) ──────────────────────────
     if (system.needsThreads  && !this._checkSharedArrayBuffer()) return;
     if (system.needsWebGL2   && !this._checkWebGL2())            return;
-    if (!this._validateFile(opts.file, system))                  return;
+
+    // Derive the filename - Blob doesn't have .name, so accept it explicitly
+    const fileName = opts.fileName
+      ?? (opts.file instanceof File ? opts.file.name : "game.bin");
+
+    if (!this._validateFileExt(fileName, system)) return;
 
     // ── Large ROM warning ───────────────────────────────────────────────────
     if (opts.file.size > LARGE_ROM_THRESHOLD) {
@@ -321,8 +412,9 @@ export class PSPEmulator {
     this._revokeBlobUrl();
 
     try {
+      // Create blob URL directly from the Blob/File — no copy needed
       this._blobUrl = URL.createObjectURL(opts.file);
-      const gameName = opts.file.name.replace(/\.[^.]+$/, "");
+      const gameName = fileName.replace(/\.[^.]+$/, "");
 
       this._emit("onProgress", "Initialising EmulatorJS…");
 
@@ -332,14 +424,13 @@ export class PSPEmulator {
 
       let ejsSettings: Record<string, string>;
 
-      // Use tier-specific settings if available, else fall back to binary mode
       if (system.tierSettings && system.tierSettings[tier]) {
         ejsSettings = { ...system.tierSettings[tier] };
       } else {
         const mode = resolveMode(opts.performanceMode, opts.deviceCaps);
         ejsSettings = mode === "performance"
-          ? system.perfSettings
-          : system.qualitySettings;
+          ? { ...system.perfSettings }
+          : { ...system.qualitySettings };
       }
 
       // ── Set EJS globals ───────────────────────────────────────────────────
@@ -521,8 +612,8 @@ export class PSPEmulator {
     this.onError?.(msg);
   }
 
-  private _validateFile(file: File, system: SystemInfo): boolean {
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  private _validateFileExt(fileName: string, system: SystemInfo): boolean {
+    const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
     if (!system.extensions.includes(ext)) {
       this._emitError(
         `Unsupported file type ".${ext}" for ${system.name}.\n` +

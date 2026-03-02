@@ -75,6 +75,12 @@ export interface DeviceCapabilities {
   gpuBenchmarkScore: number;
   /** Whether the device prefers reduced motion (OS accessibility setting). */
   prefersReducedMotion: boolean;
+  /** Whether WebGPU is available (future-proof rendering path). */
+  webgpuAvailable: boolean;
+  /** Estimated network quality: "fast", "slow", or "unknown". */
+  connectionQuality: "fast" | "slow" | "unknown";
+  /** JS heap size limit in MB, or null if unavailable. */
+  jsHeapLimitMB: number | null;
 }
 
 /** Lightweight battery status snapshot. */
@@ -123,6 +129,59 @@ export function prefersReducedMotion(): boolean {
     return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   } catch {
     return false;
+  }
+}
+
+// ── WebGPU availability ───────────────────────────────────────────────────────
+
+export function isWebGPUAvailable(): boolean {
+  try {
+    return "gpu" in navigator && navigator.gpu !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+// ── Connection quality estimation ─────────────────────────────────────────────
+
+/**
+ * Estimate network quality from the Network Information API.
+ * Used to decide whether to eagerly prefetch large WASM cores.
+ */
+export function estimateConnectionQuality(): "fast" | "slow" | "unknown" {
+  try {
+    const conn = (navigator as Navigator & {
+      connection?: {
+        effectiveType?: string;
+        downlink?: number;
+        saveData?: boolean;
+      };
+    }).connection;
+
+    if (!conn) return "unknown";
+    if (conn.saveData) return "slow";
+    if (conn.effectiveType === "4g" && (conn.downlink ?? 0) >= 5) return "fast";
+    if (conn.effectiveType === "3g" || conn.effectiveType === "2g") return "slow";
+    if ((conn.downlink ?? 0) >= 2) return "fast";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+// ── JS heap introspection ─────────────────────────────────────────────────────
+
+function getJSHeapLimitMB(): number | null {
+  try {
+    const perf = performance as Performance & {
+      memory?: { jsHeapSizeLimit?: number };
+    };
+    if (perf.memory?.jsHeapSizeLimit) {
+      return Math.round(perf.memory.jsHeapSizeLimit / (1024 * 1024));
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -369,6 +428,9 @@ export function detectCapabilities(): DeviceCapabilities {
   const gpuBenchmarkScore = benchmarkGPU();
   const chromeos = isLikelyChromeOS();
   const reducedMotion = prefersReducedMotion();
+  const webgpuAvailable = isWebGPUAvailable();
+  const connectionQuality = estimateConnectionQuality();
+  const jsHeapLimitMB = getJSHeapLimitMB();
 
   const tier = classifyTier(cpuCores, deviceMemoryGB, isSoftwareGPU, gpuBenchmarkScore, gpuCaps, chromeos);
 
@@ -386,6 +448,9 @@ export function detectCapabilities(): DeviceCapabilities {
     gpuCaps,
     gpuBenchmarkScore,
     prefersReducedMotion: reducedMotion,
+    webgpuAvailable,
+    connectionQuality,
+    jsHeapLimitMB,
   };
 }
 

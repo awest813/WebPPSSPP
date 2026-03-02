@@ -344,7 +344,7 @@ export function initUI(opts: UIOptions): void {
   buildLandingControls(settings, deviceCaps, library, onSettingsChange, emulator);
 
   // ── Initial library render ────────────────────────────────────────────────
-  renderLibrary(library, settings, onLaunchGame);
+  renderLibrary(library, settings, onLaunchGame, emulator);
 }
 
 // ── Library rendering ─────────────────────────────────────────────────────────
@@ -352,7 +352,8 @@ export function initUI(opts: UIOptions): void {
 export async function renderLibrary(
   library:      GameLibrary,
   settings:     Settings,
-  onLaunchGame: (file: File, systemId: string) => Promise<void>
+  onLaunchGame: (file: File, systemId: string) => Promise<void>,
+  emulatorRef?: PSPEmulator
 ): Promise<void> {
   const grid         = document.getElementById("library-grid");
   const countEl      = document.getElementById("library-count");
@@ -362,8 +363,6 @@ export async function renderLibrary(
 
   let games: GameMetadata[];
   try {
-    // Use metadata-only query to avoid loading ROM blobs into the JS heap
-    // during library rendering — critical for low-memory Chromebooks.
     games = await library.getAllGamesMetadata();
   } catch {
     games = [];
@@ -371,16 +370,24 @@ export async function renderLibrary(
 
   countEl.textContent = games.length > 0 ? `${games.length} game${games.length !== 1 ? "s" : ""}` : "";
 
-  // Toggle layout: if no games, show just the drop zone front and centre
   libSection.classList.toggle("hidden-section", games.length === 0);
   dropZoneEl.classList.toggle("drop-zone--prominent", games.length === 0);
   dropZoneEl.classList.toggle("drop-zone--compact", games.length > 0);
 
-  // Build game cards
+  // Eagerly prefetch cores for 3D systems the user has games for.
+  // This starts downloading the large WASM cores (~10–30 MB) in the
+  // background so they're ready when the user clicks "Play".
+  if (emulatorRef && games.length > 0) {
+    const systemIds = new Set(games.map(g => g.systemId));
+    for (const sid of systemIds) {
+      emulatorRef.prefetchCore(sid);
+    }
+  }
+
   grid.innerHTML = "";
   const fragment = document.createDocumentFragment();
   for (const game of games) {
-    fragment.appendChild(buildGameCard(game, library, settings, onLaunchGame));
+    fragment.appendChild(buildGameCard(game, library, settings, onLaunchGame, emulatorRef));
   }
   grid.appendChild(fragment);
 }
@@ -389,13 +396,13 @@ function buildGameCard(
   game:         GameMetadata,
   library:      GameLibrary,
   settings:     Settings,
-  onLaunchGame: (file: File, systemId: string) => Promise<void>
+  onLaunchGame: (file: File, systemId: string) => Promise<void>,
+  emulatorRef?: PSPEmulator
 ): HTMLElement {
   const system = getSystemById(game.systemId);
 
   const card = make("div", { class: "game-card", role: "button", tabindex: "0", "aria-label": `Play ${game.name}` });
 
-  // System badge colour
   card.style.setProperty("--sys-color", system?.color ?? "#555");
 
   const icon = make("div", { class: "game-card__icon" });
@@ -421,7 +428,6 @@ function buildGameCard(
 
   info.append(name, meta, played);
 
-  // Remove button (visible on hover)
   const btnRemove = make("button", {
     class: "game-card__remove",
     title: "Remove from library",
@@ -431,28 +437,49 @@ function buildGameCard(
     e.stopPropagation();
     if (!confirm(`Remove "${game.name}" from your library?\n\nThe file will not be deleted from your device.`)) return;
     await library.removeGame(game.id);
-    renderLibrary(library, settings, onLaunchGame);
+    renderLibrary(library, settings, onLaunchGame, emulatorRef);
   });
 
-  // Play overlay (visible on hover)
   const playOverlay = make("div", { class: "game-card__play-overlay", "aria-hidden": "true" });
   const playBtn     = make("div", { class: "game-card__play-btn" }, "▶");
   playOverlay.appendChild(playBtn);
 
   card.append(icon, info, btnRemove, playOverlay);
 
-  // Launch on click or Enter
+  // Preload blob on hover/focus for instant launch.
+  // Also prefetch the WASM core for this system's emulator.
+  let preloadTriggered = false;
+  const triggerPreload = () => {
+    if (preloadTriggered) return;
+    preloadTriggered = true;
+    library.preloadGame(game.id);
+    if (emulatorRef) {
+      emulatorRef.prefetchCore(game.systemId);
+    }
+  };
+  card.addEventListener("mouseenter", triggerPreload);
+  card.addEventListener("focusin", triggerPreload);
+
+  // Launch using blob-direct path — avoids the expensive new File([blob]) copy
   const launch = async () => {
     showLoadingOverlay();
     setLoadingMessage(`Loading ${game.name}…`);
     try {
+      const blob = await library.getGameBlob(game.id);
+      if (!blob) {
+        hideLoadingOverlay();
+        showError(`Game "${game.name}" not found in library.`);
+        return;
+      }
+
       const entry = await library.getGame(game.id);
       if (!entry) {
         hideLoadingOverlay();
         showError(`Game "${game.name}" not found in library.`);
         return;
       }
-      const file = new File([entry.blob], entry.fileName, { type: entry.blob.type });
+
+      const file = new File([blob], entry.fileName, { type: blob.type });
       await library.markPlayed(game.id);
       await onLaunchGame(file, entry.systemId);
     } catch (err) {
@@ -869,9 +896,8 @@ function buildSettingsContent(
   const statsEl = make("p", { class: "device-info" }, "Calculating…");
   libSection.appendChild(statsEl);
 
-  library.getAllGames().then(games => {
-    const total = games.reduce((s, g) => s + g.size, 0);
-    statsEl.textContent = `${games.length} game${games.length !== 1 ? "s" : ""} · ${formatBytes(total)} stored locally`;
+  Promise.all([library.count(), library.totalSize()]).then(([count, total]) => {
+    statsEl.textContent = `${count} game${count !== 1 ? "s" : ""} · ${formatBytes(total)} stored locally`;
   }).catch(() => { statsEl.textContent = "Could not load library stats."; });
 
   const btnClear = make("button", { class: "btn btn--danger", style: "margin-top:10px" }, "Clear Library");

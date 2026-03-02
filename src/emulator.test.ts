@@ -132,6 +132,9 @@ describe('PSPEmulator', () => {
         },
         gpuBenchmarkScore: 30,
         prefersReducedMotion: false,
+        webgpuAvailable: false,
+        connectionQuality: 'unknown' as const,
+        jsHeapLimitMB: null,
       };
 
       await emulator.launch({
@@ -176,6 +179,9 @@ describe('PSPEmulator', () => {
           },
           gpuBenchmarkScore: 30,
           prefersReducedMotion: false,
+          webgpuAvailable: false,
+          connectionQuality: 'unknown' as const,
+          jsHeapLimitMB: null,
         },
       });
 

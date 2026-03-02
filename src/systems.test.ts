@@ -43,7 +43,7 @@ describe('systems performance profiles', () => {
     expect(nds?.tierSettings?.low?.desmume_frameskip).toBe('2');
     expect(nds?.tierSettings?.ultra?.desmume_internal_resolution).toBe('1024x768');
     expect(n64?.tierSettings?.low?.['mupen64plus-rdp-plugin']).toBe('rice');
-    expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('3');
+    expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('4');
   });
 
   describe('PSP audio latency settings', () => {
@@ -156,10 +156,10 @@ describe('systems performance profiles', () => {
       expect(psx?.tierSettings?.ultra?.beetle_psx_internal_resolution).toBe('4x');
     });
 
-    it('enables frame duping on low tier to save GPU cycles', () => {
+    it('enables frame duping on low and medium tiers to save GPU cycles', () => {
       const psx = getSystemById('psx');
       expect(psx?.tierSettings?.low?.beetle_psx_frame_duping_enable).toBe('enabled');
-      expect(psx?.tierSettings?.medium?.beetle_psx_frame_duping_enable).toBe('disabled');
+      expect(psx?.tierSettings?.medium?.beetle_psx_frame_duping_enable).toBe('enabled');
     });
 
     it('uses nearest filtering on low tier, bilinear on high/ultra', () => {

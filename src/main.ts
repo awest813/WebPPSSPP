@@ -100,6 +100,13 @@ function main(): void {
 
   // 4a. Preconnect to CDN early for faster game launches
   emulator.preconnect();
+
+  // Pre-warm WebGL so first game launch doesn't stall on GPU driver init
+  emulator.preWarmWebGL();
+
+  // Pre-warm IndexedDB connection to eliminate cold-open latency
+  library.warmUp().catch(() => {});
+
   // Prefetch the loader script in idle time
   if ("requestIdleCallback" in window) {
     window.requestIdleCallback?.(() => emulator.prefetchLoader());
@@ -156,7 +163,7 @@ function main(): void {
     showLanding();
     document.title = "RetroVault";
 
-    void renderLibrary(library, settings, onLaunchGame);
+    void renderLibrary(library, settings, onLaunchGame, emulator);
     document.dispatchEvent(new CustomEvent("retrovault:returnToLibrary"));
   };
 
