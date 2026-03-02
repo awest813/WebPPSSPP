@@ -72,6 +72,11 @@ export interface SystemInfo {
  *   ppsspp_inflight_frames       — CPU-GPU pipeline depth (improves throughput)
  *   ppsspp_rendering_mode        — Buffered vs non-buffered rendering
  *   ppsspp_cpu_core              — JIT vs interpreter
+ *   ppsspp_audio_latency         — Audio output buffer size: 0=low, 1=medium, 2=high
+ *                                  Low latency is more responsive but risks glitches on
+ *                                  slow hardware; high latency is stable but adds delay.
+ *   ppsspp_audio_resampling      — High-quality audio resampling; costs CPU cycles but
+ *                                  reduces pitch drift and aliasing artefacts.
  */
 const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   // ── Low: maximum performance, minimum quality ──────────────────────────────
@@ -97,6 +102,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_inflight_frames: "2",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
+    ppsspp_audio_latency: "2",              // Large buffer — prevents glitches on slow hardware
+    ppsspp_audio_resampling: "disabled",    // Skip resampling to save CPU
   },
 
   // ── Medium: balanced — small quality bumps where cheap ─────────────────────
@@ -122,6 +129,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_inflight_frames: "2",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
+    ppsspp_audio_latency: "1",              // Medium buffer — balanced stability
+    ppsspp_audio_resampling: "disabled",    // Skip resampling to preserve CPU headroom
   },
 
   // ── High: quality focus with sensible limits ───────────────────────────────
@@ -147,6 +156,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_inflight_frames: "3",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
+    ppsspp_audio_latency: "1",              // Medium buffer — good balance at this tier
+    ppsspp_audio_resampling: "enabled",     // Higher quality audio; device has CPU headroom
   },
 
   // ── Ultra: maximum quality ─────────────────────────────────────────────────
@@ -172,6 +183,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_inflight_frames: "3",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
+    ppsspp_audio_latency: "0",              // Minimal latency — powerful device can handle it
+    ppsspp_audio_resampling: "enabled",     // Best audio quality
   },
 };
 

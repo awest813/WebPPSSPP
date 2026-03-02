@@ -918,7 +918,22 @@ body {
 /* Volume control in game header */
 .vol-control {
   gap: 6px;
-  cursor: default !important;
+}
+
+.vol-mute-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  color: inherit;
+  flex-shrink: 0;
+  transition: opacity var(--transition);
+}
+
+.vol-mute-btn:hover {
+  opacity: 0.75;
 }
 
 .vol-control input[type="range"] {

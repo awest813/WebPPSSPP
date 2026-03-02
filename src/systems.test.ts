@@ -19,4 +19,40 @@ describe('systems performance profiles', () => {
     expect(n64?.tierSettings?.low?.['mupen64plus-rdp-plugin']).toBe('rice');
     expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('3');
   });
+
+  describe('PSP audio latency settings', () => {
+    it('uses the highest audio buffer on the low tier', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.low?.ppsspp_audio_latency).toBe('2');
+    });
+
+    it('uses a medium audio buffer on the medium tier', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.medium?.ppsspp_audio_latency).toBe('1');
+    });
+
+    it('uses a medium audio buffer on the high tier', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.high?.ppsspp_audio_latency).toBe('1');
+    });
+
+    it('uses the lowest audio latency on the ultra tier', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.ultra?.ppsspp_audio_latency).toBe('0');
+    });
+  });
+
+  describe('PSP audio resampling settings', () => {
+    it('disables resampling on low and medium tiers to save CPU', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.low?.ppsspp_audio_resampling).toBe('disabled');
+      expect(psp?.tierSettings?.medium?.ppsspp_audio_resampling).toBe('disabled');
+    });
+
+    it('enables resampling on high and ultra tiers for better quality', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.high?.ppsspp_audio_resampling).toBe('enabled');
+      expect(psp?.tierSettings?.ultra?.ppsspp_audio_resampling).toBe('enabled');
+    });
+  });
 });
