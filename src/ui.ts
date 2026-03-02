@@ -1785,11 +1785,47 @@ function buildSettingsContent(
       make("span", { class: "radio-row__label" }, "Use WebGPU (experimental)"),
       make("span", { class: "radio-row__desc"  },
         "Pre-initialises the WebGPU adapter and warms the GPU shader compiler on startup. " +
-        "Reduces first-frame latency when native WebGPU rendering support arrives. " +
+        "Enables WebGPU post-processing filters (CRT, sharpen). " +
         "Falls back silently to WebGL when unsupported. Requires page reload to take effect.")
     );
     webgpuRow2.append(webgpuCheck, webgpuTxt);
     deviceSection.appendChild(webgpuRow2);
+
+    // ── WebGPU post-processing effect picker ─────────────────────────────
+    const postFxSection = make("div", { class: "settings-subsection" });
+    postFxSection.appendChild(make("h4", { class: "settings-section__title" }, "GPU Post-Processing"));
+    postFxSection.appendChild(make("p", { class: "settings-help" },
+      "Apply real-time GPU post-processing to the emulator output via WebGPU compute shaders. " +
+      "Requires WebGPU to be enabled above."
+    ));
+
+    type FxOption = { value: string; label: string; desc: string };
+    const fxOptions: FxOption[] = [
+      { value: "none",    label: "Off",     desc: "No post-processing — raw emulator output" },
+      { value: "crt",     label: "CRT",     desc: "Scanlines, barrel distortion, phosphor glow, and vignette — classic CRT look" },
+      { value: "sharpen", label: "Sharpen", desc: "Edge-aware sharpening — crisper pixels for upscaled output" },
+    ];
+
+    for (const opt of fxOptions) {
+      const row   = make("label", { class: "radio-row" });
+      const radio = make("input", { type: "radio", name: "postfx-mode", value: opt.value }) as HTMLInputElement;
+      if (settings.postProcessEffect === opt.value) radio.checked = true;
+      radio.disabled = !settings.useWebGPU;
+      radio.addEventListener("change", () => {
+        if (radio.checked) {
+          onSettingsChange({ postProcessEffect: opt.value as import("./webgpuPostProcess.js").PostProcessEffect });
+        }
+      });
+      const txt = make("span", { class: "radio-row__text" });
+      txt.append(
+        make("span", { class: "radio-row__label" }, opt.label),
+        make("span", { class: "radio-row__desc"  }, opt.desc),
+      );
+      row.append(radio, txt);
+      postFxSection.appendChild(row);
+    }
+
+    deviceSection.appendChild(postFxSection);
   }
 
   // ── Library Stats ─────────────────────────────────────────────────────────

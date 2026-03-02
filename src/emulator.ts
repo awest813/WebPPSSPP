@@ -28,6 +28,12 @@ import {
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
 } from "./performance.js";
 import { shaderCache } from "./shaderCache.js";
+import {
+  WebGPUPostProcessor,
+  type PostProcessConfig,
+  type PostProcessEffect,
+  DEFAULT_POST_PROCESS_CONFIG,
+} from "./webgpuPostProcess.js";
 
 // ── EJS global type declarations ─────────────────────────────────────────────
 
@@ -328,9 +334,11 @@ export class PSPEmulator {
   private _prefetchedCores = new Set<string>();
   private _webglPreWarmed = false;
   private _pspPipelineWarmed = false;
-  private _webgpuDevice: object | null = null; // GPUDevice — typed as object to avoid requiring @webgpu/types
+  private _webgpuDevice: GPUDevice | null = null;
   private _webgpuPreWarmed = false;
   private _webgpuAdapterInfo: WebGPUAdapterInfo | null = null;
+  private _postProcessor: WebGPUPostProcessor | null = null;
+  private _postProcessConfig: PostProcessConfig = { ...DEFAULT_POST_PROCESS_CONFIG };
   private _audioWorkletCtx: AudioContext | null = null;
   private _audioWorkletNode: AudioWorkletNode | null = null;
   private _audioUnderruns = 0;
@@ -376,6 +384,12 @@ export class PSPEmulator {
   get webgpuAdapterInfo(): WebGPUAdapterInfo | null { return this._webgpuAdapterInfo; }
   /** The number of audio underruns detected since the last game launch. */
   get audioUnderruns(): number { return this._audioUnderruns; }
+  /** The raw GPUDevice, if acquired. Null when WebGPU is unavailable or not yet warmed. */
+  get webgpuDevice(): GPUDevice | null { return this._webgpuDevice; }
+  /** True if the post-processing pipeline is actively rendering. */
+  get postProcessActive(): boolean { return this._postProcessor?.active ?? false; }
+  /** Current post-processing configuration. */
+  get postProcessConfig(): PostProcessConfig { return { ...this._postProcessConfig }; }
 
   /** Get the current FPS snapshot (call anytime while running). */
   getFPS(): FPSSnapshot { return this._fpsMonitor.getSnapshot(); }
@@ -764,45 +778,23 @@ export class PSPEmulator {
     this._webgpuPreWarmed = true;
 
     try {
-      // Use 'any' only here to avoid requiring @webgpu/types as a dependency.
-      // The real API shape is: navigator.gpu → GPUAdapter → GPUDevice.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const gpu = (navigator as any).gpu as {
-        requestAdapter(opts: { powerPreference: string }): Promise<{
-          info?: {
-            vendor: string;
-            architecture: string;
-            device: string;
-            description: string;
-          };
-          isFallbackAdapter?: boolean;
-          requestDevice(): Promise<{
-            createCommandEncoder(): {
-              beginComputePass(): { end(): void };
-              finish(): unknown;
-            };
-            createShaderModule(desc: { code: string }): unknown;
-            createRenderPipeline(desc: unknown): unknown;
-            queue: { submit(cmds: unknown[]): void };
-            destroy(): void;
-          }>;
-        } | null>;
-      } | undefined;
-
+      const gpu = navigator.gpu;
       if (!gpu) return;
 
-      const adapter = await gpu.requestAdapter({ powerPreference });
+      const adapter = await gpu.requestAdapter({
+        powerPreference,
+      });
       if (!adapter) return;
 
       // Capture adapter metadata (GPUAdapterInfo — Chrome 113+).
-      // The `info` property is undefined on older adapter implementations.
       if (adapter.info) {
+        const adapterAny = adapter as GPUAdapter & { isFallbackAdapter?: boolean };
         this._webgpuAdapterInfo = {
           vendor:            adapter.info.vendor,
           architecture:      adapter.info.architecture,
           device:            adapter.info.device,
           description:       adapter.info.description,
-          isFallbackAdapter: adapter.isFallbackAdapter ?? false,
+          isFallbackAdapter: adapterAny.isFallbackAdapter ?? false,
         };
       }
 
@@ -1070,6 +1062,12 @@ export class PSPEmulator {
         this._fpsMonitor.start();
         this._installVisibilityHandler();
         this._installContextLossHandler();
+
+        // Attach WebGPU post-processing if enabled and device is available
+        if (this._webgpuDevice && this._postProcessConfig.effect !== "none") {
+          requestAnimationFrame(() => this._attachPostProcessor());
+        }
+
         this.onGameStart?.();
       };
 
@@ -1213,8 +1211,51 @@ export class PSPEmulator {
     this._setState("running");
   }
 
+  /**
+   * Enable or update WebGPU post-processing on the emulator canvas.
+   *
+   * Requires a prior successful preWarmWebGPU() call. The post-processor
+   * creates an overlay canvas that displays the processed output while the
+   * original WebGL canvas continues rendering underneath.
+   *
+   * Call with effect "none" to disable processing without tearing down
+   * the pipeline (useful for quick toggling during gameplay).
+   */
+  setPostProcessEffect(effect: PostProcessEffect): void {
+    this._postProcessConfig.effect = effect;
+
+    if (this._postProcessor) {
+      this._postProcessor.updateConfig({ effect });
+    } else if (effect !== "none" && this._webgpuDevice && this._state === "running") {
+      this._attachPostProcessor();
+    }
+  }
+
+  /**
+   * Update post-processing parameters (scanline intensity, curvature, etc.)
+   * without changing the active effect.
+   */
+  updatePostProcessConfig(patch: Partial<PostProcessConfig>): void {
+    Object.assign(this._postProcessConfig, patch);
+    this._postProcessor?.updateConfig(patch);
+  }
+
+  /**
+   * Capture a screenshot using the async WebGPU readback path.
+   * Falls back to the synchronous canvas.toBlob() when the post-processor
+   * is not active.
+   */
+  async captureScreenshotAsync(): Promise<Blob | null> {
+    if (this._postProcessor?.active) {
+      const blob = await this._postProcessor.captureScreenshotAsync();
+      if (blob) return blob;
+    }
+    return this.captureScreenshot();
+  }
+
   dispose(): void {
     this._teardown();
+    this._detachPostProcessor();
     this._releaseWebGPUDevice();
   }
 
@@ -1424,6 +1465,7 @@ export class PSPEmulator {
     this._fpsMonitor.stop();
     this._removeVisibilityHandler();
     this._removeContextLossHandler();
+    this._detachPostProcessor();
     this._revokeBlobUrl();
     this._disconnectAudioWorklet();
     document.querySelector("script[data-ejs-loader]")?.remove();
@@ -1448,13 +1490,50 @@ export class PSPEmulator {
   }
 
   /**
+   * Attach the WebGPU post-processing pipeline to the emulator canvas.
+   * Called when a game starts and post-processing is enabled.
+   */
+  private _attachPostProcessor(): void {
+    if (!this._webgpuDevice || this._postProcessor) return;
+    if (this._postProcessConfig.effect === "none") return;
+
+    const playerEl = document.getElementById(this._playerId);
+    if (!playerEl) return;
+    const canvas = playerEl.querySelector("canvas");
+    if (!canvas) return;
+
+    try {
+      this._postProcessor = new WebGPUPostProcessor(
+        this._webgpuDevice,
+        this._postProcessConfig,
+      );
+      this._postProcessor.attach(canvas, playerEl);
+      console.info(
+        `[RetroVault] WebGPU post-processing active — effect: ${this._postProcessConfig.effect}`
+      );
+    } catch (err) {
+      console.warn("[RetroVault] Failed to attach WebGPU post-processor:", err);
+      this._postProcessor = null;
+    }
+  }
+
+  /**
+   * Detach and dispose of the WebGPU post-processing pipeline.
+   * Called on teardown or when the user disables post-processing entirely.
+   */
+  private _detachPostProcessor(): void {
+    this._postProcessor?.dispose();
+    this._postProcessor = null;
+  }
+
+  /**
    * Release the WebGPU device and adapter metadata.
    * Called only from dispose() — NOT from _teardown() — because the device
    * is intentionally kept alive across game launches within the same session.
    */
   private _releaseWebGPUDevice(): void {
     try {
-      (this._webgpuDevice as { destroy?(): void } | null)?.destroy?.();
+      this._webgpuDevice?.destroy();
     } catch { /* best-effort */ }
     this._webgpuDevice = null;
     this._webgpuAdapterInfo = null;

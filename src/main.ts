@@ -31,6 +31,7 @@ import { buildDOM, initUI, showLanding,
          resolveSystemAndAdd } from "./ui.js";
 import { isTouchDevice } from "./touchControls.js";
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
+import type { PostProcessEffect } from "./webgpuPostProcess.js";
 
 // ── Settings schema ───────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ export interface Settings {
   showAudioVis:    boolean;
   /** Whether to prefer WebGPU when available (experimental). */
   useWebGPU:       boolean;
+  /** Active WebGPU post-processing effect. */
+  postProcessEffect: PostProcessEffect;
   /** Whether to auto-save on tab close / visibility hidden. */
   autoSaveEnabled: boolean;
   /** Whether to show touch controls on touch-capable devices. */
@@ -63,6 +66,7 @@ const DEFAULT_SETTINGS: Settings = {
   showFPS:         false,
   showAudioVis:    false,
   useWebGPU:       false,
+  postProcessEffect: "none" as PostProcessEffect,
   autoSaveEnabled: true,
   touchControls:   isTouchDevice(),
   hapticFeedback:  true,
@@ -96,6 +100,9 @@ function loadSettings(): Settings {
       useWebGPU: typeof parsed.useWebGPU === "boolean"
         ? parsed.useWebGPU
         : DEFAULT_SETTINGS.useWebGPU,
+      postProcessEffect: (["none", "crt", "sharpen"] as PostProcessEffect[]).includes(parsed.postProcessEffect as PostProcessEffect)
+        ? (parsed.postProcessEffect as PostProcessEffect)
+        : DEFAULT_SETTINGS.postProcessEffect,
       autoSaveEnabled: typeof parsed.autoSaveEnabled === "boolean"
         ? parsed.autoSaveEnabled
         : DEFAULT_SETTINGS.autoSaveEnabled,
@@ -209,7 +216,12 @@ function main(): void {
   // the integrated GPU, which is usually more efficient on such hardware.
   if (settings.useWebGPU && deviceCaps.webgpuAvailable) {
     const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
-    emulator.preWarmWebGPU(webgpuPowerPref).catch(() => {});
+    emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
+      // Apply stored post-processing effect after device is ready
+      if (settings.postProcessEffect !== "none") {
+        emulator.setPostProcessEffect(settings.postProcessEffect);
+      }
+    }).catch(() => {});
   }
 
   // In idle time: load and pre-compile cached shaders from previous sessions
@@ -367,7 +379,7 @@ function main(): void {
     const gameName = settings.lastGameName ?? "Unknown";
     (async () => {
       try {
-        const screenshot = await emulator.captureScreenshot();
+        const screenshot = await emulator.captureScreenshotAsync();
         const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
         const stateBytes = emulator.readStateData(AUTO_SAVE_SLOT);
         const stateData  = stateBytes
@@ -470,7 +482,14 @@ function main(): void {
       saveSettings(settings);
       if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
         const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
-        emulator.preWarmWebGPU(webgpuPowerPref).catch(() => {});
+        emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
+          if (settings.postProcessEffect !== "none") {
+            emulator.setPostProcessEffect(settings.postProcessEffect);
+          }
+        }).catch(() => {});
+      }
+      if (patch.postProcessEffect !== undefined) {
+        emulator.setPostProcessEffect(patch.postProcessEffect);
       }
       // Sync haptic feedback setting to the active overlay in real time
       if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {

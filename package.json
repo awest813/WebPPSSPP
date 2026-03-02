@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@webgpu/types": "^0.1.69",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^28.1.0",
     "puppeteer": "^24.37.5",

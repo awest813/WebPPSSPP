@@ -522,6 +522,55 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── Post-processing ─────────────────────────────────────────────────────────
+
+  describe('post-processing', () => {
+    it('postProcessActive is false by default', () => {
+      expect(emulator.postProcessActive).toBe(false);
+    });
+
+    it('postProcessConfig returns default config', () => {
+      const config = emulator.postProcessConfig;
+      expect(config.effect).toBe('none');
+      expect(config.scanlineIntensity).toBe(0.15);
+      expect(config.curvature).toBe(0.03);
+      expect(config.vignetteStrength).toBe(0.2);
+      expect(config.sharpenAmount).toBe(0.5);
+    });
+
+    it('setPostProcessEffect updates config without throwing', () => {
+      expect(() => emulator.setPostProcessEffect('crt')).not.toThrow();
+      expect(emulator.postProcessConfig.effect).toBe('crt');
+    });
+
+    it('updatePostProcessConfig merges partial updates', () => {
+      emulator.updatePostProcessConfig({ scanlineIntensity: 0.5 });
+      expect(emulator.postProcessConfig.scanlineIntensity).toBe(0.5);
+    });
+
+    it('setPostProcessEffect to none does not throw', () => {
+      emulator.setPostProcessEffect('crt');
+      expect(() => emulator.setPostProcessEffect('none')).not.toThrow();
+    });
+  });
+
+  // ── Async screenshot ──────────────────────────────────────────────────────
+
+  describe('captureScreenshotAsync', () => {
+    it('falls back to canvas.toBlob when no post-processor is active', async () => {
+      const result = await emulator.captureScreenshotAsync();
+      expect(result).toBeNull();
+    });
+  });
+
+  // ── webgpuDevice getter ────────────────────────────────────────────────────
+
+  describe('webgpuDevice', () => {
+    it('is null before preWarmWebGPU', () => {
+      expect(emulator.webgpuDevice).toBeNull();
+    });
+  });
+
   // ── Shader cache pre-warm ─────────────────────────────────────────────────
 
   describe('preWarmShaderCache', () => {

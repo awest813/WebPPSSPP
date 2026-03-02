@@ -46,7 +46,7 @@ Open **http://localhost:5173** in Chrome or Firefox.
 - **Adaptive quality** — automatic tier downgrade prompt when sustained low FPS is detected; per-game tier memory
 - **Audio latency adaptation** — probes hardware audio latency and adjusts buffer size to prevent crackles on Bluetooth/USB audio
 - **AudioWorklet path** — low-latency audio processing in a dedicated thread with underrun detection
-- **WebGPU opt-in** — experimental WebGPU rendering pre-warm (Chrome 113+)
+- **WebGPU opt-in** — experimental WebGPU rendering pre-warm, post-processing pipeline (CRT / sharpen filters), and async GPU screenshot capture (Chrome 113+)
 - **Shader cache** — IndexedDB-backed GLSL cache with LRU eviction and `KHR_parallel_shader_compile` pre-compilation
 - **Battery-aware** — auto-switches to Performance mode when battery drops below 20%
 

@@ -122,13 +122,14 @@ Networked features requiring server infrastructure.
 
 ---
 
-## Phase 7 — WebGPU Native Path (Future)
+## Phase 7 — WebGPU Native Path (In Progress)
 
-Full WebGPU integration once spec and browser support mature.
+WebGPU integration for post-processing, async GPU readback, and future rendering support.
 
 - [ ] **Retire WebGL 2 for 3D cores**: Port PPSSPP-Web and mupen64plus-Next to emit WebGPU command buffers natively (requires upstream changes in EmulatorJS / libretro)
-- [ ] **Compute shader post-processing**: Use WebGPU compute for xBRZ and CRT shader passes, freeing the fragment shader pipeline for the core's own rendering
-- [ ] **GPU readback elimination**: Replace synchronous `gl.readPixels()` screenshot calls with async `GPUBuffer.mapAsync()` to avoid GPU stalls
+- [x] **WebGPU post-processing pipeline**: `WebGPUPostProcessor` class captures the WebGL canvas via `copyExternalImageToTexture()` (GPU-side, zero CPU readback) and applies WGSL fragment shaders — CRT simulation (scanlines, barrel distortion, phosphor glow, vignette) and edge-aware sharpening; toggled per-session in Settings; overlay canvas architecture avoids interfering with EmulatorJS rendering
+- [x] **GPU readback elimination**: `captureScreenshotAsync()` copies the post-processed frame to a staging `GPUBuffer` and maps it asynchronously via `mapAsync()`, completely avoiding the synchronous GPU stall of `canvas.toBlob()` / `gl.readPixels()`; auto-save and save-state thumbnails use the async path when WebGPU is active
+- [x] **WebGPU type safety**: Added `@webgpu/types` as a dev dependency and configured `tsconfig.json`; replaced inline `any` casts with proper WebGPU types throughout `emulator.ts`; WebGPU enum constants (`GPUShaderStage`, `GPUBufferUsage`, etc.) defined as numeric values to allow the pipeline to be tested in jsdom without runtime WebGPU
 
 ---
 
