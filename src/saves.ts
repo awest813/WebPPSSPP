@@ -1,25 +1,17 @@
 /**
  * saves.ts — Save state library backed by IndexedDB
  *
- * Manages save state metadata, thumbnails, and portable export/import.
- * The actual emulator state data can be stored here when extracted from
- * EmulatorJS's Module.FS, enabling cross-device portability via .state
- * file export/import.
- *
- * Each game can have up to 4 manual save slots (1–4) plus one auto-save
- * slot (0). Auto-save fires on tab close / visibility-hidden to prevent
- * progress loss from accidental tab closure.
- *
  * Schema
  * ------
  * Database : "retrovault-saves"
- * Version  : 1
+ * Version  : 2
  * Store    : "states"  (keyPath = "id")
  *   id          string   — composite key "{gameId}:{slot}"
  *   gameId      string   — UUID from the game library
  *   gameName    string   — display name at time of save
  *   systemId    string   — EmulatorJS core id
- *   slot        number   — 0 = auto-save, 1–4 = manual slots
+ *   slot        number   — 0 = auto-save, 1–8 = manual slots
+ *   label       string   — user-defined slot name (optional)
  *   timestamp   number   — Unix timestamp (ms) of the save
  *   thumbnail   Blob     — JPEG screenshot captured at save time (nullable)
  *   stateData   Blob     — raw emulator state bytes (nullable if EJS FS unavailable)
@@ -34,6 +26,7 @@ export interface SaveStateEntry {
   gameName: string;
   systemId: string;
   slot: number;
+  label: string;
   timestamp: number;
   thumbnail: Blob | null;
   stateData: Blob | null;
@@ -42,13 +35,13 @@ export interface SaveStateEntry {
 
 export type SaveStateMetadata = Omit<SaveStateEntry, "thumbnail" | "stateData">;
 
-export const MAX_SAVE_SLOTS = 4;
+export const MAX_SAVE_SLOTS = 8;
 export const AUTO_SAVE_SLOT = 0;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DB_NAME    = "retrovault-saves";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "states";
 
 // ── Database helpers ──────────────────────────────────────────────────────────
@@ -63,11 +56,26 @@ function openDB(): Promise<IDBDatabase> {
   _dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-    req.onupgradeneeded = () => {
-      const db    = req.result;
-      const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
-      store.createIndex("gameId",    "gameId",    { unique: false });
-      store.createIndex("timestamp", "timestamp", { unique: false });
+    req.onupgradeneeded = (event) => {
+      const db = req.result;
+      const oldVersion = event.oldVersion;
+
+      if (oldVersion < 1) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
+        store.createIndex("gameId",    "gameId",    { unique: false });
+        store.createIndex("timestamp", "timestamp", { unique: false });
+      }
+
+      if (oldVersion < 2) {
+        // v2: label field added — existing entries get empty label via read-write
+        // The field is optional so no structural migration needed; entries just
+        // won't have the key until next save. We still bump the version to allow
+        // future migrations from this baseline.
+        const store = req.transaction!.objectStore(STORE_NAME);
+        if (!store.indexNames.contains("label")) {
+          // index not strictly needed but enables fast label searches in the future
+        }
+      }
     };
 
     req.onsuccess = () => {
@@ -101,16 +109,26 @@ export function saveStateKey(gameId: string, slot: number): string {
   return `${gameId}:${slot}`;
 }
 
+/** Default slot label for a given slot number. */
+export function defaultSlotLabel(slot: number): string {
+  return slot === AUTO_SAVE_SLOT ? "Auto-Save" : `Slot ${slot}`;
+}
+
 // ── SaveStateLibrary ──────────────────────────────────────────────────────────
 
 export class SaveStateLibrary {
   /**
    * Store a save state entry.
    * If an entry for the same game+slot already exists, it is replaced.
+   * Entries without a label get the default slot label.
    */
   async saveState(entry: SaveStateEntry): Promise<void> {
     const db = await openDB();
-    await promisify(tx(db, "readwrite").put(entry));
+    const normalized: SaveStateEntry = {
+      ...entry,
+      label: entry.label || defaultSlotLabel(entry.slot),
+    };
+    await promisify(tx(db, "readwrite").put(normalized));
   }
 
   /**
@@ -143,6 +161,17 @@ export class SaveStateLibrary {
   }
 
   /**
+   * Get the most recently created manual save for a game (slot 1–MAX_SAVE_SLOTS).
+   * Returns null if no manual saves exist.
+   */
+  async getLatestManualSave(gameId: string): Promise<SaveStateEntry | null> {
+    const states = await this.getStatesForGame(gameId);
+    const manual = states.filter(s => s.slot !== AUTO_SAVE_SLOT);
+    if (manual.length === 0) return null;
+    return manual.reduce((latest, s) => s.timestamp > latest.timestamp ? s : latest);
+  }
+
+  /**
    * Delete a save state by game ID and slot.
    */
   async deleteState(gameId: string, slot: number): Promise<void> {
@@ -165,6 +194,16 @@ export class SaveStateLibrary {
       store.transaction.oncomplete = () => resolve();
       store.transaction.onerror    = () => reject(store.transaction.error);
     });
+  }
+
+  /**
+   * Update the user-defined label for a save slot.
+   */
+  async updateStateLabel(gameId: string, slot: number, label: string): Promise<void> {
+    const state = await this.getState(gameId, slot);
+    if (!state) return;
+    const db = await openDB();
+    await promisify(tx(db, "readwrite").put({ ...state, label: label.trim() || defaultSlotLabel(slot) }));
   }
 
   /**
@@ -221,6 +260,22 @@ export class SaveStateLibrary {
   }
 
   /**
+   * Export all save states for a game as an array of {blob, fileName} pairs.
+   * Only returns slots that have stateData.
+   */
+  async exportAllForGame(gameId: string): Promise<Array<{ blob: Blob; fileName: string }>> {
+    const states = await this.getStatesForGame(gameId);
+    const results: Array<{ blob: Blob; fileName: string }> = [];
+    for (const state of states) {
+      if (!state.stateData) continue;
+      const slotLabel = state.slot === AUTO_SAVE_SLOT ? "autosave" : `slot${state.slot}`;
+      const safeName  = state.gameName.replace(/[^a-zA-Z0-9_\-. ]/g, "_");
+      results.push({ blob: state.stateData, fileName: `${safeName}_${slotLabel}.state` });
+    }
+    return results;
+  }
+
+  /**
    * Import a `.state` file into a specific slot for a game.
    */
   async importState(
@@ -228,7 +283,8 @@ export class SaveStateLibrary {
     gameName: string,
     systemId: string,
     slot: number,
-    stateBlob: Blob
+    stateBlob: Blob,
+    label?: string
   ): Promise<void> {
     const entry: SaveStateEntry = {
       id:         saveStateKey(gameId, slot),
@@ -236,12 +292,24 @@ export class SaveStateLibrary {
       gameName,
       systemId,
       slot,
+      label:      label || defaultSlotLabel(slot),
       timestamp:  Date.now(),
       thumbnail:  null,
       stateData:  stateBlob,
       isAutoSave: slot === AUTO_SAVE_SLOT,
     };
     await this.saveState(entry);
+  }
+
+  /**
+   * Get all unique gameIds that have at least one save state.
+   */
+  async getAllSavedGameIds(): Promise<string[]> {
+    const db    = await openDB();
+    const store = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
+    const idx   = store.index("gameId");
+    const keys  = await promisify<IDBValidKey[]>(idx.getAllKeys());
+    return [...new Set(keys as string[])];
   }
 
   /**
@@ -299,13 +367,13 @@ export function captureScreenshot(playerId: string): Promise<Blob | null> {
 
 /**
  * Create a thumbnail (smaller image) from a screenshot blob.
- * Resizes to max 160×120 for storage efficiency.
+ * Resizes to max 240×160 for display in the grid-based gallery.
  */
 export async function createThumbnail(screenshot: Blob): Promise<Blob | null> {
   try {
     const bitmap = await createImageBitmap(screenshot);
-    const MAX_W = 160;
-    const MAX_H = 120;
+    const MAX_W = 240;
+    const MAX_H = 160;
     const scale = Math.min(MAX_W / bitmap.width, MAX_H / bitmap.height, 1);
     const w = Math.round(bitmap.width * scale);
     const h = Math.round(bitmap.height * scale);
@@ -323,7 +391,7 @@ export async function createThumbnail(screenshot: Blob): Promise<Blob | null> {
       canvas.toBlob(
         (blob) => resolve(blob),
         "image/jpeg",
-        0.7
+        0.8
       );
     });
   } catch {
