@@ -254,10 +254,11 @@ function probeGPU(): GPUCapabilities {
       : "unknown";
 
     // Anisotropic filtering
-    const anisoExt =
+    const anisoExt = (
       gl.getExtension("EXT_texture_filter_anisotropic") ??
       gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic") ??
-      gl.getExtension("MOZ_EXT_texture_filter_anisotropic");
+      gl.getExtension("MOZ_EXT_texture_filter_anisotropic")
+    ) as { MAX_TEXTURE_MAX_ANISOTROPY_EXT: GLenum } | null;
     const maxAnisotropy = anisoExt
       ? (gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number)
       : 0;

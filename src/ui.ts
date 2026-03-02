@@ -292,7 +292,7 @@ export function initUI(opts: UIOptions): void {
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
-    if (file) onFileChosen(file);
+    if (file) void onFileChosen(file);
     fileInput.value = "";
   });
 
@@ -315,7 +315,7 @@ export function initUI(opts: UIOptions): void {
       showError("Return to the library first (Esc or ← Library) before loading a new game.");
       return;
     }
-    onFileChosen(file);
+    void onFileChosen(file);
   });
 
   // ── Error banner ──────────────────────────────────────────────────────────
@@ -395,7 +395,7 @@ export function initUI(opts: UIOptions): void {
   }
 
   // ── Initial library render ────────────────────────────────────────────────
-  renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
+  void renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
 }
 
 // ── Library rendering ─────────────────────────────────────────────────────────
@@ -514,7 +514,7 @@ function _wireLibraryControls(
     searchEl.value = _librarySearchQuery;
     searchEl.addEventListener("input", () => {
       _librarySearchQuery = searchEl.value;
-      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     });
   }
 
@@ -522,7 +522,7 @@ function _wireLibraryControls(
     sortEl.value = _librarySortMode;
     sortEl.addEventListener("change", () => {
       _librarySortMode = sortEl.value as SortMode;
-      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     });
   }
 }
@@ -554,7 +554,7 @@ function _renderSystemFilterChips(
   }, "All");
   allChip.addEventListener("click", () => {
     _librarySystemFilter = "";
-    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
   });
   filterEl.appendChild(allChip);
 
@@ -567,7 +567,7 @@ function _renderSystemFilterChips(
     if (sys) chip.style.setProperty("--chip-color", sys.color);
     chip.addEventListener("click", () => {
       _librarySystemFilter = _librarySystemFilter === sysId ? "" : sysId;
-      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     });
     filterEl.appendChild(chip);
   }
@@ -620,7 +620,7 @@ function buildGameCard(
     );
     if (!confirmed) return;
     await library.removeGame(game.id);
-    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
   });
 
   const patchInput = make("input", {
@@ -646,7 +646,7 @@ function buildGameCard(
       setLoadingMessage(`Applying patch to ${game.name}…`);
       await onApplyPatch(game.id, patchFile);
       hideLoadingOverlay();
-      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     } catch (err) {
       hideLoadingOverlay();
       showError(`Patch failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -685,7 +685,7 @@ function buildGameCard(
   };
 
   card.addEventListener("click", launch);
-  card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); launch(); } });
+  card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void launch(); } });
 
   return card;
 }
@@ -872,7 +872,7 @@ export async function resolveSystemAndAdd(
   try {
     const entry = await library.addGame(resolvedFile, system.id);
     settings.lastGameName = entry.name;
-    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     await onLaunchGame(resolvedFile, system.id, entry.id);
   } catch (err) {
     hideLoadingOverlay();
@@ -907,7 +907,7 @@ async function handlePatchFileDrop(
     setLoadingMessage(`Applying patch to ${chosen.name}…`);
     await onApplyPatch(chosen.id, patchFile);
     hideLoadingOverlay();
-    renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
   } catch (err) {
     hideLoadingOverlay();
     showError(`Patch failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -1017,7 +1017,7 @@ async function handleM3UFile(
     const existing = await library.findByFileName(m3uFile.name, system.id);
     if (!existing) {
       await library.addGame(m3uFile, system.id);
-      renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+      void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     }
   } catch { /* ignore */ }
 
@@ -1113,7 +1113,7 @@ function buildInGameControls(
   btnSavesGallery.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
   btnSavesGallery.addEventListener("click", () => {
     if (saveLibrary && getCurrentGameId?.() && getCurrentGameName?.() && getCurrentSystemId?.()) {
-      openSaveGallery(emulator, saveLibrary, getCurrentGameId()!, getCurrentGameName()!, getCurrentSystemId()!);
+      void openSaveGallery(emulator, saveLibrary, getCurrentGameId()!, getCurrentGameName()!, getCurrentSystemId()!);
     }
   });
 
@@ -1869,7 +1869,7 @@ function buildLibraryTab(
     await library.clearAll();
     document.getElementById("settings-panel")!.hidden = true;
     document.title = "RetroVault";
-    if (onLaunchGame) renderLibrary(library, settings, onLaunchGame, emulatorRef);
+    if (onLaunchGame) void renderLibrary(library, settings, onLaunchGame, emulatorRef);
   });
   libSection.appendChild(btnClear);
   container.appendChild(libSection);

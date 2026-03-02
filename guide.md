@@ -1,4 +1,4 @@
-# guide.md — Hosting WebPPSSPP on a strict static web host
+# guide.md — Hosting RetroVault on a strict static web host
 
 This guide is for **strict static hosts** (for example: GitHub Pages, Netlify static deploys, Cloudflare Pages, S3 static website hosting), where you may not have full control over server runtime logic.
 

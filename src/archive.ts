@@ -88,7 +88,8 @@ export async function detectArchiveFormat(blob: Blob): Promise<ArchiveFormat> {
     const sig32  = view.getUint32(0, true);
     if (sig32 === LOCAL_FILE_MAGIC) return "zip";
     // 7-zip magic: "7z\xBC\xAF\x27\x1C"
-    if (view.getUint16(0, true) === 0x377a &&
+    // Bytes [0x37,'z'=0x7a] read as little-endian uint16 → 0x7a37
+    if (view.getUint16(0, true) === 0x7a37 &&
         view.getUint16(2, true) === 0xafbc) return "7z";
   } catch { /* ignore */ }
   return "unknown";
@@ -232,8 +233,8 @@ export async function extractFromZip(
     const writer = ds.writable.getWriter();
     const reader = ds.readable.getReader();
 
-    writer.write(compressedSlice);
-    writer.close();
+    await writer.write(compressedSlice);
+    await writer.close();
 
     const chunks: Uint8Array[] = [];
     for (;;) {
