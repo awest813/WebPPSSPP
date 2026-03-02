@@ -363,6 +363,49 @@ export class GameLibrary {
   }
 }
 
+// ── Per-game performance profile ──────────────────────────────────────────────
+
+/**
+ * Per-game tier profiles are stored in localStorage (not IndexedDB) because:
+ *   - They are tiny (a few bytes per game)
+ *   - They need synchronous read access on the hot launch path
+ *   - They don't need the blob-storage capabilities of IndexedDB
+ *
+ * Key format: `rv:tier:{gameId}`
+ * Value: "low" | "medium" | "high" | "ultra"
+ */
+
+const TIER_PROFILE_PREFIX = "rv:tier:";
+
+export type PerformanceTier = "low" | "medium" | "high" | "ultra";
+
+export function getGameTierProfile(gameId: string): PerformanceTier | null {
+  try {
+    const stored = localStorage.getItem(TIER_PROFILE_PREFIX + gameId);
+    const valid: PerformanceTier[] = ["low", "medium", "high", "ultra"];
+    if (stored && valid.includes(stored as PerformanceTier)) {
+      return stored as PerformanceTier;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveGameTierProfile(gameId: string, tier: PerformanceTier): void {
+  try {
+    localStorage.setItem(TIER_PROFILE_PREFIX + gameId, tier);
+  } catch {
+    // localStorage unavailable — best-effort
+  }
+}
+
+export function clearGameTierProfile(gameId: string): void {
+  try {
+    localStorage.removeItem(TIER_PROFILE_PREFIX + gameId);
+  } catch {}
+}
+
 // ── Formatting utilities ──────────────────────────────────────────────────────
 
 /** Format a byte count as "1.2 MB", "890 KB", etc. */

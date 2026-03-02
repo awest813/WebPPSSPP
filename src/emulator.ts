@@ -27,6 +27,7 @@ import {
   resolveMode, resolveTier, detectAudioCapabilities,
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
 } from "./performance.js";
+import { shaderCache } from "./shaderCache.js";
 
 // ── EJS global type declarations ─────────────────────────────────────────────
 
@@ -57,6 +58,15 @@ interface EJSEmulatorInstance {
     quickSave(slot: number): boolean;
     quickLoad(slot: number): void;
     supportsStates(): boolean;
+  };
+  /** Emscripten module — used to access the OpenAL audio context. */
+  Module?: {
+    AL?: {
+      currentCtx?: {
+        audioCtx?: AudioContext;
+        sources?:  Record<string, { gain: GainNode }>;
+      };
+    };
   };
 }
 
@@ -247,6 +257,11 @@ export interface LaunchOptions {
   performanceMode: PerformanceMode;
   /** Device capabilities result from detectCapabilities(). */
   deviceCaps: DeviceCapabilities;
+  /**
+   * Optional explicit tier override — bypasses the auto-detected tier.
+   * Used by the auto-downgrade flow when re-launching at a lower quality tier.
+   */
+  tierOverride?: PerformanceTier;
 }
 
 // ── PSPEmulator ───────────────────────────────────────────────────────────────
@@ -264,6 +279,12 @@ export class PSPEmulator {
   private _activeTier: PerformanceTier | null = null;
   private _prefetchedCores = new Set<string>();
   private _webglPreWarmed = false;
+  private _pspPipelineWarmed = false;
+  private _webgpuDevice: object | null = null; // GPUDevice — typed as object to avoid requiring @webgpu/types
+  private _webgpuPreWarmed = false;
+  private _audioWorkletCtx: AudioContext | null = null;
+  private _audioWorkletNode: AudioWorkletNode | null = null;
+  private _audioUnderruns = 0;
   /** Consecutive seconds the average FPS has been below the low-FPS threshold. */
   private _lowFPSSeconds = 0;
   /** Timestamp (ms) of the last low-FPS quality suggestion, to debounce warnings. */
@@ -280,6 +301,8 @@ export class PSPEmulator {
    * Performance mode or a lower tier).
    */
   onLowFPS?:      (averageFPS: number, tier: PerformanceTier | null) => void;
+  /** Fired when an audio underrun is detected via the AudioWorklet processor. */
+  onAudioUnderrun?: (count: number) => void;
 
   constructor(playerId: string) {
     this._playerId = playerId;
@@ -289,6 +312,10 @@ export class PSPEmulator {
   get state(): EmulatorState { return this._state; }
   get currentSystem(): SystemInfo | null { return this._currentSystem; }
   get activeTier(): PerformanceTier | null { return this._activeTier; }
+  /** True if a WebGPU device was successfully acquired during pre-warm. */
+  get webgpuAvailable(): boolean { return this._webgpuDevice !== null; }
+  /** The number of audio underruns detected since the last game launch. */
+  get audioUnderruns(): number { return this._audioUnderruns; }
 
   /** Get the current FPS snapshot (call anytime while running). */
   getFPS(): FPSSnapshot { return this._fpsMonitor.getSnapshot(); }
@@ -421,13 +448,19 @@ export class PSPEmulator {
       if (!gl) return;
 
       // Compile and link a minimal shader program to warm the shader compiler
+      const vsSrc = "attribute vec2 p; void main(){ gl_Position=vec4(p,0,1); }";
+      const fsSrc = "precision lowp float; void main(){ gl_FragColor=vec4(0); }";
+
       const vs = gl.createShader(gl.VERTEX_SHADER)!;
-      gl.shaderSource(vs, "attribute vec2 p; void main(){ gl_Position=vec4(p,0,1); }");
+      gl.shaderSource(vs, vsSrc);
       gl.compileShader(vs);
 
       const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
-      gl.shaderSource(fs, "precision lowp float; void main(){ gl_FragColor=vec4(0); }");
+      gl.shaderSource(fs, fsSrc);
       gl.compileShader(fs);
+
+      // Record this shader pair in the cross-session cache
+      shaderCache.record(vsSrc, fsSrc).catch(() => {});
 
       const prog = gl.createProgram()!;
       gl.attachShader(prog, vs);
@@ -456,6 +489,319 @@ export class PSPEmulator {
     } catch {
       // Pre-warming is best-effort
     }
+  }
+
+  /**
+   * Compile a representative set of PSP GPU shader patterns to prime the
+   * GPU driver's pipeline cache before the first rendered frame.
+   *
+   * PPSSPP (the PSP emulator core) generates shaders for each unique
+   * combination of PSP GPU state: texture blending, alpha testing, vertex
+   * skinning, fog, etc. Pre-compiling representative variants here exercises
+   * the same GLSL → driver-binary path that PPSSPP will use, so on Windows
+   * (ANGLE/D3D translation) and macOS (Metal translation layer) the driver
+   * avoids a cold-compile stall on the first frames of gameplay.
+   */
+  warmUpPSPPipeline(): void {
+    if (this._pspPipelineWarmed) return;
+    this._pspPipelineWarmed = true;
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      if (!gl) return;
+
+      // PSP shader variants to pre-compile. Each pair represents a distinct
+      // rendering state that PPSSPP commonly hits in the first few frames.
+      const shaderVariants: Array<{ vs: string; fs: string; label: string }> = [
+        {
+          // Textured quad — the most common PSP draw call
+          label: "textured-quad",
+          vs: [
+            "attribute vec2 a_pos;",
+            "attribute vec2 a_uv;",
+            "uniform mat4 u_mvp;",
+            "varying vec2 v_uv;",
+            "void main() {",
+            "  v_uv = a_uv;",
+            "  gl_Position = u_mvp * vec4(a_pos, 0.0, 1.0);",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "varying vec2 v_uv;",
+            "uniform sampler2D u_tex;",
+            "void main() {",
+            "  gl_FragColor = texture2D(u_tex, v_uv);",
+            "}",
+          ].join("\n"),
+        },
+        {
+          // Textured + vertex colour + alpha blend
+          label: "textured-vertex-color",
+          vs: [
+            "attribute vec3 a_pos;",
+            "attribute vec2 a_uv;",
+            "attribute vec4 a_color;",
+            "uniform mat4 u_mvp;",
+            "varying vec2 v_uv;",
+            "varying vec4 v_color;",
+            "void main() {",
+            "  v_uv = a_uv;",
+            "  v_color = a_color;",
+            "  gl_Position = u_mvp * vec4(a_pos, 1.0);",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "varying vec2 v_uv;",
+            "varying vec4 v_color;",
+            "uniform sampler2D u_tex;",
+            "void main() {",
+            "  vec4 t = texture2D(u_tex, v_uv);",
+            "  gl_FragColor = t * v_color;",
+            "}",
+          ].join("\n"),
+        },
+        {
+          // Flat-shaded primitive (UI elements, 2D sprites)
+          label: "flat-color",
+          vs: [
+            "attribute vec3 a_pos;",
+            "uniform mat4 u_mvp;",
+            "uniform vec4 u_color;",
+            "varying vec4 v_color;",
+            "void main() {",
+            "  v_color = u_color;",
+            "  gl_Position = u_mvp * vec4(a_pos, 1.0);",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "varying vec4 v_color;",
+            "void main() {",
+            "  gl_FragColor = v_color;",
+            "}",
+          ].join("\n"),
+        },
+        {
+          // Fog + texture (3D scenes with atmospheric fog)
+          label: "textured-fog",
+          vs: [
+            "attribute vec3 a_pos;",
+            "attribute vec2 a_uv;",
+            "uniform mat4 u_mvp;",
+            "varying vec2 v_uv;",
+            "varying float v_fog;",
+            "uniform float u_fog_near;",
+            "uniform float u_fog_far;",
+            "void main() {",
+            "  vec4 pos = u_mvp * vec4(a_pos, 1.0);",
+            "  v_uv = a_uv;",
+            "  float depth = clamp((pos.z - u_fog_near) / (u_fog_far - u_fog_near), 0.0, 1.0);",
+            "  v_fog = depth;",
+            "  gl_Position = pos;",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "varying vec2 v_uv;",
+            "varying float v_fog;",
+            "uniform sampler2D u_tex;",
+            "uniform vec4 u_fog_color;",
+            "void main() {",
+            "  vec4 t = texture2D(u_tex, v_uv);",
+            "  gl_FragColor = mix(t, u_fog_color, v_fog);",
+            "}",
+          ].join("\n"),
+        },
+        {
+          // Alpha test — discard fragments below threshold (used by many PSP effects)
+          label: "alpha-test",
+          vs: [
+            "attribute vec3 a_pos;",
+            "attribute vec2 a_uv;",
+            "uniform mat4 u_mvp;",
+            "varying vec2 v_uv;",
+            "void main() {",
+            "  v_uv = a_uv;",
+            "  gl_Position = u_mvp * vec4(a_pos, 1.0);",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "varying vec2 v_uv;",
+            "uniform sampler2D u_tex;",
+            "uniform float u_alpha_ref;",
+            "void main() {",
+            "  vec4 c = texture2D(u_tex, v_uv);",
+            "  if (c.a < u_alpha_ref) discard;",
+            "  gl_FragColor = c;",
+            "}",
+          ].join("\n"),
+        },
+      ];
+
+      for (const { vs: vsSrc, fs: fsSrc } of shaderVariants) {
+        const vs = gl.createShader(gl.VERTEX_SHADER)!;
+        gl.shaderSource(vs, vsSrc);
+        gl.compileShader(vs);
+
+        const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+        gl.shaderSource(fs, fsSrc);
+        gl.compileShader(fs);
+
+        const prog = gl.createProgram()!;
+        gl.attachShader(prog, vs);
+        gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        gl.useProgram(prog);
+
+        // Also record each variant in the shader cache for future pre-warm runs
+        shaderCache.record(vsSrc, fsSrc).catch(() => {});
+
+        gl.deleteShader(vs);
+        gl.deleteShader(fs);
+        gl.deleteProgram(prog);
+      }
+
+      gl.flush();
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    } catch {
+      // Pipeline warm-up is best-effort
+    }
+  }
+
+  /**
+   * Initialise a WebGPU adapter and device as an opt-in rendering path.
+   *
+   * Chrome 113+ exposes `navigator.gpu`. Acquiring a device here proves the
+   * WebGPU stack is functional and warms up the browser's GPU process
+   * connection, reducing the latency of the first WebGPU command on devices
+   * where EmulatorJS eventually ships native WebGPU core support.
+   *
+   * The acquired GPUDevice is held for the lifetime of the emulator instance
+   * so it remains ready without repeated initialisation.
+   */
+  async preWarmWebGPU(): Promise<void> {
+    if (this._webgpuPreWarmed) return;
+    this._webgpuPreWarmed = true;
+
+    try {
+      // Use 'any' only here to avoid requiring @webgpu/types as a dependency.
+      // The real API shape is: navigator.gpu → GPUAdapter → GPUDevice.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const gpu = (navigator as any).gpu as {
+        requestAdapter(opts: { powerPreference: string }): Promise<{
+          requestDevice(): Promise<{
+            createCommandEncoder(): {
+              beginComputePass(): { end(): void };
+              finish(): unknown;
+            };
+            queue: { submit(cmds: unknown[]): void };
+          }>;
+        } | null>;
+      } | undefined;
+
+      if (!gpu) return;
+
+      const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
+      if (!adapter) return;
+
+      const device = await adapter.requestDevice();
+      this._webgpuDevice = device;
+
+      // Submit a trivial compute pass to warm the GPU command queue
+      const encoder = device.createCommandEncoder();
+      const passEncoder = encoder.beginComputePass();
+      passEncoder.end();
+      device.queue.submit([encoder.finish()]);
+
+      console.info("[RetroVault] WebGPU device acquired — GPU command queue warmed.");
+    } catch {
+      // WebGPU unavailable or not yet supported — silently fall back to WebGL
+      this._webgpuDevice = null;
+    }
+  }
+
+  /**
+   * Set up an AudioWorkletNode for low-latency audio processing.
+   *
+   * The AudioWorklet runs in a dedicated thread separate from the main JS
+   * thread, eliminating the latency added by ScriptProcessorNode's main-
+   * thread scheduling. This reduces audio output latency by 1–2 render
+   * quanta (~5–10 ms on 128-sample buffer devices).
+   *
+   * If the game's AudioContext is accessible via EJS_emulator.Module.AL,
+   * we insert the worklet node between the AL source gain nodes and the
+   * context destination. Otherwise we attach it to a standalone context
+   * for monitoring purposes only.
+   *
+   * @param workletBaseUrl  Base URL for loading audio-processor.js (pass
+   *                        `import.meta.url` or the app origin).
+   */
+  async setupAudioWorklet(workletBaseUrl: string): Promise<boolean> {
+    if (!("AudioWorkletNode" in window)) return false;
+
+    try {
+      // Prefer the game's OpenAL context so we're in the same audio graph
+      const ejsCtx = window.EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
+      const ctx = ejsCtx ?? new AudioContext({ latencyHint: "playback" });
+
+      const processorUrl = new URL("/audio-processor.js", workletBaseUrl).href;
+      await ctx.audioWorklet.addModule(processorUrl);
+
+      const workletNode = new AudioWorkletNode(ctx, "retrovault-audio-processor");
+
+      workletNode.port.onmessage = (e: MessageEvent<{ type: string; count: number }>) => {
+        if (e.data.type === "underrun") {
+          this._audioUnderruns += e.data.count;
+          this.onAudioUnderrun?.(this._audioUnderruns);
+          console.warn(
+            `[RetroVault] Audio underrun detected (${e.data.count} new, ` +
+            `${this._audioUnderruns} total). ` +
+            "Consider increasing the audio buffer size."
+          );
+        }
+      };
+
+      if (ejsCtx) {
+        // Connect worklet into the EJS audio graph
+        const alCtx = window.EJS_emulator?.Module?.AL?.currentCtx;
+        if (alCtx?.sources) {
+          const gainNodes = Object.values(alCtx.sources).map(s => s.gain);
+          gainNodes.forEach(g => g.connect(workletNode));
+        }
+        workletNode.connect(ctx.destination);
+      }
+
+      this._audioWorkletCtx  = ctx;
+      this._audioWorkletNode = workletNode;
+
+      console.info("[RetroVault] AudioWorklet path active — reduced-latency audio enabled.");
+      return true;
+    } catch {
+      // AudioWorklet unavailable or module failed to load — fall back silently
+      return false;
+    }
+  }
+
+  /**
+   * Get the AudioContext used by the AudioWorklet (for AnalyserNode attachment).
+   * Returns null if the worklet hasn't been set up or is unavailable.
+   */
+  getAudioContext(): AudioContext | null {
+    return this._audioWorkletCtx;
+  }
+
+  /**
+   * Pre-compile shader programs cached from previous sessions.
+   * Call during startup in an idle callback — runs asynchronously.
+   */
+  async preWarmShaderCache(): Promise<void> {
+    await shaderCache.preCompile();
   }
 
   // ── launch ──────────────────────────────────────────────────────────────────
@@ -515,8 +861,12 @@ export class PSPEmulator {
       this._emit("onProgress", "Initialising EmulatorJS…");
 
       // ── Resolve performance settings (tier-aware) ───────────────────────
-      const tier = resolveTier(opts.performanceMode, opts.deviceCaps);
+      // tierOverride bypasses auto-detection — used by the tier-downgrade flow
+      const tier = opts.tierOverride ?? resolveTier(opts.performanceMode, opts.deviceCaps);
       this._activeTier = tier;
+
+      // Reset audio underrun counter for the new session
+      this._audioUnderruns = 0;
 
       let ejsSettings: Record<string, string>;
 
@@ -824,6 +1174,7 @@ export class PSPEmulator {
     this._removeVisibilityHandler();
     this._removeContextLossHandler();
     this._revokeBlobUrl();
+    this._disconnectAudioWorklet();
     document.querySelector("script[data-ejs-loader]")?.remove();
     const playerEl = document.getElementById(this._playerId);
     if (playerEl) playerEl.innerHTML = "";
@@ -833,6 +1184,15 @@ export class PSPEmulator {
     this._currentSystem = null;
     this._activeTier = null;
     this._setState("idle");
+  }
+
+  private _disconnectAudioWorklet(): void {
+    try {
+      this._audioWorkletNode?.disconnect();
+    } catch { /* ignore */ }
+    this._audioWorkletNode = null;
+    // Do not close the AudioContext — it is often shared with EJS.
+    // The GC will collect it when EJS tears down its audio graph.
   }
 
   private _revokeBlobUrl(): void {

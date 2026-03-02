@@ -933,6 +933,17 @@ body {
   color: var(--c-warn);
 }
 
+.fps-visualiser {
+  display: block;
+  border-radius: 3px;
+  vertical-align: middle;
+  image-rendering: pixelated;
+}
+
+.fps-visualiser[hidden] {
+  display: none;
+}
+
 /* ── Device info details ─────────────────────────────────── */
 .device-info-details {
   margin: 8px 0;

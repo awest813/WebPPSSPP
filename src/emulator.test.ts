@@ -210,4 +210,96 @@ describe('PSPEmulator', () => {
       expect(snap.droppedFrames).toBe(0);
     });
   });
+
+  // ── PSP pipeline warm-up ──────────────────────────────────────────────────
+
+  describe('warmUpPSPPipeline', () => {
+    it('does not throw when called', () => {
+      expect(() => emulator.warmUpPSPPipeline()).not.toThrow();
+    });
+
+    it('is idempotent — calling twice does not throw', () => {
+      expect(() => {
+        emulator.warmUpPSPPipeline();
+        emulator.warmUpPSPPipeline();
+      }).not.toThrow();
+    });
+  });
+
+  // ── WebGPU pre-warm ───────────────────────────────────────────────────────
+
+  describe('preWarmWebGPU', () => {
+    it('resolves without throwing even when WebGPU is unavailable', async () => {
+      await expect(emulator.preWarmWebGPU()).resolves.not.toThrow();
+    });
+
+    it('reports webgpuAvailable = false in test environment (no GPU)', () => {
+      // jsdom does not expose navigator.gpu — so this should be false
+      expect(emulator.webgpuAvailable).toBe(false);
+    });
+  });
+
+  // ── Shader cache pre-warm ─────────────────────────────────────────────────
+
+  describe('preWarmShaderCache', () => {
+    it('resolves without throwing', async () => {
+      await expect(emulator.preWarmShaderCache()).resolves.not.toThrow();
+    });
+  });
+
+  // ── AudioWorklet setup ────────────────────────────────────────────────────
+
+  describe('setupAudioWorklet', () => {
+    it('returns false when AudioWorkletNode is not available in jsdom', async () => {
+      // jsdom does not implement AudioWorkletNode
+      const result = await emulator.setupAudioWorklet('http://localhost');
+      expect(result).toBe(false);
+    });
+
+    it('audioUnderruns starts at zero', () => {
+      expect(emulator.audioUnderruns).toBe(0);
+    });
+
+    it('getAudioContext returns null when worklet has not been set up', () => {
+      expect(emulator.getAudioContext()).toBeNull();
+    });
+  });
+
+  // ── tierOverride in LaunchOptions ─────────────────────────────────────────
+
+  describe('launch with tierOverride', () => {
+    it('accepts a tierOverride without error (validates structure)', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      const fakeFile = new File(['data'], 'game.iso');
+      await emulator.launch({
+        file:            fakeFile,
+        volume:          0.7,
+        systemId:        'not-a-real-system',
+        performanceMode: 'auto',
+        tierOverride:    'low',
+        deviceCaps: {
+          deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+          isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+          recommendedMode: 'quality', tier: 'medium',
+          gpuCaps: {
+            renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+            maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+            anisotropicFiltering: false, maxAnisotropy: 0,
+            floatTextures: false, halfFloatTextures: false,
+            instancedArrays: false, webgl2: false,
+            vertexArrayObject: false, compressedTextures: false,
+            maxColorAttachments: 1, multiDraw: false,
+          },
+          gpuBenchmarkScore: 30, prefersReducedMotion: false,
+          webgpuAvailable: false, connectionQuality: 'unknown', jsHeapLimitMB: null,
+        },
+      });
+
+      // The error here is "Unknown system", not a tierOverride crash
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('Unknown system');
+    });
+  });
 });

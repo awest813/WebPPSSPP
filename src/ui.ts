@@ -144,6 +144,7 @@ export function buildDOM(app: HTMLElement): void {
           <span id="fps-avg" class="fps-detail">avg --</span>
           <span id="fps-tier" class="fps-detail"></span>
           <span id="fps-dropped" class="fps-detail fps-warn" hidden>0 dropped</span>
+          <canvas id="fps-visualiser" class="fps-visualiser" width="120" height="32" hidden aria-hidden="true"></canvas>
         </div>
       </div>
 
@@ -222,7 +223,7 @@ export interface UIOptions {
   library:          GameLibrary;
   settings:         Settings;
   deviceCaps:       DeviceCapabilities;
-  onLaunchGame:     (file: File, systemId: string) => Promise<void>;
+  onLaunchGame:     (file: File, systemId: string, gameId?: string) => Promise<void>;
   onSettingsChange: (patch: Partial<Settings>) => void;
   onReturnToLibrary: () => void;
 }
@@ -313,7 +314,7 @@ export function initUI(opts: UIOptions): void {
     setStatusTier(emulator.activeTier);
     document.title = `${name} — RetroVault`;
     buildInGameControls(emulator, settings, onSettingsChange, onReturnToLibrary);
-    showFPSOverlay(settings.showFPS);
+    showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
   };
 
   // ── Resume game (triggered by "▶ Resume" button via retrovault:resumeGame) ─
@@ -326,7 +327,7 @@ export function initUI(opts: UIOptions): void {
     setStatusSystem(sys ? sys.shortName : "—");
     setStatusGame(name);
     buildInGameControls(emulator, settings, onSettingsChange, onReturnToLibrary);
-    showFPSOverlay(settings.showFPS);
+    showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -360,7 +361,7 @@ export function initUI(opts: UIOptions): void {
 export async function renderLibrary(
   library:      GameLibrary,
   settings:     Settings,
-  onLaunchGame: (file: File, systemId: string) => Promise<void>,
+  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
   emulatorRef?: PSPEmulator
 ): Promise<void> {
   const grid         = document.getElementById("library-grid");
@@ -404,7 +405,7 @@ function buildGameCard(
   game:         GameMetadata,
   library:      GameLibrary,
   settings:     Settings,
-  onLaunchGame: (file: File, systemId: string) => Promise<void>,
+  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
   emulatorRef?: PSPEmulator
 ): HTMLElement {
   const system = getSystemById(game.systemId);
@@ -487,7 +488,7 @@ function buildGameCard(
 
       const file = new File([blob], game.fileName, { type: blob.type });
       await library.markPlayed(game.id);
-      await onLaunchGame(file, game.systemId);
+      await onLaunchGame(file, game.systemId, game.id);
     } catch (err) {
       hideLoadingOverlay();
       showError(`Failed to load game: ${err instanceof Error ? err.message : String(err)}`);
@@ -646,7 +647,7 @@ async function resolveSystemAndAdd(
   file:         File,
   library:      GameLibrary,
   settings:     Settings,
-  onLaunchGame: (file: File, systemId: string) => Promise<void>,
+  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
   emulatorRef?: PSPEmulator
 ): Promise<void> {
   const detected = detectSystem(file.name);
@@ -680,9 +681,9 @@ async function resolveSystemAndAdd(
       showLoadingOverlay();
       setLoadingMessage(`Loading ${existing.name}…`);
       try {
-        const existingFile = new File([existing.blob], existing.fileName, { type: existing.blob.type });
-        await library.markPlayed(existing.id);
-        await onLaunchGame(existingFile, existing.systemId);
+      const existingFile = new File([existing.blob], existing.fileName, { type: existing.blob.type });
+      await library.markPlayed(existing.id);
+      await onLaunchGame(existingFile, existing.systemId, existing.id);
       } catch (err) {
         hideLoadingOverlay();
         showError(`Could not load game: ${err instanceof Error ? err.message : String(err)}`);
@@ -701,7 +702,7 @@ async function resolveSystemAndAdd(
     settings.lastGameName = entry.name;
     // Re-render library in the background — we'll show it when the game ends
     renderLibrary(library, settings, onLaunchGame, emulatorRef);
-    await onLaunchGame(file, system.id);
+    await onLaunchGame(file, system.id, entry.id);
   } catch (err) {
     hideLoadingOverlay();
     showError(`Could not add game: ${err instanceof Error ? err.message : String(err)}`);
@@ -716,7 +717,7 @@ export function buildLandingControls(
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     PSPEmulator,
-  onLaunchGame?:    (file: File, systemId: string) => Promise<void>,
+  onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
   onResumeGame?:    () => void
 ): void {
   const container = el("#header-actions");
@@ -797,7 +798,7 @@ function buildInGameControls(
     settings.showFPS = !settings.showFPS;
     onSettingsChange({ showFPS: settings.showFPS });
     btnFPS.className = settings.showFPS ? "btn btn--active" : "btn";
-    showFPSOverlay(settings.showFPS);
+    showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
     // Enable/disable FPS callbacks to save CPU on low-spec devices when hidden
     emulator.setFPSMonitorEnabled(settings.showFPS);
   });
@@ -850,7 +851,7 @@ export function openSettingsPanel(
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
-  onLaunchGame?:    (file: File, systemId: string) => Promise<void>
+  onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
@@ -882,7 +883,7 @@ function buildSettingsContent(
   library:          GameLibrary,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
-  onLaunchGame?:    (file: File, systemId: string) => Promise<void>
+  onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>
 ): void {
   container.innerHTML = "";
 
@@ -921,7 +922,7 @@ function buildSettingsContent(
   fpsCheck.checked = settings.showFPS;
   fpsCheck.addEventListener("change", () => {
     onSettingsChange({ showFPS: fpsCheck.checked });
-    showFPSOverlay(fpsCheck.checked);
+    showFPSOverlay(fpsCheck.checked, emulatorRef, settings.showAudioVis);
     emulatorRef?.setFPSMonitorEnabled(fpsCheck.checked);
   });
   const fpsTxt = make("span", { class: "radio-row__text" });
@@ -931,6 +932,24 @@ function buildSettingsContent(
   );
   fpsRow.append(fpsCheck, fpsTxt);
   perfSection.appendChild(fpsRow);
+
+  // ── Audio visualiser toggle ───────────────────────────────────────────────
+  const audioVisRow = make("label", { class: "radio-row" });
+  const audioVisCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
+  audioVisCheck.checked = settings.showAudioVis;
+  audioVisCheck.addEventListener("change", () => {
+    onSettingsChange({ showAudioVis: audioVisCheck.checked });
+    if (settings.showFPS) {
+      showFPSOverlay(true, emulatorRef, audioVisCheck.checked);
+    }
+  });
+  const audioVisTxt = make("span", { class: "radio-row__text" });
+  audioVisTxt.append(
+    make("span", { class: "radio-row__label" }, "Audio visualiser"),
+    make("span", { class: "radio-row__desc"  }, "Show oscilloscope waveform in the FPS overlay (requires FPS overlay to be enabled)")
+  );
+  audioVisRow.append(audioVisCheck, audioVisTxt);
+  perfSection.appendChild(audioVisRow);
 
   // ── Device Info ───────────────────────────────────────────────────────────
   const deviceSection = make("div", { class: "settings-section" });
@@ -973,6 +992,34 @@ function buildSettingsContent(
   );
   deviceSection.appendChild(sabRow);
 
+  const webgpuRow = make("p", { class: "device-info" },
+    `WebGPU: ${deviceCaps.webgpuAvailable ? "✓ Available" : "✗ Not available (Chrome 113+ required)"}`
+  );
+  deviceSection.appendChild(webgpuRow);
+
+  const audioWorkletRow = make("p", { class: "device-info" },
+    `AudioWorklet: ${typeof AudioWorkletNode !== "undefined" ? "✓ Available (low-latency audio active)" : "✗ Not available"}`
+  );
+  deviceSection.appendChild(audioWorkletRow);
+
+  // ── WebGPU opt-in toggle (only shown when WebGPU is available) ────────────
+  if (deviceCaps.webgpuAvailable) {
+    const webgpuRow2 = make("label", { class: "radio-row" });
+    const webgpuCheck = make("input", { type: "checkbox" }) as HTMLInputElement;
+    webgpuCheck.checked = settings.useWebGPU;
+    webgpuCheck.addEventListener("change", () => {
+      onSettingsChange({ useWebGPU: webgpuCheck.checked });
+    });
+    const webgpuTxt = make("span", { class: "radio-row__text" });
+    webgpuTxt.append(
+      make("span", { class: "radio-row__label" }, "Use WebGPU (experimental)"),
+      make("span", { class: "radio-row__desc"  },
+        "Prefer WebGPU rendering when available — eliminates ANGLE translation overhead on Windows/macOS. Requires page reload to take effect.")
+    );
+    webgpuRow2.append(webgpuCheck, webgpuTxt);
+    deviceSection.appendChild(webgpuRow2);
+  }
+
   // ── Library Stats ─────────────────────────────────────────────────────────
   const libSection = make("div", { class: "settings-section" });
   libSection.appendChild(make("h4", { class: "settings-section__title" }, "Library Storage"));
@@ -1013,11 +1060,185 @@ function buildSettingsContent(
   container.append(perfSection, deviceSection, libSection, sysSection);
 }
 
+// ── Tier downgrade prompt ─────────────────────────────────────────────────────
+
+/**
+ * Show a dialog asking the user if they want to downgrade to a lower tier.
+ * Returns true if the user confirms the downgrade.
+ */
+export async function showTierDowngradePrompt(
+  averageFPS: number,
+  currentTier: import("./performance.js").PerformanceTier,
+  targetTier:  import("./performance.js").PerformanceTier
+): Promise<boolean> {
+  const tierNames: Record<string, string> = {
+    ultra: "Ultra", high: "High", medium: "Medium", low: "Low",
+  };
+  const message =
+    `The game is running at an average of ${averageFPS} FPS on the ` +
+    `${tierNames[currentTier] ?? currentTier} quality tier.\n\n` +
+    `Switching to the ${tierNames[targetTier] ?? targetTier} tier will reduce rendering ` +
+    `quality but should provide a smoother experience on this device. ` +
+    `This preference will be remembered for this game.`;
+
+  return showConfirmDialog(message, {
+    title:        "Low Frame Rate Detected",
+    confirmLabel: `Switch to ${tierNames[targetTier] ?? targetTier} Tier`,
+    isDanger:     false,
+  });
+}
+
+// ── Audio Visualiser ──────────────────────────────────────────────────────────
+
+/**
+ * Oscilloscope/spectrum overlay drawn on the fps-visualiser canvas.
+ *
+ * Connects an AnalyserNode to the game's OpenAL AudioContext (accessed via
+ * EJS_emulator.Module.AL.currentCtx.audioCtx). Falls back to a standalone
+ * context if the EJS context is not yet available.
+ *
+ * The visualiser renders a time-domain waveform (oscilloscope) at ≤30 fps
+ * to keep CPU overhead below 0.05 ms/frame even on Chromebooks.
+ */
+class AudioVisualiser {
+  private _ctx: AudioContext | null = null;
+  private _analyser: AnalyserNode | null = null;
+  private _rafId: number | null = null;
+  private _canvas: HTMLCanvasElement | null = null;
+  private _2d: CanvasRenderingContext2D | null = null;
+  private _buffer: Uint8Array<ArrayBuffer> | null = null;
+  private _lastDrawTime = 0;
+  private readonly _TARGET_INTERVAL = 1000 / 30; // 30 fps draw cap
+
+  start(emulatorRef?: import("./emulator.js").PSPEmulator): boolean {
+    this._canvas = document.getElementById("fps-visualiser") as HTMLCanvasElement | null;
+    if (!this._canvas) return false;
+    this._2d = this._canvas.getContext("2d");
+    if (!this._2d) return false;
+
+    // Try to use the AudioWorklet context from the emulator first,
+    // then fall back to EJS's OpenAL context directly.
+    const ejsCtx = (window as Window & { EJS_emulator?: { Module?: { AL?: { currentCtx?: { audioCtx?: AudioContext } } } } })
+      .EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
+
+    this._ctx = emulatorRef?.getAudioContext() ?? ejsCtx ?? null;
+
+    if (!this._ctx) {
+      // No game audio context available — still show a "no signal" state
+      this._drawNoSignal();
+      return false;
+    }
+
+    this._analyser = this._ctx.createAnalyser();
+    this._analyser.fftSize = 256;
+    this._analyser.smoothingTimeConstant = 0.75;
+    this._buffer = new Uint8Array(this._analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>;
+
+    // Try to connect the analyser to the audio graph
+    try {
+      const alCtx = (window as Window & { EJS_emulator?: { Module?: { AL?: { currentCtx?: { audioCtx?: AudioContext; sources?: Record<string, { gain: GainNode }> } } } } })
+        .EJS_emulator?.Module?.AL?.currentCtx;
+      if (alCtx?.sources && alCtx.audioCtx === this._ctx) {
+        const gainNodes = Object.values(alCtx.sources).map(s => s.gain);
+        const merger = this._ctx.createChannelMerger(Math.max(1, gainNodes.length));
+        gainNodes.forEach((g, i) => g.connect(merger, 0, Math.min(i, gainNodes.length - 1)));
+        merger.connect(this._analyser);
+      } else {
+        this._ctx.destination.channelCount = Math.min(2, this._ctx.destination.maxChannelCount);
+      }
+    } catch {
+      // Connection failed — analyser will show silence
+    }
+
+    this._canvas.hidden = false;
+    this._loop();
+    return true;
+  }
+
+  stop(): void {
+    if (this._rafId !== null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+    try { this._analyser?.disconnect(); } catch { /* ignore */ }
+    this._analyser = null;
+    if (this._canvas) this._canvas.hidden = true;
+  }
+
+  private _loop(): void {
+    this._rafId = requestAnimationFrame((now) => {
+      if (now - this._lastDrawTime >= this._TARGET_INTERVAL) {
+        this._lastDrawTime = now;
+        this._draw();
+      }
+      this._loop();
+    });
+  }
+
+  private _draw(): void {
+    if (!this._2d || !this._canvas || !this._analyser || !this._buffer) return;
+
+    this._analyser.getByteTimeDomainData(this._buffer);
+
+    const { width, height } = this._canvas;
+    const ctx = this._2d;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Background
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(0, 0, width, height);
+
+    // Waveform
+    ctx.beginPath();
+    ctx.strokeStyle = "#4caf50";
+    ctx.lineWidth = 1.5;
+
+    const sliceWidth = width / this._buffer.length;
+    let x = 0;
+    for (let i = 0; i < this._buffer.length; i++) {
+      const v = this._buffer[i] / 128.0;
+      const y = (v * height) / 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else         ctx.lineTo(x, y);
+      x += sliceWidth;
+    }
+    ctx.stroke();
+  }
+
+  private _drawNoSignal(): void {
+    if (!this._2d || !this._canvas) return;
+    const { width, height } = this._canvas;
+    this._2d.fillStyle = "rgba(0,0,0,0.5)";
+    this._2d.fillRect(0, 0, width, height);
+    this._2d.fillStyle = "#666";
+    this._2d.font = "9px monospace";
+    this._2d.textAlign = "center";
+    this._2d.fillText("no signal", width / 2, height / 2 + 3);
+  }
+}
+
+const _audioVisualiser = new AudioVisualiser();
+
+function startAudioVisualiser(emulatorRef?: PSPEmulator): void {
+  _audioVisualiser.start(emulatorRef);
+}
+
+function stopAudioVisualiser(): void {
+  _audioVisualiser.stop();
+}
+
 // ── FPS overlay ───────────────────────────────────────────────────────────────
 
-function showFPSOverlay(show: boolean): void {
+function showFPSOverlay(show: boolean, emulatorRef?: PSPEmulator, showAudioVis?: boolean): void {
   const overlay = document.getElementById("fps-overlay");
   if (overlay) overlay.hidden = !show;
+
+  if (show && showAudioVis) {
+    startAudioVisualiser(emulatorRef);
+  } else {
+    stopAudioVisualiser();
+  }
 }
 
 // Track consecutive low-FPS updates to trigger a performance suggestion

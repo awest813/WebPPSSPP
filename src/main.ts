@@ -20,12 +20,12 @@
 
 import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
-import { GameLibrary }   from "./library.js";
+import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { detectCapabilities, checkBatteryStatus } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
-         buildLandingControls } from "./ui.js";
-import type { PerformanceMode } from "./performance.js";
+         buildLandingControls, showTierDowngradePrompt } from "./ui.js";
+import type { PerformanceMode, PerformanceTier } from "./performance.js";
 
 // ── Settings schema ───────────────────────────────────────────────────────────
 
@@ -35,6 +35,10 @@ export interface Settings {
   performanceMode: PerformanceMode;
   /** Whether to show the FPS overlay while a game is running. */
   showFPS:         boolean;
+  /** Whether to show the audio visualiser in the FPS overlay panel. */
+  showAudioVis:    boolean;
+  /** Whether to prefer WebGPU when available (experimental). */
+  useWebGPU:       boolean;
 }
 
 const STORAGE_KEY = "retrovault-settings";
@@ -44,6 +48,8 @@ const DEFAULT_SETTINGS: Settings = {
   lastGameName:    null,
   performanceMode: "auto",
   showFPS:         false,
+  showAudioVis:    false,
+  useWebGPU:       false,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -67,6 +73,12 @@ function loadSettings(): Settings {
       showFPS: typeof parsed.showFPS === "boolean"
         ? parsed.showFPS
         : DEFAULT_SETTINGS.showFPS,
+      showAudioVis: typeof parsed.showAudioVis === "boolean"
+        ? parsed.showAudioVis
+        : DEFAULT_SETTINGS.showAudioVis,
+      useWebGPU: typeof parsed.useWebGPU === "boolean"
+        ? parsed.useWebGPU
+        : DEFAULT_SETTINGS.useWebGPU,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -99,19 +111,35 @@ function main(): void {
   const emulator = new PSPEmulator("ejs-player");
   const library  = new GameLibrary();
 
+  // Track the currently loaded game for tier-downgrade re-launch
+  let currentGameId:   string | null = null;
+  let currentGameFile: File | Blob | null = null;
+  let currentGameFileName: string | null = null;
+  let currentSystemId: string | null = null;
+
   // 4a. Preconnect to CDN early for faster game launches
   emulator.preconnect();
 
   // Pre-warm WebGL so first game launch doesn't stall on GPU driver init
   emulator.preWarmWebGL();
 
+  // Pre-warm the PSP pipeline cache (PSP-representative shader patterns)
+  emulator.warmUpPSPPipeline();
+
   // Pre-warm IndexedDB connection to eliminate cold-open latency
   library.warmUp().catch(() => {});
 
-  // Prefetch the loader script in idle time
+  // Pre-warm WebGPU if the user has opted in and it is available
+  if (settings.useWebGPU && deviceCaps.webgpuAvailable) {
+    emulator.preWarmWebGPU().catch(() => {});
+  }
+
+  // In idle time: load and pre-compile cached shaders from previous sessions
   if ("requestIdleCallback" in window) {
+    window.requestIdleCallback?.(() => emulator.preWarmShaderCache().catch(() => {}));
     window.requestIdleCallback?.(() => emulator.prefetchLoader());
   } else {
+    setTimeout(() => emulator.preWarmShaderCache().catch(() => {}), 3000);
     setTimeout(() => emulator.prefetchLoader(), 2000);
   }
 
@@ -132,10 +160,25 @@ function main(): void {
   }).catch(() => { /* Battery API unavailable or denied — ignore silently */ });
 
   // 5. Wire launch callback
-  const onLaunchGame = async (file: File, systemId: string): Promise<void> => {
+  const onLaunchGame = async (
+    file: File,
+    systemId: string,
+    gameId?: string,
+    tierOverride?: PerformanceTier
+  ): Promise<void> => {
     const gameName = file.name.replace(/\.[^.]+$/, "");
     settings.lastGameName = gameName;
     saveSettings(settings);
+
+    // Update current-game tracking for tier-downgrade re-launch
+    currentGameFile     = file;
+    currentGameFileName = file.name;
+    currentSystemId     = systemId;
+    currentGameId       = gameId ?? null;
+
+    // Apply per-game tier profile if no explicit override was requested
+    const savedTier    = gameId ? getGameTierProfile(gameId) : null;
+    const resolvedTier = tierOverride ?? savedTier ?? undefined;
 
     await emulator.launch({
       file,
@@ -143,9 +186,44 @@ function main(): void {
       systemId,
       performanceMode: settings.performanceMode,
       deviceCaps,
+      tierOverride:    resolvedTier,
     });
   };
 
+  // 5a. Wire auto tier downgrade — triggered by onLowFPS
+  emulator.onLowFPS = async (averageFPS: number, currentTier: PerformanceTier | null) => {
+    if (!currentTier || currentTier === "low") return; // already at minimum
+
+    const tierOrder: PerformanceTier[] = ["low", "medium", "high", "ultra"];
+    const idx = tierOrder.indexOf(currentTier);
+    if (idx <= 0) return;
+    const targetTier = tierOrder[idx - 1];
+
+    const confirmed = await showTierDowngradePrompt(
+      averageFPS,
+      currentTier,
+      targetTier
+    );
+    if (!confirmed) return;
+
+    // Re-launch the current game at the lower tier
+    if (!currentGameFile || !currentSystemId) return;
+
+    try {
+      const file = currentGameFile instanceof File
+        ? currentGameFile
+        : new File([currentGameFile], currentGameFileName ?? "game.bin");
+
+      // Persist the downgraded tier so subsequent launches use it automatically
+      if (currentGameId) {
+        saveGameTierProfile(currentGameId, targetTier);
+      }
+
+      await onLaunchGame(file, currentSystemId, currentGameId ?? undefined, targetTier);
+    } catch {
+      // Re-launch failed — user can try manually
+    }
+  };
 
   // 6a. Resume a paused game — shows the emulator, hides library
   const onResumeGame = (): void => {
@@ -176,6 +254,10 @@ function main(): void {
     onSettingsChange: (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
+      // If the user enables WebGPU, kick off the pre-warm immediately
+      if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
+        emulator.preWarmWebGPU().catch(() => {});
+      }
     },
     onReturnToLibrary,
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { formatBytes, formatRelativeTime, GameLibrary } from './library';
+import { formatBytes, formatRelativeTime, GameLibrary, getGameTierProfile, saveGameTierProfile, clearGameTierProfile } from './library';
 import 'fake-indexeddb/auto';
 
 describe('formatBytes', () => {
@@ -136,6 +136,61 @@ describe('GameLibrary.getAllGamesMetadata', () => {
       expect(meta.size).toBe(entry.size);
       expect(meta.addedAt).toBe(entry.addedAt);
     }
+  });
+});
+
+// ── Per-game tier profiles ────────────────────────────────────────────────────
+
+describe('getGameTierProfile / saveGameTierProfile / clearGameTierProfile', () => {
+  const TEST_ID = 'test-game-id-12345';
+
+  beforeEach(() => {
+    clearGameTierProfile(TEST_ID);
+  });
+
+  it('returns null when no profile is stored', () => {
+    expect(getGameTierProfile(TEST_ID)).toBeNull();
+  });
+
+  it('saves and retrieves a tier profile', () => {
+    saveGameTierProfile(TEST_ID, 'high');
+    expect(getGameTierProfile(TEST_ID)).toBe('high');
+  });
+
+  it('can save all valid tier values', () => {
+    const tiers = ['low', 'medium', 'high', 'ultra'] as const;
+    for (const tier of tiers) {
+      saveGameTierProfile(TEST_ID, tier);
+      expect(getGameTierProfile(TEST_ID)).toBe(tier);
+    }
+  });
+
+  it('clearGameTierProfile removes the stored value', () => {
+    saveGameTierProfile(TEST_ID, 'ultra');
+    clearGameTierProfile(TEST_ID);
+    expect(getGameTierProfile(TEST_ID)).toBeNull();
+  });
+
+  it('overwrites an existing profile with a new tier', () => {
+    saveGameTierProfile(TEST_ID, 'ultra');
+    saveGameTierProfile(TEST_ID, 'medium');
+    expect(getGameTierProfile(TEST_ID)).toBe('medium');
+  });
+
+  it('profiles for different game IDs are independent', () => {
+    const idA = 'game-a';
+    const idB = 'game-b';
+    clearGameTierProfile(idA);
+    clearGameTierProfile(idB);
+
+    saveGameTierProfile(idA, 'high');
+    saveGameTierProfile(idB, 'low');
+
+    expect(getGameTierProfile(idA)).toBe('high');
+    expect(getGameTierProfile(idB)).toBe('low');
+
+    clearGameTierProfile(idA);
+    clearGameTierProfile(idB);
   });
 });
 
