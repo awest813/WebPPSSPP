@@ -707,8 +707,9 @@ body {
   margin-bottom: 8px;
 }
 
-.tier-badge--ok   { background: color-mix(in srgb, var(--c-success) 15%, transparent); color: var(--c-success); }
-.tier-badge--warn { background: color-mix(in srgb, var(--c-warn)    15%, transparent); color: var(--c-warn); }
+.tier-badge--ok      { background: color-mix(in srgb, var(--c-success) 15%, transparent); color: var(--c-success); }
+.tier-badge--warn    { background: color-mix(in srgb, var(--c-warn)    15%, transparent); color: var(--c-warn); }
+.tier-badge--virtual { background: color-mix(in srgb, var(--c-accent)  15%, transparent); color: var(--c-accent); }
 
 /* System chips (settings panel) */
 .sys-list {

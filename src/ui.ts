@@ -646,7 +646,8 @@ function buildSettingsContent(
   const perfSection = make("div", { class: "settings-section" });
   perfSection.appendChild(make("h4", { class: "settings-section__title" }, "Performance Mode"));
   perfSection.appendChild(make("p", { class: "settings-help" },
-    "Controls rendering resolution and frameskip for demanding systems (PSP, N64)."
+    "Controls rendering resolution, frameskip, and GPU effects for demanding systems " +
+    "(PSP, N64). Lower settings improve frame rate on slow or virtual-GPU devices."
   ));
 
   const modes: Array<{ value: PerformanceMode; label: string; desc: string }> = [
@@ -678,9 +679,17 @@ function buildSettingsContent(
   const capText = formatCapabilitiesSummary(deviceCaps);
   deviceSection.appendChild(make("p", { class: "device-info" }, capText));
 
-  const tierBadge = make("span", {
-    class: deviceCaps.isLowSpec ? "tier-badge tier-badge--warn" : "tier-badge tier-badge--ok",
-  }, deviceCaps.isLowSpec ? "⚡ Low-spec — Performance mode recommended" : "✓ Good hardware for emulation");
+  const tierBadgeText = deviceCaps.isLowSpec
+    ? "⚡ Low-spec — Performance mode recommended"
+    : deviceCaps.isVirtualGPU
+      ? "⚠ Virtual GPU — consider Performance mode for demanding games"
+      : "✓ Good hardware for emulation";
+  const tierBadgeClass = deviceCaps.isLowSpec
+    ? "tier-badge tier-badge--warn"
+    : deviceCaps.isVirtualGPU
+      ? "tier-badge tier-badge--virtual"
+      : "tier-badge tier-badge--ok";
+  const tierBadge = make("span", { class: tierBadgeClass }, tierBadgeText);
   deviceSection.appendChild(tierBadge);
 
   const webglRow = make("p", { class: "device-info" },

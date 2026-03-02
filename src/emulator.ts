@@ -54,6 +54,15 @@ interface EJSEmulatorInstance {
 
 export const EJS_CDN_BASE = "https://cdn.emulatorjs.org/stable/data/";
 
+// Cache the WebGL 2 availability result so we don't create a canvas on every launch.
+let _webgl2Available: boolean | null = null;
+function hasWebGL2(): boolean {
+  if (_webgl2Available === null) {
+    _webgl2Available = !!document.createElement("canvas").getContext("webgl2");
+  }
+  return _webgl2Available;
+}
+
 // ── State machine ─────────────────────────────────────────────────────────────
 
 export type EmulatorState = "idle" | "loading" | "running" | "paused" | "error";
@@ -260,8 +269,7 @@ export class PSPEmulator {
   }
 
   private _checkWebGL2(): boolean {
-    const canvas = document.createElement("canvas");
-    if (canvas.getContext("webgl2")) return true;
+    if (hasWebGL2()) return true;
     this._emitError(
       "WebGL 2 is not available in your browser.\n\n" +
       "This system requires WebGL 2 for rendering. Please:\n" +

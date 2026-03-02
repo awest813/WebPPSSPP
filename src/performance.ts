@@ -10,6 +10,11 @@
  *   - navigator.deviceMemory < 4 GB  → lean toward low-spec
  *   - navigator.hardwareConcurrency ≤ 2  → low-spec
  *   - GPU renderer string contains "SwiftShader" or "Swangle" → software GPU
+ *
+ * VirGL note: VirGL (Virgil 3D) is a virtualised GPU layer used in Chrome OS
+ * Linux containers and other VM environments. It proxies to the host's real GPU
+ * and can achieve decent performance, so it is NOT classified as a software GPU.
+ * It is tracked separately via `isVirtualGPU` for informational display.
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -23,8 +28,14 @@ export interface DeviceCapabilities {
   cpuCores: number;
   /** WebGL 2 renderer string (may reveal software fallback). */
   gpuRenderer: string;
-  /** True if the GPU is known to be a software rasteriser. */
+  /** True if the GPU is known to be a pure software rasteriser (SwiftShader, LLVMpipe, etc.). */
   isSoftwareGPU: boolean;
+  /**
+   * True if the GPU is a virtualised layer (e.g. VirGL on Chrome OS Linux containers).
+   * A virtual GPU proxies to the host's real hardware and is NOT classified as software,
+   * but may have higher overhead than a direct driver connection.
+   */
+  isVirtualGPU: boolean;
   /** True when heuristics suggest the device is low-spec. */
   isLowSpec: boolean;
   /**
@@ -50,16 +61,23 @@ function getGpuRenderer(): string {
   }
 }
 
-/** Detect software-rasteriser keywords in the renderer string. */
+/** Detect pure software-rasteriser keywords in the renderer string. */
 function isSoftwareRenderer(renderer: string): boolean {
   const lower = renderer.toLowerCase();
   return (
     lower.includes("swiftshader") ||
     lower.includes("swangle")     ||
     lower.includes("llvmpipe")    ||
-    lower.includes("softpipe")    ||
-    lower.includes("virgl")
+    lower.includes("softpipe")
   );
+}
+
+/**
+ * Detect virtualised GPU layers. VirGL proxies to the host's real GPU,
+ * so it is separate from pure software renderers.
+ */
+function isVirglRenderer(renderer: string): boolean {
+  return renderer.toLowerCase().includes("virgl");
 }
 
 /**
@@ -75,6 +93,8 @@ export function detectCapabilities(): DeviceCapabilities {
   const cpuCores    = navigator.hardwareConcurrency ?? 1;
   const gpuRenderer = getGpuRenderer();
   const isSoftwareGPU = isSoftwareRenderer(gpuRenderer);
+  // VirGL is only relevant when the renderer is not already classified as software.
+  const isVirtualGPU  = !isSoftwareGPU && isVirglRenderer(gpuRenderer);
 
   const isLowSpec =
     isSoftwareGPU                           ||
@@ -86,6 +106,7 @@ export function detectCapabilities(): DeviceCapabilities {
     cpuCores,
     gpuRenderer,
     isSoftwareGPU,
+    isVirtualGPU,
     isLowSpec,
     recommendedMode: isLowSpec ? "performance" : "quality",
   };
@@ -115,8 +136,10 @@ export function formatCapabilitiesSummary(caps: DeviceCapabilities): string {
   const cores = `${caps.cpuCores} CPU ${caps.cpuCores === 1 ? "core" : "cores"}`;
   const gpu   = caps.isSoftwareGPU
     ? "Software GPU (slow)"
-    : caps.gpuRenderer !== "unknown"
-      ? caps.gpuRenderer.replace(/\(.*?\)/g, "").trim()
-      : "GPU info unavailable";
+    : caps.isVirtualGPU
+      ? "Virtual GPU (VirGL)"
+      : caps.gpuRenderer !== "unknown"
+        ? caps.gpuRenderer.replace(/\(.*?\)/g, "").trim()
+        : "GPU info unavailable";
   return `${ram} · ${cores} · ${gpu}`;
 }

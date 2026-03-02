@@ -46,17 +46,27 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: true,
     needsWebGL2: true,
     qualitySettings: {
-      ppsspp_internal_resolution: "2",   // 2× (960×544)
+      ppsspp_internal_resolution: "2",              // 2× upscale (960×544)
       ppsspp_auto_frameskip: "disabled",
       ppsspp_frameskip: "0",
       ppsspp_fast_memory: "enabled",
+      ppsspp_texture_scaling_level: "1",            // no texture upscaling (very GPU-heavy)
+      ppsspp_texture_anisotropic_filtering: "8",    // 8× anisotropic filtering
+      ppsspp_lower_resolution_for_effects: "disabled", // full-resolution post-processing
+      ppsspp_disable_slow_framebuf_effects: "disabled", // allow all framebuffer effects
+      ppsspp_vertex_cache: "enabled",               // cache transformed vertices
     },
     perfSettings: {
-      ppsspp_internal_resolution: "1",   // 1× native (480×272)
+      ppsspp_internal_resolution: "1",              // 1× native (480×272)
       ppsspp_auto_frameskip: "enabled",
       ppsspp_frameskip: "1",
       ppsspp_fast_memory: "enabled",
       ppsspp_block_transfer_gpu: "enabled",
+      ppsspp_texture_scaling_level: "1",            // no texture upscaling
+      ppsspp_texture_anisotropic_filtering: "1",    // no anisotropic filtering
+      ppsspp_lower_resolution_for_effects: "safe",  // halve GPU load for post-processing
+      ppsspp_disable_slow_framebuf_effects: "enabled", // skip costly framebuffer effects
+      ppsspp_vertex_cache: "enabled",               // cache transformed vertices
     },
   },
   {
@@ -126,10 +136,13 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#1a7a1a",
     needsThreads: false,
     needsWebGL2: false,
-    qualitySettings: {},
+    qualitySettings: {
+      "mupen64plus-rdp-plugin": "gliden64",
+      "mupen64plus-resolution-factor": "2",         // 2× upscale in quality mode
+    },
     perfSettings: {
       "mupen64plus-rdp-plugin": "gliden64",
-      "mupen64plus-resolution-factor": "1",
+      "mupen64plus-resolution-factor": "1",         // native resolution in performance mode
     },
   },
   {
