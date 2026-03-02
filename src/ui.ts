@@ -331,9 +331,11 @@ export async function renderLibrary(
 
   // Build game cards
   grid.innerHTML = "";
+  const fragment = document.createDocumentFragment();
   for (const game of games) {
-    grid.appendChild(buildGameCard(game, library, settings, onLaunchGame));
+    fragment.appendChild(buildGameCard(game, library, settings, onLaunchGame));
   }
+  grid.appendChild(fragment);
 }
 
 function buildGameCard(
