@@ -786,14 +786,22 @@ function pickSystem(fileName: string, candidates: SystemInfo[]): Promise<SystemI
     }
     panel.hidden = false;
 
+    let closed = false;
+    const onCloseClick = () => close(null);
+    const onBackdropClick = () => close(null);
+
     const close = (result: SystemInfo | null) => {
+      if (closed) return;
+      closed = true;
       document.removeEventListener("keydown", onEsc);
+      closeBtn.removeEventListener("click", onCloseClick);
+      backdrop.removeEventListener("click", onBackdropClick);
       panel.hidden = true;
       resolve(result);
     };
     const onEsc = (e: KeyboardEvent) => { if (e.key !== "Escape") return; close(null); };
-    closeBtn.addEventListener("click",   () => close(null), { once: true });
-    backdrop.addEventListener("click",   () => close(null), { once: true });
+    closeBtn.addEventListener("click", onCloseClick);
+    backdrop.addEventListener("click", onBackdropClick);
     document.addEventListener("keydown", onEsc);
   });
 }

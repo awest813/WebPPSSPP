@@ -16,4 +16,5 @@ data/cores/*
 !.vscode/extensions.json
 *.tgz
 dist/
+coverage/
 jsdoc/

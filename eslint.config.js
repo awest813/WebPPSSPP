@@ -2,6 +2,14 @@ import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 
 export default [
+    {
+        ignores: [
+            "coverage/**",
+            "dist/**",
+            "node_modules/**",
+            "data/**",
+        ],
+    },
     // JavaScript files — base rules only
     {
         files: ["**/*.js"],
