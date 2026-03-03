@@ -126,7 +126,10 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_audio_latency: "2",
     ppsspp_audio_resampling: "disabled",
     ppsspp_locked_cpu_speed: "0",
-    ppsspp_force_max_fps: "60",
+    // Target 30 fps on low-spec hardware: each frame has twice the GPU budget
+    // compared to a 60 fps target, yielding smoother and more consistent 3D
+    // rendering on devices that cannot sustain full speed.
+    ppsspp_force_max_fps: "30",
     ppsspp_cheats: "enabled",
     ppsspp_skip_buffer_effects: "enabled",
     ppsspp_disable_slow_framebuf_effects: "enabled",

@@ -84,6 +84,21 @@ describe('systems performance profiles', () => {
     });
   });
 
+  describe('PSP 3D performance settings', () => {
+    it('caps FPS to 30 on low tier for consistent 3D rendering on low-spec hardware', () => {
+      const psp = getSystemById('psp');
+      // 30 fps gives the GPU twice as much time per frame vs 60 fps, improving
+      // frame consistency on devices that cannot sustain full PSP speed.
+      expect(psp?.tierSettings?.low?.ppsspp_force_max_fps).toBe('30');
+    });
+
+    it('uncaps FPS on high and ultra tiers', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.high?.ppsspp_force_max_fps).toBe('0');
+      expect(psp?.tierSettings?.ultra?.ppsspp_force_max_fps).toBe('0');
+    });
+  });
+
   // ── GBA tier settings ───────────────────────────────────────────────────
 
   describe('GBA (mGBA) tier settings', () => {

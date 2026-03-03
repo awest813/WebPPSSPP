@@ -729,6 +729,38 @@ export class PSPEmulator {
             "}",
           ].join("\n"),
         },
+        {
+          // Vertex skinning (bone transforms) — used by virtually every PSP 3D character
+          // and animated object. Pre-compiling this variant eliminates the cold-compile
+          // stall that occurs on the first frame a skinned mesh is rendered, which is
+          // the largest single source of first-frame jank in 3D PSP titles.
+          label: "skinned-textured",
+          vs: [
+            "attribute vec3 a_pos;",
+            "attribute vec2 a_uv;",
+            "attribute vec4 a_weights;",
+            "attribute vec4 a_indices;",
+            "uniform mat4 u_bones[8];",
+            "uniform mat4 u_mvp;",
+            "varying vec2 v_uv;",
+            "void main() {",
+            "  mat4 skin = u_bones[int(a_indices.x)] * a_weights.x",
+            "            + u_bones[int(a_indices.y)] * a_weights.y",
+            "            + u_bones[int(a_indices.z)] * a_weights.z",
+            "            + u_bones[int(a_indices.w)] * a_weights.w;",
+            "  v_uv = a_uv;",
+            "  gl_Position = u_mvp * skin * vec4(a_pos, 1.0);",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "varying vec2 v_uv;",
+            "uniform sampler2D u_tex;",
+            "void main() {",
+            "  gl_FragColor = texture2D(u_tex, v_uv);",
+            "}",
+          ].join("\n"),
+        },
       ];
 
       for (const { vs: vsSrc, fs: fsSrc } of shaderVariants) {
@@ -852,7 +884,7 @@ export class PSPEmulator {
       // launches via preCompileWGSL().
       try {
         const presentFormat = navigator.gpu.getPreferredCanvasFormat();
-        for (const effect of ["crt", "sharpen", "lcd", "bloom"] as const) {
+        for (const effect of ["crt", "sharpen", "lcd", "bloom", "fxaa"] as const) {
           buildEffectPipeline(device, effect, presentFormat);
         }
         // Persist the pipeline WGSL sources for future sessions

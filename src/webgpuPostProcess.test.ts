@@ -432,6 +432,16 @@ describe("buildEffectPipeline", () => {
     expect(result.wgslSources.fragment).toContain("@fragment");
     expect(result.uniformBuffer).toBeNull();
   });
+
+  it("returns wgslSources with vertex and fragment code for fxaa", () => {
+    const { device } = createMockGPUDevice();
+    const result = buildEffectPipeline(device as unknown as GPUDevice, "fxaa", "bgra8unorm");
+    expect(result.wgslSources.vertex).toContain("@vertex");
+    expect(result.wgslSources.fragment).toContain("@fragment");
+    expect(result.wgslSources.fragment).toContain("fxaaQuality");
+    expect(result.wgslSources.fragment).toContain("luma");
+    expect(result.uniformBuffer).not.toBeNull();
+  });
 });
 
 describe("DEFAULT_POST_PROCESS_CONFIG", () => {
@@ -445,6 +455,7 @@ describe("DEFAULT_POST_PROCESS_CONFIG", () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.lcdPixelScale).toBe(1.0);
     expect(DEFAULT_POST_PROCESS_CONFIG.bloomThreshold).toBe(0.6);
     expect(DEFAULT_POST_PROCESS_CONFIG.bloomIntensity).toBe(0.5);
+    expect(DEFAULT_POST_PROCESS_CONFIG.fxaaQuality).toBe(0.75);
   });
 });
 
@@ -456,7 +467,8 @@ describe("PostProcessConfig typing", () => {
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "sharpen" },
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "lcd" },
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "bloom" },
+      { ...DEFAULT_POST_PROCESS_CONFIG, effect: "fxaa" },
     ];
-    expect(configs).toHaveLength(5);
+    expect(configs).toHaveLength(6);
   });
 });

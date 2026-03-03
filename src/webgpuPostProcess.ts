@@ -51,7 +51,7 @@ const MAP_MODE_READ = 0x0001;
 
 // ── Effect types ──────────────────────────────────────────────────────────────
 
-export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom";
+export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom" | "fxaa";
 
 export interface PostProcessConfig {
   effect: PostProcessEffect;
@@ -71,6 +71,8 @@ export interface PostProcessConfig {
   bloomThreshold: number;
   /** Bloom glow intensity multiplier. Default 0.5. */
   bloomIntensity: number;
+  /** FXAA edge-detection / blend strength (0 = off, 1 = maximum quality). Default 0.75. */
+  fxaaQuality: number;
 }
 
 export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
@@ -83,6 +85,7 @@ export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
   lcdPixelScale: 1.0,
   bloomThreshold: 0.6,
   bloomIntensity: 0.5,
+  fxaaQuality: 0.75,
 };
 
 // ── WGSL shaders ──────────────────────────────────────────────────────────────
@@ -309,6 +312,91 @@ fn blurredBright(uv: vec2f, texel: vec2f) -> vec3f {
 }
 `;
 
+const FXAA_FRAGMENT = /* wgsl */ `
+struct Params {
+  fxaaQuality: f32,
+  _pad1: f32,
+  _pad2: f32,
+  _pad3: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Perceived luminance using Rec. 601 coefficients — matches human eye sensitivity.
+fn luma(rgb: vec3f) -> f32 {
+  return dot(rgb, vec3f(0.299, 0.587, 0.114));
+}
+
+// Fast Approximate Anti-Aliasing (FXAA).
+//
+// Algorithm overview:
+//   1. Compute luminance at the current pixel and its 4 cardinal neighbours.
+//   2. Skip the pixel entirely when the local contrast is below the threshold
+//      (flat areas / solid colours have no aliasing to fix).
+//   3. Determine the dominant edge direction (horizontal vs. vertical) and
+//      estimate the sub-pixel alias contribution.
+//   4. Blend the current pixel toward the brighter neighbour across the edge,
+//      scaled by the sub-pixel alias estimate and fxaaQuality.
+//
+// This is a single-pass, single-sample-per-tap implementation well-suited
+// to low-spec GPUs where a full multi-pass MSAA or TAA pipeline would be
+// too expensive.  It provides a noticeable reduction in 3D geometry aliasing
+// at a cost of roughly 4–6 extra texture samples per fragment.
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let texel = 1.0 / params.resolution;
+  let uv    = fragCoord.xy / params.resolution;
+
+  let center = textureSample(srcTex, srcSampler, uv).rgb;
+  let lumaC  = luma(center);
+
+  // Sample 4 cardinal neighbours
+  let lumaN = luma(textureSample(srcTex, srcSampler, uv + vec2f( 0.0,       -texel.y)).rgb);
+  let lumaS = luma(textureSample(srcTex, srcSampler, uv + vec2f( 0.0,        texel.y)).rgb);
+  let lumaE = luma(textureSample(srcTex, srcSampler, uv + vec2f( texel.x,    0.0    )).rgb);
+  let lumaW = luma(textureSample(srcTex, srcSampler, uv + vec2f(-texel.x,    0.0    )).rgb);
+
+  let lumaMin   = min(lumaC, min(min(lumaN, lumaS), min(lumaE, lumaW)));
+  let lumaMax   = max(lumaC, max(max(lumaN, lumaS), max(lumaE, lumaW)));
+  let lumaRange = lumaMax - lumaMin;
+
+  // Absolute minimum threshold: skip pixels in very dark areas (no visible aliasing).
+  // Relative threshold (0.125 = "low quality" preset from Lottes 2009): skip pixels
+  // whose contrast is already below 12.5 % of the local maximum.  The relative
+  // threshold is divided by fxaaQuality so the user can tighten edge detection
+  // by increasing quality; the absolute threshold remains fixed.
+  let absThreshold = 0.0312;
+  let relThreshold = 0.125 / max(params.fxaaQuality, 0.001);
+  if (lumaRange < max(absThreshold, relThreshold * lumaMax)) {
+    return vec4f(center, 1.0);
+  }
+
+  // Sub-pixel aliasing estimation: how much does the center pixel deviate from
+  // the neighbourhood average?  A large deviation signals a single-pixel alias.
+  let lumaAvg      = (lumaN + lumaS + lumaE + lumaW) * 0.25;
+  let subpixelDiff = abs(lumaAvg - lumaC) / lumaRange;
+  let blendStrength = subpixelDiff * subpixelDiff * params.fxaaQuality * 0.75;
+
+  // Edge direction: compare horizontal vs. vertical gradient magnitude.
+  let edgeHoriz = abs(lumaN + lumaS - 2.0 * lumaC);
+  let edgeVert  = abs(lumaE + lumaW - 2.0 * lumaC);
+  let isHoriz   = edgeHoriz >= edgeVert;
+
+  // Step one texel perpendicular to the edge (into the gradient direction).
+  let step = select(vec2f(texel.x, 0.0), vec2f(0.0, texel.y), isHoriz);
+
+  // Blend toward the pixel on the brighter side of the edge.
+  let lumaPos = select(lumaE, lumaN, isHoriz);
+  let lumaNeg = select(lumaW, lumaS, isHoriz);
+  let blendDir = select(-step, step, abs(lumaPos - lumaC) >= abs(lumaNeg - lumaC));
+
+  let blended = textureSample(srcTex, srcSampler, uv + blendDir * 0.5).rgb;
+  return vec4f(mix(center, blended, blendStrength), 1.0);
+}
+`;
+
 // ── Pipeline builder ──────────────────────────────────────────────────────────
 
 interface EffectPipeline {
@@ -331,13 +419,14 @@ export function buildEffectPipeline(
     case "sharpen": fragmentCode = SHARPEN_FRAGMENT; break;
     case "lcd":     fragmentCode = LCD_FRAGMENT; break;
     case "bloom":   fragmentCode = BLOOM_FRAGMENT; break;
+    case "fxaa":    fragmentCode = FXAA_FRAGMENT; break;
     default:        fragmentCode = PASSTHROUGH_FRAGMENT; break;
   }
 
   const vertModule = device.createShaderModule({ code: FULLSCREEN_VERTEX });
   const fragModule = device.createShaderModule({ code: fragmentCode });
 
-  const hasUniforms = effect === "crt" || effect === "sharpen" || effect === "lcd" || effect === "bloom";
+  const hasUniforms = effect === "crt" || effect === "sharpen" || effect === "lcd" || effect === "bloom" || effect === "fxaa";
 
   const entries: GPUBindGroupLayoutEntry[] = [
     { binding: 0, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float" } },
@@ -821,6 +910,14 @@ export class WebGPUPostProcessor {
       case "bloom":
         data[0] = this._config.bloomThreshold;
         data[1] = this._config.bloomIntensity;
+        data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "fxaa":
+        data[0] = this._config.fxaaQuality;
+        data[1] = 0;
         data[2] = 0;
         data[3] = 0;
         data[4] = width;
