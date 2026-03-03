@@ -295,4 +295,14 @@ describe('formatRelativeTime', () => {
     const result = formatRelativeTime(Date.now() - 45 * 86_400_000);
     expect(result).toBe('1mo ago');
   });
+
+  it('returns years ago for timestamps over 12 months old', () => {
+    const result = formatRelativeTime(Date.now() - 365 * 86_400_000);
+    expect(result).toBe('1yr ago');
+  });
+
+  it('returns multiple years for timestamps over 2 years old', () => {
+    const result = formatRelativeTime(Date.now() - 730 * 86_400_000);
+    expect(result).toBe('2yr ago');
+  });
 });

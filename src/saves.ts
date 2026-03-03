@@ -309,13 +309,31 @@ export class SaveStateLibrary {
 
   /**
    * Get all unique gameIds that have at least one save state.
+   *
+   * Uses IDBIndex.openKeyCursor() with "nextunique" direction so each
+   * unique gameId (the index key) is visited exactly once. This is
+   * more correct than getAllKeys() which returns the object store's
+   * primary keys (the composite "gameId:slot" strings), not the
+   * gameId values themselves.
    */
   async getAllSavedGameIds(): Promise<string[]> {
-    const db    = await openDB();
-    const store = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
-    const idx   = store.index("gameId");
-    const keys  = await promisify<IDBValidKey[]>(idx.getAllKeys());
-    return [...new Set(keys as string[])];
+    const db = await openDB();
+    return new Promise<string[]>((resolve, reject) => {
+      const store = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME);
+      const idx   = store.index("gameId");
+      const ids: string[] = [];
+      const req = idx.openKeyCursor(null, "nextunique");
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          ids.push(cursor.key as string);
+          cursor.continue();
+        } else {
+          resolve(ids);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
   }
 
   /**

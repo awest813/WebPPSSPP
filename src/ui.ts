@@ -2209,6 +2209,7 @@ class AudioVisualiser {
     this._analyser.smoothingTimeConstant = 0.75;
     this._buffer = new Uint8Array(this._analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>;
 
+    let analyserConnected = false;
     try {
       const alCtx = (window as Window & { EJS_emulator?: { Module?: { AL?: { currentCtx?: { audioCtx?: AudioContext; sources?: Record<string, { gain: GainNode }> } } } } })
         .EJS_emulator?.Module?.AL?.currentCtx;
@@ -2218,13 +2219,17 @@ class AudioVisualiser {
         gainNodes.forEach((g, i) => g.connect(merger, 0, Math.min(i, gainNodes.length - 1)));
         merger.connect(this._analyser);
         this._merger = merger;
-      } else {
-        this._ctx.destination.channelCount = Math.min(2, this._ctx.destination.maxChannelCount);
+        analyserConnected = true;
       }
     } catch { /* connection failed */ }
 
     this._canvas.hidden = false;
-    this._loop();
+    if (analyserConnected) {
+      this._loop();
+    } else {
+      // No audio sources accessible — show a static "no signal" indicator.
+      this._drawNoSignal();
+    }
     return true;
   }
 
