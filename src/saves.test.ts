@@ -277,4 +277,32 @@ describe('SaveStateLibrary', () => {
     expect(states.length).toBe(1);
     expect(states[0].slot).toBe(3);
   });
+
+  // ── getAllSavedGameIds ──────────────────────────────────────────────────────
+
+  it('getAllSavedGameIds returns empty array when no saves exist', async () => {
+    const ids = await lib.getAllSavedGameIds();
+    expect(ids).toHaveLength(0);
+  });
+
+  it('getAllSavedGameIds returns the gameId values, not composite keys', async () => {
+    await lib.saveState(makeEntry({ gameId: 'game-a', slot: 1 }));
+    await lib.saveState(makeEntry({ gameId: 'game-a', slot: 2 }));
+
+    const ids = await lib.getAllSavedGameIds();
+    // Must return "game-a", NOT "game-a:1" / "game-a:2"
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).toBe('game-a');
+  });
+
+  it('getAllSavedGameIds returns each gameId exactly once across multiple games', async () => {
+    await lib.saveState(makeEntry({ gameId: 'game-a', slot: 1 }));
+    await lib.saveState(makeEntry({ gameId: 'game-a', slot: 2 }));
+    await lib.saveState(makeEntry({ gameId: 'game-b', slot: 1 }));
+
+    const ids = await lib.getAllSavedGameIds();
+    expect(ids).toHaveLength(2);
+    expect(ids).toContain('game-a');
+    expect(ids).toContain('game-b');
+  });
 });

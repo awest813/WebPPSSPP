@@ -1421,7 +1421,7 @@ export class PSPEmulator {
         void this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
         console.warn(
           `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
-          `detected on tier "${this._activeTier}". ` +
+          `detected on tier "${this._activeTier ?? "unknown"}". ` +
           "Consider switching to Performance mode for a smoother experience."
         );
       }
