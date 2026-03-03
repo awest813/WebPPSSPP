@@ -846,13 +846,13 @@ export class PSPEmulator {
       passEncoder.end();
       device.queue.submit([encoder.finish()]);
 
-      // Pre-compile the CRT and sharpen post-process pipelines so the
-      // first activation of WebGPU post-processing has no shader stall.
-      // Also record their WGSL sources in the persistent cache so they can
-      // be re-warmed on subsequent launches via preCompileWGSL().
+      // Pre-compile all post-process pipelines so the first activation of
+      // WebGPU post-processing has no shader stall. Also record their WGSL
+      // sources in the persistent cache so they can be re-warmed on subsequent
+      // launches via preCompileWGSL().
       try {
         const presentFormat = navigator.gpu.getPreferredCanvasFormat();
-        for (const effect of ["crt", "sharpen"] as const) {
+        for (const effect of ["crt", "sharpen", "lcd", "bloom"] as const) {
           buildEffectPipeline(device, effect, presentFormat);
         }
         // Persist the pipeline WGSL sources for future sessions

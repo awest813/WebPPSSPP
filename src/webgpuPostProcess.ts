@@ -51,7 +51,7 @@ const MAP_MODE_READ = 0x0001;
 
 // ── Effect types ──────────────────────────────────────────────────────────────
 
-export type PostProcessEffect = "none" | "crt" | "sharpen";
+export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom";
 
 export interface PostProcessConfig {
   effect: PostProcessEffect;
@@ -63,6 +63,14 @@ export interface PostProcessConfig {
   vignetteStrength: number;
   /** Sharpen kernel strength (0 = off, 2 = aggressive). Default 0.5. */
   sharpenAmount: number;
+  /** LCD shadow-mask intensity (0 = off, 1 = full grid). Default 0.4. */
+  lcdShadowMask: number;
+  /** LCD pixel-grid scale — higher values produce a finer grid. Default 1.0. */
+  lcdPixelScale: number;
+  /** Bloom brightness threshold (0–1). Pixels above this level emit glow. Default 0.6. */
+  bloomThreshold: number;
+  /** Bloom glow intensity multiplier. Default 0.5. */
+  bloomIntensity: number;
 }
 
 export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
@@ -71,6 +79,10 @@ export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
   curvature: 0.03,
   vignetteStrength: 0.2,
   sharpenAmount: 0.5,
+  lcdShadowMask: 0.4,
+  lcdPixelScale: 1.0,
+  bloomThreshold: 0.6,
+  bloomIntensity: 0.5,
 };
 
 // ── WGSL shaders ──────────────────────────────────────────────────────────────
@@ -186,6 +198,117 @@ struct Params {
 }
 `;
 
+const LCD_FRAGMENT = /* wgsl */ `
+struct Params {
+  lcdShadowMask: f32,
+  lcdPixelScale: f32,
+  _pad1: f32,
+  _pad2: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Row gap threshold: pixel rows above this normalised position get a dark gap
+// (0.88 = top ~12 % of each cell row, producing a thin horizontal separator).
+const ROW_GAP_THRESHOLD: f32 = 0.88;
+// Sub-pixel stripe widths: three equal columns cover [0, 1/3), [1/3, 2/3), [2/3, 1)
+const SUBPIXEL_COLUMN_WIDTH: f32 = 0.333;
+// Brightness boost applied to the dominant sub-pixel column per channel
+const SUBPIXEL_BOOST: f32 = 0.12;
+// Brightness cut applied to the non-dominant sub-pixel columns per channel
+const SUBPIXEL_ATTENUATION: f32 = 0.08;
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let uv = fragCoord.xy / params.resolution;
+  var color = textureSample(srcTex, srcSampler, uv);
+
+  // Intra-pixel position in [0, 1) — one "pixel cell" per lcdPixelScale screen pixels
+  let cell = fragCoord.xy * params.lcdPixelScale;
+  let pixelX = fract(cell.x);
+  let pixelY = fract(cell.y);
+
+  // Horizontal grid lines — thin dark gap at the top of each cell row
+  let rowGap = 1.0 - params.lcdShadowMask * step(ROW_GAP_THRESHOLD, pixelY);
+  color = vec4f(color.rgb * rowGap, color.a);
+
+  // RGB sub-pixel stripe mask: three vertical columns per cell (R / G / B)
+  var subpixelMask = vec3f(1.0);
+  if (pixelX < SUBPIXEL_COLUMN_WIDTH) {
+    subpixelMask = vec3f(
+      1.0 + params.lcdShadowMask * SUBPIXEL_BOOST,
+      1.0 - params.lcdShadowMask * SUBPIXEL_ATTENUATION,
+      1.0 - params.lcdShadowMask * SUBPIXEL_ATTENUATION,
+    );
+  } else if (pixelX < 2.0 * SUBPIXEL_COLUMN_WIDTH) {
+    subpixelMask = vec3f(
+      1.0 - params.lcdShadowMask * SUBPIXEL_ATTENUATION,
+      1.0 + params.lcdShadowMask * SUBPIXEL_BOOST,
+      1.0 - params.lcdShadowMask * SUBPIXEL_ATTENUATION,
+    );
+  } else {
+    subpixelMask = vec3f(
+      1.0 - params.lcdShadowMask * SUBPIXEL_ATTENUATION,
+      1.0 - params.lcdShadowMask * SUBPIXEL_ATTENUATION,
+      1.0 + params.lcdShadowMask * SUBPIXEL_BOOST,
+    );
+  }
+
+  return vec4f(clamp(color.rgb * subpixelMask, vec3f(0.0), vec3f(1.0)), color.a);
+}
+`;
+
+const BLOOM_FRAGMENT = /* wgsl */ `
+struct Params {
+  bloomThreshold: f32,
+  bloomIntensity: f32,
+  _pad1: f32,
+  _pad2: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Outer tap radius in texels — large enough for a visible glow without a
+// separate blur pass.  The inner diagonal taps use radius 1.0.
+const BLUR_RADIUS: f32 = 2.0;
+// Number of taps in the cross + diagonal pattern below (must match array size)
+const BLOOM_TAP_COUNT: i32 = 8;
+
+// Approximate a Gaussian blur with an 8-tap cross + diagonal pattern.
+// Each tap is offset by BLUR_RADIUS or 1.0 texels so the glow
+// reaches far enough to be visible without a dedicated blur pass.
+fn blurredBright(uv: vec2f, texel: vec2f) -> vec3f {
+  var acc = vec3f(0.0);
+  let offsets = array<vec2f, 8>(
+    vec2f(-BLUR_RADIUS,  0.0         ), vec2f( BLUR_RADIUS,  0.0         ),
+    vec2f( 0.0,         -BLUR_RADIUS ), vec2f( 0.0,          BLUR_RADIUS ),
+    vec2f(-1.0,         -1.0         ), vec2f( 1.0,         -1.0         ),
+    vec2f(-1.0,          1.0         ), vec2f( 1.0,          1.0         ),
+  );
+  for (var i: i32 = 0; i < BLOOM_TAP_COUNT; i++) {
+    let s = textureSample(srcTex, srcSampler, uv + offsets[i] * texel).rgb;
+    acc += max(s - vec3f(params.bloomThreshold), vec3f(0.0));
+  }
+  return acc / f32(BLOOM_TAP_COUNT);
+}
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let texel = 1.0 / params.resolution;
+  let uv = fragCoord.xy / params.resolution;
+
+  let base  = textureSample(srcTex, srcSampler, uv);
+  let glow  = blurredBright(uv, texel) * params.bloomIntensity;
+
+  // Additive blend — glow brightens the scene without washing out darks
+  return vec4f(clamp(base.rgb + glow, vec3f(0.0), vec3f(1.0)), base.a);
+}
+`;
+
 // ── Pipeline builder ──────────────────────────────────────────────────────────
 
 interface EffectPipeline {
@@ -206,13 +329,15 @@ export function buildEffectPipeline(
   switch (effect) {
     case "crt":     fragmentCode = CRT_FRAGMENT; break;
     case "sharpen": fragmentCode = SHARPEN_FRAGMENT; break;
+    case "lcd":     fragmentCode = LCD_FRAGMENT; break;
+    case "bloom":   fragmentCode = BLOOM_FRAGMENT; break;
     default:        fragmentCode = PASSTHROUGH_FRAGMENT; break;
   }
 
   const vertModule = device.createShaderModule({ code: FULLSCREEN_VERTEX });
   const fragModule = device.createShaderModule({ code: fragmentCode });
 
-  const hasUniforms = effect === "crt" || effect === "sharpen";
+  const hasUniforms = effect === "crt" || effect === "sharpen" || effect === "lcd" || effect === "bloom";
 
   const entries: GPUBindGroupLayoutEntry[] = [
     { binding: 0, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float" } },
@@ -680,6 +805,22 @@ export class WebGPUPostProcessor {
       case "sharpen":
         data[0] = this._config.sharpenAmount;
         data[1] = 0;
+        data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "lcd":
+        data[0] = this._config.lcdShadowMask;
+        data[1] = this._config.lcdPixelScale;
+        data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "bloom":
+        data[0] = this._config.bloomThreshold;
+        data[1] = this._config.bloomIntensity;
         data[2] = 0;
         data[3] = 0;
         data[4] = width;

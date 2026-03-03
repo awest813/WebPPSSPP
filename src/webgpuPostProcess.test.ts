@@ -143,6 +143,42 @@ describe("WebGPUPostProcessor", () => {
       expect(secondCallCount).toBeGreaterThan(firstCallCount);
     });
 
+    it("rebuilds pipeline when switching to lcd effect", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "lcd" });
+      const callCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(callCount).toBeGreaterThan(0);
+    });
+
+    it("rebuilds pipeline when switching to bloom effect", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "bloom" });
+      const callCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(callCount).toBeGreaterThan(0);
+    });
+
+    it("accepts lcd-specific config parameters", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+      pp.updateConfig({ effect: "lcd", lcdShadowMask: 0.7, lcdPixelScale: 2.0 });
+      expect(pp.config.effect).toBe("lcd");
+      expect(pp.config.lcdShadowMask).toBe(0.7);
+      expect(pp.config.lcdPixelScale).toBe(2.0);
+    });
+
+    it("accepts bloom-specific config parameters", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+      pp.updateConfig({ effect: "bloom", bloomThreshold: 0.8, bloomIntensity: 1.2 });
+      expect(pp.config.effect).toBe("bloom");
+      expect(pp.config.bloomThreshold).toBe(0.8);
+      expect(pp.config.bloomIntensity).toBe(1.2);
+    });
+
     it("does not rebuild pipeline when only parameters change", () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
@@ -238,6 +274,32 @@ describe("WebGPUPostProcessor", () => {
       expect(calls.length).toBeGreaterThanOrEqual(2);
     });
 
+    it("creates shader modules for LCD effect", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "lcd" });
+
+      const calls = (device.createShaderModule as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+
+      const allCodes = calls.map((c: unknown[]) => (c[0] as { code: string }).code);
+      expect(allCodes.some((c: string) => c.includes("lcdShadowMask"))).toBe(true);
+    });
+
+    it("creates shader modules for bloom effect", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "bloom" });
+
+      const calls = (device.createShaderModule as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+
+      const allCodes = calls.map((c: unknown[]) => (c[0] as { code: string }).code);
+      expect(allCodes.some((c: string) => c.includes("bloomThreshold"))).toBe(true);
+    });
+
     it("creates a uniform buffer for CRT effect", () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
@@ -247,6 +309,32 @@ describe("WebGPUPostProcessor", () => {
       expect(device.createBuffer).toHaveBeenCalled();
       const bufferCalls = (device.createBuffer as ReturnType<typeof vi.fn>).mock.calls;
       // 0x0040 = BUFFER_UNIFORM
+      const hasUniform = bufferCalls.some(
+        (c: unknown[]) => ((c[0] as { usage: number }).usage & 0x0040) !== 0
+      );
+      expect(hasUniform).toBe(true);
+    });
+
+    it("creates a uniform buffer for LCD effect", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "lcd" });
+
+      const bufferCalls = (device.createBuffer as ReturnType<typeof vi.fn>).mock.calls;
+      const hasUniform = bufferCalls.some(
+        (c: unknown[]) => ((c[0] as { usage: number }).usage & 0x0040) !== 0
+      );
+      expect(hasUniform).toBe(true);
+    });
+
+    it("creates a uniform buffer for bloom effect", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+      pp.updateConfig({ effect: "bloom" });
+
+      const bufferCalls = (device.createBuffer as ReturnType<typeof vi.fn>).mock.calls;
       const hasUniform = bufferCalls.some(
         (c: unknown[]) => ((c[0] as { usage: number }).usage & 0x0040) !== 0
       );
@@ -317,6 +405,26 @@ describe("buildEffectPipeline", () => {
     expect(result.wgslSources.fragment).toContain("sharpenAmount");
   });
 
+  it("returns wgslSources with vertex and fragment code for lcd", () => {
+    const { device } = createMockGPUDevice();
+    const result = buildEffectPipeline(device as unknown as GPUDevice, "lcd", "bgra8unorm");
+    expect(result.wgslSources.vertex).toContain("@vertex");
+    expect(result.wgslSources.fragment).toContain("@fragment");
+    expect(result.wgslSources.fragment).toContain("lcdShadowMask");
+    expect(result.wgslSources.fragment).toContain("lcdPixelScale");
+    expect(result.uniformBuffer).not.toBeNull();
+  });
+
+  it("returns wgslSources with vertex and fragment code for bloom", () => {
+    const { device } = createMockGPUDevice();
+    const result = buildEffectPipeline(device as unknown as GPUDevice, "bloom", "bgra8unorm");
+    expect(result.wgslSources.vertex).toContain("@vertex");
+    expect(result.wgslSources.fragment).toContain("@fragment");
+    expect(result.wgslSources.fragment).toContain("bloomThreshold");
+    expect(result.wgslSources.fragment).toContain("bloomIntensity");
+    expect(result.uniformBuffer).not.toBeNull();
+  });
+
   it("returns wgslSources for passthrough (none) effect", () => {
     const { device } = createMockGPUDevice();
     const result = buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
@@ -333,6 +441,10 @@ describe("DEFAULT_POST_PROCESS_CONFIG", () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.curvature).toBe(0.03);
     expect(DEFAULT_POST_PROCESS_CONFIG.vignetteStrength).toBe(0.2);
     expect(DEFAULT_POST_PROCESS_CONFIG.sharpenAmount).toBe(0.5);
+    expect(DEFAULT_POST_PROCESS_CONFIG.lcdShadowMask).toBe(0.4);
+    expect(DEFAULT_POST_PROCESS_CONFIG.lcdPixelScale).toBe(1.0);
+    expect(DEFAULT_POST_PROCESS_CONFIG.bloomThreshold).toBe(0.6);
+    expect(DEFAULT_POST_PROCESS_CONFIG.bloomIntensity).toBe(0.5);
   });
 });
 
@@ -342,7 +454,9 @@ describe("PostProcessConfig typing", () => {
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "none" },
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "crt" },
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "sharpen" },
+      { ...DEFAULT_POST_PROCESS_CONFIG, effect: "lcd" },
+      { ...DEFAULT_POST_PROCESS_CONFIG, effect: "bloom" },
     ];
-    expect(configs).toHaveLength(3);
+    expect(configs).toHaveLength(5);
   });
 });
