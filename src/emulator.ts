@@ -1418,12 +1418,12 @@ export class PSPEmulator {
       ) {
         this._lastQualitySuggestionTime = now;
         this._lowFPSStartTime = 0;
-        void this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
         console.warn(
           `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
           `detected on tier "${this._activeTier ?? "unknown"}". ` +
           "Consider switching to Performance mode for a smoother experience."
         );
+        void this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
       }
     } else {
       this._lowFPSStartTime = 0;
@@ -1597,8 +1597,11 @@ export class PSPEmulator {
 
   /**
    * Inject the EmulatorJS loader script.
-   * If it was already injected from a previous game session (same page load)
-   * we can't hot-swap systems — the page must be reloaded.
+   *
+   * `_teardown()` removes the script before each new launch so this will
+   * always inject a fresh copy. The early-return guard here is a safety net
+   * for unexpected double-injection (e.g. race conditions during rapid
+   * successive launches).
    */
   private _loadScript(src: string): Promise<void> {
     return new Promise((resolve, reject) => {

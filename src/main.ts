@@ -24,7 +24,7 @@ import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail, stateBytesToBlob } from "./saves.js";
-import { detectCapabilities, checkBatteryStatus } from "./performance.js";
+import { detectCapabilities, checkBatteryStatus, formatDetailedSummary } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
          buildLandingControls, showTierDowngradePrompt,
@@ -558,6 +558,7 @@ function main(): void {
     console.info("[RetroVault] Dev mode. Access `window.__retrovault` in the console.");
     console.info("Device capabilities:", deviceCaps);
     console.info(`Hardware tier: ${deviceCaps.tier} (GPU score: ${deviceCaps.gpuBenchmarkScore}/100)`);
+    console.info(formatDetailedSummary(deviceCaps));
     console.info("Settings:", settings);
   }
 

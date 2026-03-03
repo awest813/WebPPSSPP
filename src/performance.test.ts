@@ -99,6 +99,56 @@ describe('performance', () => {
     expect(flush).toHaveBeenCalled();
   });
 
+  it('releases the WebGL probe context via WEBGL_lose_context after capability detection', () => {
+    const loseContext = vi.fn();
+    const gl = {
+      VERTEX_SHADER: 0x8B31,
+      FRAGMENT_SHADER: 0x8B30,
+      ARRAY_BUFFER: 0x8892,
+      STATIC_DRAW: 0x88E4,
+      TRIANGLE_STRIP: 0x0005,
+      FLOAT: 0x1406,
+      MAX_TEXTURE_SIZE: 0x0D33,
+      MAX_VERTEX_ATTRIBS: 0x8869,
+      MAX_VARYING_VECTORS: 0x8DFC,
+      MAX_RENDERBUFFER_SIZE: 0x84E8,
+      createShader: vi.fn(() => ({})),
+      shaderSource: vi.fn(),
+      compileShader: vi.fn(),
+      createProgram: vi.fn(() => ({})),
+      attachShader: vi.fn(),
+      linkProgram: vi.fn(),
+      useProgram: vi.fn(),
+      getUniformLocation: vi.fn(() => ({})),
+      createBuffer: vi.fn(() => ({})),
+      bindBuffer: vi.fn(),
+      bufferData: vi.fn(),
+      getAttribLocation: vi.fn(() => 0),
+      enableVertexAttribArray: vi.fn(),
+      vertexAttribPointer: vi.fn(),
+      getParameter: vi.fn(() => 4096),
+      getExtension: vi.fn((name: string) => (name === 'WEBGL_lose_context' ? { loseContext } : null)),
+      uniform1f: vi.fn(),
+      drawArrays: vi.fn(),
+      flush: vi.fn(),
+      deleteBuffer: vi.fn(),
+      deleteShader: vi.fn(),
+      deleteProgram: vi.fn(),
+    };
+    const canvas = { width: 0, height: 0, getContext: vi.fn((type: string) => (type === 'webgl' ? gl : null)) };
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => (
+      tagName === 'canvas'
+        ? (canvas as unknown as HTMLCanvasElement)
+        : originalCreateElement(tagName, options)
+    ));
+
+    detectCapabilities();
+
+    // loseContext() is called by both probeGPU() and benchmarkGPU()
+    expect(loseContext).toHaveBeenCalled();
+  });
+
   // ── WebGPU availability ─────────────────────────────────────────────────
 
   describe('isWebGPUAvailable', () => {

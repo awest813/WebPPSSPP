@@ -312,12 +312,9 @@ function probeGPU(): GPUCapabilities {
     }
 
     // WEBGL_multi_draw — batches multiple draw calls into one API call, reducing CPU overhead
-    const multiDraw = !!(
-      gl.getExtension("WEBGL_multi_draw") ||
-      (gl instanceof WebGL2RenderingContext && gl.getExtension("WEBGL_multi_draw"))
-    );
+    const multiDraw = !!gl.getExtension("WEBGL_multi_draw");
 
-    return {
+    const probed: GPUCapabilities = {
       renderer,
       vendor,
       maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE) as number,
@@ -335,6 +332,13 @@ function probeGPU(): GPUCapabilities {
       maxColorAttachments,
       multiDraw,
     };
+
+    // Explicitly release the throwaway context to avoid holding OS-level GPU
+    // resources for the lifetime of the page. probeGPU() runs on every startup
+    // so prompt cleanup is important on memory-constrained devices.
+    try { gl.getExtension("WEBGL_lose_context")?.loseContext(); } catch { /* ignore */ }
+
+    return probed;
   } catch {
     return defaults;
   }
