@@ -29,7 +29,8 @@ import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
          buildLandingControls, showTierDowngradePrompt,
          promptAutoSaveRestore,
-         resolveSystemAndAdd } from "./ui.js";
+         resolveSystemAndAdd,
+         showError } from "./ui.js";
 import { isTouchDevice } from "./touchControls.js";
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
 import type { PostProcessEffect } from "./webgpuPostProcess.js";
@@ -126,7 +127,7 @@ function saveSettings(s: Settings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   } catch {
-    console.warn("[retrovault] Could not persist settings to localStorage.");
+    showError("[retrovault] Could not persist settings to localStorage.");
   }
 }
 
