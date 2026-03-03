@@ -185,8 +185,8 @@ describe("WebGPUPostProcessor", () => {
       };
       const getContextSpy = vi
         .spyOn(HTMLCanvasElement.prototype, "getContext")
-        .mockImplementation((contextId: string) => {
-          if (contextId === "webgpu") return webgpuContext as unknown as RenderingContext;
+        .mockImplementation((contextId: "webgpu") => {
+          if (contextId === "webgpu") return webgpuContext as unknown as GPUCanvasContext;
           return null;
         });
 
