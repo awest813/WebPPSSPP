@@ -310,9 +310,27 @@ export function initUI(opts: UIOptions): void {
     fileInput.click();
   });
 
-  document.addEventListener("dragover",   (e) => { e.preventDefault(); if (!dragOverActive) { dragOverActive = true; dropZone.classList.add("drag-over"); } });
-  document.addEventListener("dragenter",  (e) => { e.preventDefault(); dragDepth += 1; if (!dragOverActive) { dragOverActive = true; dropZone.classList.add("drag-over"); } });
-  document.addEventListener("dragleave",  (e) => { e.preventDefault(); dragDepth = Math.max(0, dragDepth - 1); if (dragDepth > 0) return; clearDragOver(); });
+  document.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (!dragOverActive) {
+      dragOverActive = true;
+      dropZone.classList.add("drag-over");
+    }
+  });
+  document.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragDepth += 1;
+    if (!dragOverActive) {
+      dragOverActive = true;
+      dropZone.classList.add("drag-over");
+    }
+  });
+  document.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth > 0) return;
+    clearDragOver();
+  });
   document.addEventListener("drop", (e) => {
     e.preventDefault();
     clearDragOver();
