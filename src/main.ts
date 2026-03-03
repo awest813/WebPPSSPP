@@ -354,10 +354,14 @@ function main(): void {
     });
 
     // launch() reports failures via state/onError instead of throwing.
-    // Ensure failed launches don't leave stale pending restore handlers.
+    // Ensure failed launches don't leave stale pending restore handlers or
+    // unreferenced blob URLs.
     if (emulator.state === "error") {
       pendingAutoRestoreCancel?.();
       pendingAutoRestoreCancel = null;
+      // Revoke the BIOS blob URL if the emulator never claimed it
+      // (e.g., preflight checks failed before _biosUrl was assigned).
+      if (biosUrl) URL.revokeObjectURL(biosUrl);
     }
   };
 
@@ -394,6 +398,10 @@ function main(): void {
   // 5c. Wire auto-save persistence
   emulator.onAutoSave = () => {
     if (!settings.autoSaveEnabled || !currentGameId || !currentSystemId) return;
+    // Capture IDs synchronously at the time the save is triggered — by the
+    // time the async work completes a new game may have been launched.
+    const gameIdAtSave   = currentGameId;
+    const systemIdAtSave = currentSystemId;
     const gameName = settings.lastGameName ?? "Unknown";
     void (async () => {
       try {
@@ -403,10 +411,10 @@ function main(): void {
         const stateData  = stateBytesToBlob(stateBytes);
 
         await saveLibrary.saveState({
-          id:         saveStateKey(currentGameId!, AUTO_SAVE_SLOT),
-          gameId:     currentGameId!,
+          id:         saveStateKey(gameIdAtSave, AUTO_SAVE_SLOT),
+          gameId:     gameIdAtSave,
           gameName,
-          systemId:   currentSystemId!,
+          systemId:   systemIdAtSave,
           slot:       AUTO_SAVE_SLOT,
           label:      "Auto-Save",
           timestamp:  Date.now(),

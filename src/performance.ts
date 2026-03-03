@@ -360,13 +360,14 @@ interface VAOExtension {
  * blocking startup, especially on Chromebooks and low-spec hardware.
  */
 function benchmarkGPU(): number {
+  let gl: WebGLRenderingContext | WebGL2RenderingContext | null = null;
   try {
     const canvas = document.createElement("canvas");
     canvas.width = 256;
     canvas.height = 256;
 
     const gl2 = canvas.getContext("webgl2") as WebGL2RenderingContext | null;
-    const gl  = gl2 ?? canvas.getContext("webgl") as WebGLRenderingContext | null;
+    gl  = gl2 ?? canvas.getContext("webgl") as WebGLRenderingContext | null;
     if (!gl) return 0;
 
     const vs = gl.createShader(gl.VERTEX_SHADER)!;
@@ -475,6 +476,9 @@ function benchmarkGPU(): number {
     return score;
   } catch {
     return 0;
+  } finally {
+    // Always release the throwaway context to avoid leaking OS-level GPU resources.
+    try { gl?.getExtension("WEBGL_lose_context")?.loseContext(); } catch { /* ignore */ }
   }
 }
 

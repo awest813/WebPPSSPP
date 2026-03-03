@@ -266,11 +266,13 @@ class FPSMonitor {
       }
     }
 
-    this._rafId = requestAnimationFrame(this._tick);
+    // Re-schedule only when still running; stop() may have been called while
+    // this callback was already in-flight.
+    if (this._enabled) {
+      this._rafId = requestAnimationFrame(this._tick);
+    }
   }
 }
-
-// ── WebGPU adapter info ───────────────────────────────────────────────────────
 
 /**
  * Metadata captured from GPUAdapter.info (Chrome 113+) during preWarmWebGPU().
@@ -341,6 +343,7 @@ export class PSPEmulator {
   private _postProcessor: WebGPUPostProcessor | null = null;
   private _postProcessConfig: PostProcessConfig = { ...DEFAULT_POST_PROCESS_CONFIG };
   private _audioWorkletCtx: AudioContext | null = null;
+  private _audioWorkletCtxOwned = false;
   private _audioWorkletNode: AudioWorkletNode | null = null;
   private _audioUnderruns = 0;
   /** Timestamp (ms) when sustained low FPS was first detected; 0 when FPS is healthy. */
@@ -515,13 +518,13 @@ export class PSPEmulator {
     if (this._webglPreWarmed) return;
     this._webglPreWarmed = true;
 
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.width = 16;
-      canvas.height = 16;
-      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-      if (!gl) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    if (!gl) return;
 
+    try {
       // Compile and link a minimal shader program to warm the shader compiler
       const vsSrc = "attribute vec2 p; void main(){ gl_Position=vec4(p,0,1); }";
       const fsSrc = "precision lowp float; void main(){ gl_FragColor=vec4(0); }";
@@ -562,7 +565,8 @@ export class PSPEmulator {
       gl.deleteProgram(prog);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     } catch {
-      // Pre-warming is best-effort
+      // Pre-warming is best-effort — always release the GL context.
+      try { gl.getExtension("WEBGL_lose_context")?.loseContext(); } catch { /* ignore */ }
     }
   }
 
@@ -581,13 +585,13 @@ export class PSPEmulator {
     if (this._pspPipelineWarmed) return;
     this._pspPipelineWarmed = true;
 
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.width = 16;
-      canvas.height = 16;
-      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-      if (!gl) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    if (!gl) return;
 
+    try {
       // PSP shader variants to pre-compile. Each pair represents a distinct
       // rendering state that PPSSPP commonly hits in the first few frames.
       const shaderVariants: Array<{ vs: string; fs: string; label: string }> = [
@@ -745,7 +749,8 @@ export class PSPEmulator {
       gl.flush();
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     } catch {
-      // Pipeline warm-up is best-effort
+      // Pipeline warm-up is best-effort — always release the GL context.
+      try { gl?.getExtension("WEBGL_lose_context")?.loseContext(); } catch { /* ignore */ }
     }
   }
 
@@ -886,6 +891,7 @@ export class PSPEmulator {
       // Prefer the game's OpenAL context so we're in the same audio graph
       const ejsCtx = window.EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
       const ctx = ejsCtx ?? new AudioContext({ latencyHint: "playback" });
+      const ctxOwned = !ejsCtx;
 
       const processorUrl = new URL("/audio-processor.js", workletBaseUrl).href;
       await ctx.audioWorklet.addModule(processorUrl);
@@ -915,6 +921,7 @@ export class PSPEmulator {
       }
 
       this._audioWorkletCtx  = ctx;
+      this._audioWorkletCtxOwned = ctxOwned;
       this._audioWorkletNode = workletNode;
 
       console.info("[RetroVault] AudioWorklet path active — reduced-latency audio enabled.");
@@ -1511,8 +1518,12 @@ export class PSPEmulator {
       this._audioWorkletNode?.disconnect();
     } catch { /* ignore */ }
     this._audioWorkletNode = null;
-    // Do not close the AudioContext — it is often shared with EJS.
-    // The GC will collect it when EJS tears down its audio graph.
+    // Close the AudioContext only when we created it (not shared with EJS).
+    if (this._audioWorkletCtxOwned && this._audioWorkletCtx) {
+      this._audioWorkletCtx.close().catch(() => { /* best-effort */ });
+    }
+    this._audioWorkletCtx = null;
+    this._audioWorkletCtxOwned = false;
   }
 
   /**

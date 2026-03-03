@@ -353,8 +353,12 @@ export class TouchControlsOverlay {
     // Touch events
     el.addEventListener("touchstart", (e) => {
       e.preventDefault();
-      const t = e.changedTouches[0];
-      if (!onDragStart(t.clientX, t.clientY)) pressKey();
+      // Use the first changed touch for drag-start tracking; press the key for
+      // every touch that lands on this button (multi-finger support).
+      const first = e.changedTouches[0];
+      if (!onDragStart(first.clientX, first.clientY)) {
+        for (let i = 0; i < e.changedTouches.length; i++) pressKey();
+      }
     }, { passive: false });
 
     el.addEventListener("touchmove", (e) => {
@@ -366,13 +370,13 @@ export class TouchControlsOverlay {
     el.addEventListener("touchend", (e) => {
       e.preventDefault();
       onDragEnd();
-      releaseKey();
+      for (let i = 0; i < e.changedTouches.length; i++) releaseKey();
     }, { passive: false });
 
     el.addEventListener("touchcancel", (e) => {
       e.preventDefault();
       onDragEnd();
-      releaseKey();
+      for (let i = 0; i < e.changedTouches.length; i++) releaseKey();
     }, { passive: false });
 
     // Mouse events (fallback for desktop testing)

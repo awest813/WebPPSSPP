@@ -503,6 +503,10 @@ function _applyLibraryFilters(games: GameMetadata[]): GameMetadata[] {
 }
 
 let _libraryControlsWired = false;
+
+// Persists the last non-zero volume across buildInGameControls rebuilds (e.g.
+// game resume) so mute/unmute restores the correct level after a re-render.
+let _preMuteVolume = 0.7;
 function _wireLibraryControls(
   _allGames: GameMetadata[],
   library: GameLibrary,
@@ -861,6 +865,7 @@ export async function resolveSystemAndAdd(
     system = await pickSystem(resolvedFile.name, detected);
     if (!system) return;
   } else {
+    hideLoadingOverlay();
     system = detected;
   }
 
@@ -1056,6 +1061,8 @@ async function handleM3UFile(
   } catch (err) {
     hideLoadingOverlay();
     showError(`Multi-disc launch failed: ${err instanceof Error ? err.message : String(err)}`);
+    // Revoke immediately; also remove the once-listener so it cannot fire later
+    // on a different game's returnToLibrary event.
     blobUrls.forEach(u => URL.revokeObjectURL(u));
   }
 }
@@ -1188,7 +1195,7 @@ function buildInGameControls(
   }
 
   // Volume control
-  let preMuteVolume = settings.volume > 0 ? settings.volume : 0.7;
+  _preMuteVolume = settings.volume > 0 ? settings.volume : _preMuteVolume;
   const volWrap  = make("div", { class: "btn vol-control" });
   const volBtn   = make("button", { class: "vol-mute-btn", title: "Toggle mute", "aria-label": "Toggle mute" }) as HTMLButtonElement;
   volBtn.textContent = volIcon(settings.volume);
@@ -1198,8 +1205,8 @@ function buildInGameControls(
   }) as HTMLInputElement;
 
   volBtn.addEventListener("click", () => {
-    const newVol = settings.volume > 0 ? 0 : preMuteVolume;
-    if (settings.volume > 0) preMuteVolume = settings.volume;
+    const newVol = settings.volume > 0 ? 0 : _preMuteVolume;
+    if (settings.volume > 0) _preMuteVolume = settings.volume;
     emulator.setVolume(newVol);
     volSlider.value = String(newVol);
     onSettingsChange({ volume: newVol });
@@ -1207,7 +1214,7 @@ function buildInGameControls(
   });
   volSlider.addEventListener("input", () => {
     const v = Number(volSlider.value);
-    if (v > 0) preMuteVolume = v;
+    if (v > 0) _preMuteVolume = v;
     emulator.setVolume(v);
     onSettingsChange({ volume: v });
     volBtn.textContent = volIcon(v);
@@ -1377,7 +1384,8 @@ async function buildSaveSlotCard(
     const img = make("img", { class: "save-slot-card__img", alt: `Slot ${slot} screenshot` }) as HTMLImageElement;
     const url = URL.createObjectURL(state.thumbnail);
     img.src = url;
-    img.onload = () => URL.revokeObjectURL(url);
+    img.onload  = () => URL.revokeObjectURL(url);
+    img.onerror = () => URL.revokeObjectURL(url);
     thumb.appendChild(img);
   } else {
     const empty = make("div", { class: "save-slot-card__empty" });
@@ -1577,6 +1585,8 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
 
 // ── Settings panel ────────────────────────────────────────────────────────────
 
+let _settingsPanelEscHandler: ((e: KeyboardEvent) => void) | null = null;
+
 export function openSettingsPanel(
   settings:         Settings,
   deviceCaps:       DeviceCapabilities,
@@ -1596,13 +1606,22 @@ export function openSettingsPanel(
 
   const close = () => {
     panel.hidden = true;
-    document.removeEventListener("keydown", onEsc);
+    if (_settingsPanelEscHandler) {
+      document.removeEventListener("keydown", _settingsPanelEscHandler);
+      _settingsPanelEscHandler = null;
+    }
     previousFocus?.focus();
   };
-  const onEsc = (e: KeyboardEvent) => { if (e.key !== "Escape") return; close(); };
+
+  // Remove any previously registered Escape handler before attaching a new one.
+  if (_settingsPanelEscHandler) {
+    document.removeEventListener("keydown", _settingsPanelEscHandler);
+  }
+  _settingsPanelEscHandler = (e: KeyboardEvent) => { if (e.key !== "Escape") return; close(); };
+
   document.getElementById("settings-close")!.onclick   = close;
   document.getElementById("settings-backdrop")!.onclick = close;
-  document.addEventListener("keydown", onEsc);
+  document.addEventListener("keydown", _settingsPanelEscHandler);
 }
 
 type SettingsTab = "performance" | "display" | "library" | "bios";
@@ -2160,6 +2179,7 @@ export async function showTierDowngradePrompt(
 class AudioVisualiser {
   private _ctx: AudioContext | null = null;
   private _analyser: AnalyserNode | null = null;
+  private _merger: ChannelMergerNode | null = null;
   private _rafId: number | null = null;
   private _canvas: HTMLCanvasElement | null = null;
   private _2d: CanvasRenderingContext2D | null = null;
@@ -2197,6 +2217,7 @@ class AudioVisualiser {
         const merger = this._ctx.createChannelMerger(Math.max(1, gainNodes.length));
         gainNodes.forEach((g, i) => g.connect(merger, 0, Math.min(i, gainNodes.length - 1)));
         merger.connect(this._analyser);
+        this._merger = merger;
       } else {
         this._ctx.destination.channelCount = Math.min(2, this._ctx.destination.maxChannelCount);
       }
@@ -2209,7 +2230,9 @@ class AudioVisualiser {
 
   stop(): void {
     if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+    try { this._merger?.disconnect(); } catch { /* ignore */ }
     try { this._analyser?.disconnect(); } catch { /* ignore */ }
+    this._merger = null;
     this._analyser = null;
     this._buffer = null;
     this._ctx = null;
@@ -2218,6 +2241,8 @@ class AudioVisualiser {
 
   private _loop(): void {
     this._rafId = requestAnimationFrame((now) => {
+      // Guard against a rAF callback that fires after stop() was called.
+      if (this._rafId === null) return;
       if (now - this._lastDrawTime >= this._TARGET_INTERVAL) { this._lastDrawTime = now; this._draw(); }
       this._loop();
     });

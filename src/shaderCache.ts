@@ -157,6 +157,7 @@ interface ParallelShaderExt {
 
 export class ShaderCache {
   private _writesSinceEviction = 0;
+  private _wgslWritesSinceEviction = 0;
   /**
    * Load all cached shader programs from IndexedDB.
    * Returns an empty array if the cache is empty or IDB is unavailable.
@@ -182,10 +183,13 @@ export class ShaderCache {
     try {
       const db  = await openCacheDB();
       const key = shaderProgramKey(vsSource, fsSource);
-      const txn = db.transaction(CACHE_STORE, "readwrite");
-      const store = txn.objectStore(CACHE_STORE);
 
-      const existing = await idbGet<CachedProgram>(store, key);
+      // Read then write in separate transactions: awaiting across an IDB
+      // transaction boundary causes TransactionInactiveError in some browsers.
+      const existing = await idbGet<CachedProgram>(
+        db.transaction(CACHE_STORE, "readonly").objectStore(CACHE_STORE),
+        key,
+      );
       const entry: CachedProgram = {
         key,
         vsSource,
@@ -193,19 +197,22 @@ export class ShaderCache {
         hits:     (existing?.hits ?? 0) + 1,
         lastUsed: Date.now(),
       };
-      await idbPut(store, entry);
+      await idbPut(db.transaction(CACHE_STORE, "readwrite").objectStore(CACHE_STORE), entry);
 
       // LRU eviction: only check every 10 writes to avoid reading
       // all records on every shader compilation.
       this._writesSinceEviction++;
       if (this._writesSinceEviction >= 10) {
         this._writesSinceEviction = 0;
-        const all = await idbGetAll<CachedProgram>(store);
+        const all = await idbGetAll<CachedProgram>(
+          db.transaction(CACHE_STORE, "readonly").objectStore(CACHE_STORE),
+        );
         if (all.length > MAX_PROGRAMS) {
           all.sort((a, b) => a.lastUsed - b.lastUsed);
           const toDelete = all.slice(0, all.length - MAX_PROGRAMS);
+          const evictTxn = db.transaction(CACHE_STORE, "readwrite").objectStore(CACHE_STORE);
           for (const old of toDelete) {
-            store.delete(old.key);
+            evictTxn.delete(old.key);
           }
         }
       }
@@ -254,6 +261,17 @@ export class ShaderCache {
           gl.attachShader(prog, vs);
           gl.attachShader(prog, fs);
           gl.linkProgram(prog);
+
+          // Skip entries that failed to compile/link — they would stall
+          // the parallel-compile poll and occupy GPU resources for nothing.
+          if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS) ||
+              !gl.getShaderParameter(fs, gl.COMPILE_STATUS) ||
+              !gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+            gl.deleteShader(vs);
+            gl.deleteShader(fs);
+            gl.deleteProgram(prog);
+            continue;
+          }
 
           compiled.push({ vs, fs, prog });
         } catch {
@@ -333,10 +351,12 @@ export class ShaderCache {
     try {
       const db  = await openCacheDB();
       const key = wgslModuleKey(source);
-      const txn = db.transaction(WGSL_STORE, "readwrite");
-      const store = txn.objectStore(WGSL_STORE);
 
-      const existing = await idbGet<CachedWGSLModule>(store, key);
+      // Read then write in separate transactions to avoid TransactionInactiveError.
+      const existing = await idbGet<CachedWGSLModule>(
+        db.transaction(WGSL_STORE, "readonly").objectStore(WGSL_STORE),
+        key,
+      );
       const entry: CachedWGSLModule = {
         key,
         source,
@@ -344,15 +364,22 @@ export class ShaderCache {
         hits:     (existing?.hits ?? 0) + 1,
         lastUsed: Date.now(),
       };
-      await idbPut(store, entry);
+      await idbPut(db.transaction(WGSL_STORE, "readwrite").objectStore(WGSL_STORE), entry);
 
-      // LRU eviction at MAX_WGSL_MODULES
-      const all = await idbGetAll<CachedWGSLModule>(store);
-      if (all.length > MAX_WGSL_MODULES) {
-        all.sort((a, b) => a.lastUsed - b.lastUsed);
-        const toDelete = all.slice(0, all.length - MAX_WGSL_MODULES);
-        for (const old of toDelete) {
-          store.delete(old.key);
+      // LRU eviction: only check every 10 writes (mirrors the GLSL cache strategy).
+      this._wgslWritesSinceEviction++;
+      if (this._wgslWritesSinceEviction >= 10) {
+        this._wgslWritesSinceEviction = 0;
+        const all = await idbGetAll<CachedWGSLModule>(
+          db.transaction(WGSL_STORE, "readonly").objectStore(WGSL_STORE),
+        );
+        if (all.length > MAX_WGSL_MODULES) {
+          all.sort((a, b) => a.lastUsed - b.lastUsed);
+          const toDelete = all.slice(0, all.length - MAX_WGSL_MODULES);
+          const evictTxn = db.transaction(WGSL_STORE, "readwrite").objectStore(WGSL_STORE);
+          for (const old of toDelete) {
+            evictTxn.delete(old.key);
+          }
         }
       }
     } catch {

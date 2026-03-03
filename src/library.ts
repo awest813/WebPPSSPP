@@ -272,8 +272,10 @@ export class GameLibrary {
     fileName?: string,
   ): Promise<GameEntry | null> {
     const db    = await openDB();
-    const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
-    const entry = await promisify<GameEntry | undefined>(store.get(id));
+
+    // Read in a separate transaction first — awaiting within a readwrite
+    // transaction would let it auto-commit before the subsequent put().
+    const entry = await promisify<GameEntry | undefined>(tx(db, "readonly").get(id));
     if (!entry) return null;
 
     const nextFileName = file instanceof File
@@ -285,7 +287,7 @@ export class GameLibrary {
     entry.size     = file.size;
     entry.blob     = file;
 
-    await promisify(store.put(entry));
+    await promisify(tx(db, "readwrite").put(entry));
     setCachedBlob(entry.id, file);
     invalidateMetadataCache();
     return entry;
@@ -389,11 +391,12 @@ export class GameLibrary {
    */
   async markPlayed(id: string): Promise<void> {
     const db    = await openDB();
-    const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
-    const entry = await promisify<GameEntry | undefined>(store.get(id));
+    // Read in a separate readonly transaction to avoid the readwrite transaction
+    // auto-committing across the await boundary before the subsequent put().
+    const entry = await promisify<GameEntry | undefined>(tx(db, "readonly").get(id));
     if (!entry) return;
     entry.lastPlayedAt = Date.now();
-    await promisify(store.put(entry));
+    await promisify(tx(db, "readwrite").put(entry));
     invalidateMetadataCache();
   }
 

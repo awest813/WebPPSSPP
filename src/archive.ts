@@ -104,6 +104,16 @@ export async function detectArchiveFormat(blob: Blob): Promise<ArchiveFormat> {
 export async function extractFromZip(
   blob: Blob
 ): Promise<{ name: string; blob: Blob } | null> {
+  // Reject archives larger than 2 GB before attempting a full ArrayBuffer read
+  // to avoid an OOM crash on low-memory devices.
+  const MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024;
+  if (blob.size > MAX_ZIP_BYTES) {
+    throw new Error(
+      `ZIP file is too large to extract in-browser (${(blob.size / 1073741824).toFixed(1)} GB). ` +
+      `Please extract it manually and drop the ROM file directly.`
+    );
+  }
+
   const buffer = await blob.arrayBuffer();
   const view   = new DataView(buffer);
   const bytes  = new Uint8Array(buffer);
