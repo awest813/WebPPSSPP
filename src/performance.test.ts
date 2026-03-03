@@ -9,6 +9,8 @@ import {
   __resetAudioCapabilitiesCacheForTests,
   formatCapabilitiesSummary,
   formatDetailedSummary,
+  resolveMode,
+  DeviceCapabilities,
 } from './performance';
 
 describe('performance', () => {
@@ -319,6 +321,34 @@ describe('performance', () => {
       const chromeCaps = { ...caps, isChromOS: true };
       const summary = formatDetailedSummary(chromeCaps);
       expect(summary).toContain('Chromebook');
+    });
+  });
+
+  // ── Mode resolution ─────────────────────────────────────────────────────
+
+  describe('resolveMode', () => {
+    it('returns caps.recommendedMode when userMode is "auto"', () => {
+      const capsPerf = { recommendedMode: 'performance' } as DeviceCapabilities;
+      expect(resolveMode('auto', capsPerf)).toBe('performance');
+
+      const capsQual = { recommendedMode: 'quality' } as DeviceCapabilities;
+      expect(resolveMode('auto', capsQual)).toBe('quality');
+    });
+
+    it('returns "performance" when userMode is "performance", regardless of caps.recommendedMode', () => {
+      const capsPerf = { recommendedMode: 'performance' } as DeviceCapabilities;
+      expect(resolveMode('performance', capsPerf)).toBe('performance');
+
+      const capsQual = { recommendedMode: 'quality' } as DeviceCapabilities;
+      expect(resolveMode('performance', capsQual)).toBe('performance');
+    });
+
+    it('returns "quality" when userMode is "quality", regardless of caps.recommendedMode', () => {
+      const capsPerf = { recommendedMode: 'performance' } as DeviceCapabilities;
+      expect(resolveMode('quality', capsPerf)).toBe('quality');
+
+      const capsQual = { recommendedMode: 'quality' } as DeviceCapabilities;
+      expect(resolveMode('quality', capsQual)).toBe('quality');
     });
   });
 });
