@@ -754,6 +754,8 @@ export function formatDetailedSummary(caps: DeviceCapabilities): string {
   if (caps.gpuCaps.webgl2)             lines.push("WebGL 2: yes");
   if (caps.gpuCaps.multiDraw)          lines.push("Multi-draw: yes");
   if (caps.gpuCaps.compressedTextures) lines.push("Compressed textures: yes");
+  if (caps.webgpuAvailable)            lines.push("WebGPU: available");
+  if (caps.connectionQuality !== "unknown") lines.push(`Network: ${caps.connectionQuality}`);
   if (caps.isChromOS) {
     lines.push("Device: Chromebook (conservative tier applied)");
   }

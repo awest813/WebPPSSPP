@@ -10,6 +10,8 @@ import {
   formatCapabilitiesSummary,
   formatDetailedSummary,
   resolveMode,
+  resolveTier,
+  estimateConnectionQuality,
   DeviceCapabilities,
 } from './performance';
 
@@ -349,6 +351,130 @@ describe('performance', () => {
 
       const capsQual = { recommendedMode: 'quality' } as DeviceCapabilities;
       expect(resolveMode('quality', capsQual)).toBe('quality');
+    });
+  });
+
+  // ── Tier resolution ─────────────────────────────────────────────────────
+
+  describe('resolveTier', () => {
+    it('returns caps.tier when userMode is "auto"', () => {
+      const caps = { tier: 'medium' } as DeviceCapabilities;
+      expect(resolveTier('auto', caps)).toBe('medium');
+
+      const capsUltra = { tier: 'ultra' } as DeviceCapabilities;
+      expect(resolveTier('auto', capsUltra)).toBe('ultra');
+    });
+
+    it('returns "low" when userMode is "performance"', () => {
+      const caps = { tier: 'ultra' } as DeviceCapabilities;
+      expect(resolveTier('performance', caps)).toBe('low');
+
+      const capsLow = { tier: 'low' } as DeviceCapabilities;
+      expect(resolveTier('performance', capsLow)).toBe('low');
+    });
+
+    it('returns "ultra" in quality mode when caps.tier is "ultra"', () => {
+      const caps = { tier: 'ultra' } as DeviceCapabilities;
+      expect(resolveTier('quality', caps)).toBe('ultra');
+    });
+
+    it('returns "high" in quality mode when caps.tier is not "ultra"', () => {
+      for (const tier of ['low', 'medium', 'high'] as const) {
+        const caps = { tier } as DeviceCapabilities;
+        expect(resolveTier('quality', caps)).toBe('high');
+      }
+    });
+  });
+
+  // ── Connection quality estimation ───────────────────────────────────────
+
+  describe('estimateConnectionQuality', () => {
+    type NavigatorWithConn = Navigator & {
+      connection?: {
+        effectiveType?: string;
+        downlink?: number;
+        saveData?: boolean;
+      };
+    };
+
+    afterEach(() => {
+      Object.defineProperty(navigator, 'connection', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    it('returns "unknown" when navigator.connection is unavailable', () => {
+      Object.defineProperty(navigator, 'connection', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      expect(estimateConnectionQuality()).toBe('unknown');
+    });
+
+    it('returns "slow" when saveData is true', () => {
+      (navigator as NavigatorWithConn).connection = { saveData: true, effectiveType: '4g', downlink: 10 };
+      expect(estimateConnectionQuality()).toBe('slow');
+    });
+
+    it('returns "fast" when effectiveType is "4g" and downlink >= 5', () => {
+      (navigator as NavigatorWithConn).connection = { effectiveType: '4g', downlink: 5 };
+      expect(estimateConnectionQuality()).toBe('fast');
+    });
+
+    it('returns "fast" when effectiveType is "4g" but downlink in [2,5) via fallback path', () => {
+      (navigator as NavigatorWithConn).connection = { effectiveType: '4g', downlink: 3 };
+      expect(estimateConnectionQuality()).toBe('fast');
+    });
+
+    it('returns "unknown" when effectiveType is "4g" and downlink < 2', () => {
+      (navigator as NavigatorWithConn).connection = { effectiveType: '4g', downlink: 1 };
+      expect(estimateConnectionQuality()).toBe('unknown');
+    });
+
+    it('returns "slow" when effectiveType is "3g"', () => {
+      (navigator as NavigatorWithConn).connection = { effectiveType: '3g' };
+      expect(estimateConnectionQuality()).toBe('slow');
+    });
+
+    it('returns "slow" when effectiveType is "2g"', () => {
+      (navigator as NavigatorWithConn).connection = { effectiveType: '2g' };
+      expect(estimateConnectionQuality()).toBe('slow');
+    });
+
+    it('returns "fast" when downlink >= 2 and effectiveType is not "3g"/"2g"', () => {
+      (navigator as NavigatorWithConn).connection = { downlink: 2 };
+      expect(estimateConnectionQuality()).toBe('fast');
+    });
+  });
+
+  // ── formatDetailedSummary WebGPU and connection quality ─────────────────
+
+  describe('formatDetailedSummary WebGPU and connection fields', () => {
+    it('includes "WebGPU: available" when webgpuAvailable is true', () => {
+      const caps = detectCapabilities();
+      const summary = formatDetailedSummary({ ...caps, webgpuAvailable: true });
+      expect(summary).toContain('WebGPU: available');
+    });
+
+    it('omits WebGPU line when webgpuAvailable is false', () => {
+      const caps = detectCapabilities();
+      const summary = formatDetailedSummary({ ...caps, webgpuAvailable: false });
+      expect(summary).not.toContain('WebGPU');
+    });
+
+    it('includes network quality when connectionQuality is not "unknown"', () => {
+      const caps = detectCapabilities();
+      const summary = formatDetailedSummary({ ...caps, connectionQuality: 'fast' });
+      expect(summary).toContain('Network: fast');
+    });
+
+    it('omits network line when connectionQuality is "unknown"', () => {
+      const caps = detectCapabilities();
+      const summary = formatDetailedSummary({ ...caps, connectionQuality: 'unknown' });
+      expect(summary).not.toContain('Network:');
     });
   });
 });
