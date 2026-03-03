@@ -437,7 +437,7 @@ function benchmarkGPU(): number {
       gl.uniform1f(uVal, i * 0.1);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
-    gl.finish();
+    gl.flush();
 
     // Timed run: count draw calls in a fixed budget.
     // 12ms budget is intentionally short to be non-intrusive on slow devices.

@@ -51,6 +51,54 @@ describe('performance', () => {
     expect(typeof caps.prefersReducedMotion).toBe('boolean');
   });
 
+  it('uses flush (not finish) during GPU benchmark warm-up', () => {
+    const flush = vi.fn();
+    const finish = vi.fn();
+    const loseContext = vi.fn();
+    const gl = {
+      VERTEX_SHADER: 0x8B31,
+      FRAGMENT_SHADER: 0x8B30,
+      ARRAY_BUFFER: 0x8892,
+      STATIC_DRAW: 0x88E4,
+      TRIANGLE_STRIP: 0x0005,
+      FLOAT: 0x1406,
+      createShader: vi.fn(() => ({})),
+      shaderSource: vi.fn(),
+      compileShader: vi.fn(),
+      createProgram: vi.fn(() => ({})),
+      attachShader: vi.fn(),
+      linkProgram: vi.fn(),
+      useProgram: vi.fn(),
+      getUniformLocation: vi.fn(() => ({})),
+      createBuffer: vi.fn(() => ({})),
+      bindBuffer: vi.fn(),
+      bufferData: vi.fn(),
+      getAttribLocation: vi.fn(() => 0),
+      enableVertexAttribArray: vi.fn(),
+      vertexAttribPointer: vi.fn(),
+      getExtension: vi.fn((name: string) => (name === 'WEBGL_lose_context' ? { loseContext } : null)),
+      uniform1f: vi.fn(),
+      drawArrays: vi.fn(),
+      flush,
+      finish,
+      deleteBuffer: vi.fn(),
+      deleteShader: vi.fn(),
+      deleteProgram: vi.fn(),
+    };
+    const canvas = { width: 0, height: 0, getContext: vi.fn((type: string) => (type === 'webgl' ? gl : null)) };
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => (
+      tagName === 'canvas'
+        ? (canvas as unknown as HTMLCanvasElement)
+        : originalCreateElement(tagName, options)
+    ));
+
+    detectCapabilities();
+
+    expect(finish).not.toHaveBeenCalled();
+    expect(flush).toHaveBeenCalled();
+  });
+
   // ── WebGPU availability ─────────────────────────────────────────────────
 
   describe('isWebGPUAvailable', () => {
