@@ -102,7 +102,14 @@ function make<K extends keyof HTMLElementTagNameMap>(
 
 export function buildDOM(app: HTMLElement): void {
   // Reset module-level state that is tied to DOM nodes created below
+  if (_librarySearchDebounce !== null) {
+    clearTimeout(_librarySearchDebounce);
+    _librarySearchDebounce = null;
+  }
   _libraryControlsWired = false;
+  _librarySearchQuery   = "";
+  _librarySortMode      = "lastPlayed";
+  _librarySystemFilter  = "";
 
   const acceptList = ALL_EXTENSIONS.map(e => `.${e}`).join(",");
   // Build a concise format hint: first extension of the first 8 systems + archive note
@@ -501,6 +508,16 @@ export async function renderLibrary(
     allGames = await library.getAllGamesMetadata();
   } catch {
     allGames = [];
+  }
+
+  // If the previously selected system no longer exists in the current
+  // dataset (for example after deleting or reassigning games), clear the
+  // stale filter so the library never gets stuck in an empty dead-end state.
+  if (_librarySystemFilter) {
+    const presentSystemIds = new Set(allGames.map(g => g.systemId));
+    if (!presentSystemIds.has(_librarySystemFilter)) {
+      _librarySystemFilter = "";
+    }
   }
 
   // Wire up search + sort + filter controls (idempotent)

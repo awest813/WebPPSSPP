@@ -1,8 +1,8 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import type { PSPEmulator } from "./emulator.js";
-import type { GameLibrary } from "./library.js";
+import type { GameLibrary, GameMetadata } from "./library.js";
 import type { BiosLibrary } from "./bios.js";
 import type { SaveStateLibrary } from "./saves.js";
 import type { Settings } from "./main.js";
@@ -35,6 +35,7 @@ function makeOpts(settings: Settings) {
       activeTier: "medium",
       currentSystem: null,
       setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
     } as unknown as PSPEmulator,
     library: { getAllGamesMetadata: vi.fn().mockResolvedValue([]) } as unknown as GameLibrary,
     biosLibrary: {} as BiosLibrary,
@@ -49,6 +50,18 @@ function makeOpts(settings: Settings) {
     getCurrentGameId: () => null,
     getCurrentGameName: () => null,
     getCurrentSystemId: () => null,
+  };
+}
+
+function makeGame(id: string, name: string, systemId: string): GameMetadata {
+  return {
+    id,
+    name,
+    fileName: `${name}.bin`,
+    systemId,
+    size: 1024,
+    addedAt: Date.now(),
+    lastPlayedAt: null,
   };
 }
 
@@ -91,17 +104,42 @@ describe("buildDOM", () => {
     expect(hint!.textContent).toMatch(/ZIP auto-extracted/i);
   });
 
-  it("resets _libraryControlsWired so search/sort handlers are wired on a second buildDOM call", async () => {
+  it("resets library control state on a second buildDOM call", async () => {
+    const settings = makeSettings();
+    const gamesA: GameMetadata[] = [
+      makeGame("g1", "Ace", "psp"),
+      makeGame("g2", "Bros", "nes"),
+    ];
+
     // First build + init (wires controls for the first time)
     const app1 = document.createElement("div");
     document.body.appendChild(app1);
     buildDOM(app1);
-    const library1 = { getAllGamesMetadata: vi.fn().mockResolvedValue([]) } as unknown as GameLibrary;
-    initUI({ ...makeOpts(makeSettings()), library: library1 });
+    const library1 = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue(gamesA),
+    } as unknown as GameLibrary;
+    initUI({ ...makeOpts(settings), library: library1 });
     // Flush the initial renderLibrary call so _libraryControlsWired is set to true
     await new Promise(r => setTimeout(r, 0));
     const search1 = document.getElementById("library-search") as HTMLInputElement;
+    const sort1 = document.getElementById("library-sort") as HTMLSelectElement;
     expect(search1).toBeTruthy();
+    expect(sort1).toBeTruthy();
+
+    // Move controls away from defaults to ensure buildDOM truly resets state.
+    search1.value = "ace";
+    search1.dispatchEvent(new Event("input"));
+    await new Promise(r => setTimeout(r, 150));
+
+    sort1.value = "name";
+    sort1.dispatchEvent(new Event("change"));
+    await new Promise(r => setTimeout(r, 0));
+
+    const pspChip = Array.from(document.querySelectorAll<HTMLButtonElement>(".sys-filter-chip"))
+      .find(btn => btn.textContent?.trim() === "PSP");
+    expect(pspChip).toBeTruthy();
+    pspChip!.click();
+    await new Promise(r => setTimeout(r, 0));
 
     // Second build resets the DOM and the wiring flag
     const app2 = document.createElement("div");
@@ -109,20 +147,82 @@ describe("buildDOM", () => {
     document.body.appendChild(app2);
     buildDOM(app2);
 
-    // Init UI again on the fresh DOM — renderLibrary should wire search
-    const library2 = { getAllGamesMetadata: vi.fn().mockResolvedValue([]) } as unknown as GameLibrary;
-    initUI({ ...makeOpts(makeSettings()), library: library2 });
+    // Init UI again on the fresh DOM — renderLibrary should wire controls and
+    // start from default search/sort/filter state.
+    const gamesB: GameMetadata[] = [makeGame("g3", "Mario", "nes")];
+    const library2 = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue(gamesB),
+    } as unknown as GameLibrary;
+    initUI({ ...makeOpts(settings), library: library2 });
     await new Promise(r => setTimeout(r, 0));
 
-    // Typing in the new search box should trigger a debounced renderLibrary call
     const search2 = document.getElementById("library-search") as HTMLInputElement;
+    const sort2 = document.getElementById("library-sort") as HTMLSelectElement;
     expect(search2).toBeTruthy();
+    expect(sort2).toBeTruthy();
+    expect(search2.value).toBe("");
+    expect(sort2.value).toBe("lastPlayed");
+
+    // The stale filter from the first mount should not hide games now.
+    const cardNames = Array.from(document.querySelectorAll<HTMLElement>(".game-card__name"))
+      .map(el => el.textContent?.trim());
+    expect(cardNames).toContain("Mario");
+
+    // Typing in the new search box should still trigger a debounced re-render.
     search2.value = "test";
     search2.dispatchEvent(new Event("input"));
     // Wait for the 120 ms debounce
     await new Promise(r => setTimeout(r, 150));
     // getAllGamesMetadata is called once on init and once on the debounced search
     expect(library2.getAllGamesMetadata).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("library stale system filter recovery", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("clears an invalid system filter when that system no longer exists", async () => {
+    const settings = makeSettings();
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const initialGames: GameMetadata[] = [
+      makeGame("g1", "Crisis", "psp"),
+      makeGame("g2", "Mario", "nes"),
+    ];
+    const laterGames: GameMetadata[] = [makeGame("g2", "Mario", "nes")];
+    let currentGames = initialGames;
+
+    const library = {
+      getAllGamesMetadata: vi.fn().mockImplementation(async () => currentGames),
+    } as unknown as GameLibrary;
+    const opts = makeOpts(settings);
+    initUI({ ...opts, library });
+    await new Promise(r => setTimeout(r, 0));
+
+    const pspChip = Array.from(document.querySelectorAll<HTMLButtonElement>(".sys-filter-chip"))
+      .find(btn => btn.textContent?.trim() === "PSP");
+    expect(pspChip).toBeTruthy();
+    pspChip!.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    // The PSP filter is now active. Remove all PSP games and rerender.
+    currentGames = laterGames;
+    await renderLibrary(
+      library,
+      settings,
+      opts.onLaunchGame,
+      opts.emulator,
+      opts.onApplyPatch
+    );
+
+    const cardNames = Array.from(document.querySelectorAll<HTMLElement>(".game-card__name"))
+      .map(el => el.textContent?.trim());
+    expect(cardNames).toEqual(["Mario"]);
+    expect(document.querySelector(".library-empty")).toBeNull();
   });
 });
 
