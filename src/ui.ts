@@ -60,6 +60,8 @@ import {
 } from "./saves.js";
 import type { Settings } from "./main.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
+import type { NetplayManager } from "./multiplayer.js";
+import { DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
 let _canInstallPWA: (() => boolean) | undefined;
@@ -264,6 +266,7 @@ export interface UIOptions {
   library:           GameLibrary;
   biosLibrary:       BiosLibrary;
   saveLibrary:       SaveStateLibrary;
+  netplayManager?:   NetplayManager;
   settings:          Settings;
   deviceCaps:        DeviceCapabilities;
   onLaunchGame:      (file: File, systemId: string, gameId?: string) => Promise<void>;
@@ -280,7 +283,7 @@ export interface UIOptions {
 }
 
 export function initUI(opts: UIOptions): void {
-  const { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps,
+  const { emulator, library, biosLibrary, saveLibrary, netplayManager, settings, deviceCaps,
           onLaunchGame, onSettingsChange, onReturnToLibrary,
           onApplyPatch, onFileChosen,
           getCurrentGameId, getCurrentGameName, getCurrentSystemId,
@@ -419,7 +422,7 @@ export function initUI(opts: UIOptions): void {
   });
 
   // ── Landing header controls ───────────────────────────────────────────────
-  buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, undefined, saveLibrary);
+  buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, undefined, saveLibrary, netplayManager);
 
   if (typeof ResizeObserver !== "undefined") {
     const headerActions = document.getElementById("header-actions");
@@ -1131,7 +1134,8 @@ export function buildLandingControls(
   emulatorRef?:     PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
   onResumeGame?:    () => void,
-  saveLibrary?:     SaveStateLibrary
+  saveLibrary?:     SaveStateLibrary,
+  netplayManager?:  import("./multiplayer.js").NetplayManager
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
@@ -1156,7 +1160,7 @@ export function buildLandingControls(
   </svg> Settings`;
 
   btnSettings.addEventListener("click", () => {
-    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary);
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager);
   });
 
   container.appendChild(btnSettings);
@@ -1650,13 +1654,14 @@ export function openSettingsPanel(
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
-  saveLibrary?:     SaveStateLibrary
+  saveLibrary?:     SaveStateLibrary,
+  netplayManager?:  import("./multiplayer.js").NetplayManager
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
   const previousFocus = document.activeElement as HTMLElement | null;
 
-  buildSettingsContent(content, settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary);
+  buildSettingsContent(content, settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager);
   panel.hidden = false;
 
   const close = () => {
@@ -1679,7 +1684,7 @@ export function openSettingsPanel(
   document.addEventListener("keydown", _settingsPanelEscHandler);
 }
 
-type SettingsTab = "performance" | "display" | "library" | "bios" | "debug";
+type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug";
 
 function buildSettingsContent(
   container:        HTMLElement,
@@ -1690,16 +1695,18 @@ function buildSettingsContent(
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
-  saveLibrary?:     SaveStateLibrary
+  saveLibrary?:     SaveStateLibrary,
+  netplayManager?:  import("./multiplayer.js").NetplayManager
 ): void {
   container.innerHTML = "";
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
-    { id: "performance", label: "Performance" },
-    { id: "display",     label: "Display" },
-    { id: "library",     label: "Library" },
-    { id: "bios",        label: "BIOS" },
-    { id: "debug",       label: "Debug" },
+    { id: "performance",  label: "Performance" },
+    { id: "display",      label: "Display" },
+    { id: "library",      label: "Library" },
+    { id: "bios",         label: "BIOS" },
+    { id: "multiplayer",  label: "Multiplayer" },
+    { id: "debug",        label: "Debug" },
   ];
 
   let activeTab: SettingsTab = "performance";
@@ -1755,7 +1762,8 @@ function buildSettingsContent(
   buildDisplayTab(panels[1], settings, deviceCaps, onSettingsChange, emulatorRef);
   buildLibraryTab(panels[2], settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
   buildBiosTab(panels[3], biosLibrary);
-  buildDebugTab(panels[4], deviceCaps, emulatorRef);
+  buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
+  buildDebugTab(panels[5], deviceCaps, emulatorRef);
 }
 
 // ── Performance tab ───────────────────────────────────────────────────────────
@@ -2123,6 +2131,85 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
   }
 
   container.appendChild(biosSection);
+}
+
+// ── Multiplayer tab ───────────────────────────────────────────────────────────
+
+function buildMultiplayerTab(
+  container:        HTMLElement,
+  settings:         Settings,
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  netplayManager?:  import("./multiplayer.js").NetplayManager
+): void {
+  // Intro section
+  const introSection = make("div", { class: "settings-section" });
+  introSection.appendChild(make("h4", { class: "settings-section__title" }, "Netplay (Experimental)"));
+  introSection.appendChild(make("p", { class: "settings-help" },
+    "Enables the built-in EmulatorJS Netplay feature. When active, a Netplay button appears " +
+    "in the emulator toolbar, letting you create or join rooms with other players for the same game. " +
+    "Requires a compatible netplay signalling server."
+  ));
+
+  // Enable toggle
+  introSection.appendChild(buildToggleRow(
+    "Enable Netplay",
+    "Show the Netplay button in the emulator toolbar. Requires a server URL below.",
+    settings.netplayEnabled,
+    (v) => {
+      onSettingsChange({ netplayEnabled: v });
+      netplayManager?.setEnabled(v);
+      serverSection.hidden = !v;
+    }
+  ));
+
+  container.appendChild(introSection);
+
+  // Server URL section — hidden when netplay is disabled
+  const serverSection = make("div", { class: "settings-section" });
+  serverSection.hidden = !settings.netplayEnabled;
+  serverSection.appendChild(make("h4", { class: "settings-section__title" }, "Netplay Server"));
+  serverSection.appendChild(make("p", { class: "settings-help" },
+    "WebSocket URL of the netplay signalling server (e.g. wss://netplay.example.com). " +
+    "The server handles room creation, room listing, and WebRTC signalling. " +
+    "Leave blank to disable netplay even when toggled on."
+  ));
+
+  const urlRow   = make("div", { class: "settings-input-row" });
+  const urlLabel = make("label", { class: "settings-input-label", for: "netplay-server-url" }, "Server URL");
+  const urlInput = make("input", {
+    type:        "text",
+    id:          "netplay-server-url",
+    class:       "settings-input",
+    placeholder: "wss://netplay.example.com",
+    value:       settings.netplayServerUrl,
+  }) as HTMLInputElement;
+  urlInput.addEventListener("change", () => {
+    const url = urlInput.value.trim();
+    onSettingsChange({ netplayServerUrl: url });
+    netplayManager?.setServerUrl(url);
+  });
+  urlRow.append(urlLabel, urlInput);
+  serverSection.appendChild(urlRow);
+
+  // ICE / STUN section
+  const iceSection = make("div", { class: "settings-section" });
+  iceSection.appendChild(make("h4", { class: "settings-section__title" }, "ICE / STUN Servers"));
+  iceSection.appendChild(make("p", { class: "settings-help" },
+    "Public Google STUN servers are used by default for WebRTC hole-punching. " +
+    "For networks with strict symmetric NAT, add a TURN server via the netplay server configuration. " +
+    "Current ICE servers:"
+  ));
+
+  const defaultServers = netplayManager?.iceServers ?? DEFAULT_ICE_SERVERS;
+  const iceList = make("ul", { class: "device-info-list" });
+  for (const srv of defaultServers) {
+    const url = Array.isArray(srv.urls) ? srv.urls.join(", ") : srv.urls;
+    iceList.appendChild(make("li", { class: "device-info" }, url));
+  }
+  iceSection.appendChild(iceList);
+  serverSection.appendChild(iceSection);
+
+  container.append(serverSection);
 }
 
 // ── Debug tab ─────────────────────────────────────────────────────────────────

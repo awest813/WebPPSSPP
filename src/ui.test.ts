@@ -20,6 +20,8 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     touchControls: false,
     hapticFeedback: true,
     orientationLock: true,
+    netplayEnabled: false,
+    netplayServerUrl: "",
     ...overrides,
   };
 }

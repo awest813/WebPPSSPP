@@ -32,6 +32,7 @@ import { buildDOM, initUI, showLanding,
          resolveSystemAndAdd,
          showError } from "./ui.js";
 import { isTouchDevice } from "./touchControls.js";
+import { NetplayManager } from "./multiplayer.js";
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
 import type { PostProcessEffect } from "./webgpuPostProcess.js";
 
@@ -57,6 +58,10 @@ export interface Settings {
   hapticFeedback:  boolean;
   /** Whether to lock screen orientation to landscape while a game runs. */
   orientationLock: boolean;
+  /** Whether the built-in EmulatorJS Netplay feature is enabled. */
+  netplayEnabled:  boolean;
+  /** WebSocket URL of the EmulatorJS netplay signalling server. */
+  netplayServerUrl: string;
 }
 
 const STORAGE_KEY = "retrovault-settings";
@@ -73,6 +78,8 @@ const DEFAULT_SETTINGS: Settings = {
   touchControls:   isTouchDevice(),
   hapticFeedback:  true,
   orientationLock: true,
+  netplayEnabled:  false,
+  netplayServerUrl: "",
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -117,6 +124,12 @@ function loadSettings(): Settings {
       orientationLock: typeof parsed.orientationLock === "boolean"
         ? parsed.orientationLock
         : DEFAULT_SETTINGS.orientationLock,
+      netplayEnabled: typeof parsed.netplayEnabled === "boolean"
+        ? parsed.netplayEnabled
+        : DEFAULT_SETTINGS.netplayEnabled,
+      netplayServerUrl: typeof parsed.netplayServerUrl === "string"
+        ? parsed.netplayServerUrl
+        : DEFAULT_SETTINGS.netplayServerUrl,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -185,10 +198,11 @@ function main(): void {
   const settings = loadSettings();
 
   // 4. Instantiate services
-  const emulator    = new PSPEmulator("ejs-player");
-  const library     = new GameLibrary();
-  const biosLibrary = new BiosLibrary();
-  const saveLibrary = new SaveStateLibrary();
+  const emulator      = new PSPEmulator("ejs-player");
+  const library       = new GameLibrary();
+  const biosLibrary   = new BiosLibrary();
+  const saveLibrary   = new SaveStateLibrary();
+  const netplayManager = new NetplayManager();
 
   // Track the currently loaded game for tier-downgrade re-launch
   let currentGameId:   string | null = null;
@@ -344,6 +358,10 @@ function main(): void {
       // BIOS lookup failure is non-fatal — emulator may run without BIOS
     }
 
+    // Sync netplay settings from app settings into the manager before launch
+    netplayManager.setEnabled(settings.netplayEnabled);
+    netplayManager.setServerUrl(settings.netplayServerUrl);
+
     await emulator.launch({
       file,
       volume:          settings.volume,
@@ -352,6 +370,8 @@ function main(): void {
       deviceCaps,
       tierOverride:    resolvedTier,
       biosUrl,
+      netplayManager,
+      gameId,
     });
 
     // launch() reports failures via state/onError instead of throwing.
@@ -500,6 +520,7 @@ function main(): void {
     library,
     biosLibrary,
     saveLibrary,
+    netplayManager,
     settings,
     deviceCaps,
     onLaunchGame,
@@ -544,14 +565,14 @@ function main(): void {
     buildLandingControls(settings, deviceCaps, library, biosLibrary, (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
-    }, emulator, onLaunchGame, onResumeGame, saveLibrary);
+    }, emulator, onLaunchGame, onResumeGame, saveLibrary, netplayManager);
   });
 
   document.addEventListener("retrovault:openSettings", () => {
     openSettingsPanel(settings, deviceCaps, library, biosLibrary, (patch) => {
       Object.assign(settings, patch);
       saveSettings(settings);
-    }, emulator, onLaunchGame, saveLibrary);
+    }, emulator, onLaunchGame, saveLibrary, netplayManager);
   });
 
   // 9. Dev helpers
