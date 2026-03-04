@@ -28,6 +28,7 @@ import {
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
 } from "./performance.js";
 import { shaderCache } from "./shaderCache.js";
+import type { NetplayManager } from "./multiplayer.js";
 import {
   WebGPUPostProcessor,
   buildEffectPipeline,
@@ -333,6 +334,18 @@ export interface LaunchOptions {
    * have stored the URL, so the caller must perform a defensive revoke.
    */
   biosUrl?: string;
+  /**
+   * Optional NetplayManager instance. When provided and `isActive` is true,
+   * the EmulatorJS netplay globals are set so the built-in Netplay button and
+   * room browser become available in the emulator toolbar.
+   */
+  netplayManager?: NetplayManager;
+  /**
+   * The game's string identifier (e.g. from GameLibrary). Used to derive a
+   * stable numeric EJS_gameID for netplay room scoping. Required when
+   * `netplayManager` is active; ignored otherwise.
+   */
+  gameId?: string;
 }
 
 // ── PSPEmulator ───────────────────────────────────────────────────────────────
@@ -1175,6 +1188,18 @@ export class PSPEmulator {
       } else {
         delete window.EJS_biosUrl;
         this._biosUrl = null;
+      }
+
+      // ── Netplay globals ───────────────────────────────────────────────────
+      const netplay = opts.netplayManager;
+      if (netplay?.isActive && opts.gameId) {
+        window.EJS_netplayServer    = netplay.serverUrl;
+        window.EJS_netplayICEServers = netplay.iceServers;
+        window.EJS_gameID           = netplay.gameIdFor(opts.gameId);
+      } else {
+        delete window.EJS_netplayServer;
+        delete window.EJS_netplayICEServers;
+        delete window.EJS_gameID;
       }
 
       if (Object.keys(ejsSettings).length > 0) {

@@ -22,6 +22,13 @@ declare global {
       callback: IdleRequestCallback,
       options?: IdleRequestOptions,
     ) => number;
+
+    /** WebSocket URL of the EmulatorJS netplay signalling server. */
+    EJS_netplayServer?: string;
+    /** ICE servers (STUN/TURN) forwarded to WebRTC peer connections. */
+    EJS_netplayICEServers?: RTCIceServer[];
+    /** Numeric game identifier used by the netplay server for room scoping. */
+    EJS_gameID?: number;
   }
 }
 

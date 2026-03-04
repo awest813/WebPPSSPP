@@ -112,10 +112,11 @@ Bug fixes, performance improvements, and quality-of-life enhancements.
 
 ---
 
-## Phase 6 — Multiplayer & Social (Future)
+## Phase 6 — Multiplayer & Social (In Progress)
 
 Networked features requiring server infrastructure.
 
+- [x] **NetplayManager**: `NetplayManager` class wires the EmulatorJS built-in Netplay feature into RetroVault — manages server URL, ICE server list, per-game numeric ID derivation (djb2 hash), and localStorage persistence; Netplay button appears in the emulator toolbar when enabled and a server URL is set
 - [ ] **WebRTC peer-to-peer**: PSP ad-hoc / N64 NetPlay over WebRTC using a STUN/TURN relay; no dedicated game server needed
 - [ ] **Lobby browser**: WebSocket-based matchmaking room list for users who want to join ongoing sessions
 - [ ] **Spectator mode**: Read-only WebRTC stream of a running session for watch parties
