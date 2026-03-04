@@ -761,6 +761,28 @@ export class PSPEmulator {
             "}",
           ].join("\n"),
         },
+        {
+          // Depth pre-pass (z-prepass) — used by PSP games with real-time shadows,
+          // scene-depth queries, and ambient-occlusion approximations.
+          // Pre-compiling this vertex-only pattern eliminates the cold-compile stall
+          // that fires when the first depth-only geometry is submitted, which can
+          // otherwise cause a visible hitch at the start of shadow-lit 3D levels.
+          label: "depth-prepass",
+          vs: [
+            "attribute vec3 a_pos;",
+            "uniform mat4 u_mvp;",
+            "void main() {",
+            "  gl_Position = u_mvp * vec4(a_pos, 1.0);",
+            "}",
+          ].join("\n"),
+          fs: [
+            "precision mediump float;",
+            "void main() {",
+            "  // depth-only pass: colour output is discarded by the colour mask",
+            "  gl_FragColor = vec4(0.0);",
+            "}",
+          ].join("\n"),
+        },
       ];
 
       for (const { vs: vsSrc, fs: fsSrc } of shaderVariants) {

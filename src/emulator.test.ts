@@ -279,6 +279,50 @@ describe('PSPEmulator', () => {
         emulator.warmUpPSPPipeline();
       }).not.toThrow();
     });
+
+    it('compiles the depth-prepass shader variant alongside the other 6 variants', () => {
+      // Use a minimal WebGL mock so the warm-up loop actually runs in jsdom.
+      const shaderSources: string[] = [];
+      const loseContext = vi.fn();
+      const gl = {
+        VERTEX_SHADER: 0x8B31,
+        FRAGMENT_SHADER: 0x8B30,
+        createShader: vi.fn(() => ({})),
+        shaderSource: vi.fn((_shader: unknown, src: string) => { shaderSources.push(src); }),
+        compileShader: vi.fn(),
+        createProgram: vi.fn(() => ({})),
+        attachShader: vi.fn(),
+        linkProgram: vi.fn(),
+        useProgram: vi.fn(),
+        deleteShader: vi.fn(),
+        deleteProgram: vi.fn(),
+        flush: vi.fn(),
+        getExtension: vi.fn((name: string) => (name === 'WEBGL_lose_context' ? { loseContext } : null)),
+      };
+      const fakeCanvas = { getContext: vi.fn((t: string) => (t === 'webgl2' ? null : t === 'webgl' ? gl : null)) };
+      const originalCreateElement = document.createElement.bind(document);
+      vi.spyOn(document, 'createElement').mockImplementation((tag: string, opts?: ElementCreationOptions) =>
+        tag === 'canvas' ? (fakeCanvas as unknown as HTMLCanvasElement) : originalCreateElement(tag, opts)
+      );
+
+      // Create a fresh emulator so the idempotency guard hasn't fired yet.
+      const emu2 = new PSPEmulator('test-player');
+      emu2.warmUpPSPPipeline();
+
+      // 7 variants × 2 shaders each = 14 shaderSource calls.
+      expect(shaderSources).toHaveLength(14);
+
+      // The depth-prepass variant uses a trivial vertex shader (only a_pos + u_mvp)
+      // and a fragment shader that outputs vec4(0.0).
+      const hasDepthPassVS = shaderSources.some(
+        (s) => s.includes('a_pos') && !s.includes('a_uv') && !s.includes('a_weights')
+      );
+      const hasDepthPassFS = shaderSources.some(
+        (s) => s.includes('vec4(0.0)')
+      );
+      expect(hasDepthPassVS).toBe(true);
+      expect(hasDepthPassFS).toBe(true);
+    });
   });
 
   // ── WebGPU pre-warm ───────────────────────────────────────────────────────

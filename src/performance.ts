@@ -360,6 +360,10 @@ interface VAOExtension {
  * represent the real rendering workload of 3D game cores, which batch
  * vertex state into VAOs to reduce per-draw CPU overhead.
  *
+ * The fragment shader samples a 1×1 texture to include texture fetch
+ * latency in the score, since PSP / N64 / PS1 3D games are heavily
+ * texture-bound and a solid-colour benchmark underestimates their GPU cost.
+ *
  * Returns a score 0–100. Intentionally lightweight (≤12ms) to avoid
  * blocking startup, especially on Chromebooks and low-spec hardware.
  */
@@ -377,15 +381,25 @@ function benchmarkGPU(): number {
     const vs = gl.createShader(gl.VERTEX_SHADER)!;
     gl.shaderSource(vs, `
       attribute vec2 a_pos;
-      void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+      attribute vec2 a_uv;
+      varying vec2 v_uv;
+      void main() { v_uv = a_uv; gl_Position = vec4(a_pos, 0.0, 1.0); }
     `);
     gl.compileShader(vs);
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+    // Sample a 1×1 texture to measure the texture-fetch unit.
+    // 3D retro game cores are texture-bound; a solid-colour benchmark
+    // overestimates GPU capability relative to real gameplay.
     gl.shaderSource(fs, `
       precision mediump float;
       uniform float u_val;
-      void main() { gl_FragColor = vec4(u_val, u_val * 0.5, u_val * 0.25, 1.0); }
+      uniform sampler2D u_tex;
+      varying vec2 v_uv;
+      void main() {
+        vec4 t = texture2D(u_tex, v_uv);
+        gl_FragColor = vec4(t.rgb * u_val, 1.0);
+      }
     `);
     gl.compileShader(fs);
 
@@ -396,16 +410,41 @@ function benchmarkGPU(): number {
     gl.useProgram(prog);
 
     const uVal = gl.getUniformLocation(prog, "u_val");
+    const uTex = gl.getUniformLocation(prog, "u_tex");
+    gl.uniform1i(uTex, 0);
 
+    // Interleaved buffer: position (2 floats) + UV (2 floats) per vertex.
+    // The UV coordinates are passed to the fragment shader for texture sampling.
     const buf = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(
       gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+      new Float32Array([
+        -1, -1, 0, 0,
+         1, -1, 1, 0,
+        -1,  1, 0, 1,
+         1,  1, 1, 1,
+      ]),
       gl.STATIC_DRAW
     );
 
+    const STRIDE = 4 * Float32Array.BYTES_PER_ELEMENT;
     const aPos = gl.getAttribLocation(prog, "a_pos");
+    const aUV  = gl.getAttribLocation(prog, "a_uv");
+
+    // 1×1 white texture — exercises the GPU texture-fetch unit without
+    // requiring a real image, keeping benchmark startup cost negligible.
+    const tex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0,
+      gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
     // Use VAO when available to reduce per-draw attribute-setup overhead.
     // This more accurately reflects 3D game workloads where VAOs are ubiquitous.
@@ -416,7 +455,11 @@ function benchmarkGPU(): number {
       vao = gl2.createVertexArray();
       gl2.bindVertexArray(vao);
       gl.enableVertexAttribArray(aPos);
-      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE, 0);
+      if (aUV >= 0) {
+        gl.enableVertexAttribArray(aUV);
+        gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, STRIDE, 2 * Float32Array.BYTES_PER_ELEMENT);
+      }
       gl2.bindVertexArray(null);
     } else {
       // OES_vertex_array_object has a compatible shape — cast via unknown
@@ -426,11 +469,19 @@ function benchmarkGPU(): number {
         vao = vaoExt.createVertexArrayOES();
         vaoExt.bindVertexArrayOES(vao);
         gl.enableVertexAttribArray(aPos);
-        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE, 0);
+        if (aUV >= 0) {
+          gl.enableVertexAttribArray(aUV);
+          gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, STRIDE, 2 * Float32Array.BYTES_PER_ELEMENT);
+        }
         vaoExt.bindVertexArrayOES(null);
       } else {
         gl.enableVertexAttribArray(aPos);
-        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE, 0);
+        if (aUV >= 0) {
+          gl.enableVertexAttribArray(aUV);
+          gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, STRIDE, 2 * Float32Array.BYTES_PER_ELEMENT);
+        }
       }
     }
 
@@ -446,10 +497,13 @@ function benchmarkGPU(): number {
     // Timed run: count draw calls in a fixed budget.
     // 12ms budget is intentionally short to be non-intrusive on slow devices.
     const BUDGET_MS = 12;
+    // Safety cap: prevents an infinite loop in environments where
+    // performance.now() does not advance (some headless test runners).
+    const MAX_DRAW_CALLS = 200_000;
     let drawCalls = 0;
     const start = performance.now();
 
-    while (performance.now() - start < BUDGET_MS) {
+    while (performance.now() - start < BUDGET_MS && drawCalls < MAX_DRAW_CALLS) {
       for (let batch = 0; batch < 50; batch++) {
         if (gl2 && vao) gl2.bindVertexArray(vao);
         else if (vaoExt && vao) vaoExt.bindVertexArrayOES(vao);
@@ -466,6 +520,7 @@ function benchmarkGPU(): number {
     // Cleanup
     if (gl2 && vao) gl2.deleteVertexArray(vao);
     else if (vaoExt && vao) vaoExt.deleteVertexArrayOES(vao);
+    gl.deleteTexture(tex);
     gl.deleteBuffer(buf);
     gl.deleteShader(vs);
     gl.deleteShader(fs);
@@ -531,6 +586,13 @@ function classifyTier(
   if (gpuCaps.vertexArrayObject)         points += 1;
   if (gpuCaps.multiDraw)                 points += 1;
   if (gpuCaps.compressedTextures)        points += 2;
+
+  // Very-limited-GPU penalty: maxTextureSize < 2048 indicates ancient or
+  // heavily constrained GPU hardware (e.g. very old mobile SoCs). These
+  // devices struggle with 3D rendering regardless of CPU/RAM, so penalise
+  // them to keep the tier accurately low. Skip when maxTextureSize is 0
+  // (probe failed — no information to act on).
+  if (gpuCaps.maxTextureSize > 0 && gpuCaps.maxTextureSize < 2048) points -= 8;
 
   // Chrome OS / Chromebook penalty: these devices use power-constrained
   // ARM/Intel Celeron SoCs and often throttle under sustained GPU load.
@@ -686,6 +748,22 @@ export async function detectAudioCapabilities(
 /** Test helper to clear memoized audio probe state between tests. */
 export function __resetAudioCapabilitiesCacheForTests(): void {
   _audioCapabilitiesPromise = null;
+}
+
+/**
+ * Test helper: direct access to classifyTier for unit-testing the scoring
+ * and penalty logic without going through the full WebGL probe pipeline.
+ * Not part of the public API.
+ */
+export function __classifyTierForTests(
+  cpuCores: number,
+  memoryGB: number | null,
+  isSoftware: boolean,
+  gpuScore: number,
+  gpuCaps: GPUCapabilities,
+  chromeos: boolean
+): PerformanceTier {
+  return classifyTier(cpuCores, memoryGB, isSoftware, gpuScore, gpuCaps, chromeos);
 }
 
 // ── Effective mode resolution ─────────────────────────────────────────────────

@@ -7,12 +7,14 @@ import {
   checkBatteryStatus,
   detectAudioCapabilities,
   __resetAudioCapabilitiesCacheForTests,
+  __classifyTierForTests,
   formatCapabilitiesSummary,
   formatDetailedSummary,
   resolveMode,
   resolveTier,
   estimateConnectionQuality,
   DeviceCapabilities,
+  GPUCapabilities,
 } from './performance';
 
 describe('performance', () => {
@@ -62,6 +64,16 @@ describe('performance', () => {
       STATIC_DRAW: 0x88E4,
       TRIANGLE_STRIP: 0x0005,
       FLOAT: 0x1406,
+      TEXTURE0: 0x84C0,
+      TEXTURE_2D: 0x0DE1,
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+      TEXTURE_MIN_FILTER: 0x2801,
+      TEXTURE_MAG_FILTER: 0x2800,
+      TEXTURE_WRAP_S: 0x2802,
+      TEXTURE_WRAP_T: 0x2803,
+      NEAREST: 0x2600,
+      CLAMP_TO_EDGE: 0x812F,
       createShader: vi.fn(() => ({})),
       shaderSource: vi.fn(),
       compileShader: vi.fn(),
@@ -70,14 +82,21 @@ describe('performance', () => {
       linkProgram: vi.fn(),
       useProgram: vi.fn(),
       getUniformLocation: vi.fn(() => ({})),
+      uniform1f: vi.fn(),
+      uniform1i: vi.fn(),
       createBuffer: vi.fn(() => ({})),
       bindBuffer: vi.fn(),
       bufferData: vi.fn(),
       getAttribLocation: vi.fn(() => 0),
       enableVertexAttribArray: vi.fn(),
       vertexAttribPointer: vi.fn(),
+      createTexture: vi.fn(() => ({})),
+      bindTexture: vi.fn(),
+      activeTexture: vi.fn(),
+      texImage2D: vi.fn(),
+      texParameteri: vi.fn(),
+      deleteTexture: vi.fn(),
       getExtension: vi.fn((name: string) => (name === 'WEBGL_lose_context' ? { loseContext } : null)),
-      uniform1f: vi.fn(),
       drawArrays: vi.fn(),
       flush,
       finish,
@@ -573,6 +592,136 @@ describe('performance', () => {
       const caps = detectCapabilities();
       const summary = formatDetailedSummary({ ...caps, connectionQuality: 'unknown' });
       expect(summary).not.toContain('Network:');
+    });
+  });
+
+  // ── GPU benchmark texture sampling ─────────────────────────────────────────
+
+  /** Build a minimal but complete WebGL1 mock suitable for the benchmarkGPU path. */
+  function makeBenchmarkGLMock(overrides: Record<string, unknown> = {}) {
+    const loseContext = vi.fn();
+    return {
+      VERTEX_SHADER: 0x8B31,
+      FRAGMENT_SHADER: 0x8B30,
+      ARRAY_BUFFER: 0x8892,
+      STATIC_DRAW: 0x88E4,
+      TRIANGLE_STRIP: 0x0005,
+      FLOAT: 0x1406,
+      TEXTURE0: 0x84C0,
+      TEXTURE_2D: 0x0DE1,
+      RGBA: 0x1908,
+      UNSIGNED_BYTE: 0x1401,
+      TEXTURE_MIN_FILTER: 0x2801,
+      TEXTURE_MAG_FILTER: 0x2800,
+      TEXTURE_WRAP_S: 0x2802,
+      TEXTURE_WRAP_T: 0x2803,
+      NEAREST: 0x2600,
+      CLAMP_TO_EDGE: 0x812F,
+      createShader: vi.fn(() => ({})),
+      shaderSource: vi.fn(),
+      compileShader: vi.fn(),
+      createProgram: vi.fn(() => ({})),
+      attachShader: vi.fn(),
+      linkProgram: vi.fn(),
+      useProgram: vi.fn(),
+      getUniformLocation: vi.fn(() => ({})),
+      uniform1f: vi.fn(),
+      uniform1i: vi.fn(),
+      createBuffer: vi.fn(() => ({})),
+      bindBuffer: vi.fn(),
+      bufferData: vi.fn(),
+      getAttribLocation: vi.fn(() => 0),
+      enableVertexAttribArray: vi.fn(),
+      vertexAttribPointer: vi.fn(),
+      createTexture: vi.fn(() => ({})),
+      bindTexture: vi.fn(),
+      activeTexture: vi.fn(),
+      texImage2D: vi.fn(),
+      texParameteri: vi.fn(),
+      deleteTexture: vi.fn(),
+      drawArrays: vi.fn(),
+      flush: vi.fn(),
+      finish: vi.fn(),
+      deleteBuffer: vi.fn(),
+      deleteShader: vi.fn(),
+      deleteProgram: vi.fn(),
+      getExtension: vi.fn((name: string) => (name === 'WEBGL_lose_context' ? { loseContext } : null)),
+      ...overrides,
+    };
+  }
+
+  describe('benchmarkGPU texture sampling', () => {
+    it('calls createTexture and texImage2D during the benchmark', () => {
+      const createTexture = vi.fn(() => ({}));
+      const texImage2D = vi.fn();
+      const gl = makeBenchmarkGLMock({ createTexture, texImage2D });
+      const canvas = { width: 0, height: 0, getContext: vi.fn((type: string) => (type === 'webgl' ? gl : null)) };
+      const originalCreateElement = document.createElement.bind(document);
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => (
+        tagName === 'canvas'
+          ? (canvas as unknown as HTMLCanvasElement)
+          : originalCreateElement(tagName, options)
+      ));
+
+      detectCapabilities();
+
+      expect(createTexture).toHaveBeenCalled();
+      expect(texImage2D).toHaveBeenCalled();
+    });
+
+    it('deletes the benchmark texture in cleanup', () => {
+      const deleteTexture = vi.fn();
+      const gl = makeBenchmarkGLMock({ deleteTexture });
+      const canvas = { width: 0, height: 0, getContext: vi.fn((type: string) => (type === 'webgl' ? gl : null)) };
+      const originalCreateElement = document.createElement.bind(document);
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => (
+        tagName === 'canvas'
+          ? (canvas as unknown as HTMLCanvasElement)
+          : originalCreateElement(tagName, options)
+      ));
+
+      detectCapabilities();
+
+      expect(deleteTexture).toHaveBeenCalled();
+    });
+  });
+
+  // ── classifyTier — very-limited-GPU penalty ──────────────────────────────
+
+  describe('classifyTier — very-limited GPU penalty', () => {
+    /** Minimal GPUCapabilities with only maxTextureSize set, all features off. */
+    function makeGPUCaps(maxTextureSize: number): GPUCapabilities {
+      return {
+        renderer: 'unknown', vendor: 'unknown',
+        maxTextureSize,
+        maxVertexAttribs: 8, maxVaryingVectors: 8, maxRenderbufferSize: maxTextureSize,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      };
+    }
+
+    it('classifies a 4-core/4 GB device as "low" when maxTextureSize is 1024', () => {
+      // Without the penalty: CPU(14) + RAM(12) + GPU(0) = 26 → "medium".
+      // With the 8-point penalty: 26 − 8 = 18 → "low".
+      const tier = __classifyTierForTests(4, 4, false, 0, makeGPUCaps(1024), false);
+      expect(tier).toBe('low');
+    });
+
+    it('classifies the same device as "medium" when maxTextureSize is 2048 (no penalty)', () => {
+      // 2048 is exactly the threshold boundary: penalty only fires for < 2048.
+      const tier = __classifyTierForTests(4, 4, false, 0, makeGPUCaps(2048), false);
+      expect(tier).toBe('medium');
+    });
+
+    it('does NOT apply the penalty when maxTextureSize is 0 (probe failure)', () => {
+      // maxTextureSize === 0 means probeGPU failed; we have no data so the
+      // penalty must not fire. The same 4-core/4 GB device should remain
+      // at "medium" without penalisation.
+      const tier = __classifyTierForTests(4, 4, false, 0, makeGPUCaps(0), false);
+      expect(tier).toBe('medium');
     });
   });
 });
