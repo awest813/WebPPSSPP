@@ -1744,3 +1744,41 @@ body {
 
   .save-gallery-hint { display: none; }
 }
+
+/* ── Active core settings list (Debug tab) ────────────────── */
+.core-settings-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  font-family: monospace;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+}
+
+.core-settings-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 50%, transparent);
+}
+
+.core-settings-item:last-child { border-bottom: none; }
+
+.core-settings-key {
+  color: var(--c-text-dim);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.core-settings-value {
+  color: var(--c-accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}

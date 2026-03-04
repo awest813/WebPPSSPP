@@ -2492,6 +2492,25 @@ function buildDebugTab(
     ));
   }
 
+  // Active core settings section (PSP / RetroArch options applied at launch)
+  const activeCoreSettings = emulatorRef?.activeCoreSettings;
+  if (activeCoreSettings && Object.keys(activeCoreSettings).length > 0) {
+    const coreSettingsSection = make("div", { class: "settings-section" });
+    coreSettingsSection.appendChild(make("h4", { class: "settings-section__title" }, "Active Core Settings"));
+    coreSettingsSection.appendChild(make("p", { class: "settings-help" },
+      "RetroArch / PPSSPP core options that were passed to the emulator at launch."
+    ));
+    const list = make("ul", { class: "core-settings-list" });
+    for (const [key, value] of Object.entries(activeCoreSettings)) {
+      const item = make("li", { class: "core-settings-item" });
+      item.appendChild(make("span", { class: "core-settings-key" }, key));
+      item.appendChild(make("span", { class: "core-settings-value" }, String(value)));
+      list.appendChild(item);
+    }
+    coreSettingsSection.appendChild(list);
+    stateSection.appendChild(coreSettingsSection);
+  }
+
   // Actions section
   const actionsSection = make("div", { class: "settings-section" });
   actionsSection.appendChild(make("h4", { class: "settings-section__title" }, "Actions"));
@@ -2529,6 +2548,13 @@ function buildDebugTab(
     ];
     if (adapterLabel) {
       lines.push(`WebGPU Adapter: ${adapterLabel}`);
+    }
+    const snapshotSettings = emulatorRef?.activeCoreSettings;
+    if (snapshotSettings && Object.keys(snapshotSettings).length > 0) {
+      lines.push(``, `[Core Settings]`);
+      for (const [key, value] of Object.entries(snapshotSettings)) {
+        lines.push(`${key}: ${String(value)}`);
+      }
     }
     lines.push(
       ``,

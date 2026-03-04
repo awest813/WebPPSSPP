@@ -571,6 +571,13 @@ export function getPSPSettingsForTier(tier: PerformanceTier): Record<string, str
 }
 
 /**
+ * Get the appropriate DeSmuME (NDS) settings for a given performance tier.
+ */
+export function getNDSSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...NDS_TIER_SETTINGS[tier] };
+}
+
+/**
  * Get the appropriate mGBA settings for a given performance tier.
  */
 export function getGBASettingsForTier(tier: PerformanceTier): Record<string, string> {

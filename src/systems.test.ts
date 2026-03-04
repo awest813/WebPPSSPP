@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectSystem, getSystemById, getPSPSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier } from './systems';
+import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier } from './systems';
 
 describe('systems performance profiles', () => {
   describe('detectSystem', () => {
@@ -244,6 +244,30 @@ describe('systems performance profiles', () => {
         const settings = getPSXSettingsForTier(tier);
         expect(settings.retroarch_core).toBe('mednafen_psx_hw');
       }
+    });
+  });
+
+  // ── getNDSSettingsForTier ───────────────────────────────────────────────
+
+  describe('getNDSSettingsForTier', () => {
+    it('returns tier settings for NDS low tier', () => {
+      const settings = getNDSSettingsForTier('low');
+      expect(settings.desmume_frameskip).toBe('2');
+      expect(settings.desmume_cpu_mode).toBe('interpreter');
+    });
+
+    it('returns tier settings for NDS ultra tier', () => {
+      const settings = getNDSSettingsForTier('ultra');
+      expect(settings.desmume_internal_resolution).toBe('1024x768');
+      expect(settings.desmume_cpu_mode).toBe('jit');
+    });
+
+    it('returns a deep copy (mutations do not affect the original)', () => {
+      const settings = getNDSSettingsForTier('low');
+      settings.desmume_frameskip = '999';
+
+      const fresh = getNDSSettingsForTier('low');
+      expect(fresh.desmume_frameskip).toBe('2');
     });
   });
 

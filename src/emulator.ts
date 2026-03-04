@@ -381,6 +381,7 @@ export class PSPEmulator {
   private _pausedByVisibility = false;
   private _preconnected = false;
   private _activeTier: PerformanceTier | null = null;
+  private _activeCoreSettings: Record<string, string> | null = null;
   private _biosUrl: string | null = null;
   private _prefetchedCores = new Set<string>();
   private _webglPreWarmed = false;
@@ -440,6 +441,17 @@ export class PSPEmulator {
   get state(): EmulatorState { return this._state; }
   get currentSystem(): SystemInfo | null { return this._currentSystem; }
   get activeTier(): PerformanceTier | null { return this._activeTier; }
+  /**
+   * The resolved EJS_Settings object that was applied to the emulator core
+   * during the most recent launch. Null when no game has been launched or
+   * after the emulator is torn down.
+   *
+   * Useful for debugging: inspect this to confirm which PPSSPP/RetroArch
+   * core options were actually forwarded to the emulator for the current session.
+   */
+  get activeCoreSettings(): Record<string, string> | null {
+    return this._activeCoreSettings ? { ...this._activeCoreSettings } : null;
+  }
   /** True if a WebGPU device was successfully acquired during pre-warm. */
   get webgpuAvailable(): boolean { return this._webgpuDevice !== null; }
   /**
@@ -1235,8 +1247,10 @@ export class PSPEmulator {
 
       if (Object.keys(ejsSettings).length > 0) {
         window.EJS_Settings = ejsSettings;
+        this._activeCoreSettings = ejsSettings;
       } else {
         delete window.EJS_Settings;
+        this._activeCoreSettings = null;
       }
 
       // ── Lifecycle callbacks ───────────────────────────────────────────────
@@ -1714,6 +1728,7 @@ export class PSPEmulator {
     delete window.EJS_Settings;
     this._currentSystem = null;
     this._activeTier = null;
+    this._activeCoreSettings = null;
     this._setState("idle");
   }
 

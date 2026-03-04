@@ -34,6 +34,10 @@ describe('PSPEmulator', () => {
     expect(emulator.activeTier).toBeNull();
   });
 
+  it('activeCoreSettings is null on creation', () => {
+    expect(emulator.activeCoreSettings).toBeNull();
+  });
+
   // ── FPS monitor control ───────────────────────────────────────────────────
 
   describe('setFPSMonitorEnabled', () => {
@@ -961,6 +965,126 @@ describe('PSPEmulator', () => {
       emulator.dispose();
 
       expect(window.EJS_Settings).toBeUndefined();
+    });
+
+    it('clears activeCoreSettings on dispose teardown', () => {
+      // Manually inject settings as if a launch had set them
+      (emulator as unknown as { _activeCoreSettings: Record<string, string> })
+        ._activeCoreSettings = { ppsspp_internal_resolution: '2' };
+
+      emulator.dispose();
+
+      expect(emulator.activeCoreSettings).toBeNull();
+    });
+  });
+
+  // ── activeCoreSettings ──────────────────────────────────────────────────────
+
+  describe('activeCoreSettings', () => {
+    const fakeCaps = {
+      deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      recommendedMode: 'quality' as const, tier: 'medium' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      },
+      gpuBenchmarkScore: 50, prefersReducedMotion: false,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it('is set to the PSP tier settings after a PSP launch', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      // Use NDS (which has tier settings and requires neither SAB nor WebGL2,
+      // so the pre-flight checks pass in jsdom)
+      await emulator.launch({
+        file:            new File(['data'], 'game.nds'),
+        volume:          0.7,
+        systemId:        'nds',
+        performanceMode: 'performance',
+        deviceCaps:      { ...fakeCaps, tier: 'low' as const },
+      });
+
+      const settings = emulator.activeCoreSettings;
+      expect(settings).not.toBeNull();
+      // The NDS low-tier settings must include the key DeSmuME core options
+      expect(settings?.desmume_cpu_mode).toBe('interpreter');
+      expect(settings?.desmume_frameskip).toBe('2');
+    });
+
+    it('returns a defensive copy — mutations do not affect stored settings', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.nds'),
+        volume:          0.7,
+        systemId:        'nds',
+        performanceMode: 'performance',
+        deviceCaps:      { ...fakeCaps, tier: 'low' as const },
+      });
+
+      const copy1 = emulator.activeCoreSettings!;
+      copy1.desmume_cpu_mode = 'changed';
+
+      // The stored value must be unchanged
+      const copy2 = emulator.activeCoreSettings!;
+      expect(copy2.desmume_cpu_mode).toBe('interpreter');
+    });
+
+    it('sets window.EJS_Settings to the same values as activeCoreSettings after a tier-settings launch', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.nds'),
+        volume:          0.7,
+        systemId:        'nds',
+        performanceMode: 'performance',
+        deviceCaps:      { ...fakeCaps, tier: 'low' as const },
+      });
+
+      const active = emulator.activeCoreSettings;
+      expect(active).not.toBeNull();
+      // EJS_Settings is set to the same settings object before loader.js runs
+      expect(window.EJS_Settings).toEqual(active);
+    });
+
+    it('is null for a system with no tier settings (NES)', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.nes'),
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      fakeCaps,
+      });
+
+      // NES has empty perfSettings and qualitySettings, so no EJS_Settings applied
+      expect(emulator.activeCoreSettings).toBeNull();
     });
   });
 
