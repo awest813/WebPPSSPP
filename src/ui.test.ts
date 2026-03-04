@@ -23,6 +23,7 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     orientationLock: true,
     netplayEnabled: false,
     netplayServerUrl: "",
+    verboseLogging: false,
     ...overrides,
   };
 }
@@ -437,5 +438,125 @@ describe("buildMultiplayerTab", () => {
     const urlInput = document.getElementById("netplay-server-url") as HTMLInputElement;
     expect(urlInput.getAttribute("autocomplete")).toBe("off");
     expect(urlInput.getAttribute("spellcheck")).toBe("false");
+  });
+});
+
+// ── Debug settings tab ────────────────────────────────────────────────────────
+
+describe("buildDebugTab", () => {
+  const caps: DeviceCapabilities = {
+    isLowSpec: false,
+    isChromOS: false,
+    gpuRenderer: "unknown",
+    isSoftwareGPU: false,
+    recommendedMode: "quality",
+    tier: "medium",
+    deviceMemoryGB: 4,
+    cpuCores: 4,
+    gpuBenchmarkScore: 50,
+    prefersReducedMotion: false,
+    webgpuAvailable: false,
+    connectionQuality: "unknown",
+    jsHeapLimitMB: null,
+    gpuCaps: {
+      renderer: "unknown",
+      vendor: "unknown",
+      maxTextureSize: 4096,
+      maxVertexAttribs: 16,
+      maxVaryingVectors: 30,
+      maxRenderbufferSize: 4096,
+      anisotropicFiltering: false,
+      maxAnisotropy: 0,
+      floatTextures: false,
+      halfFloatTextures: false,
+      instancedArrays: true,
+      webgl2: true,
+      vertexArrayObject: true,
+      compressedTextures: false,
+      maxColorAttachments: 4,
+      multiDraw: false,
+    },
+  };
+
+  let settings: Settings;
+  let onSettingsChange: ReturnType<typeof vi.fn>;
+
+  function openDebugTab(s?: Settings) {
+    openSettingsPanel(
+      s ?? settings,
+      caps,
+      { getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      onSettingsChange,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "debug"
+    );
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    localStorage.clear();
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    settings = makeSettings();
+    onSettingsChange = vi.fn();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("opens directly to the Debug tab when initialTab is 'debug'", () => {
+    openDebugTab();
+    const debugPanel = document.getElementById("tab-panel-debug")!;
+    expect(debugPanel).toBeTruthy();
+    expect(debugPanel.hidden).toBe(false);
+    // Performance panel should be hidden
+    const perfPanel = document.getElementById("tab-panel-performance")!;
+    expect(perfPanel.hidden).toBe(true);
+  });
+
+  it("Debug tab button has aria-selected true when initialTab is 'debug'", () => {
+    openDebugTab();
+    const debugTabBtn = document.getElementById("tab-debug") as HTMLButtonElement;
+    expect(debugTabBtn.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("verbose logging toggle is unchecked by default", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const checkbox = panel.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    expect(checkbox).toBeTruthy();
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("verbose logging toggle is checked when verboseLogging is true", () => {
+    openDebugTab(makeSettings({ verboseLogging: true }));
+    const panel = document.getElementById("tab-panel-debug")!;
+    const checkbox = panel.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it("toggling verbose logging calls onSettingsChange with verboseLogging: true", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const checkbox = panel.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ verboseLogging: true });
+  });
+
+  it("disabling verbose logging calls onSettingsChange with verboseLogging: false", () => {
+    openDebugTab(makeSettings({ verboseLogging: true }));
+    const panel = document.getElementById("tab-panel-debug")!;
+    const checkbox = panel.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ verboseLogging: false });
   });
 });

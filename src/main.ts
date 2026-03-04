@@ -62,6 +62,8 @@ export interface Settings {
   netplayEnabled:  boolean;
   /** WebSocket URL of the EmulatorJS netplay signalling server. */
   netplayServerUrl: string;
+  /** Whether verbose debug logging is written to the browser console. */
+  verboseLogging:  boolean;
 }
 
 const STORAGE_KEY = "retrovault-settings";
@@ -80,6 +82,7 @@ const DEFAULT_SETTINGS: Settings = {
   orientationLock: true,
   netplayEnabled:  false,
   netplayServerUrl: "",
+  verboseLogging:  false,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -130,6 +133,9 @@ function loadSettings(): Settings {
       netplayServerUrl: typeof parsed.netplayServerUrl === "string"
         ? parsed.netplayServerUrl
         : DEFAULT_SETTINGS.netplayServerUrl,
+      verboseLogging: typeof parsed.verboseLogging === "boolean"
+        ? parsed.verboseLogging
+        : DEFAULT_SETTINGS.verboseLogging,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

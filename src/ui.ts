@@ -16,6 +16,9 @@
  *   F7  → Quick Load slot 1
  *   F1  → Reset
  *   Esc → Return to library
+ *
+ * Global keyboard shortcuts (always active):
+ *   F9  → Open Settings → Debug tab
  */
 
 import {
@@ -412,6 +415,12 @@ export function initUI(opts: UIOptions): void {
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   document.addEventListener("keydown", (e) => {
+    // F9 opens the Debug tab from anywhere (landing or in-game)
+    if (e.key === "F9") {
+      e.preventDefault();
+      openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, "debug");
+      return;
+    }
     if (emulator.state !== "running") return;
     switch (e.key) {
       case "F5":  e.preventDefault(); void quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1); break;
@@ -1644,6 +1653,8 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
 
 // ── Settings panel ────────────────────────────────────────────────────────────
 
+type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug";
+
 let _settingsPanelEscHandler: ((e: KeyboardEvent) => void) | null = null;
 
 export function openSettingsPanel(
@@ -1655,13 +1666,14 @@ export function openSettingsPanel(
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
   saveLibrary?:     SaveStateLibrary,
-  netplayManager?:  import("./multiplayer.js").NetplayManager
+  netplayManager?:  import("./multiplayer.js").NetplayManager,
+  initialTab?:      SettingsTab
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
   const previousFocus = document.activeElement as HTMLElement | null;
 
-  buildSettingsContent(content, settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager);
+  buildSettingsContent(content, settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager, initialTab);
   panel.hidden = false;
 
   const close = () => {
@@ -1684,8 +1696,6 @@ export function openSettingsPanel(
   document.addEventListener("keydown", _settingsPanelEscHandler);
 }
 
-type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug";
-
 function buildSettingsContent(
   container:        HTMLElement,
   settings:         Settings,
@@ -1696,7 +1706,8 @@ function buildSettingsContent(
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
   saveLibrary?:     SaveStateLibrary,
-  netplayManager?:  import("./multiplayer.js").NetplayManager
+  netplayManager?:  import("./multiplayer.js").NetplayManager,
+  initialTab?:      SettingsTab
 ): void {
   container.innerHTML = "";
 
@@ -1709,7 +1720,7 @@ function buildSettingsContent(
     { id: "debug",        label: "Debug" },
   ];
 
-  let activeTab: SettingsTab = "performance";
+  let activeTab: SettingsTab = initialTab ?? "performance";
 
   // Tab bar
   const tabBar = make("div", { class: "settings-tabs", role: "tablist" });
@@ -1757,13 +1768,16 @@ function buildSettingsContent(
   container.appendChild(tabBar);
   container.appendChild(panelsEl);
 
+  // Ensure tab button classes and panel visibility match the active tab
+  switchTab(activeTab);
+
   // Fill tabs
   buildPerfTab(panels[0], settings, deviceCaps, onSettingsChange, emulatorRef);
   buildDisplayTab(panels[1], settings, deviceCaps, onSettingsChange, emulatorRef);
   buildLibraryTab(panels[2], settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
   buildBiosTab(panels[3], biosLibrary);
   buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
-  buildDebugTab(panels[5], deviceCaps, emulatorRef, netplayManager);
+  buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager);
 }
 
 // ── Performance tab ───────────────────────────────────────────────────────────
@@ -2310,11 +2324,24 @@ function buildMultiplayerTab(
 // ── Debug tab ─────────────────────────────────────────────────────────────────
 
 function buildDebugTab(
-  container:  HTMLElement,
-  deviceCaps: DeviceCapabilities,
-  emulatorRef?: import("./emulator.js").PSPEmulator,
-  netplayManager?: import("./multiplayer.js").NetplayManager
+  container:        HTMLElement,
+  settings:         Settings,
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  deviceCaps:       DeviceCapabilities,
+  emulatorRef?:     import("./emulator.js").PSPEmulator,
+  netplayManager?:  import("./multiplayer.js").NetplayManager
 ): void {
+  // Settings section
+  const settingsSection = make("div", { class: "settings-section" });
+  settingsSection.appendChild(make("h4", { class: "settings-section__title" }, "Debug Settings"));
+
+  settingsSection.appendChild(buildToggleRow(
+    "Verbose logging",
+    "Write detailed diagnostic output to the browser console (DevTools → Console)",
+    settings.verboseLogging,
+    (v) => onSettingsChange({ verboseLogging: v })
+  ));
+
   // Environment section
   const envSection = make("div", { class: "settings-section" });
   envSection.appendChild(make("h4", { class: "settings-section__title" }, "Environment"));
@@ -2417,7 +2444,7 @@ function buildDebugTab(
   });
   actionsSection.appendChild(btnCopy);
 
-  container.append(envSection, stateSection, actionsSection);
+  container.append(settingsSection, envSection, stateSection, actionsSection);
 }
 
 // ── Toggle row builder ────────────────────────────────────────────────────────
