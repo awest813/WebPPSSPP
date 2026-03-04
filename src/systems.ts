@@ -798,7 +798,7 @@ export const SYSTEMS: SystemInfo[] = [
     id: "psx",
     name: "PlayStation 1",
     shortName: "PS1",
-    extensions: ["pbp", "chd", "cue", "img", "mdf", "ccd", "m3u", "iso"],
+    extensions: ["bin", "pbp", "chd", "cue", "img", "mdf", "ccd", "m3u", "iso"],
     color: "#003087",
     needsThreads: false,
     needsWebGL2: false,
