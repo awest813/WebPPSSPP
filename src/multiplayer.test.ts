@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { hashGameId, NetplayManager, DEFAULT_ICE_SERVERS } from './multiplayer';
+import { hashGameId, NetplayManager, DEFAULT_ICE_SERVERS, validateIceServerUrl } from './multiplayer';
 
 // ── hashGameId ────────────────────────────────────────────────────────────────
 
@@ -208,5 +208,65 @@ describe('NetplayManager.validateServerUrl', () => {
     const err = mgr.validateServerUrl('wss://');
     expect(err).not.toBeNull();
     expect(err).toContain('valid URL');
+  });
+});
+
+// ── NetplayManager.validateIceServerUrl ──────────────────────────────────────
+
+describe('NetplayManager.validateIceServerUrl', () => {
+  let mgr: NetplayManager;
+
+  beforeEach(() => {
+    localStorage.clear();
+    mgr = new NetplayManager();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns null for a valid stun: URL', () => {
+    expect(mgr.validateIceServerUrl('stun:stun.l.google.com:19302')).toBeNull();
+  });
+
+  it('returns null for a valid turn: URL', () => {
+    expect(mgr.validateIceServerUrl('turn:turn.example.com:3478')).toBeNull();
+  });
+
+  it('returns null for a valid turns: URL', () => {
+    expect(mgr.validateIceServerUrl('turns:turn.example.com:5349')).toBeNull();
+  });
+
+  it('is case-insensitive — STUN: is accepted', () => {
+    expect(mgr.validateIceServerUrl('STUN:stun.example.com:3478')).toBeNull();
+  });
+
+  it('returns an error for an empty string', () => {
+    const err = mgr.validateIceServerUrl('');
+    expect(err).not.toBeNull();
+  });
+
+  it('returns an error for a whitespace-only string', () => {
+    const err = mgr.validateIceServerUrl('   ');
+    expect(err).not.toBeNull();
+  });
+
+  it('returns an error for an http:// URL', () => {
+    const err = mgr.validateIceServerUrl('http://example.com');
+    expect(err).not.toBeNull();
+    expect(err).toContain('stun:');
+  });
+
+  it('returns an error for a URL without a recognised ICE scheme', () => {
+    const err = mgr.validateIceServerUrl('example.com:3478');
+    expect(err).not.toBeNull();
+    expect(err).toContain('stun:');
+  });
+
+  it('produces the same result as the standalone validateIceServerUrl function', () => {
+    const inputs = ['stun:s.example.com', 'turn:t.example.com', '', 'http://bad.com', 'example.com'];
+    for (const url of inputs) {
+      expect(mgr.validateIceServerUrl(url)).toBe(validateIceServerUrl(url));
+    }
   });
 });

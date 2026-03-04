@@ -68,6 +68,28 @@ export function hashGameId(gameId: string): number {
   return (hash & 0x7fff_ffff) || 1; // never return 0
 }
 
+// ── ICE server URL validation ─────────────────────────────────────────────────
+
+/**
+ * Validate a single ICE / STUN / TURN server URL string.
+ *
+ * Returns `null` when the URL is valid.  Returns a human-readable error
+ * message when the URL is empty or does not start with a recognised scheme.
+ *
+ * Rules:
+ *  - An empty / whitespace-only string is invalid — ICE URLs must be
+ *    explicitly provided.
+ *  - The URL must start with `stun:`, `turn:`, or `turns:` (case-insensitive).
+ */
+export function validateIceServerUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (trimmed.length === 0) return "ICE server URL must not be empty";
+  if (!/^(stun|turn|turns):/i.test(trimmed)) {
+    return "URL must start with stun:, turn:, or turns:";
+  }
+  return null;
+}
+
 // ── NetplayManager ────────────────────────────────────────────────────────────
 
 export class NetplayManager {
@@ -119,6 +141,14 @@ export class NetplayManager {
    */
   gameIdFor(gameId: string): number {
     return hashGameId(gameId);
+  }
+
+  /**
+   * Validate a single ICE / STUN / TURN server URL string.
+   * Delegates to the module-level {@link validateIceServerUrl} function.
+   */
+  validateIceServerUrl(url: string): string | null {
+    return validateIceServerUrl(url);
   }
 
   /**

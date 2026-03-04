@@ -61,7 +61,7 @@ import {
 import type { Settings } from "./main.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
 import type { NetplayManager } from "./multiplayer.js";
-import { DEFAULT_ICE_SERVERS } from "./multiplayer.js";
+import { DEFAULT_ICE_SERVERS, validateIceServerUrl as standaloneValidateIceServerUrl } from "./multiplayer.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
 let _canInstallPWA: (() => boolean) | undefined;
@@ -2190,11 +2190,13 @@ function buildMultiplayerTab(
   const urlRow   = make("div", { class: "settings-input-row" });
   const urlLabel = make("label", { class: "settings-input-label", for: "netplay-server-url" }, "Server URL");
   const urlInput = make("input", {
-    type:        "text",
-    id:          "netplay-server-url",
-    class:       "settings-input",
-    placeholder: "wss://netplay.example.com",
-    value:       settings.netplayServerUrl,
+    type:         "text",
+    id:           "netplay-server-url",
+    class:        "settings-input",
+    placeholder:  "wss://netplay.example.com",
+    value:        settings.netplayServerUrl,
+    autocomplete: "off",
+    spellcheck:   "false",
   }) as HTMLInputElement;
   urlInput.addEventListener("input", () => urlInput.setCustomValidity(""));
   urlInput.addEventListener("change", () => {
@@ -2228,6 +2230,12 @@ function buildMultiplayerTab(
   const iceList = make("div", { class: "netplay-ice-list" });
   const renderIceList = () => {
     iceList.innerHTML = "";
+    if (iceServers.length === 0) {
+      iceList.appendChild(make("p", { class: "netplay-ice-empty" },
+        "No ICE servers configured — peer connections may fail."
+      ));
+      return;
+    }
     for (const srv of iceServers) {
       const urls   = Array.isArray(srv.urls) ? srv.urls : [srv.urls];
       const urlStr = urls.join(", ");
@@ -2253,17 +2261,22 @@ function buildMultiplayerTab(
   // Add-server row
   const addRow = make("div", { class: "settings-input-row" });
   const addInput = make("input", {
-    type:        "text",
-    class:       "settings-input",
-    placeholder: "stun:stun.example.com:3478",
+    type:         "text",
+    class:        "settings-input",
+    placeholder:  "stun:stun.example.com:3478",
     "aria-label": "New ICE server URL",
+    autocomplete: "off",
+    spellcheck:   "false",
   }) as HTMLInputElement;
   const addBtn = make("button", { class: "btn btn--primary" }, "Add") as HTMLButtonElement;
   addBtn.addEventListener("click", () => {
     const url = addInput.value.trim();
     if (!url) return;
-    if (!/^(stun|turn|turns):/i.test(url)) {
-      addInput.setCustomValidity("URL must start with stun:, turn:, or turns:");
+    const err = netplayManager
+      ? netplayManager.validateIceServerUrl(url)
+      : standaloneValidateIceServerUrl(url);
+    if (err) {
+      addInput.setCustomValidity(err);
       addInput.reportValidity();
       return;
     }
@@ -2391,6 +2404,9 @@ function buildDebugTab(
       `Active: ${netplayManager?.isActive ?? false}`,
       `Server: ${netplayManager?.serverUrl || "—"}`,
       `ICE Servers: ${netplayManager?.iceServers.length ?? 0}`,
+      ...(netplayManager?.iceServers ?? []).map(s =>
+        `  ${Array.isArray(s.urls) ? s.urls.join(", ") : s.urls}`
+      ),
     );
 
     navigator.clipboard.writeText(lines.join("\n")).then(() => {

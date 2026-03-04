@@ -1187,6 +1187,13 @@ body {
 /* ── ICE server editable list ───────────────────────────────── */
 .netplay-ice-list { margin-bottom: 8px; }
 
+.netplay-ice-empty {
+  font-size: 0.82rem;
+  color: var(--c-text-dim);
+  font-style: italic;
+  margin: 4px 0;
+}
+
 /* ── Netplay status badge ───────────────────────────────────── */
 .netplay-status {
   font-size: 0.82rem;

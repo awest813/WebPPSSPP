@@ -417,4 +417,25 @@ describe("buildMultiplayerTab", () => {
     const urlInput = document.getElementById("netplay-server-url") as HTMLInputElement;
     expect(urlInput.value).toBe("wss://my.server.com");
   });
+
+  it("removing all ICE servers shows an empty-state message", () => {
+    openMultiplayerTab();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    // Remove every default server
+    const removeBtns = [...panel.querySelectorAll<HTMLButtonElement>(".netplay-ice-remove")];
+    expect(removeBtns.length).toBeGreaterThan(0);
+    for (const btn of removeBtns) btn.click();
+
+    const emptyMsg = panel.querySelector(".netplay-ice-empty");
+    expect(emptyMsg).toBeTruthy();
+    expect(emptyMsg!.textContent).toContain("No ICE servers");
+  });
+
+  it("server URL input has autocomplete off and spellcheck false", () => {
+    settings = makeSettings({ netplayEnabled: true });
+    openMultiplayerTab();
+    const urlInput = document.getElementById("netplay-server-url") as HTMLInputElement;
+    expect(urlInput.getAttribute("autocomplete")).toBe("off");
+    expect(urlInput.getAttribute("spellcheck")).toBe("false");
+  });
 });
