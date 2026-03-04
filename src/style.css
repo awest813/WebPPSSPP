@@ -502,6 +502,8 @@ body {
 .drop-zone--compact .drop-zone__label { font-size: 0.86rem; }
 .drop-zone__sub { font-size: 0.82rem; color: var(--c-text-dim); }
 .drop-zone__browse { color: var(--c-accent); text-decoration: underline; cursor: pointer; }
+.drop-zone__formats { font-size: 0.75rem; color: var(--c-text-faint); }
+.drop-zone--compact .drop-zone__formats { display: none; }
 
 .landing__legal {
   max-width: 540px;

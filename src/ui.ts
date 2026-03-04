@@ -101,6 +101,9 @@ export function buildDOM(app: HTMLElement): void {
   _libraryControlsWired = false;
 
   const acceptList = ALL_EXTENSIONS.map(e => `.${e}`).join(",");
+  // Build a concise format hint: first extension of the first 8 systems + archive note
+  const hintExts = SYSTEMS.slice(0, 8).map(s => `.${s.extensions[0]}`).join(" · ");
+  const formatHint = `${hintExts} + more · ZIP auto-extracted`;
 
   app.innerHTML = `
     <!-- ── Header ── -->
@@ -173,6 +176,7 @@ export function buildDOM(app: HTMLElement): void {
           <div class="drop-zone__icon" aria-hidden="true">+</div>
           <p class="drop-zone__label">Drop a game file to add it</p>
           <p class="drop-zone__sub">or <span class="drop-zone__browse">browse files</span></p>
+          <p class="drop-zone__formats" title="Supported file formats">${formatHint}</p>
         </div>
 
         <p class="landing__legal">

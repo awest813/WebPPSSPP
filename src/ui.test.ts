@@ -79,6 +79,18 @@ describe("buildDOM", () => {
     document.body.innerHTML = "";
   });
 
+  it("renders a format hint in the drop zone", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const hint = app.querySelector(".drop-zone__formats");
+    expect(hint).toBeTruthy();
+    // Should mention at least one ROM extension and ZIP auto-extraction
+    expect(hint!.textContent).toMatch(/\.iso/);
+    expect(hint!.textContent).toMatch(/ZIP auto-extracted/i);
+  });
+
   it("resets _libraryControlsWired so search/sort handlers are wired on a second buildDOM call", async () => {
     // First build + init (wires controls for the first time)
     const app1 = document.createElement("div");
