@@ -911,19 +911,41 @@ export async function resolveSystemAndAdd(
     const { extractFromZip } = await import("./archive.js");
     showLoadingOverlay();
     setLoadingMessage("Extracting archive…");
+    if (settings.verboseLogging) {
+      console.info(
+        `[RetroVault] ZIP extraction started: "${file.name}" ` +
+        `(${(file.size / 1024 / 1024).toFixed(1)} MB)`
+      );
+    }
     try {
       const extracted = await extractFromZip(file);
       if (extracted) {
         resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
         setLoadingMessage("Archive extracted. Adding to library…");
+        if (settings.verboseLogging) {
+          console.info(
+            `[RetroVault] ZIP extraction succeeded: "${extracted.name}" ` +
+            `(${(extracted.blob.size / 1024 / 1024).toFixed(1)} MB extracted)`
+          );
+        }
       } else {
         // No extractable ROM entry found. Fall back to native package handling
         // (e.g. arcade/MAME zip sets) via the normal detectSystem flow below.
+        if (settings.verboseLogging) {
+          console.info(
+            `[RetroVault] ZIP extraction: no ROM entry found in "${file.name}", ` +
+            `falling back to native package handling.`
+          );
+        }
         hideLoadingOverlay();
       }
-    } catch {
+    } catch (err) {
       // Extraction is best-effort. If parsing/decompression fails, continue
       // with the original zip as a native package candidate.
+      if (settings.verboseLogging) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`[RetroVault] ZIP extraction failed for "${file.name}": ${reason}`);
+      }
       hideLoadingOverlay();
     }
   }
@@ -944,6 +966,12 @@ export async function resolveSystemAndAdd(
     // If a ZIP was just extracted the overlay is still showing; leaving it
     // visible avoids a flicker (hide → immediate show) on the happy path.
     system = detected;
+  }
+
+  if (settings.verboseLogging) {
+    console.info(
+      `[RetroVault] System detected for "${resolvedFile.name}": ${system.id} (${system.name})`
+    );
   }
 
   if (resolvedFile.name.toLowerCase().endsWith(".m3u")) {
@@ -980,6 +1008,12 @@ export async function resolveSystemAndAdd(
   try {
     const entry = await library.addGame(resolvedFile, system.id);
     settings.lastGameName = entry.name;
+    if (settings.verboseLogging) {
+      console.info(
+        `[RetroVault] Game added to library: "${entry.name}" ` +
+        `(id: ${entry.id}, system: ${entry.systemId})`
+      );
+    }
     void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     await onLaunchGame(resolvedFile, system.id, entry.id);
   } catch (err) {

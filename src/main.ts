@@ -210,6 +210,10 @@ function main(): void {
   const saveLibrary   = new SaveStateLibrary();
   const netplayManager = new NetplayManager();
 
+  // Propagate verbose logging from settings into the emulator so debug
+  // information is written to the console when the user enables it.
+  emulator.verboseLogging = settings.verboseLogging;
+
   // Track the currently loaded game for tier-downgrade re-launch
   let currentGameId:   string | null = null;
   let currentGameFile: File | Blob | null = null;
@@ -559,6 +563,10 @@ function main(): void {
       if (typeof patch.touchControls === "boolean" && touchOverlay) {
         if (patch.touchControls) touchOverlay.show();
         else touchOverlay.hide();
+      }
+      // Sync verbose logging flag so debug output can be toggled without reload.
+      if (typeof patch.verboseLogging === "boolean") {
+        emulator.verboseLogging = patch.verboseLogging;
       }
     },
     onReturnToLibrary,

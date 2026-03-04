@@ -401,6 +401,11 @@ export class PSPEmulator {
    * 60-second page-age requirement that would arise from using 0 as the sentinel).
    */
   private _lastQualitySuggestionTime = Number.NEGATIVE_INFINITY;
+  /** Timer ID for the launch watchdog — clears when the game starts or errors. */
+  private _launchTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  /** When true, emit detailed debug information to the browser console. */
+  verboseLogging = false;
 
   onStateChange?: (state: EmulatorState) => void;
   onProgress?:    (msg:   string)        => void;
@@ -1129,6 +1134,13 @@ export class PSPEmulator {
     this._setState("loading");
     this._emit("onProgress", "Preparing game file…");
 
+    if (this.verboseLogging) {
+      console.info(
+        `[RetroVault] Launching "${fileName}" on system "${opts.systemId}" ` +
+        `(size: ${(opts.file.size / 1024 / 1024).toFixed(1)} MB, tier override: ${opts.tierOverride ?? "none"})`
+      );
+    }
+
     // ── Probe audio latency in parallel with blob URL creation ─────────────
     // detectAudioCapabilities() is async and short; running it before we reach
     // the EJS globals section means we can use the result to override the
@@ -1225,10 +1237,16 @@ export class PSPEmulator {
 
       // ── Lifecycle callbacks ───────────────────────────────────────────────
       window.EJS_ready = () => {
-        this._emit("onProgress", "Core loaded — booting game…");
+        this._emit("onProgress", "Booting game…");
+        if (this.verboseLogging) {
+          console.info("[RetroVault] EJS_ready fired — core loaded, booting game.");
+        }
       };
 
       window.EJS_onGameStart = () => {
+        if (this.verboseLogging) {
+          console.info("[RetroVault] EJS_onGameStart fired — game is running.");
+        }
         this._setState("running");
         this._fpsMonitor.onUpdate = (snap) => {
           this.onFPSUpdate?.(snap);
@@ -1248,6 +1266,22 @@ export class PSPEmulator {
 
       // ── Inject / reuse loader.js ──────────────────────────────────────────
       await this._loadScript(`${EJS_CDN_BASE}loader.js`);
+
+      // ── Launch watchdog ───────────────────────────────────────────────────
+      // EJS_onGameStart fires asynchronously after the core and ROM load.
+      // On slow connections the core download alone can take 30-60 seconds.
+      // If neither EJS_onGameStart nor an error fires within the timeout,
+      // the loading overlay would be permanently stuck — guard against that.
+      const LAUNCH_TIMEOUT_MS = 120_000; // 2 minutes
+      this._launchTimeoutId = setTimeout(() => {
+        if (this._state === "loading") {
+          this._emitError(
+            "The game took too long to start.\n\n" +
+            "The game core or ROM download may have stalled.\n" +
+            "Please check your internet connection and try again."
+          );
+        }
+      }, LAUNCH_TIMEOUT_MS);
 
     } catch (err) {
       this._revokeBlobUrl();
@@ -1579,6 +1613,11 @@ export class PSPEmulator {
   // ── Private ─────────────────────────────────────────────────────────────────
 
   private _setState(s: EmulatorState): void {
+    // Clear the launch watchdog whenever we leave the loading state.
+    if (s !== "loading" && this._launchTimeoutId !== null) {
+      clearTimeout(this._launchTimeoutId);
+      this._launchTimeoutId = null;
+    }
     this._state = s;
     this.onStateChange?.(s);
   }
@@ -1643,6 +1682,11 @@ export class PSPEmulator {
    * resets all EJS globals so the loader re-initialises cleanly.
    */
   private _teardown(): void {
+    // Cancel any pending launch watchdog before resetting state.
+    if (this._launchTimeoutId !== null) {
+      clearTimeout(this._launchTimeoutId);
+      this._launchTimeoutId = null;
+    }
     this._fpsMonitor.stop();
     this._removeVisibilityHandler();
     this._removeContextLossHandler();

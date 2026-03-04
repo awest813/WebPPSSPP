@@ -301,6 +301,202 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── Launch watchdog (freeze guard) ────────────────────────────────────────
+
+  describe('launch watchdog', () => {
+    // Shared fake caps for a system that passes all pre-flight checks in jsdom.
+    // NES does not need SharedArrayBuffer or WebGL2, so it launches cleanly.
+    const nesFile  = new File(['data'], 'game.nes');
+    const nesCaps = {
+      deviceMemoryGB: 4,
+      cpuCores: 4,
+      gpuRenderer: 'unknown',
+      isSoftwareGPU: false,
+      isLowSpec: false,
+      isChromOS: false,
+      recommendedMode: 'quality' as const,
+      tier: 'medium' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      },
+      gpuBenchmarkScore: 50,
+      prefersReducedMotion: false,
+      webgpuAvailable: false,
+      connectionQuality: 'unknown' as const,
+      jsHeapLimitMB: null,
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it('emits an error and transitions to "error" state if EJS_onGameStart never fires within 120 s', async () => {
+      const errors: string[] = [];
+      const states: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+      emulator.onStateChange = (s) => states.push(s);
+
+      // Override _loadScript so it resolves immediately but never calls
+      // EJS_onGameStart (simulates a stalled CDN core download).
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        () => Promise.resolve();
+
+      await emulator.launch({
+        file:            nesFile,
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      nesCaps,
+      });
+
+      // Watchdog is armed but hasn't fired yet
+      expect(emulator.state).toBe('loading');
+      expect(errors).toHaveLength(0);
+
+      // Advance fake timers by 120 seconds — the watchdog should fire
+      vi.advanceTimersByTime(120_000);
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('took too long to start');
+      expect(emulator.state).toBe('error');
+    });
+
+    it('does NOT fire the watchdog when EJS_onGameStart fires before the timeout', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      // _loadScript immediately fires EJS_onGameStart (simulates fast boot)
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      await emulator.launch({
+        file:            nesFile,
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      nesCaps,
+      });
+
+      // Game started — watchdog was cancelled by _setState("running")
+      expect(emulator.state).toBe('running');
+
+      // Advance past the watchdog timeout — it should have been cancelled
+      vi.advanceTimersByTime(120_000);
+      expect(errors).toHaveLength(0);
+      expect(emulator.state).toBe('running');
+    });
+
+    it('cancels the watchdog when dispose() is called before the timeout fires', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      // _loadScript never fires EJS_onGameStart
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        () => Promise.resolve();
+
+      await emulator.launch({
+        file:            nesFile,
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      nesCaps,
+      });
+
+      // Dispose clears the watchdog via _teardown()
+      emulator.dispose();
+
+      // Advance past the timeout — watchdog must not fire after teardown
+      vi.advanceTimersByTime(120_000);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  // ── verboseLogging ────────────────────────────────────────────────────────
+
+  describe('verboseLogging', () => {
+    it('defaults to false', () => {
+      expect(emulator.verboseLogging).toBe(false);
+    });
+
+    it('can be set to true', () => {
+      emulator.verboseLogging = true;
+      expect(emulator.verboseLogging).toBe(true);
+    });
+
+    it('emits a console.info launch message when verboseLogging is enabled', async () => {
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+      vi.useFakeTimers();
+
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      emulator.verboseLogging = true;
+      emulator.onError = () => {};
+
+      // _loadScript resolves immediately; EJS_onGameStart fires to avoid
+      // leaving an armed watchdog that would interfere with cleanup.
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.nes'),
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      {
+          deviceMemoryGB: 4,
+          cpuCores: 4,
+          gpuRenderer: 'unknown',
+          isSoftwareGPU: false,
+          isLowSpec: false,
+          isChromOS: false,
+          recommendedMode: 'quality' as const,
+          tier: 'medium' as const,
+          gpuCaps: {
+            renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+            maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+            anisotropicFiltering: false, maxAnisotropy: 0,
+            floatTextures: false, halfFloatTextures: false,
+            instancedArrays: false, webgl2: false,
+            vertexArrayObject: false, compressedTextures: false,
+            maxColorAttachments: 1, multiDraw: false,
+          },
+          gpuBenchmarkScore: 50,
+          prefersReducedMotion: false,
+          webgpuAvailable: false,
+          connectionQuality: 'unknown' as const,
+          jsHeapLimitMB: null,
+        },
+      });
+
+      const launchLogs = infoSpy.mock.calls
+        .map(args => args.join(' '))
+        .filter(msg => msg.includes('Launching'));
+
+      expect(launchLogs.length).toBeGreaterThan(0);
+      expect(launchLogs[0]).toContain('game.nes');
+      expect(launchLogs[0]).toContain('nes');
+
+      vi.useRealTimers();
+    });
+  });
+
   // ── FPS snapshot ──────────────────────────────────────────────────────────
 
   describe('getFPS', () => {
