@@ -226,6 +226,25 @@ describe('systems performance profiles', () => {
       const ultraSettings = getPSXSettingsForTier('ultra');
       expect(ultraSettings.beetle_psx_internal_resolution).toBe('8x');
     });
+
+    it('forces Beetle PSX HW core (mednafen_psx_hw) in all tiers', () => {
+      // EmulatorJS defaults to pcsx_rearmed when EJS_core="psx". The
+      // retroarch_core setting overrides this to use Beetle PSX HW so that
+      // all beetle_psx_* options actually take effect.
+      const psx = getSystemById('psx');
+      expect(psx?.tierSettings?.low?.retroarch_core).toBe('mednafen_psx_hw');
+      expect(psx?.tierSettings?.medium?.retroarch_core).toBe('mednafen_psx_hw');
+      expect(psx?.tierSettings?.high?.retroarch_core).toBe('mednafen_psx_hw');
+      expect(psx?.tierSettings?.ultra?.retroarch_core).toBe('mednafen_psx_hw');
+    });
+
+    it('getPSXSettingsForTier always includes retroarch_core: mednafen_psx_hw', () => {
+      const tiers = ['low', 'medium', 'high', 'ultra'] as const;
+      for (const tier of tiers) {
+        const settings = getPSXSettingsForTier(tier);
+        expect(settings.retroarch_core).toBe('mednafen_psx_hw');
+      }
+    });
   });
 
   // ── getPSPSettingsForTier ───────────────────────────────────────────────

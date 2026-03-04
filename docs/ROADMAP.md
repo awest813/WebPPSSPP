@@ -112,6 +112,19 @@ Bug fixes, performance improvements, and quality-of-life enhancements.
 
 ---
 
+## Phase 5.2 — Core Correctness & Keyboard Controls (Complete)
+
+Fixes for silent bugs where the wrong PS1 core was used and keyboard shortcuts
+could leak through to the emulator's own input handler.
+
+- [x] **PS1 core fix**: EmulatorJS's `psx` system defaults to PCSX ReARMed (`pcsx_rearmed`) — the first entry in its core registry. All `beetle_psx_*` tier options (PGXP, GPU overclock, internal resolution, dynarec, filters) require Beetle PSX HW (`mednafen_psx_hw`). Fixed by injecting `retroarch_core: "mednafen_psx_hw"` into every PSX tier-settings object, which EmulatorJS honours over the default when the value is found in the registry. All four tiers (low/medium/high/ultra) now actually use the core they were always documented to use.
+- [x] **Keyboard shortcut isolation**: The global keydown listener that handles RetroVault shortcuts (F1/F5/F7/F9/Esc) is now registered with `{ capture: true }`. In the browser's capture phase the listener fires before EmulatorJS's element-level handler. For each matched shortcut `e.stopPropagation()` is called so the event is consumed and never reaches the emulator. All other keys (game-control inputs such as arrows and letter keys) are untouched — `stopPropagation()` is not called for them, so they continue down to the emulator as expected.
+- [x] **Escape key default prevented**: `e.preventDefault()` added to the Escape shortcut handler (was missing), preventing the browser's built-in "unfocus / cancel" behaviour from firing alongside the library-return action.
+- [x] **F9 shortcut documented**: F9 (open Debug Settings tab, always active regardless of emulator state) added to the keyboard shortcuts table in the README.
+- [x] **README overhaul (Phase 5.2)**: Added PS1 core note explaining the `retroarch_core` override; updated Controls section with keyboard-shortcut interception details; corrected in-game header controls table to include F9; added blockquote explaining how RetroVault shortcuts and game-input keys coexist without conflict.
+
+---
+
 ## Phase 6 — Multiplayer & Social (In Progress)
 
 Networked features requiring server infrastructure.
