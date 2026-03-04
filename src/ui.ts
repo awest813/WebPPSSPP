@@ -1766,6 +1766,7 @@ function buildSettingsContent(
     { id: "multiplayer",  label: "Multiplayer" },
     { id: "debug",        label: "Debug" },
   ];
+  const tabIndexById = new Map<SettingsTab, number>(tabs.map((t, i) => [t.id, i]));
 
   let activeTab: SettingsTab = initialTab ?? "performance";
 
@@ -1779,25 +1780,56 @@ function buildSettingsContent(
 
   const switchTab = (id: SettingsTab) => {
     activeTab = id;
+    const activeIndex = tabIndexById.get(id) ?? -1;
     tabBtns.forEach((btn, i) => {
       const isActive = tabs[i].id === id;
       btn.setAttribute("aria-selected", String(isActive));
+      btn.setAttribute("tabindex", isActive ? "0" : "-1");
       btn.classList.toggle("settings-tab--active", isActive);
     });
     panels.forEach((panel, i) => {
-      panel.hidden = tabs[i].id !== id;
+      const isActive = tabs[i].id === id;
+      panel.hidden = !isActive;
+      panel.setAttribute("aria-hidden", String(!isActive));
     });
+    const activeBtn = activeIndex >= 0 ? tabBtns[activeIndex] : null;
+    if (activeBtn) {
+      const scrollIntoViewFn = (activeBtn as HTMLElement & { scrollIntoView?: unknown }).scrollIntoView;
+      if (typeof scrollIntoViewFn === "function") {
+        scrollIntoViewFn.call(activeBtn, { block: "nearest", inline: "nearest" });
+      }
+    }
   };
 
-  for (const tab of tabs) {
+  tabs.forEach((tab, i) => {
     const btn = make("button", {
       id: `tab-${tab.id}`,
       class: "settings-tab",
+      type: "button",
       role: "tab",
       "aria-selected": tab.id === activeTab ? "true" : "false",
+      tabindex: tab.id === activeTab ? "0" : "-1",
       "aria-controls": `tab-panel-${tab.id}`,
     }, tab.label) as HTMLButtonElement;
     btn.addEventListener("click", () => switchTab(tab.id));
+    btn.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        const nextIndex =
+          e.key === "Home" ? 0 :
+          e.key === "End" ? tabs.length - 1 :
+          e.key === "ArrowRight" ? (i + 1) % tabs.length :
+          (i - 1 + tabs.length) % tabs.length;
+        const target = tabBtns[nextIndex];
+        switchTab(tabs[nextIndex].id);
+        target.focus();
+        return;
+      }
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        switchTab(tab.id);
+      }
+    });
     tabBar.appendChild(btn);
     tabBtns.push(btn);
 
@@ -1805,12 +1837,13 @@ function buildSettingsContent(
       id: `tab-panel-${tab.id}`,
       class: "settings-panel-content",
       role: "tabpanel",
+      "aria-hidden": tab.id === activeTab ? "false" : "true",
       "aria-labelledby": `tab-${tab.id}`,
     });
     if (tab.id !== activeTab) panel.hidden = true;
     panels.push(panel);
     panelsEl.appendChild(panel);
-  }
+  });
 
   container.appendChild(tabBar);
   container.appendChild(panelsEl);

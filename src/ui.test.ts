@@ -539,6 +539,31 @@ describe("buildDebugTab", () => {
     expect(debugTabBtn.getAttribute("aria-selected")).toBe("true");
   });
 
+  it("clicking another tab updates selected state and panel visibility", () => {
+    openDebugTab();
+    const displayTabBtn = document.getElementById("tab-display") as HTMLButtonElement;
+    displayTabBtn.click();
+    const displayPanel = document.getElementById("tab-panel-display")!;
+    const debugPanel = document.getElementById("tab-panel-debug")!;
+    expect(displayTabBtn.getAttribute("aria-selected")).toBe("true");
+    expect(displayTabBtn.getAttribute("tabindex")).toBe("0");
+    expect(displayPanel.hidden).toBe(false);
+    expect(debugPanel.hidden).toBe(true);
+  });
+
+  it("ArrowLeft keyboard navigation switches tabs from Debug to Multiplayer", () => {
+    openDebugTab();
+    const debugTabBtn = document.getElementById("tab-debug") as HTMLButtonElement;
+    debugTabBtn.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    const mpTabBtn = document.getElementById("tab-multiplayer") as HTMLButtonElement;
+    const mpPanel = document.getElementById("tab-panel-multiplayer")!;
+    const debugPanel = document.getElementById("tab-panel-debug")!;
+    expect(mpTabBtn.getAttribute("aria-selected")).toBe("true");
+    expect(mpTabBtn.getAttribute("tabindex")).toBe("0");
+    expect(mpPanel.hidden).toBe(false);
+    expect(debugPanel.hidden).toBe(true);
+  });
+
   it("verbose logging toggle is unchecked by default", () => {
     openDebugTab();
     const panel = document.getElementById("tab-panel-debug")!;
