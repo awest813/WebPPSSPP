@@ -1086,8 +1086,6 @@ body {
 
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
   .game-card__remove { opacity: 1; }
-  .game-card__patch,
-  .game-card__change-sys { opacity: 1; }
 
   .modal-box,
   .settings-modal-box { width: 96vw; }
@@ -1737,6 +1735,8 @@ body {
 @media (max-width: 600px) {
   .save-gallery-box { width: 98vw; max-height: 92vh; }
   .save-gallery-grid { grid-template-columns: 1fr; }
+  .game-card__patch,
+  .game-card__change-sys,
   .save-slot-card__edit-btn { opacity: 1; }
 
   .save-slot-card__actions {
