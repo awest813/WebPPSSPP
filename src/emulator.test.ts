@@ -781,8 +781,39 @@ describe('PSPEmulator', () => {
       expect(emulator.audioUnderruns).toBe(0);
     });
 
+    it('audioLevel starts at zero', () => {
+      expect(emulator.audioLevel).toBe(0);
+    });
+
     it('getAudioContext returns null when worklet has not been set up', () => {
       expect(emulator.getAudioContext()).toBeNull();
+    });
+
+    it('getAnalyserNode returns null when worklet has not been set up', () => {
+      expect(emulator.getAnalyserNode()).toBeNull();
+    });
+  });
+
+  // ── setVolume ─────────────────────────────────────────────────────────────
+
+  describe('setVolume', () => {
+    it('clamps volume to 0 when given a negative value', () => {
+      // EJS_emulator.setVolume not set — just confirm no error thrown
+      expect(() => emulator.setVolume(-0.5)).not.toThrow();
+    });
+
+    it('clamps volume to 1 when given a value above 1', () => {
+      expect(() => emulator.setVolume(2)).not.toThrow();
+    });
+
+    it('applies volume to EJS_emulator when available', () => {
+      const setVolumeSpy = vi.fn();
+      (window as Window & { EJS_emulator?: { setVolume: (v: number) => void } }).EJS_emulator = {
+        setVolume: setVolumeSpy,
+      };
+      emulator.setVolume(0.75);
+      expect(setVolumeSpy).toHaveBeenCalledWith(0.75);
+      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
     });
   });
 

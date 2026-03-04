@@ -117,6 +117,8 @@ export interface AudioCapabilities {
   audioWorklet: boolean;
   /** The native sample rate of the audio output device in Hz. */
   sampleRate: number | null;
+  /** Maximum number of output channels supported by the audio hardware, or null if unavailable. */
+  maxChannelCount: number | null;
   /**
    * Suggested audio buffer tier: "low" = minimal latency (≤8 ms base),
    * "medium" = comfortable (≤20 ms), "high" = conservative (>20 ms or unknown).
@@ -707,6 +709,7 @@ export async function detectAudioCapabilities(
       outputLatencyMs: null,
       audioWorklet,
       sampleRate: null,
+      maxChannelCount: null,
       suggestedBufferTier: "medium",
     };
 
@@ -721,6 +724,7 @@ export async function detectAudioCapabilities(
       const baseLatencyMs    = (ctx.baseLatency   ?? null) !== null ? (ctx.baseLatency   * 1000) : null;
       const outputLatencyMs  = (ctx.outputLatency  ?? null) !== null ? (ctx.outputLatency * 1000) : null;
       const sampleRate       = ctx.sampleRate;
+      const maxChannelCount  = ctx.destination.maxChannelCount ?? null;
 
       await ctx.close();
 
@@ -731,7 +735,7 @@ export async function detectAudioCapabilities(
         else                     suggestedBufferTier = "high";
       }
 
-      return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, suggestedBufferTier };
+      return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, maxChannelCount, suggestedBufferTier };
     } catch {
       return fallback;
     }

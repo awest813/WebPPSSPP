@@ -354,6 +354,7 @@ describe('performance', () => {
         baseLatency: 0.01,
         outputLatency: 0.02,
         sampleRate: 48000,
+        destination: { maxChannelCount: 2 },
         suspend: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
       }));
@@ -376,6 +377,7 @@ describe('performance', () => {
         baseLatency: 0.015,
         outputLatency: 0.03,
         sampleRate: 44100,
+        destination: { maxChannelCount: 6 },
         suspend: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
       }));
@@ -390,6 +392,46 @@ describe('performance', () => {
       await detectAudioCapabilities({ forceRefresh: true });
 
       expect(ctorSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns maxChannelCount from hardware destination', async () => {
+      const ctorSpy = vi.fn(() => ({
+        baseLatency: 0.005,
+        outputLatency: 0.01,
+        sampleRate: 48000,
+        destination: { maxChannelCount: 8 },
+        suspend: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      Object.defineProperty(window, 'AudioContext', {
+        value: ctorSpy,
+        configurable: true,
+        writable: true,
+      });
+
+      const caps = await detectAudioCapabilities();
+      expect(caps.maxChannelCount).toBe(8);
+    });
+
+    it('returns null for maxChannelCount when destination is unavailable', async () => {
+      const ctorSpy = vi.fn(() => ({
+        baseLatency: 0.01,
+        outputLatency: 0.02,
+        sampleRate: 48000,
+        // no destination — simulates context that does not expose it
+        suspend: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      Object.defineProperty(window, 'AudioContext', {
+        value: ctorSpy,
+        configurable: true,
+        writable: true,
+      });
+
+      const caps = await detectAudioCapabilities();
+      expect(caps.maxChannelCount).toBeNull();
     });
   });
 

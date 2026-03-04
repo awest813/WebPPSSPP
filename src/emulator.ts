@@ -355,7 +355,9 @@ export class PSPEmulator {
   private _audioWorkletCtx: AudioContext | null = null;
   private _audioWorkletCtxOwned = false;
   private _audioWorkletNode: AudioWorkletNode | null = null;
+  private _audioAnalyserNode: AnalyserNode | null = null;
   private _audioUnderruns = 0;
+  private _audioLevel = 0;
   /** Timestamp (ms) when sustained low FPS was first detected; 0 when FPS is healthy. */
   private _lowFPSStartTime = 0;
   /**
@@ -379,6 +381,8 @@ export class PSPEmulator {
   onLowFPS?:      (averageFPS: number, tier: PerformanceTier | null) => void | Promise<void>;
   /** Fired when an audio underrun is detected via the AudioWorklet processor. */
   onAudioUnderrun?: (count: number) => void;
+  /** Fired periodically with the current RMS audio level (0–1) from the worklet. */
+  onAudioLevel?: (rms: number) => void;
   /**
    * Fired when auto-save is triggered (tab close / visibility hidden).
    * The handler should persist the save state asynchronously.
@@ -403,6 +407,8 @@ export class PSPEmulator {
   get webgpuAdapterInfo(): WebGPUAdapterInfo | null { return this._webgpuAdapterInfo; }
   /** The number of audio underruns detected since the last game launch. */
   get audioUnderruns(): number { return this._audioUnderruns; }
+  /** The most recently reported RMS audio level (0–1) from the worklet. */
+  get audioLevel(): number { return this._audioLevel; }
   /** The raw GPUDevice, if acquired. Null when WebGPU is unavailable or not yet warmed. */
   get webgpuDevice(): GPUDevice | null { return this._webgpuDevice; }
   /** True if the post-processing pipeline is actively rendering. */
@@ -950,6 +956,9 @@ export class PSPEmulator {
    * context destination. Otherwise we attach it to a standalone context
    * for monitoring purposes only.
    *
+   * After setup the audio graph is:
+   *   AL sources → workletNode (gain + metering) → analyserNode → destination
+   *
    * @param workletBaseUrl  Base URL for loading audio-processor.js (pass
    *                        `import.meta.url` or the app origin).
    */
@@ -962,12 +971,17 @@ export class PSPEmulator {
       const ctx = ejsCtx ?? new AudioContext({ latencyHint: "playback" });
       const ctxOwned = !ejsCtx;
 
+      // Resume a suspended context (may happen due to autoplay policy)
+      if (ctx.state === "suspended") {
+        await ctx.resume().catch(() => { /* best-effort */ });
+      }
+
       const processorUrl = new URL("/audio-processor.js", workletBaseUrl).href;
       await ctx.audioWorklet.addModule(processorUrl);
 
       const workletNode = new AudioWorkletNode(ctx, "retrovault-audio-processor");
 
-      workletNode.port.onmessage = (e: MessageEvent<{ type: string; count: number }>) => {
+      workletNode.port.onmessage = (e: MessageEvent<{ type: string; count: number; rms: number }>) => {
         if (e.data.type === "underrun") {
           this._audioUnderruns += e.data.count;
           this.onAudioUnderrun?.(this._audioUnderruns);
@@ -976,8 +990,16 @@ export class PSPEmulator {
             `${this._audioUnderruns} total). ` +
             "Consider increasing the audio buffer size."
           );
+        } else if (e.data.type === "level") {
+          this._audioLevel = e.data.rms;
+          this.onAudioLevel?.(e.data.rms);
         }
       };
+
+      // AnalyserNode sits after the worklet so the UI can visualise post-gain output
+      const analyserNode = ctx.createAnalyser();
+      analyserNode.fftSize = 256;
+      analyserNode.smoothingTimeConstant = 0.75;
 
       if (ejsCtx) {
         // Connect worklet into the EJS audio graph
@@ -986,12 +1008,14 @@ export class PSPEmulator {
           const gainNodes = Object.values(alCtx.sources).map(s => s.gain);
           gainNodes.forEach(g => g.connect(workletNode));
         }
-        workletNode.connect(ctx.destination);
       }
+      workletNode.connect(analyserNode);
+      analyserNode.connect(ctx.destination);
 
       this._audioWorkletCtx  = ctx;
       this._audioWorkletCtxOwned = ctxOwned;
       this._audioWorkletNode = workletNode;
+      this._audioAnalyserNode = analyserNode;
 
       console.info("[RetroVault] AudioWorklet path active — reduced-latency audio enabled.");
       return true;
@@ -1007,6 +1031,16 @@ export class PSPEmulator {
    */
   getAudioContext(): AudioContext | null {
     return this._audioWorkletCtx;
+  }
+
+  /**
+   * Get the AnalyserNode wired after the AudioWorklet output.
+   * Use this to build frequency-domain or time-domain visualisers without
+   * duplicating the audio graph wiring.
+   * Returns null if the worklet hasn't been set up.
+   */
+  getAnalyserNode(): AnalyserNode | null {
+    return this._audioAnalyserNode;
   }
 
   /**
@@ -1080,8 +1114,9 @@ export class PSPEmulator {
       this._activeTier = tier;
       this._resetAdaptiveQualityState();
 
-      // Reset audio underrun counter for the new session
+      // Reset audio underrun counter and level for the new session
       this._audioUnderruns = 0;
+      this._audioLevel = 0;
 
       let ejsSettings: Record<string, string>;
 
@@ -1288,7 +1323,13 @@ export class PSPEmulator {
   }
 
   setVolume(volume: number): void {
-    window.EJS_emulator?.setVolume(Math.max(0, Math.min(1, volume)));
+    const clamped = Math.max(0, Math.min(1, volume));
+    window.EJS_emulator?.setVolume(clamped);
+    // Also update the worklet gain parameter so volume is reflected in the audio graph
+    if (this._audioWorkletNode && this._audioWorkletCtx) {
+      const gainParam = this._audioWorkletNode.parameters.get("gain");
+      if (gainParam) gainParam.setValueAtTime(clamped, this._audioWorkletCtx.currentTime);
+    }
   }
 
   pause(): void {
@@ -1587,7 +1628,12 @@ export class PSPEmulator {
     try {
       this._audioWorkletNode?.disconnect();
     } catch { /* ignore */ }
+    try {
+      this._audioAnalyserNode?.disconnect();
+    } catch { /* ignore */ }
     this._audioWorkletNode = null;
+    this._audioAnalyserNode = null;
+    this._audioLevel = 0;
     // Close the AudioContext only when we created it (not shared with EJS).
     if (this._audioWorkletCtxOwned && this._audioWorkletCtx) {
       this._audioWorkletCtx.close().catch(() => { /* best-effort */ });

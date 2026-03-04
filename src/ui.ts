@@ -2205,9 +2205,8 @@ export async function showTierDowngradePrompt(
 // ── Audio Visualiser ──────────────────────────────────────────────────────────
 
 class AudioVisualiser {
-  private _ctx: AudioContext | null = null;
   private _analyser: AnalyserNode | null = null;
-  private _merger: ChannelMergerNode | null = null;
+  private _ownedAnalyser = false; // true when we created the analyser (must disconnect on stop)
   private _rafId: number | null = null;
   private _canvas: HTMLCanvasElement | null = null;
   private _2d: CanvasRenderingContext2D | null = null;
@@ -2218,7 +2217,7 @@ class AudioVisualiser {
   start(emulatorRef?: import("./emulator.js").PSPEmulator): boolean {
     if (this._rafId !== null) {
       if (this._canvas) this._canvas.hidden = false;
-      return this._ctx !== null;
+      return this._analyser !== null;
     }
 
     this._canvas = document.getElementById("fps-visualiser") as HTMLCanvasElement | null;
@@ -2226,49 +2225,48 @@ class AudioVisualiser {
     this._2d = this._canvas.getContext("2d");
     if (!this._2d) return false;
 
-    const ejsCtx = (window as Window & { EJS_emulator?: { Module?: { AL?: { currentCtx?: { audioCtx?: AudioContext } } } } })
-      .EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
-    this._ctx = emulatorRef?.getAudioContext() ?? ejsCtx ?? null;
-
-    if (!this._ctx) { this._drawNoSignal(); return false; }
-
-    this._analyser = this._ctx.createAnalyser();
-    this._analyser.fftSize = 256;
-    this._analyser.smoothingTimeConstant = 0.75;
-    this._buffer = new Uint8Array(this._analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>;
-
-    let analyserConnected = false;
-    try {
-      const alCtx = (window as Window & { EJS_emulator?: { Module?: { AL?: { currentCtx?: { audioCtx?: AudioContext; sources?: Record<string, { gain: GainNode }> } } } } })
+    // Prefer the emulator's pre-wired analyser (post-gain, already connected)
+    const emulatorAnalyser = emulatorRef?.getAnalyserNode() ?? null;
+    if (emulatorAnalyser) {
+      this._analyser = emulatorAnalyser;
+      this._ownedAnalyser = false;
+    } else {
+      // Fall back: create our own analyser connected to AL sources
+      const ejsCtx = (window as Window & { EJS_emulator?: { Module?: { AL?: { currentCtx?: { audioCtx?: AudioContext; sources?: Record<string, { gain: GainNode }> } } } } })
         .EJS_emulator?.Module?.AL?.currentCtx;
-      if (alCtx?.sources && alCtx.audioCtx === this._ctx) {
-        const gainNodes = Object.values(alCtx.sources).map(s => s.gain);
-        const merger = this._ctx.createChannelMerger(Math.max(1, gainNodes.length));
-        gainNodes.forEach((g, i) => g.connect(merger, 0, Math.min(i, gainNodes.length - 1)));
-        merger.connect(this._analyser);
-        this._merger = merger;
-        analyserConnected = true;
+      const ctx = ejsCtx?.audioCtx ?? emulatorRef?.getAudioContext() ?? null;
+      if (ctx && ejsCtx?.sources) {
+        try {
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.75;
+          const gainNodes = Object.values(ejsCtx.sources).map(s => s.gain);
+          gainNodes.forEach(g => g.connect(analyser));
+          analyser.connect(ctx.destination);
+          this._analyser = analyser;
+          this._ownedAnalyser = true;
+        } catch { /* connection failed */ }
       }
-    } catch { /* connection failed */ }
+    }
 
     this._canvas.hidden = false;
-    if (analyserConnected) {
+    if (this._analyser) {
+      this._buffer = new Uint8Array(this._analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>;
       this._loop();
     } else {
-      // No audio sources accessible — show a static "no signal" indicator.
       this._drawNoSignal();
     }
-    return true;
+    return this._analyser !== null;
   }
 
   stop(): void {
     if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
-    try { this._merger?.disconnect(); } catch { /* ignore */ }
-    try { this._analyser?.disconnect(); } catch { /* ignore */ }
-    this._merger = null;
+    if (this._ownedAnalyser) {
+      try { this._analyser?.disconnect(); } catch { /* ignore */ }
+    }
     this._analyser = null;
+    this._ownedAnalyser = false;
     this._buffer = null;
-    this._ctx = null;
     if (this._canvas) this._canvas.hidden = true;
   }
 
@@ -2283,24 +2281,28 @@ class AudioVisualiser {
 
   private _draw(): void {
     if (!this._2d || !this._canvas || !this._analyser || !this._buffer) return;
-    this._analyser.getByteTimeDomainData(this._buffer);
+    // Use frequency-domain data for bar display (more informative than waveform)
+    this._analyser.getByteFrequencyData(this._buffer);
     const { width, height } = this._canvas;
     const ctx = this._2d;
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(0, 0, width, height);
-    ctx.beginPath();
-    ctx.strokeStyle = "#4caf50";
-    ctx.lineWidth = 1.5;
-    const sliceWidth = width / this._buffer.length;
-    let x = 0;
-    for (let i = 0; i < this._buffer.length; i++) {
-      const v = this._buffer[i] / 128.0;
-      const y = (v * height) / 2;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      x += sliceWidth;
+
+    const barCount = this._buffer.length;
+    // Clamp to at least 1px per bar; when canvas is narrow, render fewer bars
+    const barWidth = width / barCount;
+    const step = barWidth >= 1 ? 1 : Math.ceil(1 / barWidth);
+    const drawCount = Math.floor(barCount / step);
+    const drawBarWidth = width / drawCount;
+    for (let i = 0; i < drawCount; i++) {
+      const magnitude = this._buffer[i * step] / 255;
+      const barHeight = magnitude * height;
+      // Colour shifts from green (quiet) → yellow → red (loud)
+      const hue = Math.round(120 - magnitude * 120);
+      ctx.fillStyle = `hsl(${hue},80%,50%)`;
+      ctx.fillRect(i * drawBarWidth, height - barHeight, Math.max(1, drawBarWidth - 1), barHeight);
     }
-    ctx.stroke();
   }
 
   private _drawNoSignal(): void {
