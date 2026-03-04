@@ -156,6 +156,23 @@ describe('PSPEmulator', () => {
     });
   });
 
+  describe('prefetchCore', () => {
+    it('prefetches mGBA assets for gba system id', () => {
+      const jsUrl = `${EJS_CDN_BASE}cores/mgba_libretro.js`;
+      const wasmUrl = `${EJS_CDN_BASE}cores/mgba_libretro.wasm`;
+
+      emulator.prefetchCore('gba');
+
+      const jsLink = document.head.querySelector(`link[href="${jsUrl}"]`);
+      const wasmLink = document.head.querySelector(`link[href="${wasmUrl}"]`);
+
+      expect(jsLink).not.toBeNull();
+      expect(jsLink?.getAttribute('rel')).toBe('prefetch');
+      expect(wasmLink).not.toBeNull();
+      expect(wasmLink?.getAttribute('rel')).toBe('prefetch');
+    });
+  });
+
   // ── Launch guards ─────────────────────────────────────────────────────────
 
   describe('launch', () => {
@@ -905,6 +922,14 @@ describe('PSPEmulator', () => {
         configurable: true,
         writable: true,
       });
+    });
+
+    it('clears EJS_Settings on dispose teardown', () => {
+      window.EJS_Settings = { ppsspp_internal_resolution: '2' };
+
+      emulator.dispose();
+
+      expect(window.EJS_Settings).toBeUndefined();
     });
   });
 

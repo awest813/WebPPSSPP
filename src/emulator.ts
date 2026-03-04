@@ -139,6 +139,10 @@ const CORE_PREFETCH_MAP: Record<string, { js: string; wasm: string }> = {
     js:   "cores/desmume2015_libretro.js",
     wasm: "cores/desmume2015_libretro.wasm",
   },
+  gba: {
+    js:   "cores/mgba_libretro.js",
+    wasm: "cores/mgba_libretro.wasm",
+  },
   // ── Phase 3 additions ────────────────────────────────────────────────────
   segaSaturn: {
     js:   "cores/mednafen_saturn_libretro.js",
@@ -1703,6 +1707,7 @@ export class PSPEmulator {
     delete window.EJS_ready;
     delete window.EJS_onGameStart;
     delete window.EJS_biosUrl;
+    delete window.EJS_Settings;
     this._currentSystem = null;
     this._activeTier = null;
     this._setState("idle");
