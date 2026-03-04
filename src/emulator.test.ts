@@ -251,6 +251,53 @@ describe('PSPEmulator', () => {
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0]).toContain('already loading');
     });
+
+    it('preserves "loading" state when launch() is called while already loading', async () => {
+      const stateChanges: string[] = [];
+      emulator.onStateChange = (s) => stateChanges.push(s);
+      emulator.onError = () => {};
+
+      // Simulate an in-flight load
+      (emulator as unknown as { _state: string })._state = 'loading';
+
+      const fakeFile = new File(['data'], 'game.iso');
+      await emulator.launch({
+        file:            fakeFile,
+        volume:          0.7,
+        systemId:        'psp',
+        performanceMode: 'auto',
+        deviceCaps:      {
+          deviceMemoryGB: 4,
+          cpuCores: 4,
+          gpuRenderer: 'unknown',
+          isSoftwareGPU: false,
+          isLowSpec: false,
+          isChromOS: false,
+          recommendedMode: 'quality' as const,
+          tier: 'medium' as const,
+          gpuCaps: {
+            renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+            maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+            anisotropicFiltering: false, maxAnisotropy: 0,
+            floatTextures: false, halfFloatTextures: false,
+            instancedArrays: false, webgl2: false,
+            vertexArrayObject: false, compressedTextures: false,
+            maxColorAttachments: 1, multiDraw: false,
+          },
+          gpuBenchmarkScore: 30,
+          prefersReducedMotion: false,
+          webgpuAvailable: false,
+          connectionQuality: 'unknown' as const,
+          jsHeapLimitMB: null,
+        },
+      });
+
+      // State must remain "loading" — the in-flight load is still active.
+      // Previously this bug caused state to change to "error", which would
+      // hide the loading overlay while the game was still booting.
+      expect(emulator.state).toBe('loading');
+      expect(stateChanges).toHaveLength(0);
+    });
   });
 
   // ── FPS snapshot ──────────────────────────────────────────────────────────

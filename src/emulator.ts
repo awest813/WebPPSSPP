@@ -321,8 +321,10 @@ export interface LaunchOptions {
   tierOverride?: PerformanceTier;
   /**
    * Blob URL for the system BIOS file (e.g. PS1 SCPH-5501, Saturn BIOS).
-   * Set EJS_biosUrl when provided. The caller is responsible for revoking
-   * this URL after launch (the emulator holds it for the session duration).
+   * Set EJS_biosUrl when provided. The emulator takes ownership of revoking
+   * this URL when the session ends. If the launch fails due to a preflight
+   * error (unknown system, bad file extension, etc.) the emulator will not
+   * have stored the URL, so the caller must perform a defensive revoke.
    */
   biosUrl?: string;
 }
@@ -1019,7 +1021,10 @@ export class PSPEmulator {
 
   async launch(opts: LaunchOptions): Promise<void> {
     if (this._state === "loading") {
-      this._emitError("Emulator is already loading. Please wait.");
+      // The emulator is already loading — notify the caller without changing
+      // state. Transitioning to "error" here would be incorrect because the
+      // in-flight load is still active and will eventually reach "running".
+      this.onError?.("Emulator is already loading. Please wait.");
       return;
     }
 
@@ -1055,8 +1060,6 @@ export class PSPEmulator {
 
     this._setState("loading");
     this._emit("onProgress", "Preparing game file…");
-
-    this._revokeBlobUrl();
 
     // ── Probe audio latency in parallel with blob URL creation ─────────────
     // detectAudioCapabilities() is async and short; running it before we reach
