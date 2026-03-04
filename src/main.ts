@@ -370,14 +370,18 @@ function main(): void {
 
     await emulator.launch({
       file,
-      volume:          settings.volume,
+      volume:              settings.volume,
       systemId,
-      performanceMode: settings.performanceMode,
+      performanceMode:     settings.performanceMode,
       deviceCaps,
-      tierOverride:    resolvedTier,
+      tierOverride:        resolvedTier,
       biosUrl,
       netplayManager,
       gameId,
+      // When a game already exists in the library the user may have manually
+      // reassigned its system type.  Trust their choice and skip the extension
+      // check so the emulator doesn't refuse to launch the file.
+      skipExtensionCheck:  !!gameId,
     });
 
     // launch() reports failures via state/onError instead of throwing.

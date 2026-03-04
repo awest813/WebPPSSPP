@@ -10,7 +10,8 @@ describe('systems performance profiles', () => {
     });
 
     it('detects unique extensions correctly', () => {
-      const pspDetected = detectSystem('game.iso');
+      // .cso is unique to PSP (ISO compressed)
+      const pspDetected = detectSystem('game.cso');
       expect(Array.isArray(pspDetected)).toBe(false);
       expect(pspDetected && !Array.isArray(pspDetected) ? pspDetected.id : null).toBe('psp');
 
@@ -19,8 +20,25 @@ describe('systems performance profiles', () => {
       expect(gbaDetected && !Array.isArray(gbaDetected) ? gbaDetected.id : null).toBe('gba');
     });
 
+    it('.iso is shared between PSP and PSX — returns an array of candidates', () => {
+      const detected = detectSystem('game.iso');
+      expect(Array.isArray(detected)).toBe(true);
+      const ids = (detected as import('./systems').SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('psp');
+      expect(ids).toContain('psx');
+    });
+
+    it('.pbp is shared between PSP and PSX — returns an array of candidates', () => {
+      const detected = detectSystem('eboot.pbp');
+      expect(Array.isArray(detected)).toBe(true);
+      const ids = (detected as import('./systems').SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('psp');
+      expect(ids).toContain('psx');
+    });
+
     it('handles case insensitivity for extensions', () => {
-      const detected = detectSystem('GAME.ISO');
+      // .CSO is unique to PSP (use cso instead of iso since iso is now shared)
+      const detected = detectSystem('GAME.CSO');
       expect(Array.isArray(detected)).toBe(false);
       expect(detected && !Array.isArray(detected) ? detected.id : null).toBe('psp');
     });

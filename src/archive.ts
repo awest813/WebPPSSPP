@@ -288,10 +288,12 @@ export async function extractFromZip(
 }
 
 /**
- * Check if a file extension indicates an archive format we handle.
+ * Check if a file extension indicates an archive format we recognise.
+ * ZIP (.zip) is automatically extracted; 7-Zip (.7z) and RAR (.rar) must
+ * be extracted manually before importing.
  */
 export function isArchiveExtension(ext: string): boolean {
-  return ext === "zip" || ext === "7z";
+  return ext === "zip" || ext === "7z" || ext === "rar";
 }
 
 /**
@@ -299,4 +301,4 @@ export function isArchiveExtension(ext: string): boolean {
  */
 export const ARCHIVE_SUPPORT_NOTE =
   "ZIP archives are automatically extracted. " +
-  "7-Zip (.7z) files must be extracted manually before importing.";
+  "7-Zip (.7z) and RAR (.rar) files must be extracted manually before importing.";
