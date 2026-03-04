@@ -1241,6 +1241,8 @@ export class PSPEmulator {
 
       // ── Lifecycle callbacks ───────────────────────────────────────────────
       window.EJS_ready = () => {
+        // Ignore stale callbacks from a torn-down/replaced core instance.
+        if (this._state !== "loading") return;
         this._emit("onProgress", "Booting game…");
         if (this.verboseLogging) {
           console.info("[RetroVault] EJS_ready fired — core loaded, booting game.");
@@ -1248,6 +1250,8 @@ export class PSPEmulator {
       };
 
       window.EJS_onGameStart = () => {
+        // Ignore stale callbacks from a torn-down/replaced core instance.
+        if (this._state !== "loading") return;
         if (this.verboseLogging) {
           console.info("[RetroVault] EJS_onGameStart fired — game is running.");
         }

@@ -560,9 +560,27 @@ function main(): void {
       }
       // Show or hide the touch controls overlay immediately when the setting changes
       // while a game is running so the user sees the effect without relaunching.
-      if (typeof patch.touchControls === "boolean" && touchOverlay) {
-        if (patch.touchControls) touchOverlay.show();
-        else touchOverlay.hide();
+      if (typeof patch.touchControls === "boolean") {
+        void (async () => {
+          if (!isTouchDevice()) return;
+
+          if (patch.touchControls) {
+            if (!touchOverlay && currentSystemId && (emulator.state === "running" || emulator.state === "paused")) {
+              const ejsContainer = document.getElementById("ejs-container");
+              if (ejsContainer) {
+                const { TouchControlsOverlay } = await import("./touchControls.js");
+                touchOverlay = new TouchControlsOverlay(ejsContainer, currentSystemId, settings.hapticFeedback);
+              }
+            }
+            if (touchOverlay) {
+              if (currentSystemId) touchOverlay.setSystem(currentSystemId);
+              touchOverlay.setHapticEnabled(settings.hapticFeedback);
+              touchOverlay.show();
+            }
+          } else {
+            touchOverlay?.hide();
+          }
+        })();
       }
       // Sync verbose logging flag so debug output can be toggled without reload.
       if (typeof patch.verboseLogging === "boolean") {

@@ -441,6 +441,37 @@ describe('PSPEmulator', () => {
       vi.advanceTimersByTime(120_000);
       expect(errors).toHaveLength(0);
     });
+
+    it('ignores stale EJS lifecycle callbacks after dispose teardown', async () => {
+      const progress: string[] = [];
+      emulator.onProgress = (msg) => progress.push(msg);
+
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        () => Promise.resolve();
+
+      await emulator.launch({
+        file:            nesFile,
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      nesCaps,
+      });
+
+      expect(emulator.state).toBe('loading');
+
+      const staleReady = window.EJS_ready;
+      const staleOnGameStart = window.EJS_onGameStart;
+
+      emulator.dispose();
+      expect(emulator.state).toBe('idle');
+
+      staleReady?.();
+      staleOnGameStart?.();
+
+      // Stale references must not revive emulator state or emit progress.
+      expect(emulator.state).toBe('idle');
+      expect(progress).not.toContain('Booting game…');
+    });
   });
 
   // ── verboseLogging ────────────────────────────────────────────────────────
