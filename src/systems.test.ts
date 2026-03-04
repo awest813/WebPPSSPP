@@ -36,6 +36,18 @@ describe('systems performance profiles', () => {
       expect(ids).toContain('psx');
     });
 
+    it('.bin is accepted as a PS1 file format', () => {
+      const detected = detectSystem('game.bin');
+      // .bin may only match psx, or could be shared with other systems
+      // Either way, psx must be in the result
+      if (Array.isArray(detected)) {
+        const ids = (detected as import('./systems').SystemInfo[]).map(s => s.id);
+        expect(ids).toContain('psx');
+      } else {
+        expect(detected?.id).toBe('psx');
+      }
+    });
+
     it('handles case insensitivity for extensions', () => {
       // .CSO is unique to PSP (use cso instead of iso since iso is now shared)
       const detected = detectSystem('GAME.CSO');
