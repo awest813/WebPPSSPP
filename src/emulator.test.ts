@@ -1020,6 +1020,32 @@ describe('PSPEmulator', () => {
     // Helper: access the private _checkAdaptiveQuality method
     type EmuInternal = { _checkAdaptiveQuality: (fps: number) => void };
 
+    it('does not emit low-FPS warning logs when verboseLogging is disabled', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const baseTime = 6_000_000;
+
+      vi.spyOn(performance, 'now').mockReturnValue(baseTime);
+      (emulator as unknown as EmuInternal)._checkAdaptiveQuality(20);
+      vi.spyOn(performance, 'now').mockReturnValue(baseTime + 10_100);
+      (emulator as unknown as EmuInternal)._checkAdaptiveQuality(20);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('emits low-FPS warning logs when verboseLogging is enabled', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      emulator.verboseLogging = true;
+      const baseTime = 7_000_000;
+
+      vi.spyOn(performance, 'now').mockReturnValue(baseTime);
+      (emulator as unknown as EmuInternal)._checkAdaptiveQuality(20);
+      vi.spyOn(performance, 'now').mockReturnValue(baseTime + 10_100);
+      (emulator as unknown as EmuInternal)._checkAdaptiveQuality(20);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]?.[0]).toContain("Sustained low FPS");
+    });
+
     it('does not fire onLowFPS before 10 seconds of sustained low FPS', () => {
       const lowFPSEvents: number[] = [];
       emulator.onLowFPS = (fps) => { lowFPSEvents.push(fps); };

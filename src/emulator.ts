@@ -1598,11 +1598,13 @@ export class PSPEmulator {
       ) {
         this._lastQualitySuggestionTime = now;
         this._lowFPSStartTime = 0;
-        console.warn(
-          `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
-          `detected on tier "${this._activeTier ?? "unknown"}". ` +
-          "Consider switching to Performance mode for a smoother experience."
-        );
+        if (this.verboseLogging) {
+          console.warn(
+            `[RetroVault] Sustained low FPS (avg ${averageFPS.toFixed(1)} fps) ` +
+            `detected on tier "${this._activeTier ?? "unknown"}". ` +
+            "Consider switching to Performance mode for a smoother experience."
+          );
+        }
         void this.onLowFPS?.(Math.round(averageFPS), this._activeTier);
       }
     } else {
