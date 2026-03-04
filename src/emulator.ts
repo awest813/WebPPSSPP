@@ -352,6 +352,15 @@ export interface LaunchOptions {
    * `netplayManager` is active; ignored otherwise.
    */
   gameId?: string;
+  /**
+   * When true, skip the file-extension validation check in the emulator.
+   *
+   * Set this when launching a game that already exists in the library, where
+   * the user may have manually reassigned the system via the "change system"
+   * feature. In that case the file extension may not match the new system's
+   * accepted extensions, but the user's explicit choice should be respected.
+   */
+  skipExtensionCheck?: boolean;
 }
 
 // ── PSPEmulator ───────────────────────────────────────────────────────────────
@@ -1107,7 +1116,7 @@ export class PSPEmulator {
     const fileName = opts.fileName
       ?? (opts.file instanceof File ? opts.file.name : "game.bin");
 
-    if (!this._validateFileExt(fileName, system)) return;
+    if (!this._validateFileExt(fileName, system, opts.skipExtensionCheck)) return;
 
     // ── Large ROM warning ───────────────────────────────────────────────────
     if (opts.file.size > LARGE_ROM_THRESHOLD) {
@@ -1584,7 +1593,8 @@ export class PSPEmulator {
     this.onError?.(msg);
   }
 
-  private _validateFileExt(fileName: string, system: SystemInfo): boolean {
+  private _validateFileExt(fileName: string, system: SystemInfo, skipCheck?: boolean): boolean {
+    if (skipCheck) return true;
     const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
     if (!system.extensions.includes(ext)) {
       this._emitError(

@@ -894,6 +894,15 @@ export async function resolveSystemAndAdd(
     return;
   }
 
+  // RAR archives cannot be extracted in the browser — show a helpful hint.
+  if (ext === "rar") {
+    showError(
+      "RAR archives are not supported for automatic extraction.\n\n" +
+      "Please extract the archive first and then import the ROM file directly."
+    );
+    return;
+  }
+
   let resolvedFile = file;
 
   // ZIP is extraction-capable. 7z is treated as a native package and routed

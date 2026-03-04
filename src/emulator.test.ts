@@ -999,6 +999,78 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── skipExtensionCheck in LaunchOptions ───────────────────────────────────
+
+  describe('launch with skipExtensionCheck', () => {
+    const fakeCaps = {
+      deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      recommendedMode: 'quality' as const, tier: 'medium' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      },
+      gpuBenchmarkScore: 30, prefersReducedMotion: false,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+    };
+
+    it('emits "Unsupported file type" when extension mismatches system (default behavior)', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      // .gba extension does not belong to the NES system
+      const fakeFile = new File(['data'], 'game.gba');
+      await emulator.launch({
+        file:            fakeFile,
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      fakeCaps,
+      });
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('Unsupported file type');
+    });
+
+    it('bypasses extension check and does not emit "Unsupported file type" when skipExtensionCheck is true', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      vi.stubGlobal('URL', {
+        ...URL,
+        createObjectURL: vi.fn(() => 'blob:fake-url'),
+        revokeObjectURL: vi.fn(),
+      });
+      const marker = document.createElement('script');
+      marker.setAttribute('data-ejs-loader', 'true');
+      document.body.appendChild(marker);
+
+      // .gba extension does not belong to the NES system, but skipExtensionCheck
+      // prevents the pre-flight rejection — used when the user manually changes
+      // the system for an existing library game.
+      const fakeFile = new File(['data'], 'game.gba');
+      await emulator.launch({
+        file:               fakeFile,
+        volume:             0.7,
+        systemId:           'nes',
+        performanceMode:    'auto',
+        deviceCaps:         fakeCaps,
+        skipExtensionCheck: true,
+      });
+
+      const extErrors = errors.filter(e => e.includes('Unsupported file type'));
+      expect(extErrors).toHaveLength(0);
+
+      vi.unstubAllGlobals();
+      document.querySelector('script[data-ejs-loader]')?.remove();
+    });
+  });
+
   // ── Netplay EJS globals ───────────────────────────────────────────────────
 
   describe('launch — netplay EJS globals', () => {

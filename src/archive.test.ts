@@ -235,6 +235,9 @@ describe('isArchiveExtension', () => {
     expect(isArchiveExtension('7z')).toBe(true);
   });
 
+  it('returns true for "rar"', () => {
+    expect(isArchiveExtension('rar')).toBe(true);
+  });
   it('returns false for ROM extensions', () => {
     expect(isArchiveExtension('nes')).toBe(false);
     expect(isArchiveExtension('sfc')).toBe(false);
@@ -256,6 +259,10 @@ describe('ARCHIVE_SUPPORT_NOTE', () => {
 
   it('mentions 7-Zip limitation', () => {
     expect(ARCHIVE_SUPPORT_NOTE).toContain('7');
+  });
+
+  it('mentions RAR limitation', () => {
+    expect(ARCHIVE_SUPPORT_NOTE).toContain('RAR');
   });
 });
 
