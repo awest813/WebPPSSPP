@@ -2183,8 +2183,16 @@ function buildMultiplayerTab(
     placeholder: "wss://netplay.example.com",
     value:       settings.netplayServerUrl,
   }) as HTMLInputElement;
+  urlInput.addEventListener("input", () => urlInput.setCustomValidity(""));
   urlInput.addEventListener("change", () => {
     const url = urlInput.value.trim();
+    const err = netplayManager?.validateServerUrl(url) ?? null;
+    if (err) {
+      urlInput.setCustomValidity(err);
+      urlInput.reportValidity();
+      return;
+    }
+    urlInput.setCustomValidity("");
     onSettingsChange({ netplayServerUrl: url });
     netplayManager?.setServerUrl(url);
   });

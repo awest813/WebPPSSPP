@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { PSPEmulator, EJS_CDN_BASE } from './emulator';
+import { NetplayManager } from './multiplayer';
 
 describe('PSPEmulator', () => {
   let emulator: PSPEmulator;
@@ -995,6 +996,157 @@ describe('PSPEmulator', () => {
       // The error here is "Unknown system", not a tierOverride crash
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0]).toContain('Unknown system');
+    });
+  });
+
+  // ── Netplay EJS globals ───────────────────────────────────────────────────
+
+  describe('launch — netplay EJS globals', () => {
+    const fakeCaps = {
+      deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      recommendedMode: 'quality' as const, tier: 'medium' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      },
+      gpuBenchmarkScore: 30, prefersReducedMotion: false,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+    };
+
+    beforeEach(() => {
+      localStorage.clear();
+      // jsdom does not implement URL.createObjectURL; stub it so launch() can
+      // reach the EJS-globals section without throwing.
+      vi.stubGlobal('URL', {
+        ...URL,
+        createObjectURL: vi.fn(() => 'blob:fake-url'),
+        revokeObjectURL: vi.fn(),
+      });
+      // _loadScript() resolves immediately when the marker script already exists
+      const marker = document.createElement('script');
+      marker.setAttribute('data-ejs-loader', 'true');
+      document.body.appendChild(marker);
+      // Clean up any netplay globals left from a previous test
+      delete (window as Record<string, unknown>).EJS_netplayServer;
+      delete (window as Record<string, unknown>).EJS_netplayICEServers;
+      delete (window as Record<string, unknown>).EJS_gameID;
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+      vi.unstubAllGlobals();
+      document.querySelector('script[data-ejs-loader]')?.remove();
+      delete (window as Record<string, unknown>).EJS_netplayServer;
+      delete (window as Record<string, unknown>).EJS_netplayICEServers;
+      delete (window as Record<string, unknown>).EJS_gameID;
+    });
+
+    it('sets EJS netplay globals when netplay is active and a gameId is provided', async () => {
+      const mgr = new NetplayManager();
+      mgr.setEnabled(true);
+      mgr.setServerUrl('wss://netplay.example.com');
+
+      emulator.onError = () => {};
+      await emulator.launch({
+        file:           new File(['data'], 'game.nes'),
+        volume:         0.7,
+        systemId:       'nes',
+        performanceMode:'auto',
+        deviceCaps:     fakeCaps,
+        netplayManager: mgr,
+        gameId:         'psp-game-test',
+      });
+
+      expect((window as Record<string, unknown>).EJS_netplayServer).toBe('wss://netplay.example.com');
+      expect((window as Record<string, unknown>).EJS_netplayICEServers).toBeDefined();
+      expect(typeof (window as Record<string, unknown>).EJS_gameID).toBe('number');
+      expect((window as Record<string, unknown>).EJS_gameID as number).toBeGreaterThan(0);
+    });
+
+    it('does not set EJS netplay globals when netplay is disabled', async () => {
+      const mgr = new NetplayManager();
+      mgr.setEnabled(false);
+      mgr.setServerUrl('wss://netplay.example.com');
+
+      emulator.onError = () => {};
+      await emulator.launch({
+        file:           new File(['data'], 'game.nes'),
+        volume:         0.7,
+        systemId:       'nes',
+        performanceMode:'auto',
+        deviceCaps:     fakeCaps,
+        netplayManager: mgr,
+        gameId:         'psp-game-test',
+      });
+
+      expect((window as Record<string, unknown>).EJS_netplayServer).toBeUndefined();
+      expect((window as Record<string, unknown>).EJS_gameID).toBeUndefined();
+    });
+
+    it('does not set EJS netplay globals when server URL is empty', async () => {
+      const mgr = new NetplayManager();
+      mgr.setEnabled(true);
+      mgr.setServerUrl('');
+
+      emulator.onError = () => {};
+      await emulator.launch({
+        file:           new File(['data'], 'game.nes'),
+        volume:         0.7,
+        systemId:       'nes',
+        performanceMode:'auto',
+        deviceCaps:     fakeCaps,
+        netplayManager: mgr,
+        gameId:         'psp-game-test',
+      });
+
+      expect((window as Record<string, unknown>).EJS_netplayServer).toBeUndefined();
+      expect((window as Record<string, unknown>).EJS_gameID).toBeUndefined();
+    });
+
+    it('does not set EJS netplay globals when no gameId is provided', async () => {
+      const mgr = new NetplayManager();
+      mgr.setEnabled(true);
+      mgr.setServerUrl('wss://netplay.example.com');
+
+      emulator.onError = () => {};
+      await emulator.launch({
+        file:           new File(['data'], 'game.nes'),
+        volume:         0.7,
+        systemId:       'nes',
+        performanceMode:'auto',
+        deviceCaps:     fakeCaps,
+        netplayManager: mgr,
+        // gameId intentionally omitted
+      });
+
+      expect((window as Record<string, unknown>).EJS_netplayServer).toBeUndefined();
+      expect((window as Record<string, unknown>).EJS_gameID).toBeUndefined();
+    });
+
+    it('EJS_gameID is derived from the gameId string deterministically', async () => {
+      const mgr = new NetplayManager();
+      mgr.setEnabled(true);
+      mgr.setServerUrl('wss://netplay.example.com');
+
+      emulator.onError = () => {};
+      await emulator.launch({
+        file:           new File(['data'], 'game.nes'),
+        volume:         0.7,
+        systemId:       'nes',
+        performanceMode:'auto',
+        deviceCaps:     fakeCaps,
+        netplayManager: mgr,
+        gameId:         'psp-game-ff7',
+      });
+
+      const id = (window as Record<string, unknown>).EJS_gameID as number;
+      expect(id).toBe(mgr.gameIdFor('psp-game-ff7'));
     });
   });
 });

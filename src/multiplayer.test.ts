@@ -150,3 +150,63 @@ describe('NetplayManager', () => {
     expect(mgr.iceServers).toEqual(DEFAULT_ICE_SERVERS);
   });
 });
+
+// ── NetplayManager.validateServerUrl ─────────────────────────────────────────
+
+describe('NetplayManager.validateServerUrl', () => {
+  let mgr: NetplayManager;
+
+  beforeEach(() => {
+    localStorage.clear();
+    mgr = new NetplayManager();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns null for an empty string (unset)', () => {
+    expect(mgr.validateServerUrl('')).toBeNull();
+  });
+
+  it('returns null for a whitespace-only string (unset)', () => {
+    expect(mgr.validateServerUrl('   ')).toBeNull();
+  });
+
+  it('returns null for a valid wss:// URL', () => {
+    expect(mgr.validateServerUrl('wss://netplay.example.com')).toBeNull();
+  });
+
+  it('returns null for a valid ws:// URL', () => {
+    expect(mgr.validateServerUrl('ws://localhost:8080')).toBeNull();
+  });
+
+  it('returns null for wss:// URL with path and port', () => {
+    expect(mgr.validateServerUrl('wss://netplay.example.com:3000/socket')).toBeNull();
+  });
+
+  it('returns an error for http:// URL', () => {
+    const err = mgr.validateServerUrl('http://example.com');
+    expect(err).not.toBeNull();
+    expect(err).toContain('ws://');
+  });
+
+  it('returns an error for https:// URL', () => {
+    const err = mgr.validateServerUrl('https://example.com');
+    expect(err).not.toBeNull();
+    expect(err).toContain('ws://');
+  });
+
+  it('returns an error for a plain hostname without scheme', () => {
+    const err = mgr.validateServerUrl('netplay.example.com');
+    expect(err).not.toBeNull();
+    expect(err).toContain('ws://');
+  });
+
+  it('returns an error for a syntactically invalid URL after wss://', () => {
+    // 'wss://' with no host is rejected by the URL constructor
+    const err = mgr.validateServerUrl('wss://');
+    expect(err).not.toBeNull();
+    expect(err).toContain('valid URL');
+  });
+});

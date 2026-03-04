@@ -121,6 +121,32 @@ export class NetplayManager {
     return hashGameId(gameId);
   }
 
+  /**
+   * Validate a netplay server URL string.
+   *
+   * Returns `null` when the URL is valid (or empty, which means "not yet
+   * configured").  Returns a human-readable error message when the URL is
+   * present but malformed.
+   *
+   * Rules:
+   *  - An empty / whitespace-only string is considered unset — returns `null`.
+   *  - A non-empty string must begin with `ws://` or `wss://` (case-insensitive).
+   *  - The remaining portion must be parseable by the `URL` constructor.
+   */
+  validateServerUrl(url: string): string | null {
+    const trimmed = url.trim();
+    if (trimmed.length === 0) return null;
+    if (!/^wss?:\/\//i.test(trimmed)) {
+      return "Server URL must start with ws:// or wss://";
+    }
+    try {
+      new URL(trimmed);
+    } catch {
+      return "Server URL is not a valid URL";
+    }
+    return null;
+  }
+
   // ── Persistence ────────────────────────────────────────────────────────────
 
   private _load(): NetplaySettings {
