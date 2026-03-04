@@ -1268,6 +1268,8 @@ body {
 
 .game-card__change-sys:hover { background: rgba(80, 200, 120, 0.35); }
 
+.game-card__change-sys:focus-visible { opacity: 1; outline: 2px solid #50c878; outline-offset: 2px; }
+
 /* ── BIOS management UI ────────────────────────────────────── */
 .bios-grid { display: flex; flex-direction: column; gap: 14px; }
 

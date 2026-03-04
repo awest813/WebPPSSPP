@@ -2159,7 +2159,7 @@ function buildDebugTab(
   ));
   const adapterInfo = emulatorRef?.webgpuAdapterInfo;
   const adapterLabel = (adapterInfo?.vendor || adapterInfo?.device)
-    ? `${adapterInfo.device ?? adapterInfo.vendor}${adapterInfo.isFallbackAdapter ? " (software)" : ""}`
+    ? `${adapterInfo.device || adapterInfo.vendor}${adapterInfo.isFallbackAdapter ? " (software)" : ""}`
     : null;
   if (adapterLabel) {
     stateSection.appendChild(make("p", { class: "device-info" },
