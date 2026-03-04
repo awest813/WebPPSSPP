@@ -787,6 +787,31 @@ export class WebGPUPostProcessor {
     return this._cachedBindGroup;
   }
 
+  /**
+   * Safely acquire the current swapchain texture view from the WebGPU canvas.
+   *
+   * `getCurrentTexture()` can throw or transiently return invalid handles when
+   * the canvas/swapchain is being reconfigured (or in test mocks). In that
+   * case, skip this frame instead of surfacing an uncaught exception.
+   */
+  private _acquireCurrentTextureView(): GPUTextureView | null {
+    if (!this._gpuContext) return null;
+
+    let currentTexture: GPUTexture | null = null;
+    try {
+      currentTexture = this._gpuContext.getCurrentTexture();
+    } catch {
+      return null;
+    }
+    if (!currentTexture) return null;
+
+    try {
+      return currentTexture.createView();
+    } catch {
+      return null;
+    }
+  }
+
   private _renderFrame(targetView?: GPUTextureView): void {
     if (!this._sourceCanvas || !this._gpuContext || !this._effectPipeline || !this._sampler) {
       return;
@@ -823,7 +848,8 @@ export class WebGPUPostProcessor {
     const bindGroup = this._ensureBindGroup();
     if (!bindGroup) return;
 
-    const view = targetView ?? this._gpuContext.getCurrentTexture().createView();
+    const view = targetView ?? this._acquireCurrentTextureView();
+    if (!view) return;
 
     const encoder = this._device.createCommandEncoder();
 
@@ -932,7 +958,14 @@ export class WebGPUPostProcessor {
     if (this._rafId !== null) return;
     const loop = () => {
       if (!this._active || this._config.effect === "none") return;
-      this._renderFrame();
+      try {
+        this._renderFrame();
+      } catch (err) {
+        console.warn("[RetroVault] WebGPU post-process frame failed — stopping render loop.", err);
+        this._stopLoop();
+        this._hideOverlay();
+        return;
+      }
       this._rafId = requestAnimationFrame(loop);
     };
     this._rafId = requestAnimationFrame(loop);

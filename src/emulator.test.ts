@@ -1118,6 +1118,37 @@ describe('PSPEmulator', () => {
       emulator.setPostProcessEffect('crt');
       expect(() => emulator.setPostProcessEffect('none')).not.toThrow();
     });
+
+    it('does not retain inactive post-processor instances after attach failure', () => {
+      const player = document.getElementById('test-player');
+      expect(player).not.toBeNull();
+      const canvas = document.createElement('canvas');
+      player!.appendChild(canvas);
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((contextId: string) => {
+        if (contextId === 'webgpu') return null;
+        return null;
+      });
+
+      emulator.setPostProcessEffect('crt');
+      (emulator as unknown as {
+        _state: 'idle' | 'loading' | 'running' | 'paused' | 'error';
+        _webgpuDevice: GPUDevice | null;
+      })._state = 'running';
+      (emulator as unknown as { _webgpuDevice: GPUDevice | null })._webgpuDevice = {
+        features: new Set<string>(),
+      } as unknown as GPUDevice;
+
+      (emulator as unknown as { _attachPostProcessor: () => void })._attachPostProcessor();
+
+      expect((emulator as unknown as { _postProcessor: unknown })._postProcessor).toBeNull();
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[RetroVault] WebGPU post-processing requested but could not be activated.'
+      );
+    });
   });
 
   // ── Async screenshot ──────────────────────────────────────────────────────

@@ -1770,11 +1770,17 @@ export class PSPEmulator {
     if (!canvas) return;
 
     try {
-      this._postProcessor = new WebGPUPostProcessor(
+      const postProcessor = new WebGPUPostProcessor(
         this._webgpuDevice,
         this._postProcessConfig,
       );
-      this._postProcessor.attach(canvas, playerEl);
+      postProcessor.attach(canvas, playerEl);
+      if (!postProcessor.active) {
+        postProcessor.dispose();
+        console.warn("[RetroVault] WebGPU post-processing requested but could not be activated.");
+        return;
+      }
+      this._postProcessor = postProcessor;
       console.info(
         `[RetroVault] WebGPU post-processing active — effect: ${this._postProcessConfig.effect}`
       );

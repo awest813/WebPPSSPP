@@ -91,6 +91,7 @@ describe("WebGPUPostProcessor", () => {
 
   afterEach(() => {
     container.remove();
+    vi.restoreAllMocks();
   });
 
   describe("construction", () => {
@@ -238,7 +239,87 @@ describe("WebGPUPostProcessor", () => {
       pp.attach(sourceCanvas, container);
 
       expect(device.createQuerySet).toHaveBeenCalledTimes(2);
+      pp.dispose();
 
+      getContextSpy.mockRestore();
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        writable: true,
+        value: originalGPU,
+      });
+    });
+  });
+
+  describe("render-loop resilience", () => {
+    it("skips frame safely when getCurrentTexture returns undefined", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
+
+      const webgpuContext = {
+        configure: vi.fn(),
+        getCurrentTexture: vi.fn().mockReturnValue(undefined),
+      };
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, "getContext")
+        .mockImplementation((contextId: "webgpu") => {
+          if (contextId === "webgpu") return webgpuContext as unknown as GPUCanvasContext;
+          return null;
+        });
+      const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+      const originalGPU = navigator.gpu;
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        writable: true,
+        value: { getPreferredCanvasFormat: vi.fn().mockReturnValue("bgra8unorm") },
+      });
+
+      pp.attach(sourceCanvas, container);
+      expect(() => {
+        (pp as unknown as { _renderFrame: () => void })._renderFrame();
+      }).not.toThrow();
+      expect(device.queue.submit).not.toHaveBeenCalled();
+
+      pp.dispose();
+      expect(rafSpy).toHaveBeenCalled();
+      getContextSpy.mockRestore();
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        writable: true,
+        value: originalGPU,
+      });
+    });
+
+    it("skips frame safely when getCurrentTexture throws", () => {
+      const { device } = createMockGPUDevice();
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
+
+      const webgpuContext = {
+        configure: vi.fn(),
+        getCurrentTexture: vi.fn(() => {
+          throw new Error("context-lost");
+        }),
+      };
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, "getContext")
+        .mockImplementation((contextId: "webgpu") => {
+          if (contextId === "webgpu") return webgpuContext as unknown as GPUCanvasContext;
+          return null;
+        });
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+      const originalGPU = navigator.gpu;
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        writable: true,
+        value: { getPreferredCanvasFormat: vi.fn().mockReturnValue("bgra8unorm") },
+      });
+
+      pp.attach(sourceCanvas, container);
+      expect(() => {
+        (pp as unknown as { _renderFrame: () => void })._renderFrame();
+      }).not.toThrow();
+      expect(device.queue.submit).not.toHaveBeenCalled();
+
+      pp.dispose();
       getContextSpy.mockRestore();
       Object.defineProperty(navigator, "gpu", {
         configurable: true,
