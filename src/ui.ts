@@ -17,6 +17,10 @@
  *   F1  → Reset
  *   Esc → Return to library
  *
+ * All shortcut handlers use the capture phase and stopPropagation() so the
+ * intercepted keys never reach the EmulatorJS key-input handler, while all
+ * regular game-control keys (arrows, letters, etc.) pass through untouched.
+ *
  * Global keyboard shortcuts (always active):
  *   F9  → Open Settings → Debug tab
  */
@@ -418,21 +422,43 @@ export function initUI(opts: UIOptions): void {
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // Register in the capture phase (third argument `true`) so our shortcuts
+  // are processed before the EmulatorJS keydown handler (which listens on the
+  // player element). Calling stopPropagation() here prevents F5/F7/F1/F9/Esc
+  // from ever reaching EmulatorJS while all other keys (game controls) pass
+  // through normally and are handled by EmulatorJS as expected.
   document.addEventListener("keydown", (e) => {
     // F9 opens the Debug tab from anywhere (landing or in-game)
     if (e.key === "F9") {
       e.preventDefault();
+      e.stopPropagation();
       openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, "debug");
       return;
     }
     if (emulator.state !== "running") return;
     switch (e.key) {
-      case "F5":  e.preventDefault(); void quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1); break;
-      case "F7":  e.preventDefault(); emulator.quickLoad(1);   break;
-      case "F1":  e.preventDefault(); emulator.reset();        break;
-      case "Escape": onReturnToLibrary();                       break;
+      case "F5":
+        e.preventDefault();
+        e.stopPropagation();
+        void quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1);
+        break;
+      case "F7":
+        e.preventDefault();
+        e.stopPropagation();
+        emulator.quickLoad(1);
+        break;
+      case "F1":
+        e.preventDefault();
+        e.stopPropagation();
+        emulator.reset();
+        break;
+      case "Escape":
+        e.preventDefault();
+        e.stopPropagation();
+        onReturnToLibrary();
+        break;
     }
-  });
+  }, { capture: true });
 
   // ── Landing header controls ───────────────────────────────────────────────
   buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, undefined, saveLibrary, netplayManager);

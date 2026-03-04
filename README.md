@@ -79,6 +79,8 @@ Open **http://localhost:5173** in Chrome or Firefox.
 
 All cores are fetched on-demand from the EmulatorJS CDN at game launch — nothing is bundled with the app.
 
+> **PS1 core note:** EmulatorJS exposes two PS1 cores — PCSX ReARMed and Beetle PSX HW (`mednafen_psx_hw`). RetroVault explicitly forces Beetle PSX HW via the `retroarch_core` setting so that the granular `beetle_psx_*` quality options (PGXP, GPU overclock, internal resolution) actually take effect. Without this override EmulatorJS silently defaults to PCSX ReARMed and all per-tier settings are ignored.
+
 ---
 
 ## Performance Tiers
@@ -208,7 +210,10 @@ RetroVault provides a full save state system independent of EmulatorJS's built-i
 | **F5** | Quick Save (slot 1) |
 | **F7** | Quick Load (slot 1) |
 | **F1** | Reset game |
+| **F9** | Open Settings → Debug tab |
 | **Esc** | Return to library |
+
+> **How shortcuts coexist with game controls:** RetroVault registers its shortcut handler in the browser's capture phase, before EmulatorJS processes keyboard input. F5/F7/F1/F9/Esc are intercepted and `stopPropagation()` is called so they never reach the emulator's key handler. All other keys (arrows, letters, etc.) pass through normally and are handled by EmulatorJS for game input.
 
 ---
 
@@ -321,6 +326,8 @@ docs/
 | X / Y | A / S | Start / Select | Enter / Shift |
 | L / R | Q / W | | |
 
+> The keys above (arrows, letters, Enter, Shift, Q, W, Z, X, A, S) go directly to EmulatorJS and are remappable in the in-game Settings menu. RetroVault's own shortcuts (F1/F5/F7/F9/Esc) are intercepted **before** they reach the emulator so there is no conflict.
+
 **Gamepad:** plug in a USB or Bluetooth gamepad — EmulatorJS maps it automatically via the Web Gamepad API.
 
 **Mobile:** virtual D-pad and buttons appear automatically on touch-screen devices.
@@ -337,6 +344,7 @@ docs/
 | FPS | Toggle FPS overlay |
 | Edit | Rearrange touch control layout |
 | Volume | Adjust volume (persisted) |
+| Settings (F9) | Open Settings → Debug tab (works from any view) |
 
 ---
 

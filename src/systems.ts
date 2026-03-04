@@ -479,6 +479,9 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
  */
 const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
+    // Force Beetle PSX HW (mednafen_psx_hw) over the EmulatorJS default of
+    // pcsx_rearmed. All beetle_psx_* options below require this core.
+    retroarch_core: "mednafen_psx_hw",
     beetle_psx_internal_resolution: "1x(native)",
     beetle_psx_frame_duping_enable: "enabled",
     beetle_psx_filter: "nearest",
@@ -497,6 +500,7 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_cd_fastload: "2x(native)",
   },
   medium: {
+    retroarch_core: "mednafen_psx_hw",
     beetle_psx_internal_resolution: "1x(native)",
     beetle_psx_frame_duping_enable: "enabled",
     beetle_psx_filter: "nearest",
@@ -514,6 +518,7 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_cd_fastload: "4x",
   },
   high: {
+    retroarch_core: "mednafen_psx_hw",
     beetle_psx_internal_resolution: "2x",
     beetle_psx_frame_duping_enable: "disabled",
     // Bilinear filtering smooths textures at higher internal resolutions
@@ -534,6 +539,7 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_cd_fastload: "6x",
   },
   ultra: {
+    retroarch_core: "mednafen_psx_hw",
     // 8x internal resolution: extremely sharp geometry at the cost of GPU bandwidth
     beetle_psx_internal_resolution: "8x",
     beetle_psx_frame_duping_enable: "disabled",
