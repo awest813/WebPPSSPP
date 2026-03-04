@@ -55,6 +55,12 @@ declare global {
     EJS_ready?:        () => void;
     EJS_onGameStart?:  () => void;
     EJS_emulator?:     EJSEmulatorInstance;
+    /** Netplay signalling server WebSocket URL (set when netplay is active). */
+    EJS_netplayServer?:     string;
+    /** ICE server list forwarded to WebRTC peer connections. */
+    EJS_netplayICEServers?: RTCIceServer[];
+    /** Numeric room-scoping ID derived from the game's string identifier. */
+    EJS_gameID?:            number;
   }
 }
 

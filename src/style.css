@@ -1187,6 +1187,25 @@ body {
 /* ── ICE server editable list ───────────────────────────────── */
 .netplay-ice-list { margin-bottom: 8px; }
 
+/* ── Netplay status badge ───────────────────────────────────── */
+.netplay-status {
+  font-size: 0.82rem;
+  color: var(--c-text-dim);
+  margin: 6px 0 4px;
+}
+
+.netplay-status::before {
+  content: "○ ";
+}
+
+.netplay-status--active {
+  color: var(--c-accent);
+}
+
+.netplay-status--active::before {
+  content: "● ";
+}
+
 .netplay-ice-row {
   display: flex;
   align-items: center;

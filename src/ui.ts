@@ -1763,7 +1763,7 @@ function buildSettingsContent(
   buildLibraryTab(panels[2], settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
   buildBiosTab(panels[3], biosLibrary);
   buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
-  buildDebugTab(panels[5], deviceCaps, emulatorRef);
+  buildDebugTab(panels[5], deviceCaps, emulatorRef, netplayManager);
 }
 
 // ── Performance tab ───────────────────────────────────────────────────────────
@@ -2150,6 +2150,18 @@ function buildMultiplayerTab(
     "Requires a compatible netplay signalling server."
   ));
 
+  // Status badge — shows whether netplay is ready to use
+  const statusBadge = make("p", { class: "netplay-status" });
+  const updateStatusBadge = () => {
+    const active = netplayManager?.isActive ?? false;
+    statusBadge.textContent = active
+      ? "Netplay active — server configured"
+      : "Netplay inactive — enable and set a server URL to activate";
+    statusBadge.classList.toggle("netplay-status--active", active);
+  };
+  updateStatusBadge();
+  introSection.appendChild(statusBadge);
+
   // Enable toggle
   introSection.appendChild(buildToggleRow(
     "Enable Netplay",
@@ -2159,6 +2171,7 @@ function buildMultiplayerTab(
       onSettingsChange({ netplayEnabled: v });
       netplayManager?.setEnabled(v);
       serverSection.hidden = !v;
+      updateStatusBadge();
     }
   ));
 
@@ -2195,6 +2208,7 @@ function buildMultiplayerTab(
     urlInput.setCustomValidity("");
     onSettingsChange({ netplayServerUrl: url });
     netplayManager?.setServerUrl(url);
+    updateStatusBadge();
   });
   urlRow.append(urlLabel, urlInput);
   serverSection.appendChild(urlRow);
@@ -2285,7 +2299,8 @@ function buildMultiplayerTab(
 function buildDebugTab(
   container:  HTMLElement,
   deviceCaps: DeviceCapabilities,
-  emulatorRef?: import("./emulator.js").PSPEmulator
+  emulatorRef?: import("./emulator.js").PSPEmulator,
+  netplayManager?: import("./multiplayer.js").NetplayManager
 ): void {
   // Environment section
   const envSection = make("div", { class: "settings-section" });
@@ -2369,6 +2384,14 @@ function buildDebugTab(
     if (adapterLabel) {
       lines.push(`WebGPU Adapter: ${adapterLabel}`);
     }
+    lines.push(
+      ``,
+      `[Netplay]`,
+      `Enabled: ${netplayManager?.enabled ?? false}`,
+      `Active: ${netplayManager?.isActive ?? false}`,
+      `Server: ${netplayManager?.serverUrl || "—"}`,
+      `ICE Servers: ${netplayManager?.iceServers.length ?? 0}`,
+    );
 
     navigator.clipboard.writeText(lines.join("\n")).then(() => {
       showInfoToast("Debug info copied to clipboard.");

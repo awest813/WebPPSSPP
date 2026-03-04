@@ -1033,18 +1033,18 @@ describe('PSPEmulator', () => {
       marker.setAttribute('data-ejs-loader', 'true');
       document.body.appendChild(marker);
       // Clean up any netplay globals left from a previous test
-      delete (window as Record<string, unknown>).EJS_netplayServer;
-      delete (window as Record<string, unknown>).EJS_netplayICEServers;
-      delete (window as Record<string, unknown>).EJS_gameID;
+      delete window.EJS_netplayServer;
+      delete window.EJS_netplayICEServers;
+      delete window.EJS_gameID;
     });
 
     afterEach(() => {
       localStorage.clear();
       vi.unstubAllGlobals();
       document.querySelector('script[data-ejs-loader]')?.remove();
-      delete (window as Record<string, unknown>).EJS_netplayServer;
-      delete (window as Record<string, unknown>).EJS_netplayICEServers;
-      delete (window as Record<string, unknown>).EJS_gameID;
+      delete window.EJS_netplayServer;
+      delete window.EJS_netplayICEServers;
+      delete window.EJS_gameID;
     });
 
     it('sets EJS netplay globals when netplay is active and a gameId is provided', async () => {
@@ -1063,10 +1063,10 @@ describe('PSPEmulator', () => {
         gameId:         'psp-game-test',
       });
 
-      expect((window as Record<string, unknown>).EJS_netplayServer).toBe('wss://netplay.example.com');
-      expect((window as Record<string, unknown>).EJS_netplayICEServers).toBeDefined();
-      expect(typeof (window as Record<string, unknown>).EJS_gameID).toBe('number');
-      expect((window as Record<string, unknown>).EJS_gameID as number).toBeGreaterThan(0);
+      expect(window.EJS_netplayServer).toBe('wss://netplay.example.com');
+      expect(window.EJS_netplayICEServers).toBeDefined();
+      expect(typeof window.EJS_gameID).toBe('number');
+      expect(window.EJS_gameID).toBeGreaterThan(0);
     });
 
     it('does not set EJS netplay globals when netplay is disabled', async () => {
@@ -1085,8 +1085,8 @@ describe('PSPEmulator', () => {
         gameId:         'psp-game-test',
       });
 
-      expect((window as Record<string, unknown>).EJS_netplayServer).toBeUndefined();
-      expect((window as Record<string, unknown>).EJS_gameID).toBeUndefined();
+      expect(window.EJS_netplayServer).toBeUndefined();
+      expect(window.EJS_gameID).toBeUndefined();
     });
 
     it('does not set EJS netplay globals when server URL is empty', async () => {
@@ -1105,8 +1105,8 @@ describe('PSPEmulator', () => {
         gameId:         'psp-game-test',
       });
 
-      expect((window as Record<string, unknown>).EJS_netplayServer).toBeUndefined();
-      expect((window as Record<string, unknown>).EJS_gameID).toBeUndefined();
+      expect(window.EJS_netplayServer).toBeUndefined();
+      expect(window.EJS_gameID).toBeUndefined();
     });
 
     it('does not set EJS netplay globals when no gameId is provided', async () => {
@@ -1125,8 +1125,8 @@ describe('PSPEmulator', () => {
         // gameId intentionally omitted
       });
 
-      expect((window as Record<string, unknown>).EJS_netplayServer).toBeUndefined();
-      expect((window as Record<string, unknown>).EJS_gameID).toBeUndefined();
+      expect(window.EJS_netplayServer).toBeUndefined();
+      expect(window.EJS_gameID).toBeUndefined();
     });
 
     it('EJS_gameID is derived from the gameId string deterministically', async () => {
@@ -1145,8 +1145,7 @@ describe('PSPEmulator', () => {
         gameId:         'psp-game-ff7',
       });
 
-      const id = (window as Record<string, unknown>).EJS_gameID as number;
-      expect(id).toBe(mgr.gameIdFor('psp-game-ff7'));
+      expect(window.EJS_gameID).toBe(mgr.gameIdFor('psp-game-ff7'));
     });
   });
 });
