@@ -2192,4 +2192,231 @@ describe('PSPEmulator', () => {
       expect(log1).toEqual(log2);
     });
   });
+
+  // ── FPS snapshot P95 frame time ────────────────────────────────────────────
+
+  describe('getFPS — p95FrameTimeMs', () => {
+    type FPSMonitorInternal = {
+      _ring: Float64Array;
+      _ringHead: number;
+      _ringCount: number;
+      _windowSize: number;
+      getSnapshot(): import('./emulator').FPSSnapshot;
+    };
+    type EmuInternal = { _fpsMonitor: FPSMonitorInternal };
+
+    it('p95FrameTimeMs is 0 in an empty snapshot', () => {
+      const snap = emulator.getFPS();
+      expect(snap.p95FrameTimeMs).toBe(0);
+    });
+
+    it('p95FrameTimeMs equals the single sample when only one frame is recorded', () => {
+      const mon = (emulator as unknown as EmuInternal)._fpsMonitor;
+      // Manually populate the ring buffer with a single delta of 20 ms
+      mon._ring[0] = 20;
+      mon._ringHead = 1;
+      mon._ringCount = 1;
+      const snap = mon.getSnapshot();
+      // P95 of a single sample is that sample itself
+      expect(snap.p95FrameTimeMs).toBe(20);
+    });
+
+    it('p95FrameTimeMs reflects the 95th-percentile frame time across all samples', () => {
+      const mon = (emulator as unknown as EmuInternal)._fpsMonitor;
+      // Fill the ring with 20 samples of 16 ms and then inject two spikes:
+      // one at 100 ms (index 18) and one at 200 ms (index 19).
+      for (let i = 0; i < 20; i++) {
+        mon._ring[i] = 16;
+      }
+      mon._ring[18] = 100;
+      mon._ring[19] = 200;
+      mon._ringHead = 20;
+      mon._ringCount = 20;
+
+      // Sorted 20 samples: 16×18 samples, 100, 200
+      // P95 index = floor(20 × 0.95) = 19, i.e., index 19 → 200 ms
+      const snap = mon.getSnapshot();
+      expect(snap.p95FrameTimeMs).toBe(200);
+    });
+
+    it('p95FrameTimeMs with all identical samples equals that sample', () => {
+      const mon = (emulator as unknown as EmuInternal)._fpsMonitor;
+      const N = 60;
+      for (let i = 0; i < N; i++) mon._ring[i] = 16;
+      mon._ringHead = N;
+      mon._ringCount = N;
+      const snap = mon.getSnapshot();
+      expect(snap.p95FrameTimeMs).toBe(16);
+    });
+
+    it('p95FrameTimeMs is lower than the max frame time when there are isolated spikes', () => {
+      const mon = (emulator as unknown as EmuInternal)._fpsMonitor;
+      // 59 frames at 16 ms, one spike at 500 ms (the last frame)
+      for (let i = 0; i < 60; i++) mon._ring[i] = 16;
+      mon._ring[59] = 500;
+      mon._ringHead = 60;
+      mon._ringCount = 60;
+      const snap = mon.getSnapshot();
+      // P95 index = floor(60 × 0.95) = 57 → sorted[57] = 16 ms (only 1 spike out of 60)
+      expect(snap.p95FrameTimeMs).toBeLessThan(500);
+      expect(snap.p95FrameTimeMs).toBe(16);
+    });
+  });
+
+  // ── MemoryMonitor integration ──────────────────────────────────────────────
+
+  describe('memoryMonitor', () => {
+    it('exposes the MemoryMonitor instance via memoryMonitor getter', () => {
+      expect(emulator.memoryMonitor).toBeDefined();
+    });
+
+    it('memoryMonitor.usedHeapMB returns null in jsdom (performance.memory unavailable)', () => {
+      expect(emulator.memoryMonitor.usedHeapMB).toBeNull();
+    });
+
+    it('memoryMonitor.heapLimitMB returns null in jsdom', () => {
+      expect(emulator.memoryMonitor.heapLimitMB).toBeNull();
+    });
+
+    it('stop() on the memory monitor does not throw when monitor was never started', () => {
+      expect(() => emulator.memoryMonitor.stop()).not.toThrow();
+    });
+
+    it('onMemoryPressure callback is wired — fires when monitor detects pressure', () => {
+      const pressureEvents: [number, number][] = [];
+      emulator.onMemoryPressure = (used, limit) => { pressureEvents.push([used, limit]); };
+
+      // Simulate pressure by mocking performance.memory and calling _check
+      const perfMock = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      Object.defineProperty(perfMock, 'memory', {
+        value: { usedJSHeapSize: 850 * 1024 * 1024, jsHeapSizeLimit: 1000 * 1024 * 1024 },
+        configurable: true,
+      });
+
+      type MonitorInternal = { _check(): void; _lastPressureTime: number };
+      const mon = emulator.memoryMonitor as unknown as MonitorInternal;
+      // Reset cooldown so the callback fires on the first check
+      mon._lastPressureTime = 0;
+      mon._check();
+
+      expect(pressureEvents).toHaveLength(1);
+      expect(pressureEvents[0][0]).toBe(850); // usedMB
+      expect(pressureEvents[0][1]).toBe(1000); // limitMB
+
+      // Cleanup
+      Object.defineProperty(perfMock, 'memory', { value: undefined, configurable: true });
+    });
+  });
+
+  // ── Performance marks ─────────────────────────────────────────────────────
+
+  describe('performance marks', () => {
+    const markTestCaps = {
+      deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      recommendedMode: 'quality' as const, tier: 'high' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 4096,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 4096,
+        anisotropicFiltering: true, maxAnisotropy: 8,
+        floatTextures: true, halfFloatTextures: true,
+        instancedArrays: true, webgl2: true,
+        vertexArrayObject: true, compressedTextures: true,
+        etc2Textures: false, astcTextures: false,
+        maxColorAttachments: 4, multiDraw: false,
+      },
+      gpuBenchmarkScore: 60, prefersReducedMotion: false, webgpuAvailable: false,
+      connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 512,
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+      // NDS requires no SharedArrayBuffer or WebGL2, so pre-flight checks pass
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); };
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+      // Remove any injected performance mock methods
+      try { delete (window.performance as unknown as Record<string, unknown>)['mark']; } catch { /* ignore */ }
+      try { delete (window.performance as unknown as Record<string, unknown>)['measure']; } catch { /* ignore */ }
+    });
+
+    it('records retrovault:launch mark when launch() is called', async () => {
+      const marks: string[] = [];
+      Object.defineProperty(window.performance, 'mark', {
+        value: (name: string) => { marks.push(name); return {} as PerformanceMark; },
+        writable: true, configurable: true,
+      });
+      Object.defineProperty(window.performance, 'measure', {
+        value: () => ({} as PerformanceMeasure),
+        writable: true, configurable: true,
+      });
+
+      await emulator.launch({
+        file: new File(['data'], 'game.nds'),
+        volume: 0.5,
+        systemId: 'nds',
+        performanceMode: 'auto',
+        deviceCaps: markTestCaps,
+      });
+
+      expect(marks).toContain('retrovault:launch');
+    });
+
+    it('does not throw when performance.mark is unavailable (graceful degradation)', async () => {
+      // jsdom does not provide performance.mark by default — verify the launch
+      // continues normally when the mark API is absent (try/catch guard).
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      // Do NOT install mock — performance.mark is absent in jsdom
+      await emulator.launch({
+        file: new File(['data'], 'game.nds'),
+        volume: 0.5,
+        systemId: 'nds',
+        performanceMode: 'auto',
+        deviceCaps: markTestCaps,
+      });
+
+      // The launch should not emit any performance-API-related error
+      const perfErrors = errors.filter(e => e.toLowerCase().includes('mark'));
+      expect(perfErrors).toHaveLength(0);
+    });
+
+    it('records retrovault:core-ready and retrovault:game-start marks on game lifecycle', async () => {
+      const marks: string[] = [];
+      const measures: string[] = [];
+      Object.defineProperty(window.performance, 'mark', {
+        value: (name: string) => { marks.push(name); return {} as PerformanceMark; },
+        writable: true, configurable: true,
+      });
+      Object.defineProperty(window.performance, 'measure', {
+        value: (name: string) => { measures.push(name); return {} as PerformanceMeasure; },
+        writable: true, configurable: true,
+      });
+
+      await emulator.launch({
+        file: new File(['data'], 'game.nds'),
+        volume: 0.5,
+        systemId: 'nds',
+        performanceMode: 'auto',
+        deviceCaps: markTestCaps,
+      });
+
+      // Simulate EJS_ready and EJS_onGameStart firing
+      window.EJS_ready?.();
+      window.EJS_onGameStart?.();
+
+      expect(marks).toContain('retrovault:core-ready');
+      expect(marks).toContain('retrovault:game-start');
+      expect(measures).toContain('retrovault:launch-to-ready');
+      expect(measures).toContain('retrovault:ready-to-game-start');
+    });
+  });
 });

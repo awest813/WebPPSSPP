@@ -24,7 +24,7 @@ import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail, stateBytesToBlob } from "./saves.js";
-import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary } from "./performance.js";
+import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary, scheduleIdleTask } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
          buildLandingControls, showTierDowngradePrompt,
@@ -250,18 +250,10 @@ function main(): void {
   // first render frame. preWarmWebGL and warmUpPSPPipeline each create a
   // throwaway WebGL context and compile shaders, which blocks the main
   // thread for up to ~20ms on slower devices.
-  if ("requestIdleCallback" in window) {
-    window.requestIdleCallback!(() => emulator.preWarmWebGL());
-    window.requestIdleCallback!(() => emulator.warmUpPSPPipeline());
-    window.requestIdleCallback!(() => emulator.preWarmShaderCache().catch(() => {}));
-    window.requestIdleCallback!(() => emulator.prefetchLoader());
-  } else {
-    // Fallback for browsers without requestIdleCallback (Safari < 16.4)
-    setTimeout(() => emulator.preWarmWebGL(), 500);
-    setTimeout(() => emulator.warmUpPSPPipeline(), 1000);
-    setTimeout(() => emulator.preWarmShaderCache().catch(() => {}), 3000);
-    setTimeout(() => emulator.prefetchLoader(), 2000);
-  }
+  scheduleIdleTask(() => emulator.preWarmWebGL());
+  scheduleIdleTask(() => emulator.warmUpPSPPipeline());
+  scheduleIdleTask(() => emulator.preWarmShaderCache().catch(() => {}));
+  scheduleIdleTask(() => emulator.prefetchLoader());
 
   // 4b. Battery status — asynchronously check if the device is low on battery.
   // If so, auto-switch to "performance" mode when the user hasn't made a manual

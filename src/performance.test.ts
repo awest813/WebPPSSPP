@@ -16,6 +16,8 @@ import {
   resolveTier,
   estimateConnectionQuality,
   estimateVRAM,
+  MemoryMonitor,
+  scheduleIdleTask,
   DeviceCapabilities,
   GPUCapabilities,
 } from './performance';
@@ -918,6 +920,247 @@ describe('performance', () => {
       expect(() => clearCapabilitiesCache()).not.toThrow();
       // After clearing, sessionStorage should not have the key
       expect(sessionStorage.getItem('retrovault-devcaps-v1')).toBeNull();
+    });
+  });
+
+  // ── MemoryMonitor ──────────────────────────────────────────────────────────
+
+  describe('MemoryMonitor', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('usedHeapMB returns null when performance.memory is unavailable', () => {
+      const monitor = new MemoryMonitor();
+      // jsdom does not expose performance.memory
+      expect(monitor.usedHeapMB).toBeNull();
+    });
+
+    it('heapLimitMB returns null when performance.memory is unavailable', () => {
+      const monitor = new MemoryMonitor();
+      expect(monitor.heapLimitMB).toBeNull();
+    });
+
+    it('stop() does not throw when the monitor was never started', () => {
+      const monitor = new MemoryMonitor();
+      expect(() => monitor.stop()).not.toThrow();
+    });
+
+    it('start() does not throw', () => {
+      const monitor = new MemoryMonitor();
+      expect(() => monitor.start()).not.toThrow();
+      monitor.stop();
+    });
+
+    it('start() is idempotent — calling twice does not start two intervals', () => {
+      const monitor = new MemoryMonitor();
+      const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+      monitor.start();
+      monitor.start(); // second call should be a no-op
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+      monitor.stop();
+    });
+
+    it('stop() clears the interval', () => {
+      const monitor = new MemoryMonitor();
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+      monitor.start();
+      monitor.stop();
+      expect(clearIntervalSpy).toHaveBeenCalled();
+    });
+
+    it('stop() can be called multiple times without error', () => {
+      const monitor = new MemoryMonitor();
+      monitor.start();
+      monitor.stop();
+      expect(() => monitor.stop()).not.toThrow();
+    });
+
+    it('fires onPressure when heap usage exceeds 80% of limit', () => {
+      const monitor = new MemoryMonitor();
+      const pressureEvents: [number, number][] = [];
+      monitor.onPressure = (used, limit) => pressureEvents.push([used, limit]);
+
+      const perfMock = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      Object.defineProperty(perfMock, 'memory', {
+        value: { usedJSHeapSize: 850 * 1024 * 1024, jsHeapSizeLimit: 1000 * 1024 * 1024 },
+        configurable: true,
+      });
+
+      type MonitorInternal = { _check(): void; _lastPressureTime: number };
+      const mon = monitor as unknown as MonitorInternal;
+      mon._lastPressureTime = 0;
+      mon._check();
+
+      expect(pressureEvents).toHaveLength(1);
+      expect(pressureEvents[0][0]).toBe(850);
+      expect(pressureEvents[0][1]).toBe(1000);
+
+      Object.defineProperty(perfMock, 'memory', { value: undefined, configurable: true });
+    });
+
+    it('does NOT fire onPressure when heap usage is below 80% of limit', () => {
+      const monitor = new MemoryMonitor();
+      const pressureEvents: unknown[] = [];
+      monitor.onPressure = () => pressureEvents.push(true);
+
+      const perfMock = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      Object.defineProperty(perfMock, 'memory', {
+        value: { usedJSHeapSize: 700 * 1024 * 1024, jsHeapSizeLimit: 1000 * 1024 * 1024 },
+        configurable: true,
+      });
+
+      type MonitorInternal = { _check(): void; _lastPressureTime: number };
+      const mon = monitor as unknown as MonitorInternal;
+      mon._lastPressureTime = 0;
+      mon._check();
+
+      expect(pressureEvents).toHaveLength(0);
+
+      Object.defineProperty(perfMock, 'memory', { value: undefined, configurable: true });
+    });
+
+    it('respects the 30 s cooldown — does not fire twice within the window', () => {
+      const monitor = new MemoryMonitor();
+      const pressureEvents: unknown[] = [];
+      monitor.onPressure = () => pressureEvents.push(true);
+
+      const perfMock = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      Object.defineProperty(perfMock, 'memory', {
+        value: { usedJSHeapSize: 900 * 1024 * 1024, jsHeapSizeLimit: 1000 * 1024 * 1024 },
+        configurable: true,
+      });
+
+      type MonitorInternal = { _check(): void; _lastPressureTime: number };
+      const mon = monitor as unknown as MonitorInternal;
+      // Fire the first pressure notification
+      mon._lastPressureTime = 0;
+      mon._check();
+      expect(pressureEvents).toHaveLength(1);
+
+      // Immediately check again — cooldown should suppress the second callback
+      mon._check();
+      expect(pressureEvents).toHaveLength(1);
+
+      Object.defineProperty(perfMock, 'memory', { value: undefined, configurable: true });
+    });
+
+    it('fires again after the cooldown period has elapsed', () => {
+      const monitor = new MemoryMonitor();
+      const pressureEvents: unknown[] = [];
+      monitor.onPressure = () => pressureEvents.push(true);
+
+      const perfMock = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      Object.defineProperty(perfMock, 'memory', {
+        value: { usedJSHeapSize: 900 * 1024 * 1024, jsHeapSizeLimit: 1000 * 1024 * 1024 },
+        configurable: true,
+      });
+
+      type MonitorInternal = { _check(): void; _lastPressureTime: number };
+      const mon = monitor as unknown as MonitorInternal;
+
+      // First notification
+      mon._lastPressureTime = 0;
+      mon._check();
+      expect(pressureEvents).toHaveLength(1);
+
+      // Simulate the cooldown having elapsed by backdating _lastPressureTime
+      mon._lastPressureTime = Date.now() - 31_000;
+      mon._check();
+      expect(pressureEvents).toHaveLength(2);
+
+      Object.defineProperty(perfMock, 'memory', { value: undefined, configurable: true });
+    });
+
+    it('does not throw when performance.memory is absent during _check', () => {
+      const monitor = new MemoryMonitor();
+      type MonitorInternal = { _check(): void };
+      expect(() => (monitor as unknown as MonitorInternal)._check()).not.toThrow();
+    });
+
+    it('usedHeapMB reads the mocked value when performance.memory is available', () => {
+      const monitor = new MemoryMonitor();
+      const perfMock = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      Object.defineProperty(perfMock, 'memory', {
+        value: { usedJSHeapSize: 512 * 1024 * 1024, jsHeapSizeLimit: 2048 * 1024 * 1024 },
+        configurable: true,
+      });
+
+      expect(monitor.usedHeapMB).toBe(512);
+      expect(monitor.heapLimitMB).toBe(2048);
+
+      Object.defineProperty(perfMock, 'memory', { value: undefined, configurable: true });
+    });
+  });
+
+  // ── scheduleIdleTask ───────────────────────────────────────────────────────
+
+  describe('scheduleIdleTask', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('invokes the task via setTimeout when requestIdleCallback is unavailable', async () => {
+      // jsdom does not provide requestIdleCallback, so the fallback path runs
+      const results: string[] = [];
+      vi.useFakeTimers();
+      scheduleIdleTask(() => results.push('ran'));
+      expect(results).toHaveLength(0);  // not yet called
+      await vi.runAllTimersAsync();
+      expect(results).toHaveLength(1);
+      expect(results[0]).toBe('ran');
+    });
+
+    it('invokes the task via requestIdleCallback when available', async () => {
+      const results: string[] = [];
+      let capturedCallback: (() => void) | null = null;
+
+      // Temporarily install a mock requestIdleCallback
+      const original = (globalThis as Record<string, unknown>).requestIdleCallback;
+      (globalThis as Record<string, unknown>).requestIdleCallback = (cb: () => void) => {
+        capturedCallback = cb;
+        return 1;
+      };
+
+      scheduleIdleTask(() => results.push('idle'));
+      expect(capturedCallback).not.toBeNull();
+      expect(results).toHaveLength(0);
+
+      // Invoke the captured callback as the browser would
+      capturedCallback!();
+      expect(results).toHaveLength(1);
+      expect(results[0]).toBe('idle');
+
+      // Restore
+      (globalThis as Record<string, unknown>).requestIdleCallback = original;
+    });
+
+    it('respects the custom timeoutMs parameter', () => {
+      const capturedOpts: { timeout?: number }[] = [];
+      const original = (globalThis as Record<string, unknown>).requestIdleCallback;
+      (globalThis as Record<string, unknown>).requestIdleCallback = (
+        _cb: () => void,
+        opts: { timeout?: number }
+      ) => {
+        capturedOpts.push(opts);
+        return 1;
+      };
+
+      scheduleIdleTask(() => {}, 5000);
+      expect(capturedOpts[0].timeout).toBe(5000);
+
+      (globalThis as Record<string, unknown>).requestIdleCallback = original;
     });
   });
 });

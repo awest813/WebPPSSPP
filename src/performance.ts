@@ -771,6 +771,146 @@ export function clearCapabilitiesCache(): void {
   } catch { /* ignore */ }
 }
 
+// ── Memory pressure monitoring ────────────────────────────────────────────────
+
+/**
+ * Monitors JS heap usage and fires a callback when the heap approaches its
+ * browser-imposed limit.
+ *
+ * Uses the non-standard (Chrome-only) `performance.memory` API. On browsers
+ * that do not expose this API the monitor is a no-op — `usedHeapMB` and
+ * `heapLimitMB` return `null` and the pressure callback never fires.
+ *
+ * Usage:
+ * ```typescript
+ * const monitor = new MemoryMonitor();
+ * monitor.onPressure = (usedMB, limitMB) => {
+ *   console.warn(`Heap at ${usedMB} / ${limitMB} MB — consider reducing quality`);
+ * };
+ * monitor.start();          // begin polling every 10 s
+ * // … later …
+ * monitor.stop();
+ * ```
+ */
+export class MemoryMonitor {
+  private _intervalId: ReturnType<typeof setInterval> | null = null;
+  private _onPressure?: (usedMB: number, limitMB: number) => void;
+  private _lastPressureTime = 0;
+
+  /** Minimum gap between successive `onPressure` callbacks (30 seconds). */
+  private static readonly _PRESSURE_COOLDOWN_MS = 30_000;
+  /**
+   * Heap usage fraction (0–1) above which pressure is reported.
+   * 0.80 = 80 % of the reported JS heap limit.
+   */
+  private static readonly _PRESSURE_THRESHOLD = 0.80;
+
+  /**
+   * Callback fired when JS heap usage exceeds 80 % of the browser-reported
+   * limit. Rate-limited to at most once per 30 seconds.
+   */
+  set onPressure(cb: (usedMB: number, limitMB: number) => void) {
+    this._onPressure = cb;
+  }
+
+  /** Current used JS heap in MB, or null when the API is unavailable. */
+  get usedHeapMB(): number | null {
+    return MemoryMonitor._getUsedHeapMB();
+  }
+
+  /** JS heap size limit in MB, or null when the API is unavailable. */
+  get heapLimitMB(): number | null {
+    return MemoryMonitor._getHeapLimitMB();
+  }
+
+  private static _getUsedHeapMB(): number | null {
+    try {
+      const perf = performance as Performance & {
+        memory?: { usedJSHeapSize?: number };
+      };
+      const used = perf.memory?.usedJSHeapSize;
+      return used ? Math.round(used / (1024 * 1024)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static _getHeapLimitMB(): number | null {
+    try {
+      const perf = performance as Performance & {
+        memory?: { jsHeapSizeLimit?: number };
+      };
+      const limit = perf.memory?.jsHeapSizeLimit;
+      return limit ? Math.round(limit / (1024 * 1024)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Begin polling JS heap usage at the given interval.
+   *
+   * @param intervalMs  How often to sample the heap (default 10 000 ms).
+   *                    Shorter intervals increase the chance of catching
+   *                    a short-lived spike but add minor CPU overhead.
+   */
+  start(intervalMs = 10_000): void {
+    if (this._intervalId !== null) return; // already running
+    this._intervalId = setInterval(() => { this._check(); }, intervalMs);
+  }
+
+  /** Stop the polling interval. */
+  stop(): void {
+    if (this._intervalId !== null) {
+      clearInterval(this._intervalId);
+      this._intervalId = null;
+    }
+  }
+
+  private _check(): void {
+    const usedMB  = MemoryMonitor._getUsedHeapMB();
+    const limitMB = MemoryMonitor._getHeapLimitMB();
+    if (usedMB === null || limitMB === null || limitMB === 0) return;
+
+    const ratio = usedMB / limitMB;
+    if (ratio >= MemoryMonitor._PRESSURE_THRESHOLD) {
+      const now = Date.now();
+      if (now - this._lastPressureTime > MemoryMonitor._PRESSURE_COOLDOWN_MS) {
+        this._lastPressureTime = now;
+        this._onPressure?.(usedMB, limitMB);
+      }
+    }
+  }
+}
+
+// ── Idle task scheduler ───────────────────────────────────────────────────────
+
+/**
+ * Schedule a non-critical task to run during the browser's next idle period.
+ *
+ * Uses `requestIdleCallback` when available (Chromium-based browsers), falling
+ * back to `setTimeout(task, 0)` for browsers that do not support it
+ * (Safari ≤16, Firefox with `dom.requestIdleCallback.enabled = false`).
+ *
+ * Idle scheduling avoids competing with the main-thread work needed to render
+ * the first game frame, making it ideal for startup tasks such as:
+ *   - Pre-warming the WebGL driver
+ *   - Prefetching WASM core files
+ *   - Rehydrating the shader cache from IndexedDB
+ *
+ * @param task       Function to execute during an idle period.
+ * @param timeoutMs  Deadline guarantee — the browser will invoke `task` within
+ *                   this many milliseconds even if the page never goes idle.
+ *                   Default: 2000 ms.
+ */
+export function scheduleIdleTask(task: () => void, timeoutMs = 2000): void {
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(task, { timeout: timeoutMs });
+  } else {
+    setTimeout(task, 0);
+  }
+}
+
 // ── Battery status (async) ────────────────────────────────────────────────────
 
 /**

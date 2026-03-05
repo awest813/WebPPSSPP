@@ -26,6 +26,7 @@ import { getSystemById, type SystemInfo } from "./systems.js";
 import {
   resolveMode, resolveTier, detectAudioCapabilities,
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
+  MemoryMonitor,
 } from "./performance.js";
 import { shaderCache } from "./shaderCache.js";
 import type { NetplayManager } from "./multiplayer.js";
@@ -170,6 +171,20 @@ export interface FPSSnapshot {
   max: number;
   /** Number of dropped frames (below 50% of target). */
   droppedFrames: number;
+  /**
+   * 95th-percentile frame time in milliseconds over the sampling window.
+   *
+   * The P95 frame time is the value below which 95% of frames fall.
+   * Unlike average frame time, P95 captures worst-case jank spikes:
+   * a game running at 60 fps average but with occasional 100 ms hitches
+   * will show a high P95 even though the average looks healthy.
+   *
+   * Example thresholds:
+   *   ≤ 16 ms → smooth 60 fps even in the worst frames
+   *   ≤ 33 ms → smooth 30 fps even in the worst frames
+   *   > 50 ms → visible stutter / jank in most frames
+   */
+  p95FrameTimeMs: number;
 }
 
 // ── Diagnostic event log ──────────────────────────────────────────────────────
@@ -286,7 +301,7 @@ class FPSMonitor {
 
   getSnapshot(): FPSSnapshot {
     if (this._ringCount === 0) {
-      return { current: 0, average: 0, min: 0, max: 0, droppedFrames: 0 };
+      return { current: 0, average: 0, min: 0, max: 0, droppedFrames: 0, p95FrameTimeMs: 0 };
     }
 
     const count = this._ringCount;
@@ -297,9 +312,13 @@ class FPSMonitor {
     let sum = 0;
     let maxDelta = 0;
     let minDelta = Infinity;
+    // Collect deltas for both summary stats and P95 computation.
+    // Pre-allocating count entries avoids push() overhead in the hot path.
+    const deltas = new Array<number>(count);
     for (let i = 0; i < count; i++) {
       const idx = (this._ringHead - count + i + this._windowSize) % this._windowSize;
       const d = this._ring[idx];
+      deltas[i] = d;
       sum += d;
       if (d > maxDelta) maxDelta = d;
       if (d > 0 && d < minDelta) minDelta = d;
@@ -310,12 +329,20 @@ class FPSMonitor {
     const min = maxDelta > 0 ? 1000 / maxDelta : 0;
     const max = isFinite(minDelta) && minDelta > 0 ? 1000 / minDelta : 0;
 
+    // P95 frame time: sort deltas ascending, pick the 95th-percentile value.
+    // Sorting ≤60 numbers takes ~1 μs — negligible compared to a rAF budget.
+    // A high P95 (e.g. >33 ms) reveals jank spikes that averaged-FPS hides.
+    deltas.sort((a, b) => a - b);
+    const p95Idx = Math.min(Math.floor(count * 0.95), count - 1);
+    const p95FrameTimeMs = Math.round(deltas[p95Idx]);
+
     return {
       current: Math.round(current),
       average: Math.round(average),
       min: Math.round(min),
       max: isFinite(max) ? Math.round(max) : 0,
       droppedFrames: this._droppedFrames,
+      p95FrameTimeMs,
     };
   }
 
@@ -462,6 +489,7 @@ export class PSPEmulator {
   private _audioAnalyserNode: AnalyserNode | null = null;
   private _audioUnderruns = 0;
   private _audioLevel = 0;
+  private _memoryMonitor: MemoryMonitor = new MemoryMonitor();
   /** Timestamp (ms) when sustained low FPS was first detected; 0 when FPS is healthy. */
   private _lowFPSStartTime = 0;
   /**
@@ -495,6 +523,14 @@ export class PSPEmulator {
   /** Fired periodically with the current RMS audio level (0–1) from the worklet. */
   onAudioLevel?: (rms: number) => void;
   /**
+   * Fired when JS heap usage exceeds 80 % of the browser-reported limit.
+   *
+   * This callback is rate-limited to at most once every 30 seconds.
+   * Callers can use it to warn the user about potential OOM conditions,
+   * suggest restarting the game, or reduce quality settings.
+   */
+  onMemoryPressure?: (usedMB: number, limitMB: number) => void;
+  /**
    * Fired when auto-save is triggered (tab close / visibility hidden).
    * The handler should persist the save state asynchronously.
    */
@@ -503,6 +539,19 @@ export class PSPEmulator {
   constructor(playerId: string) {
     this._playerId = playerId;
     this._fpsMonitor = new FPSMonitor(60);
+    this._memoryMonitor.onPressure = (usedMB, limitMB) => {
+      this.logDiagnostic(
+        "performance",
+        `Memory pressure: ${usedMB} MB used of ${limitMB} MB limit ` +
+        `(${Math.round((usedMB / limitMB) * 100)}%)`
+      );
+      console.warn(
+        `[RetroVault] Memory pressure detected — JS heap at ${usedMB} MB ` +
+        `of ${limitMB} MB limit (${Math.round((usedMB / limitMB) * 100)}%). ` +
+        "Consider restarting the game or lowering quality settings."
+      );
+      this.onMemoryPressure?.(usedMB, limitMB);
+    };
   }
 
   get state(): EmulatorState { return this._state; }
@@ -546,6 +595,13 @@ export class PSPEmulator {
 
   /** Get the current FPS snapshot (call anytime while running). */
   getFPS(): FPSSnapshot { return this._fpsMonitor.getSnapshot(); }
+
+  /**
+   * The `MemoryMonitor` instance wired to this emulator.
+   * Starts automatically when a game launches and stops on teardown.
+   * Use this to read `usedHeapMB` / `heapLimitMB` for display in the UI.
+   */
+  get memoryMonitor(): MemoryMonitor { return this._memoryMonitor; }
 
   /**
    * Record a diagnostic event.
@@ -1238,6 +1294,11 @@ export class PSPEmulator {
     this._emit("onProgress", "Preparing game file…");
     this.logDiagnostic("system", `Launching "${fileName}" on ${opts.systemId} (${(opts.file.size / 1024 / 1024).toFixed(1)} MB)`);
 
+    // Mark the launch start time for DevTools Performance timeline profiling.
+    // Measures "retrovault:launch-to-ready" and "retrovault:ready-to-game-start"
+    // will be recorded when EJS_ready and EJS_onGameStart fire respectively.
+    try { performance.mark("retrovault:launch"); } catch { /* best-effort */ }
+
     if (this.verboseLogging) {
       console.info(
         `[RetroVault] Launching "${fileName}" on system "${opts.systemId}" ` +
@@ -1382,6 +1443,11 @@ export class PSPEmulator {
         if (this.verboseLogging) {
           console.info("[RetroVault] EJS_ready fired — core loaded, booting game.");
         }
+        // Mark the moment the core finished loading — useful in DevTools timeline.
+        try {
+          performance.mark("retrovault:core-ready");
+          performance.measure("retrovault:launch-to-ready", "retrovault:launch", "retrovault:core-ready");
+        } catch { /* marks may be unavailable in some sandboxed contexts */ }
       };
 
       window.EJS_onGameStart = () => {
@@ -1390,12 +1456,18 @@ export class PSPEmulator {
         if (this.verboseLogging) {
           console.info("[RetroVault] EJS_onGameStart fired — game is running.");
         }
+        // Mark the moment the first game frame rendered.
+        try {
+          performance.mark("retrovault:game-start");
+          performance.measure("retrovault:ready-to-game-start", "retrovault:core-ready", "retrovault:game-start");
+        } catch { /* marks may be unavailable or a previous mark was missing */ }
         this._setState("running");
         this._fpsMonitor.onUpdate = (snap) => {
           this.onFPSUpdate?.(snap);
           this._checkAdaptiveQuality(snap.average);
         };
         this._fpsMonitor.start();
+        this._memoryMonitor.start();
         this._installVisibilityHandler();
         this._installContextLossHandler();
 
@@ -1833,6 +1905,7 @@ export class PSPEmulator {
       this._launchTimeoutId = null;
     }
     this._fpsMonitor.stop();
+    this._memoryMonitor.stop();
     this._removeVisibilityHandler();
     this._removeContextLossHandler();
     this._resetAdaptiveQualityState();
