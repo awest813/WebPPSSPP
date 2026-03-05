@@ -1602,6 +1602,37 @@ body {
   gap: 4px;
 }
 
+/* Save gallery — slot count badge and section labels */
+.save-gallery-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.save-gallery-slot-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--radius);
+  background: var(--c-surface2);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-faint);
+  white-space: nowrap;
+}
+
+/* Section labels span the full grid width */
+.save-gallery-section-label {
+  grid-column: 1 / -1;
+  padding: 8px 14px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--c-text-faint);
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+}
+
 /* Gallery footer (overrides the generic confirm-footer only within the save gallery) */
 .save-gallery-box .confirm-footer {
   align-items: center;
@@ -1712,24 +1743,35 @@ body {
 /* ── Info toast ────────────────────────────────────────────── */
 .info-toast {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  bottom: 44px; /* sit above the footer */
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  width: max-content;
+  max-width: min(90vw, 480px);
   z-index: 950;
-  padding: 0.65rem 1.2rem;
+  padding: 0.65rem 1.1rem;
   background: color-mix(in srgb, var(--c-success) 20%, var(--c-surface));
-  border-bottom: 1px solid color-mix(in srgb, var(--c-success) 40%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-success) 40%, transparent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   color: var(--c-text);
   font-size: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  transform: translateY(-100%);
-  transition: transform 0.22s ease;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
-.info-toast.visible { transform: translateY(0); }
+.info-toast.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: all;
+}
+
+@media (prefers-reduced-motion: reduce) { .info-toast { transition: opacity 0.01ms, transform 0.01ms; } }
 
 /* ── Mobile save gallery adjustments ──────────────────────── */
 @media (max-width: 600px) {

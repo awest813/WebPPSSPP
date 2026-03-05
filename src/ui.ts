@@ -1480,13 +1480,17 @@ async function openSaveGallery(
   // Header
   const galleryHeader = make("div", { class: "save-gallery-header" });
   const galleryTitle  = make("div", { class: "save-gallery-title-wrap" });
-  galleryTitle.appendChild(make("h3", { class: "confirm-title" }, "Save States"));
+  const titleRow = make("div", { class: "save-gallery-title-row" });
+  titleRow.appendChild(make("h3", { class: "confirm-title" }, "Save States"));
+  const slotCountBadge = make("span", { class: "save-gallery-slot-count" }, "");
+  titleRow.appendChild(slotCountBadge);
+  galleryTitle.appendChild(titleRow);
   galleryTitle.appendChild(make("p",  { class: "save-gallery-game" }, gameName));
   galleryHeader.appendChild(galleryTitle);
 
   // Export all button
-  const btnExportAll = make("button", { class: "btn", title: "Export all save states" });
-  btnExportAll.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export All`;
+  const btnExportAll = make("button", { class: "btn", title: "Export all save states as .state files" });
+  btnExportAll.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Export All`;
   btnExportAll.addEventListener("click", async () => {
     const exports = await saveLibrary.exportAllForGame(gameId);
     if (exports.length === 0) { showInfoToast("No save data to export."); return; }
@@ -1502,8 +1506,8 @@ async function openSaveGallery(
 
   // Footer
   const footer    = make("div", { class: "confirm-footer" });
-  const btnClose  = make("button", { class: "btn" }, "Close");
-  const shortcutHint = make("span", { class: "save-gallery-hint" }, "F5 Save · F7 Load");
+  const btnClose  = make("button", { class: "btn", title: "Close (Esc)" }, "Close");
+  const shortcutHint = make("span", { class: "save-gallery-hint" }, "F5 Quick Save · F7 Quick Load");
   footer.append(shortcutHint, btnClose);
   box.appendChild(footer);
 
@@ -1521,30 +1525,50 @@ async function openSaveGallery(
   document.addEventListener("keydown", onKey);
   requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
 
-  await renderSaveSlots(slotsContainer, emulator, saveLibrary, gameId, gameName, systemId);
+  await renderSaveSlots(slotsContainer, emulator, saveLibrary, gameId, gameName, systemId, slotCountBadge);
 }
 
 async function renderSaveSlots(
-  container:   HTMLElement,
-  emulator:    PSPEmulator,
-  saveLibrary: SaveStateLibrary,
-  gameId:      string,
-  gameName:    string,
-  systemId:    string
+  container:       HTMLElement,
+  emulator:        PSPEmulator,
+  saveLibrary:     SaveStateLibrary,
+  gameId:          string,
+  gameName:        string,
+  systemId:        string,
+  slotCountBadge?: HTMLElement
 ): Promise<void> {
   container.innerHTML = "";
 
   const states = await saveLibrary.getStatesForGame(gameId);
   const stateMap = new Map(states.map(s => [s.slot, s]));
 
-  // Auto-save slot first, then slots 1–MAX_SAVE_SLOTS
-  const slots = [AUTO_SAVE_SLOT, ...Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1)];
+  // Update the used-slots counter in the gallery header if provided
+  if (slotCountBadge) {
+    const usedManual = states.filter(s => s.slot !== AUTO_SAVE_SLOT).length;
+    slotCountBadge.textContent = `${usedManual} / ${MAX_SAVE_SLOTS} slots used`;
+  }
 
-  for (const slot of slots) {
-    const state  = stateMap.get(slot);
-    const isAuto = slot === AUTO_SAVE_SLOT;
-    const card   = await buildSaveSlotCard(
-      slot, state, isAuto, container, emulator, saveLibrary, gameId, gameName, systemId
+  // Auto-save section label (spans full grid width)
+  const autoLabel = make("div", { class: "save-gallery-section-label" }, "Auto-Save");
+  container.appendChild(autoLabel);
+
+  // Auto-save slot
+  const autoState = stateMap.get(AUTO_SAVE_SLOT);
+  const autoCard  = await buildSaveSlotCard(
+    AUTO_SAVE_SLOT, autoState, true, container, emulator, saveLibrary, gameId, gameName, systemId
+  );
+  container.appendChild(autoCard);
+
+  // Manual saves section label
+  const manualLabel = make("div", { class: "save-gallery-section-label" }, "Manual Saves");
+  container.appendChild(manualLabel);
+
+  // Slots 1–MAX_SAVE_SLOTS
+  const manualSlots = Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1);
+  for (const slot of manualSlots) {
+    const state = stateMap.get(slot);
+    const card  = await buildSaveSlotCard(
+      slot, state, false, container, emulator, saveLibrary, gameId, gameName, systemId
     );
     container.appendChild(card);
   }
@@ -1615,28 +1639,36 @@ async function buildSaveSlotCard(
   info.appendChild(slotHeader);
 
   if (state) {
-    info.appendChild(make("span", { class: "save-slot-card__time" }, formatRelativeTime(state.timestamp)));
+    const exactDate = new Date(state.timestamp).toLocaleString();
+    info.appendChild(make("span", { class: "save-slot-card__time", title: exactDate }, formatRelativeTime(state.timestamp)));
   } else {
     info.appendChild(make("span", { class: "save-slot-card__time save-slot-card__time--empty" }, "Empty"));
   }
+
+  // Helper: re-render slots and update the badge in the gallery header (if present)
+  const rerender = () => {
+    const badge = container.closest<HTMLElement>(".save-gallery-box")
+      ?.querySelector<HTMLElement>(".save-gallery-slot-count") ?? undefined;
+    return renderSaveSlots(container, emulator, saveLibrary, gameId, gameName, systemId, badge);
+  };
 
   // Actions
   const actions = make("div", { class: "save-slot-card__actions" });
 
   if (!isAuto) {
-    const btnSave = make("button", { class: "btn btn--primary save-slot-card__btn", title: `Save to this slot` });
+    const btnSave = make("button", { class: "btn btn--primary save-slot-card__btn", title: `Save current game to ${currentLabel}` });
     btnSave.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save`;
     btnSave.addEventListener("click", async () => {
       emulator.quickSave(slot);
       await persistSaveMetadata(emulator, saveLibrary, gameId, gameName, systemId, slot);
-      await renderSaveSlots(container, emulator, saveLibrary, gameId, gameName, systemId);
+      await rerender();
       showInfoToast(`Saved to ${currentLabel}`);
     });
     actions.appendChild(btnSave);
   }
 
   if (state) {
-    const btnLoad = make("button", { class: "btn save-slot-card__btn", title: "Load this save" });
+    const btnLoad = make("button", { class: "btn save-slot-card__btn", title: "Load this save state" });
     btnLoad.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Load`;
     btnLoad.addEventListener("click", () => {
       if (state.stateData) {
@@ -1652,7 +1684,7 @@ async function buildSaveSlotCard(
     actions.appendChild(btnLoad);
 
     if (state.stateData) {
-      const btnExport = make("button", { class: "btn save-slot-card__btn", title: "Export .state file", "aria-label": "Export save state" });
+      const btnExport = make("button", { class: "btn save-slot-card__btn", title: "Export this save as a .state file", "aria-label": "Export save state" });
       btnExport.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`;
       btnExport.addEventListener("click", async () => {
         const exported = await saveLibrary.exportState(gameId, slot);
@@ -1662,7 +1694,7 @@ async function buildSaveSlotCard(
     }
 
     if (!isAuto) {
-      const btnDel = make("button", { class: "btn btn--danger save-slot-card__btn", title: "Delete save" });
+      const btnDel = make("button", { class: "btn btn--danger save-slot-card__btn", title: "Delete this save state" });
       btnDel.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
       btnDel.addEventListener("click", async () => {
         const confirmed = await showConfirmDialog(
@@ -1671,7 +1703,7 @@ async function buildSaveSlotCard(
         );
         if (confirmed) {
           await saveLibrary.deleteState(gameId, slot);
-          await renderSaveSlots(container, emulator, saveLibrary, gameId, gameName, systemId);
+          await rerender();
         }
       });
       actions.appendChild(btnDel);
@@ -1681,11 +1713,12 @@ async function buildSaveSlotCard(
   if (!isAuto) {
     const importInput = make("input", {
       type: "file", accept: ".state,.sav", style: "display:none",
-      "aria-label": `Import state to slot ${slot}`,
+      "aria-label": `Import state file to slot ${slot}`,
     }) as HTMLInputElement;
 
-    const btnImport = make("button", { class: "btn save-slot-card__btn", title: "Import .state file" });
-    btnImport.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`;
+    const btnImport = make("button", { class: "btn save-slot-card__btn", title: "Import a .state file into this slot", "aria-label": "Import save state" });
+    // Download icon (arrow pointing DOWN) — import = bringing data in from external file
+    btnImport.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
     btnImport.addEventListener("click", () => importInput.click());
     importInput.addEventListener("change", async () => {
       const file = importInput.files?.[0];
@@ -1695,7 +1728,7 @@ async function buildSaveSlotCard(
         await saveLibrary.importState(gameId, gameName, systemId, slot, file);
         const buf = await file.arrayBuffer();
         emulator.writeStateData(slot, new Uint8Array(buf));
-        await renderSaveSlots(container, emulator, saveLibrary, gameId, gameName, systemId);
+        await rerender();
         showInfoToast(`Imported save to ${currentLabel}`);
       } catch (err) {
         showError(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
