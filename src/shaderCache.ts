@@ -320,14 +320,19 @@ export class ShaderCache {
       }
 
       if (parallelExt) {
-        // Poll until all programs finish compiling — avoids a synchronous stall
+        // Poll until all programs finish compiling — avoids a synchronous stall.
+        // Lower tiers poll less frequently to reduce CPU pressure.
+        const POLL_MS_LOW    = 16;  // ~1 frame at 60 fps — minimal CPU impact
+        const POLL_MS_MEDIUM = 8;   // balanced
+        const POLL_MS_HIGH   = 4;   // fast feedback on capable hardware
+        const pollMs = this._tier === "low" ? POLL_MS_LOW : this._tier === "medium" ? POLL_MS_MEDIUM : POLL_MS_HIGH;
+
         const poll = () => {
           const allDone = compiled.every(({ prog }) =>
             gl.getProgramParameter(prog, parallelExt.COMPLETION_STATUS_KHR) === true
           );
           if (!allDone) {
-            const pollInterval = this._tier === "low" ? 16 : this._tier === "medium" ? 8 : 4;
-            setTimeout(poll, pollInterval);
+            setTimeout(poll, pollMs);
           } else {
             cleanup();
           }

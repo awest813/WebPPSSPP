@@ -187,7 +187,12 @@ export interface DiagnosticEvent {
   message: string;
 }
 
-/** Maximum number of diagnostic events retained in memory. */
+/**
+ * Maximum number of diagnostic events retained in memory.
+ * 200 balances useful debug history (~3 min of gameplay at 1 event/s) against
+ * the ~40 KB peak memory footprint. The diagnostic timeline UI displays only
+ * the last 20 events; the full buffer is exported with "Copy Debug Info".
+ */
 const MAX_DIAGNOSTIC_EVENTS = 200;
 
 /**

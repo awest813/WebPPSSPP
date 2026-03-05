@@ -421,13 +421,17 @@ export function adjustConfigForTier(config: PostProcessConfig): PostProcessConfi
   const adjusted = { ...config };
   if (tier === "low") {
     // Disable expensive effects entirely on low-tier devices
+    const LOW_TIER_MAX_CURVATURE  = 0.2;
+    const LOW_TIER_MAX_SCANLINE   = 0.3;
     adjusted.bloomIntensity = 0;
-    adjusted.curvature = Math.min(adjusted.curvature, 0.2);
-    adjusted.scanlineIntensity = Math.min(adjusted.scanlineIntensity, 0.3);
+    adjusted.curvature = Math.min(adjusted.curvature, LOW_TIER_MAX_CURVATURE);
+    adjusted.scanlineIntensity = Math.min(adjusted.scanlineIntensity, LOW_TIER_MAX_SCANLINE);
   } else if (tier === "medium") {
     // Reduce intensity on medium-tier devices
-    adjusted.bloomIntensity = Math.min(adjusted.bloomIntensity, 0.3);
-    adjusted.curvature = Math.min(adjusted.curvature, 0.5);
+    const MED_TIER_MAX_BLOOM     = 0.3;
+    const MED_TIER_MAX_CURVATURE = 0.5;
+    adjusted.bloomIntensity = Math.min(adjusted.bloomIntensity, MED_TIER_MAX_BLOOM);
+    adjusted.curvature = Math.min(adjusted.curvature, MED_TIER_MAX_CURVATURE);
   }
   return adjusted;
 }

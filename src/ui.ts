@@ -2700,8 +2700,9 @@ function buildDebugTab(
     ));
   } else {
     const eventList = make("ul", { class: "core-settings-list" });
-    // Show last 20 events, most recent first
-    const recentEvents = diagnosticEvents.slice(-20).reverse();
+    // Display only the most recent events to keep the panel responsive
+    const MAX_DISPLAYED_DIAGNOSTIC_EVENTS = 20;
+    const recentEvents = diagnosticEvents.slice(-MAX_DISPLAYED_DIAGNOSTIC_EVENTS).reverse();
     for (const evt of recentEvents) {
       const item = make("li", { class: "core-settings-item" });
       const time = new Date(evt.timestamp).toLocaleTimeString();

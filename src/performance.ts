@@ -549,7 +549,10 @@ function benchmarkGPU(): number {
     //   ~10000 draws/12ms → score ~70 (high-end desktop)
     //   ~50000+ draws/12ms → score ~100 (top-tier desktop)
     const clampedDraws = Math.max(1, drawCalls);
-    const score = Math.min(100, Math.round(Math.log10(clampedDraws) * 21.5));
+    // Scale factor: 100 / log10(100_000) ≈ 20; 21.5 stretches the upper range
+    // so that 50 K+ draws reliably hit 100 without compressing mid-tier scores.
+    const LOG10_SCALE_FACTOR = 21.5;
+    const score = Math.min(100, Math.round(Math.log10(clampedDraws) * LOG10_SCALE_FACTOR));
     return score;
   } catch {
     return 0;
@@ -638,20 +641,32 @@ function classifyTier(
  * Returns estimated VRAM in MB (rough approximation).
  */
 export function estimateVRAM(gpuCaps: GPUCapabilities): number {
-  // Heuristic: maxTextureSize correlates loosely with VRAM tier
-  // 16384 → ~4GB+, 8192 → ~1-2GB, 4096 → ~256-512MB, 2048 → ~128MB
-  const texSizeTier = gpuCaps.maxTextureSize >= 16384 ? 4096
-    : gpuCaps.maxTextureSize >= 8192 ? 1536
-    : gpuCaps.maxTextureSize >= 4096 ? 512
-    : 256;
+  // Correlation between maxTextureSize and typical discrete/mobile GPU VRAM:
+  //   16384px → high-end desktop GPU, typically 4 GB+
+  //    8192px → mid-range discrete / high-end mobile, ~1–2 GB
+  //    4096px → integrated / low-end discrete, ~256–512 MB
+  //    ≤2048px → very old or software renderer, ~128 MB or less
+  const VRAM_16K = 4096;
+  const VRAM_8K  = 1536;
+  const VRAM_4K  = 512;
+  const VRAM_BASE = 256;
 
-  // MRT support suggests a more capable GPU with more VRAM
-  const mrtBonus = gpuCaps.maxColorAttachments >= 8 ? 512
-    : gpuCaps.maxColorAttachments >= 4 ? 256
+  const texSizeTier = gpuCaps.maxTextureSize >= 16384 ? VRAM_16K
+    : gpuCaps.maxTextureSize >= 8192 ? VRAM_8K
+    : gpuCaps.maxTextureSize >= 4096 ? VRAM_4K
+    : VRAM_BASE;
+
+  // MRT (Multiple Render Targets) support suggests a more capable GPU with more VRAM
+  const MRT_BONUS_HIGH = 512;   // 8+ attachments → high-end
+  const MRT_BONUS_MID  = 256;   // 4+ attachments → mid-range
+  const mrtBonus = gpuCaps.maxColorAttachments >= 8 ? MRT_BONUS_HIGH
+    : gpuCaps.maxColorAttachments >= 4 ? MRT_BONUS_MID
     : 0;
 
-  // ASTC support typically means modern mobile GPU with decent VRAM
-  const compressionBonus = (gpuCaps.astcTextures ? 256 : 0) + (gpuCaps.etc2Textures ? 128 : 0);
+  // ASTC/ETC2 support typically indicates a modern GPU with dedicated VRAM
+  const ASTC_BONUS = 256;
+  const ETC2_BONUS = 128;
+  const compressionBonus = (gpuCaps.astcTextures ? ASTC_BONUS : 0) + (gpuCaps.etc2Textures ? ETC2_BONUS : 0);
 
   return texSizeTier + mrtBonus + compressionBonus;
 }
