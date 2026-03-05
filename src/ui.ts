@@ -67,6 +67,7 @@ import {
 } from "./saves.js";
 import type { Settings } from "./main.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
+import { isTouchDevice, isPortrait } from "./touchControls.js";
 import type { NetplayManager } from "./multiplayer.js";
 import { DEFAULT_ICE_SERVERS, validateIceServerUrl as standaloneValidateIceServerUrl } from "./multiplayer.js";
 
@@ -1409,18 +1410,67 @@ function buildInGameControls(
     emulator.setFPSMonitorEnabled(settings.showFPS);
   });
 
-  // Touch controls edit button
-  const overlay = getTouchOverlay?.();
+  // Touch controls — quick toggle + edit/reset buttons (touch devices only)
+  let btnTouchToggle: HTMLButtonElement | null = null;
   let btnTouch: HTMLButtonElement | null = null;
-  if (overlay) {
-    btnTouch = make("button", { class: "btn", title: "Edit touch control layout" }, "🎮 Edit") as HTMLButtonElement;
-    let editMode = false;
-    btnTouch.addEventListener("click", () => {
-      editMode = !editMode;
-      overlay.setEditing(editMode);
-      btnTouch!.className    = editMode ? "btn btn--active" : "btn";
-      btnTouch!.textContent  = editMode ? "✓ Done" : "🎮 Edit";
+  let btnTouchReset: HTMLButtonElement | null = null;
+
+  if (isTouchDevice()) {
+    // 🕹 quick show/hide toggle — visible even when the overlay doesn't exist yet
+    // (e.g. the user disabled touch controls in settings then re-enabled mid-game)
+    btnTouchToggle = make("button", {
+      class: settings.touchControls ? "btn btn--active" : "btn",
+      title: "Toggle on-screen touch controls",
+      "aria-pressed": settings.touchControls ? "true" : "false",
+    }, "🕹") as HTMLButtonElement;
+    btnTouchToggle.addEventListener("click", () => {
+      const next = !settings.touchControls;
+      onSettingsChange({ touchControls: next });
+      btnTouchToggle!.className = next ? "btn btn--active" : "btn";
+      btnTouchToggle!.setAttribute("aria-pressed", String(next));
     });
+
+    const overlay = getTouchOverlay?.();
+    if (overlay) {
+      // 🎮 Edit — enter drag-to-reposition mode
+      btnTouch = make("button", {
+        class: "btn",
+        title: "Edit touch control layout",
+      }, "🎮 Edit") as HTMLButtonElement;
+
+      // ↺ Reset — visible only while editing; resets to defaults for this orientation
+      btnTouchReset = make("button", {
+        class: "btn",
+        title: "Reset touch layout to defaults",
+        style: "display:none",
+      }, "↺ Reset") as HTMLButtonElement;
+
+      let editMode = false;
+
+      btnTouch.addEventListener("click", () => {
+        editMode = !editMode;
+        overlay.setEditing(editMode);
+        btnTouch!.className   = editMode ? "btn btn--active" : "btn";
+        btnTouch!.textContent = editMode ? "✓ Done" : "🎮 Edit";
+        btnTouchReset!.style.display = editMode ? "" : "none";
+      });
+
+      btnTouchReset.addEventListener("click", async () => {
+        const orientationLabel = isPortrait() ? "portrait" : "landscape";
+        const confirmed = await showConfirmDialog(
+          `Button positions will be reset to their defaults for ${orientationLabel} orientation.`,
+          { title: "Reset Layout?", confirmLabel: "Reset" }
+        );
+        if (!confirmed) return;
+        overlay.resetToDefaults();
+        // Exit edit mode after reset so the user can play straight away
+        editMode = false;
+        overlay.setEditing(false);
+        btnTouch!.className   = "btn";
+        btnTouch!.textContent = "🎮 Edit";
+        btnTouchReset!.style.display = "none";
+      });
+    }
   }
 
   // Volume control
@@ -1450,7 +1500,7 @@ function buildInGameControls(
   });
   volWrap.append(volBtn, volSlider);
 
-  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouch, volWrap];
+  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouchToggle, btnTouch, btnTouchReset, volWrap];
   for (const ctrl of controls) {
     if (ctrl) container.appendChild(ctrl);
   }
