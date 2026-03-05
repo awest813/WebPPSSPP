@@ -40,6 +40,27 @@ describe('performance', () => {
     expect(caps.gpuRenderer).toBe('unknown');
   });
 
+  it('handles WebGL renderer getContext exception gracefully', () => {
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => {
+      if (tagName === 'canvas') {
+        return {
+          getContext: () => {
+            throw new Error('WebGL not supported or blocked');
+          },
+          width: 0,
+          height: 0,
+        } as unknown as HTMLCanvasElement;
+      }
+      return originalCreateElement(tagName, options);
+    });
+
+    const caps = detectCapabilities();
+
+    expect(caps.gpuRenderer).toBe('unknown');
+    expect(caps.gpuBenchmarkScore).toBe(0);
+  });
+
   it('returns a valid DeviceCapabilities object on normal run', () => {
     const caps = detectCapabilities();
 
