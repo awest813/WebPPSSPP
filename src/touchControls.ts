@@ -322,6 +322,20 @@ export class TouchControlsOverlay {
     };
 
     // ── Play mode: press/release → key events ───────────────────────────────
+    // Track active touch count so that a key is only released when the last
+    // finger leaves the button. Without this, lifting one finger while a
+    // second is still on the same button would prematurely release the key.
+    //
+    // JavaScript is single-threaded; touch event handlers run serially on the
+    // event loop, so there are no concurrent-modification concerns here.
+    //
+    // The counter is guarded by Math.max(0, ...) on decrement as a safety net
+    // for browsers that occasionally fire touchend/touchcancel for a touch
+    // point that was never seen in a corresponding touchstart (e.g. when the
+    // element is created while a touch sequence is already in progress). In
+    // normal operation the counter should never go negative.
+    let activeTouchCount = 0;
+
     const pressKey = () => {
       if (this._editing || !keyDef) return;
       if (this._pressedKeys.has(btn.id)) return;
@@ -353,11 +367,12 @@ export class TouchControlsOverlay {
     // Touch events
     el.addEventListener("touchstart", (e) => {
       e.preventDefault();
-      // Use the first changed touch for drag-start tracking; press the key for
-      // every touch that lands on this button (multi-finger support).
+      // Use the first changed touch for drag-start tracking; press the key
+      // when the first finger lands on this button.
       const first = e.changedTouches[0];
       if (!onDragStart(first.clientX, first.clientY)) {
-        for (let i = 0; i < e.changedTouches.length; i++) pressKey();
+        activeTouchCount += e.changedTouches.length;
+        pressKey();
       }
     }, { passive: false });
 
@@ -370,13 +385,16 @@ export class TouchControlsOverlay {
     el.addEventListener("touchend", (e) => {
       e.preventDefault();
       onDragEnd();
-      for (let i = 0; i < e.changedTouches.length; i++) releaseKey();
+      activeTouchCount = Math.max(0, activeTouchCount - e.changedTouches.length);
+      // Only release the key when the last active touch leaves the button.
+      if (activeTouchCount === 0) releaseKey();
     }, { passive: false });
 
     el.addEventListener("touchcancel", (e) => {
       e.preventDefault();
       onDragEnd();
-      for (let i = 0; i < e.changedTouches.length; i++) releaseKey();
+      activeTouchCount = Math.max(0, activeTouchCount - e.changedTouches.length);
+      if (activeTouchCount === 0) releaseKey();
     }, { passive: false });
 
     // Mouse events (fallback for desktop testing)

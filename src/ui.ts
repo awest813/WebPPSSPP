@@ -948,9 +948,36 @@ export async function resolveSystemAndAdd(
 
   let resolvedFile = file;
 
+  // Determine whether to attempt ZIP extraction.
+  // 1. Extension-based: .zip is always treated as a ZIP.
+  // 2. Content-based fallback: when the extension is absent or not a recognised
+  //    ROM/archive type, read the first 8 bytes to detect the format from its
+  //    magic header. This handles mobile file pickers (especially iOS Safari)
+  //    that may strip or mangle file extensions.
+  let treatAsZip = ext === "zip";
+  if (!treatAsZip && ext !== "7z" && ext !== "rar") {
+    const { detectArchiveFormat } = await import("./archive.js");
+    const fmt = await detectArchiveFormat(file);
+    if (fmt === "zip") {
+      treatAsZip = true;
+      if (settings.verboseLogging) {
+        console.info(
+          `[RetroVault] Archive detected by content (extension: "${ext || "(none)"}") for "${file.name}"`
+        );
+      }
+    } else if (fmt === "7z") {
+      // 7z detected by content — treat as native package (same as .7z extension).
+      if (settings.verboseLogging) {
+        console.info(
+          `[RetroVault] 7-Zip archive detected by content for "${file.name}", routing as native package.`
+        );
+      }
+    }
+  }
+
   // ZIP is extraction-capable. 7z is treated as a native package and routed
   // through normal system detection (MAME 2003+) rather than being blocked.
-  if (ext === "zip") {
+  if (treatAsZip) {
     const { extractFromZip } = await import("./archive.js");
     showLoadingOverlay();
     setLoadingMessage("Extracting archive…");

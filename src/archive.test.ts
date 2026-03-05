@@ -597,3 +597,268 @@ describe('extractFromZip — ROM/ISO format coverage', () => {
     expect(result!.name).toBe('mygame.iso');
   });
 });
+
+// ── All-system archive extraction coverage ────────────────────────────────────
+
+describe('extractFromZip — all system format coverage', () => {
+  // ── Nintendo DS ─────────────────────────────────────────────────────────────
+  it('extracts a .nds file (Nintendo DS ROM)', async () => {
+    // NDS ROM header starts with an ARM9 entry point (4 bytes), then title (12 bytes).
+    // We use a minimal non-zero header for the test.
+    const content = new Uint8Array([0x00, 0x00, 0x00, 0x04, ...new Array(12).fill(0x41)]);
+    const zipBuf  = buildZip('pokemon.nds', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('pokemon.nds');
+    const extracted = new Uint8Array(await result!.blob.arrayBuffer());
+    expect(extracted).toEqual(content);
+  });
+
+  it('extracts a .nds file stored in a subdirectory', async () => {
+    const content = new Uint8Array([0x01, 0x02, 0x03, 0x04]);
+    const zipBuf  = buildZip('nds/mario.nds', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('mario.nds');
+  });
+
+  // ── Nintendo 64 ─────────────────────────────────────────────────────────────
+  it('extracts a .z64 file (N64 ROM, big-endian)', async () => {
+    // Z64 magic: 0x80 0x37 0x12 0x40
+    const content = new Uint8Array([0x80, 0x37, 0x12, 0x40, 0x00, 0x00, 0x00, 0x0f]);
+    const zipBuf  = buildZip('zelda.z64', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('zelda.z64');
+  });
+
+  it('extracts a .v64 file (N64 ROM, byte-swapped)', async () => {
+    // V64 magic: 0x37 0x80 0x40 0x12
+    const content = new Uint8Array([0x37, 0x80, 0x40, 0x12]);
+    const zipBuf  = buildZip('game.v64', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.v64');
+  });
+
+  it('extracts a .n64 file (N64 ROM, little-endian)', async () => {
+    // N64 magic: 0x40 0x12 0x37 0x80
+    const content = new Uint8Array([0x40, 0x12, 0x37, 0x80]);
+    const zipBuf  = buildZip('game.n64', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.n64');
+  });
+
+  // ── Game Boy / Game Boy Color ────────────────────────────────────────────────
+  it('extracts a .gb file (Game Boy ROM)', async () => {
+    // GB ROM header: Nintendo logo starts at 0x104; offset 0 is the entry point.
+    const content = new Uint8Array([0x00, 0xc3, 0x50, 0x01]); // NOP; JP 0x0150
+    const zipBuf  = buildZip('tetris.gb', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('tetris.gb');
+  });
+
+  it('extracts a .gbc file (Game Boy Color ROM)', async () => {
+    const content = new Uint8Array([0x00, 0xc3, 0x50, 0x01, 0x80]); // CGB flag at 0x143
+    const zipBuf  = buildZip('pokemon_color.gbc', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('pokemon_color.gbc');
+  });
+
+  // ── SNES variants ────────────────────────────────────────────────────────────
+  it('extracts a .smc file (SNES ROM with copier header)', async () => {
+    const content = new Uint8Array(new Array(4).fill(0x55));
+    const zipBuf  = buildZip('mario.smc', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('mario.smc');
+  });
+
+  it('extracts a .sfc file (SNES ROM, standard)', async () => {
+    const content = new Uint8Array(new Array(4).fill(0xaa));
+    const zipBuf  = buildZip('zelda.sfc', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('zelda.sfc');
+  });
+
+  // ── Sega Genesis / Mega Drive ────────────────────────────────────────────────
+  it('extracts a .md file (Sega Mega Drive ROM)', async () => {
+    // Mega Drive header starts at 0x100: "SEGA MEGA DRIVE" (or similar).
+    const content = new Uint8Array(new Array(8).fill(0x53)); // 'S' repeated
+    const zipBuf  = buildZip('sonic.md', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('sonic.md');
+  });
+
+  it('extracts a .gen file (Sega Genesis ROM)', async () => {
+    const content = new Uint8Array([0x00, 0xff, 0x00, 0xff]);
+    const zipBuf  = buildZip('game.gen', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.gen');
+  });
+
+  // ── Game Gear / Sega Master System ───────────────────────────────────────────
+  it('extracts a .gg file (Game Gear ROM)', async () => {
+    const content = new Uint8Array([0x54, 0x4d, 0x52, 0x20]); // "TMR " footer magic
+    const zipBuf  = buildZip('sonic_gg.gg', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('sonic_gg.gg');
+  });
+
+  it('extracts a .sms file (Sega Master System ROM)', async () => {
+    const content = new Uint8Array([0x54, 0x4d, 0x52, 0x20]);
+    const zipBuf  = buildZip('alex_kidd.sms', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('alex_kidd.sms');
+  });
+
+  // ── Atari systems ────────────────────────────────────────────────────────────
+  it('extracts a .a26 file (Atari 2600 ROM)', async () => {
+    const content = new Uint8Array([0xf8, 0x60, 0x00, 0x00]);
+    const zipBuf  = buildZip('pitfall.a26', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('pitfall.a26');
+  });
+
+  it('extracts a .a78 file (Atari 7800 ROM)', async () => {
+    // A78 header starts with "ATARI7800" at offset 1
+    const content = new Uint8Array([0x00, 0x41, 0x54, 0x41, 0x52, 0x49]);
+    const zipBuf  = buildZip('game.a78', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.a78');
+  });
+
+  it('extracts a .lnx file (Atari Lynx ROM)', async () => {
+    // Lynx header: "LYNX" magic at offset 0
+    const content = new Uint8Array([0x4c, 0x59, 0x4e, 0x58]); // "LYNX"
+    const zipBuf  = buildZip('game.lnx', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.lnx');
+  });
+
+  // ── Neo Geo Pocket ───────────────────────────────────────────────────────────
+  it('extracts a .ngp file (Neo Geo Pocket ROM)', async () => {
+    const content = new Uint8Array([0x4e, 0x47, 0x50, 0x00]); // "NGP\0"
+    const zipBuf  = buildZip('snk.ngp', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('snk.ngp');
+  });
+
+  it('extracts a .ngpc file (Neo Geo Pocket Color ROM)', async () => {
+    const content = new Uint8Array([0x4e, 0x47, 0x50, 0x10]); // color flag set
+    const zipBuf  = buildZip('snk_color.ngpc', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('snk_color.ngpc');
+  });
+
+  // ── Dreamcast ────────────────────────────────────────────────────────────────
+  it('extracts a .gdi file (Dreamcast GD-ROM image descriptor)', async () => {
+    const content = new TextEncoder().encode('3\n1 0 4 2048 track01.bin 0\n');
+    const zipBuf  = buildZip('game.gdi', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.gdi');
+  });
+
+  it('extracts a .cdi file (Dreamcast disc image)', async () => {
+    const content = new Uint8Array([0x00, 0x00, 0x01, 0x00]);
+    const zipBuf  = buildZip('game.cdi', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.cdi');
+  });
+
+  // ── NES variants ─────────────────────────────────────────────────────────────
+  it('extracts a .fds file (Famicom Disk System image)', async () => {
+    // FDS magic: "FDS\x1a"
+    const content = new Uint8Array([0x46, 0x44, 0x53, 0x1a]);
+    const zipBuf  = buildZip('game.fds', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.fds');
+  });
+
+  it('extracts a .unf file (UNIF NES ROM format)', async () => {
+    // UNIF magic: "UNIF"
+    const content = new Uint8Array([0x55, 0x4e, 0x49, 0x46]);
+    const zipBuf  = buildZip('mapper.unf', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('mapper.unf');
+  });
+
+  // ── PSP ELF ──────────────────────────────────────────────────────────────────
+  it('extracts a .elf file (PSP ELF executable)', async () => {
+    // ELF magic: 0x7f "ELF"
+    const content = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x01, 0x00]);
+    const zipBuf  = buildZip('boot.elf', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('boot.elf');
+  });
+
+  // ── Cross-system priority — DS vs other formats ───────────────────────────────
+  it('extracts .nds when present alongside a .txt readme in the same ZIP', async () => {
+    const readmeData = new TextEncoder().encode('Game readme');
+    const ndsData    = new Uint8Array([0x00, 0x00, 0x00, 0x04, 0x02]);
+
+    const zipBuf = buildZipWithTwoEntries(
+      'readme.txt', readmeData,
+      'game.nds',   ndsData,
+    );
+    const result = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.nds');
+  });
+
+  it('extracts .z64 when present alongside a .txt readme in the same ZIP', async () => {
+    const readmeData = new TextEncoder().encode('N64 readme');
+    const romData    = new Uint8Array([0x80, 0x37, 0x12, 0x40]);
+
+    const zipBuf = buildZipWithTwoEntries(
+      'readme.txt', readmeData,
+      'zelda.z64',  romData,
+    );
+    const result = await extractFromZip(new Blob([zipBuf]));
+
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('zelda.z64');
+  });
+});
