@@ -1406,22 +1406,28 @@ function buildInGameControls(
   });
 
   // Touch controls quick toggle/edit buttons
-  const touchCapable = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+  const touchCapable = navigator.maxTouchPoints > 0;
   const overlay = getTouchOverlay?.();
   let btnTouchToggle: HTMLButtonElement | null = null;
   let btnTouch: HTMLButtonElement | null = null;
   let touchEditMode = false;
   if (touchCapable) {
-    btnTouchToggle = make("button", {
-      class: settings.touchControls ? "btn btn--active" : "btn",
+    const updateTouchToggleVisualState = (btn: HTMLButtonElement) => {
+      btn.className = settings.touchControls ? "btn btn--active" : "btn";
+      btn.setAttribute("aria-pressed", String(settings.touchControls));
+    };
+    const touchToggleBtn = make("button", {
+      class: "btn",
       title: "Toggle on-screen touch controls",
-      "aria-pressed": settings.touchControls ? "true" : "false",
+      "aria-label": "Toggle on-screen touch controls",
+      "aria-pressed": "false",
     }, "🕹 Touch") as HTMLButtonElement;
-    btnTouchToggle.addEventListener("click", () => {
+    btnTouchToggle = touchToggleBtn;
+    updateTouchToggleVisualState(touchToggleBtn);
+    touchToggleBtn.addEventListener("click", () => {
       settings.touchControls = !settings.touchControls;
       onSettingsChange({ touchControls: settings.touchControls });
-      btnTouchToggle!.className = settings.touchControls ? "btn btn--active" : "btn";
-      btnTouchToggle!.setAttribute("aria-pressed", String(settings.touchControls));
+      updateTouchToggleVisualState(touchToggleBtn);
       if (!settings.touchControls && btnTouch) {
         touchEditMode = false;
         overlay?.setEditing(false);

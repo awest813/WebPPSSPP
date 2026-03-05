@@ -313,8 +313,16 @@ describe("FPS toggle button aria-pressed", () => {
 });
 
 describe("in-game touch controls quick toggle", () => {
+  let maxTouchPointsDesc: PropertyDescriptor | undefined;
+
   beforeEach(() => {
     document.body.innerHTML = "";
+    maxTouchPointsDesc = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+  });
+
+  afterEach(() => {
+    if (maxTouchPointsDesc) Object.defineProperty(navigator, "maxTouchPoints", maxTouchPointsDesc);
+    else delete (navigator as unknown as Record<string, unknown>).maxTouchPoints;
   });
 
   it("shows a touch toggle button and flips touchControls during gameplay on touch devices", () => {
@@ -322,7 +330,6 @@ describe("in-game touch controls quick toggle", () => {
     document.body.appendChild(app);
     buildDOM(app);
 
-    const maxTouchPointsDesc = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
     Object.defineProperty(navigator, "maxTouchPoints", { value: 2, configurable: true });
 
     const onSettingsChange = vi.fn();
@@ -358,9 +365,6 @@ describe("in-game touch controls quick toggle", () => {
     touchBtn!.click();
     expect(onSettingsChange).toHaveBeenCalledWith({ touchControls: false });
     expect(touchBtn!.getAttribute("aria-pressed")).toBe("false");
-
-    if (maxTouchPointsDesc) Object.defineProperty(navigator, "maxTouchPoints", maxTouchPointsDesc);
-    else Object.defineProperty(navigator, "maxTouchPoints", { value: 0, configurable: true });
   });
 });
 
