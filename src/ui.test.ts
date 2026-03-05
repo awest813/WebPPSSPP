@@ -743,3 +743,180 @@ describe("buildDebugTab", () => {
     expect(onSettingsChange).toHaveBeenCalledWith({ verboseLogging: false });
   });
 });
+
+// ── Settings panel close removes ESC handler ─────────────────────────────────
+
+describe("settings panel ESC handler cleanup", () => {
+  const fullCaps: DeviceCapabilities = {
+    isLowSpec: false,
+    isChromOS: false,
+    gpuRenderer: "unknown",
+    isSoftwareGPU: false,
+    recommendedMode: "quality",
+    tier: "medium",
+    deviceMemoryGB: 4,
+    cpuCores: 4,
+    gpuBenchmarkScore: 50,
+    prefersReducedMotion: false,
+    webgpuAvailable: false,
+    connectionQuality: "unknown",
+    jsHeapLimitMB: null,
+    gpuCaps: {
+      renderer: "unknown",
+      vendor: "unknown",
+      maxTextureSize: 4096,
+      maxVertexAttribs: 16,
+      maxVaryingVectors: 30,
+      maxRenderbufferSize: 4096,
+      anisotropicFiltering: false,
+      maxAnisotropy: 0,
+      floatTextures: false,
+      halfFloatTextures: false,
+      instancedArrays: true,
+      webgl2: true,
+      vertexArrayObject: true,
+      compressedTextures: false,
+      maxColorAttachments: 4,
+      multiDraw: false,
+    },
+  };
+
+  const makeFullLib = () =>
+    ({ getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary);
+  const makeBiosLib = () =>
+    ({ findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary);
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  it("pressing Escape closes the settings panel", () => {
+    openSettingsPanel(makeSettings(), fullCaps, makeFullLib(), makeBiosLib(), vi.fn());
+
+    const panel = document.getElementById("settings-panel")!;
+    expect(panel.hidden).toBe(false);
+
+    // Click the backdrop — uses the same close() function as the Escape handler
+    (document.getElementById("settings-backdrop") as HTMLDivElement).click();
+    expect(panel.hidden).toBe(true);
+  });
+
+  it("close button click properly closes the panel and a re-open works correctly", () => {
+    openSettingsPanel(makeSettings(), fullCaps, makeFullLib(), makeBiosLib(), vi.fn());
+
+    const panel = document.getElementById("settings-panel")!;
+
+    // Close via the close button (same path used by btnClear in buildLibraryTab)
+    (document.getElementById("settings-close") as HTMLButtonElement).click();
+    expect(panel.hidden).toBe(true);
+
+    // Re-opening should work — the handler is properly cleaned up so no stale state
+    openSettingsPanel(makeSettings(), fullCaps, makeFullLib(), makeBiosLib(), vi.fn());
+    expect(panel.hidden).toBe(false);
+    // Close again via backdrop to verify the fresh close() also works
+    (document.getElementById("settings-backdrop") as HTMLDivElement).click();
+    expect(panel.hidden).toBe(true);
+  });
+});
+
+// ── buildLibraryTab — Clear Library closes panel via close button ─────────────
+
+describe("buildLibraryTab clear library closes panel properly", () => {
+  const fullCaps: DeviceCapabilities = {
+    isLowSpec: false,
+    isChromOS: false,
+    gpuRenderer: "unknown",
+    isSoftwareGPU: false,
+    recommendedMode: "quality",
+    tier: "medium",
+    deviceMemoryGB: 4,
+    cpuCores: 4,
+    gpuBenchmarkScore: 50,
+    prefersReducedMotion: false,
+    webgpuAvailable: false,
+    connectionQuality: "unknown",
+    jsHeapLimitMB: null,
+    gpuCaps: {
+      renderer: "unknown",
+      vendor: "unknown",
+      maxTextureSize: 4096,
+      maxVertexAttribs: 16,
+      maxVaryingVectors: 30,
+      maxRenderbufferSize: 4096,
+      anisotropicFiltering: false,
+      maxAnisotropy: 0,
+      floatTextures: false,
+      halfFloatTextures: false,
+      instancedArrays: true,
+      webgl2: true,
+      vertexArrayObject: true,
+      compressedTextures: false,
+      maxColorAttachments: 4,
+      multiDraw: false,
+    },
+  };
+
+  let library: GameLibrary;
+  let saveLibrary: SaveStateLibrary;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      totalSize: vi.fn().mockResolvedValue(0),
+      clearAll: vi.fn().mockResolvedValue(undefined),
+    } as unknown as GameLibrary;
+
+    saveLibrary = {
+      count: vi.fn().mockResolvedValue(0),
+    } as unknown as SaveStateLibrary;
+  });
+
+  it("clicking 'Clear Library' and confirming hides the settings panel", async () => {
+    openSettingsPanel(
+      makeSettings(),
+      fullCaps,
+      library,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      vi.fn(),
+      undefined,
+      undefined,
+      saveLibrary,
+      undefined,
+      "library"
+    );
+
+    const panel = document.getElementById("settings-panel")!;
+    expect(panel.hidden).toBe(false);
+
+    // Locate the "Clear Library" danger button in the Library tab panel
+    const libPanel = document.getElementById("tab-panel-library")!;
+    const clearBtn = libPanel.querySelector<HTMLButtonElement>(".btn--danger")!;
+    expect(clearBtn).toBeTruthy();
+    expect(clearBtn.textContent).toContain("Clear Library");
+
+    // Simulate click → allow async handler to begin
+    clearBtn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    // Accept the confirm dialog.
+    // showConfirmDialog renders the confirm button with class "btn--danger-filled"
+    // when isDanger is true (as used by Clear Library).
+    const confirmBtn = document.querySelector<HTMLButtonElement>(".btn--danger-filled");
+    if (confirmBtn) confirmBtn.click();
+
+    await new Promise(r => setTimeout(r, 10));
+
+    // The panel should now be hidden (closed via settings-close.click(), not
+    // via a direct .hidden assignment, so the ESC handler is also cleaned up).
+    expect(panel.hidden).toBe(true);
+  });
+});

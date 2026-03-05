@@ -2222,7 +2222,9 @@ function buildLibraryTab(
     );
     if (!confirmed) return;
     await library.clearAll();
-    document.getElementById("settings-panel")!.hidden = true;
+    // Close the settings panel through the close button so the Escape key
+    // handler is removed and focus is properly restored to the caller.
+    (document.getElementById("settings-close") as HTMLButtonElement | null)?.click();
     document.title = "RetroVault";
     if (onLaunchGame) void renderLibrary(library, settings, onLaunchGame, emulatorRef);
   });

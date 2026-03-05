@@ -529,6 +529,58 @@ function main(): void {
   };
 
   // 7. Wire UI
+  // Extract onSettingsChange as a named function so it can be reused by both
+  // initUI and the post-game landing controls rebuild in retrovault:returnToLibrary.
+  // Previously the event listeners used a simplified handler that skipped syncing
+  // emulator state (WebGPU, post-process effects, touch controls, verbose logging).
+  const onSettingsChange = (patch: Partial<Settings>): void => {
+    Object.assign(settings, patch);
+    saveSettings(settings);
+    if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
+      const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
+      emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
+        if (settings.postProcessEffect !== "none") {
+          emulator.setPostProcessEffect(settings.postProcessEffect);
+        }
+      }).catch(() => {});
+    }
+    if (patch.postProcessEffect !== undefined) {
+      emulator.setPostProcessEffect(patch.postProcessEffect);
+    }
+    // Sync haptic feedback setting to the active overlay in real time
+    if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {
+      touchOverlay.setHapticEnabled(patch.hapticFeedback);
+    }
+    // Show or hide the touch controls overlay immediately when the setting changes
+    // while a game is running so the user sees the effect without relaunching.
+    if (typeof patch.touchControls === "boolean") {
+      void (async () => {
+        if (!isTouchDevice()) return;
+
+        if (patch.touchControls) {
+          if (!touchOverlay && currentSystemId && (emulator.state === "running" || emulator.state === "paused")) {
+            const ejsContainer = document.getElementById("ejs-container");
+            if (ejsContainer) {
+              const { TouchControlsOverlay } = await import("./touchControls.js");
+              touchOverlay = new TouchControlsOverlay(ejsContainer, currentSystemId, settings.hapticFeedback);
+            }
+          }
+          if (touchOverlay) {
+            if (currentSystemId) touchOverlay.setSystem(currentSystemId);
+            touchOverlay.setHapticEnabled(settings.hapticFeedback);
+            touchOverlay.show();
+          }
+        } else {
+          touchOverlay?.hide();
+        }
+      })();
+    }
+    // Sync verbose logging flag so debug output can be toggled without reload.
+    if (typeof patch.verboseLogging === "boolean") {
+      emulator.verboseLogging = patch.verboseLogging;
+    }
+  };
+
   initUI({
     emulator,
     library,
@@ -540,53 +592,7 @@ function main(): void {
     onLaunchGame,
     onApplyPatch,
     onFileChosen,
-    onSettingsChange: (patch) => {
-      Object.assign(settings, patch);
-      saveSettings(settings);
-      if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
-        const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
-        emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
-          if (settings.postProcessEffect !== "none") {
-            emulator.setPostProcessEffect(settings.postProcessEffect);
-          }
-        }).catch(() => {});
-      }
-      if (patch.postProcessEffect !== undefined) {
-        emulator.setPostProcessEffect(patch.postProcessEffect);
-      }
-      // Sync haptic feedback setting to the active overlay in real time
-      if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {
-        touchOverlay.setHapticEnabled(patch.hapticFeedback);
-      }
-      // Show or hide the touch controls overlay immediately when the setting changes
-      // while a game is running so the user sees the effect without relaunching.
-      if (typeof patch.touchControls === "boolean") {
-        void (async () => {
-          if (!isTouchDevice()) return;
-
-          if (patch.touchControls) {
-            if (!touchOverlay && currentSystemId && (emulator.state === "running" || emulator.state === "paused")) {
-              const ejsContainer = document.getElementById("ejs-container");
-              if (ejsContainer) {
-                const { TouchControlsOverlay } = await import("./touchControls.js");
-                touchOverlay = new TouchControlsOverlay(ejsContainer, currentSystemId, settings.hapticFeedback);
-              }
-            }
-            if (touchOverlay) {
-              if (currentSystemId) touchOverlay.setSystem(currentSystemId);
-              touchOverlay.setHapticEnabled(settings.hapticFeedback);
-              touchOverlay.show();
-            }
-          } else {
-            touchOverlay?.hide();
-          }
-        })();
-      }
-      // Sync verbose logging flag so debug output can be toggled without reload.
-      if (typeof patch.verboseLogging === "boolean") {
-        emulator.verboseLogging = patch.verboseLogging;
-      }
-    },
+    onSettingsChange,
     onReturnToLibrary,
     getCurrentGameId:   () => currentGameId,
     getCurrentGameName: () => settings.lastGameName,
@@ -598,17 +604,11 @@ function main(): void {
 
   // 8. If user returns to landing, rebuild landing header controls with a Resume button
   document.addEventListener("retrovault:returnToLibrary", () => {
-    buildLandingControls(settings, deviceCaps, library, biosLibrary, (patch) => {
-      Object.assign(settings, patch);
-      saveSettings(settings);
-    }, emulator, onLaunchGame, onResumeGame, saveLibrary, netplayManager);
+    buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, onResumeGame, saveLibrary, netplayManager);
   });
 
   document.addEventListener("retrovault:openSettings", () => {
-    openSettingsPanel(settings, deviceCaps, library, biosLibrary, (patch) => {
-      Object.assign(settings, patch);
-      saveSettings(settings);
-    }, emulator, onLaunchGame, saveLibrary, netplayManager);
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager);
   });
 
   // 9. Dev helpers

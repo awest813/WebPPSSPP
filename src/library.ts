@@ -161,10 +161,17 @@ function setCachedBlob(id: string, blob: Blob): void {
 let _metadataCache: GameMetadata[] | null = null;
 let _metadataCacheTime = 0;
 const METADATA_CACHE_TTL = 2000;
+/**
+ * In-flight promise for the current metadata DB read. Concurrent calls to
+ * getAllGamesMetadata() share this promise instead of each starting their own
+ * IDB cursor scan, eliminating redundant reads during rapid re-renders.
+ */
+let _metadataCachePromise: Promise<GameMetadata[]> | null = null;
 
 function invalidateMetadataCache(): void {
   _metadataCache = null;
   _metadataCacheTime = 0;
+  _metadataCachePromise = null;
 }
 
 // ── In-flight preload tracking ────────────────────────────────────────────────
@@ -360,30 +367,44 @@ export class GameLibrary {
       return _metadataCache;
     }
 
-    const db = await openDB();
-    const result = await new Promise<GameMetadata[]>((resolve, reject) => {
-      const store = tx(db, "readonly");
-      const results: GameMetadata[] = [];
-      const req = store.openCursor();
+    // Deduplicate concurrent calls: if a DB read is already in flight, wait
+    // for it instead of starting a second parallel cursor scan.
+    if (_metadataCachePromise) return _metadataCachePromise;
 
-      req.onsuccess = () => {
-        const cursor = req.result;
-        if (cursor) {
-          const entry = cursor.value as GameEntry;
-          const { blob: _blob, ...meta } = entry;
-          results.push(meta);
-          cursor.continue();
-        } else {
-          resolve(results.sort((a, b) => b.addedAt - a.addedAt));
-        }
-      };
+    _metadataCachePromise = (async (): Promise<GameMetadata[]> => {
+      try {
+        const db = await openDB();
+        const result = await new Promise<GameMetadata[]>((resolve, reject) => {
+          const store = tx(db, "readonly");
+          const results: GameMetadata[] = [];
+          const req = store.openCursor();
 
-      req.onerror = () => reject(req.error);
-    });
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (cursor) {
+              const entry = cursor.value as GameEntry;
+              const { blob: _blob, ...meta } = entry;
+              results.push(meta);
+              cursor.continue();
+            } else {
+              resolve(results.sort((a, b) => b.addedAt - a.addedAt));
+            }
+          };
 
-    _metadataCache = result;
-    _metadataCacheTime = Date.now();
-    return result;
+          req.onerror = () => reject(req.error);
+        });
+
+        _metadataCache = result;
+        _metadataCacheTime = Date.now();
+        return result;
+      } finally {
+        // Clear the in-flight reference so subsequent calls re-read if the
+        // cache was invalidated while this read was in progress.
+        _metadataCachePromise = null;
+      }
+    })();
+
+    return _metadataCachePromise;
   }
 
   /**

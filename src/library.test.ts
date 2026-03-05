@@ -348,3 +348,52 @@ describe('formatRelativeTime', () => {
     expect(result).toBe('2yr ago');
   });
 });
+
+// ── getAllGamesMetadata in-flight deduplication ───────────────────────────────
+
+describe('GameLibrary.getAllGamesMetadata concurrent call deduplication', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('concurrent calls before cache is populated return the same result', async () => {
+    await library.addGame(new File(['rom'], 'game.nes', { type: 'application/octet-stream' }), 'nes');
+
+    // Fire two concurrent calls — they should both resolve to the same list
+    const [a, b] = await Promise.all([
+      library.getAllGamesMetadata(),
+      library.getAllGamesMetadata(),
+    ]);
+
+    expect(a.length).toBe(b.length);
+    expect(a[0]?.id).toBe(b[0]?.id);
+  });
+
+  it('concurrent calls share a single in-flight read (same array reference)', async () => {
+    await library.addGame(new File(['rom'], 'dedup.nes', { type: 'application/octet-stream' }), 'nes');
+
+    const [a, b] = await Promise.all([
+      library.getAllGamesMetadata(),
+      library.getAllGamesMetadata(),
+    ]);
+
+    // Both calls should return the identical cached array object
+    expect(a).toBe(b);
+  });
+
+  it('second call after cache TTL expires triggers a fresh DB read', async () => {
+    await library.addGame(new File(['rom'], 'fresh.nes', { type: 'application/octet-stream' }), 'nes');
+
+    const first = await library.getAllGamesMetadata();
+    // Manually expire the cache by adding a game (which invalidates it)
+    await library.addGame(new File(['rom2'], 'fresh2.nes', { type: 'application/octet-stream' }), 'nes');
+    const second = await library.getAllGamesMetadata();
+
+    // After invalidation the second read is a fresh array
+    expect(second).not.toBe(first);
+    expect(second.length).toBeGreaterThan(first.length);
+  });
+});
