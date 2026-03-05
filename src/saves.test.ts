@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import {
   SaveStateLibrary,
@@ -6,6 +6,11 @@ import {
   AUTO_SAVE_SLOT,
   MAX_SAVE_SLOTS,
   stateBytesToBlob,
+  computeChecksum,
+  verifySaveChecksum,
+  SaveEventBus,
+  saveEvents,
+  SAVE_FORMAT_VERSION,
   type SaveStateEntry,
 } from './saves';
 
@@ -304,5 +309,230 @@ describe('SaveStateLibrary', () => {
     expect(ids).toHaveLength(2);
     expect(ids).toContain('game-a');
     expect(ids).toContain('game-b');
+  });
+
+  // ── version / checksum (overhaul additions) ────────────────────────────────
+
+  it('saveState populates version with SAVE_FORMAT_VERSION when not provided', async () => {
+    const entry = makeEntry();
+    delete (entry as Partial<SaveStateEntry>).version;
+    await lib.saveState(entry);
+
+    const saved = await lib.getState(entry.gameId, entry.slot);
+    expect(saved!.version).toBe(SAVE_FORMAT_VERSION);
+  });
+
+  it('saveState preserves an explicit version field', async () => {
+    const base  = makeEntry();
+    const entry = { ...base, version: 42 };
+    await lib.saveState(entry);
+    const saved = await lib.getState('test-game', 1);
+    expect(saved!.version).toBe(42);
+  });
+
+  it('saveState computes checksum from stateData', async () => {
+    const stateData = new Blob([new Uint8Array([10, 20, 30])]);
+    await lib.saveState(makeEntry({ stateData }));
+
+    const saved = await lib.getState('test-game', 1);
+    expect(saved!.checksum).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('saveState sets checksum to empty string when stateData is null', async () => {
+    await lib.saveState(makeEntry({ stateData: null }));
+    const saved = await lib.getState('test-game', 1);
+    expect(saved!.checksum).toBe('');
+  });
+
+  it('importState stores version and checksum', async () => {
+    const blob = new Blob([new Uint8Array([5, 6, 7])]);
+    await lib.importState('game-x', 'X Game', 'psp', 1, blob);
+
+    const saved = await lib.getState('game-x', 1);
+    expect(saved!.version).toBe(SAVE_FORMAT_VERSION);
+    expect(saved!.checksum).toMatch(/^[0-9a-f]{8}$/);
+  });
+});
+
+// ── computeChecksum ───────────────────────────────────────────────────────────
+
+describe('computeChecksum', () => {
+  it('returns an 8-character lowercase hex string', () => {
+    const result = computeChecksum(new Uint8Array([1, 2, 3]));
+    expect(result).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('returns the djb2 seed value (00001505) for empty input', () => {
+    expect(computeChecksum(new Uint8Array(0))).toBe('00001505');
+  });
+
+  it('produces consistent output for the same input', () => {
+    const data = new Uint8Array([42, 99, 17, 255]);
+    expect(computeChecksum(data)).toBe(computeChecksum(data));
+  });
+
+  it('produces different checksums for different data', () => {
+    const a = computeChecksum(new Uint8Array([1, 2, 3]));
+    const b = computeChecksum(new Uint8Array([1, 2, 4]));
+    expect(a).not.toBe(b);
+  });
+
+  it('is sensitive to byte order', () => {
+    const a = computeChecksum(new Uint8Array([1, 2, 3]));
+    const b = computeChecksum(new Uint8Array([3, 2, 1]));
+    expect(a).not.toBe(b);
+  });
+});
+
+// ── verifySaveChecksum ────────────────────────────────────────────────────────
+
+describe('verifySaveChecksum', () => {
+  it('returns true when entry has no checksum (legacy)', async () => {
+    const entry: SaveStateEntry = {
+      id: 'g:1', gameId: 'g', gameName: 'G', systemId: 'nes',
+      slot: 1, label: 'Slot 1', timestamp: 0,
+      thumbnail: null, stateData: new Blob([new Uint8Array([1, 2])]),
+      isAutoSave: false,
+    };
+    expect(await verifySaveChecksum(entry)).toBe(true);
+  });
+
+  it('returns true when entry has no stateData', async () => {
+    const entry: SaveStateEntry = {
+      id: 'g:1', gameId: 'g', gameName: 'G', systemId: 'nes',
+      slot: 1, label: 'Slot 1', timestamp: 0,
+      thumbnail: null, stateData: null,
+      isAutoSave: false, checksum: 'deadbeef',
+    };
+    expect(await verifySaveChecksum(entry)).toBe(true);
+  });
+
+  it('returns true for a matching checksum', async () => {
+    const data  = new Uint8Array([7, 8, 9]);
+    const entry: SaveStateEntry = {
+      id: 'g:1', gameId: 'g', gameName: 'G', systemId: 'nes',
+      slot: 1, label: 'Slot 1', timestamp: 0,
+      thumbnail: null, stateData: new Blob([data]),
+      isAutoSave: false, checksum: computeChecksum(data),
+    };
+    expect(await verifySaveChecksum(entry)).toBe(true);
+  });
+
+  it('returns false for a mismatched checksum', async () => {
+    const data  = new Uint8Array([7, 8, 9]);
+    const entry: SaveStateEntry = {
+      id: 'g:1', gameId: 'g', gameName: 'G', systemId: 'nes',
+      slot: 1, label: 'Slot 1', timestamp: 0,
+      thumbnail: null, stateData: new Blob([data]),
+      isAutoSave: false, checksum: 'badchecksum',
+    };
+    expect(await verifySaveChecksum(entry)).toBe(false);
+  });
+});
+
+// ── SaveEventBus ──────────────────────────────────────────────────────────────
+
+describe('SaveEventBus', () => {
+  let bus: SaveEventBus;
+
+  beforeEach(() => {
+    bus = new SaveEventBus();
+  });
+
+  it('calls a registered listener when the matching event is emitted', () => {
+    const listener = vi.fn();
+    bus.on('saved', listener);
+    bus.emit({ type: 'saved', gameId: 'g', slot: 1, timestamp: 100 });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith({ type: 'saved', gameId: 'g', slot: 1, timestamp: 100 });
+  });
+
+  it('wildcard "*" listener receives all event types', () => {
+    const listener = vi.fn();
+    bus.on('*', listener);
+    bus.emit({ type: 'saved',   gameId: 'g', slot: 1, timestamp: 1 });
+    bus.emit({ type: 'deleted', gameId: 'g', slot: 1, timestamp: 2 });
+    bus.emit({ type: 'cleared', timestamp: 3 });
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not call listeners for a different event type', () => {
+    const listener = vi.fn();
+    bus.on('deleted', listener);
+    bus.emit({ type: 'saved', gameId: 'g', slot: 1, timestamp: 1 });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribe function removes the listener', () => {
+    const listener = vi.fn();
+    const unsub = bus.on('saved', listener);
+    unsub();
+    bus.emit({ type: 'saved', gameId: 'g', slot: 1, timestamp: 1 });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('off() removes a specific listener', () => {
+    const listenerA = vi.fn();
+    const listenerB = vi.fn();
+    bus.on('saved', listenerA);
+    bus.on('saved', listenerB);
+    bus.off('saved', listenerA);
+    bus.emit({ type: 'saved', gameId: 'g', slot: 1, timestamp: 1 });
+    expect(listenerA).not.toHaveBeenCalled();
+    expect(listenerB).toHaveBeenCalledTimes(1);
+  });
+
+  it('clear() removes all listeners', () => {
+    const listenerA = vi.fn();
+    const listenerB = vi.fn();
+    bus.on('saved', listenerA);
+    bus.on('*', listenerB);
+    bus.clear();
+    bus.emit({ type: 'saved', gameId: 'g', slot: 1, timestamp: 1 });
+    expect(listenerA).not.toHaveBeenCalled();
+    expect(listenerB).not.toHaveBeenCalled();
+  });
+
+  it('multiple listeners on the same type are all called', () => {
+    const l1 = vi.fn();
+    const l2 = vi.fn();
+    bus.on('migrated', l1);
+    bus.on('migrated', l2);
+    bus.emit({ type: 'migrated', gameId: 'g', slot: 2, timestamp: 1 });
+    expect(l1).toHaveBeenCalledTimes(1);
+    expect(l2).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── saveEvents (singleton) ────────────────────────────────────────────────────
+
+describe('saveEvents singleton', () => {
+  beforeEach(() => {
+    saveEvents.clear();
+  });
+
+  it('is a SaveEventBus instance', () => {
+    expect(saveEvents).toBeInstanceOf(SaveEventBus);
+  });
+
+  it('receives events emitted by SaveStateLibrary operations', async () => {
+    const lib2    = new SaveStateLibrary();
+    await lib2.clearAll();
+    const events: string[] = [];
+    saveEvents.on('*', (e) => events.push(e.type));
+
+    const entry: SaveStateEntry = {
+      id: 'ev-game:1', gameId: 'ev-game', gameName: 'EV', systemId: 'nes',
+      slot: 1, label: 'Slot 1', timestamp: Date.now(),
+      thumbnail: null, stateData: new Blob(['x']),
+      isAutoSave: false,
+    };
+    await lib2.saveState(entry);
+    await lib2.deleteState('ev-game', 1);
+
+    expect(events).toContain('saved');
+    expect(events).toContain('deleted');
+
+    saveEvents.clear();
   });
 });

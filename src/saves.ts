@@ -4,7 +4,7 @@
  * Schema
  * ------
  * Database : "retrovault-saves"
- * Version  : 2
+ * Version  : 3
  * Store    : "states"  (keyPath = "id")
  *   id          string   — composite key "{gameId}:{slot}"
  *   gameId      string   — UUID from the game library
@@ -16,6 +16,8 @@
  *   thumbnail   Blob     — JPEG screenshot captured at save time (nullable)
  *   stateData   Blob     — raw emulator state bytes (nullable if EJS FS unavailable)
  *   isAutoSave  boolean  — true for slot 0 crash-recovery saves
+ *   version     number   — save format version (optional, added in v3)
+ *   checksum    string   — djb2 hex checksum of raw stateData bytes (optional, added in v3)
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -31,17 +33,22 @@ export interface SaveStateEntry {
   thumbnail: Blob | null;
   stateData: Blob | null;
   isAutoSave: boolean;
+  /** Save format version. Defaults to 1 for legacy entries. */
+  version?: number;
+  /** djb2 hex checksum of the raw stateData bytes (empty string when stateData is null). */
+  checksum?: string;
 }
 
 export type SaveStateMetadata = Omit<SaveStateEntry, "thumbnail" | "stateData">;
 
 export const MAX_SAVE_SLOTS = 8;
 export const AUTO_SAVE_SLOT = 0;
+export const SAVE_FORMAT_VERSION = 1;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DB_NAME    = "retrovault-saves";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = "states";
 
 // ── Database helpers ──────────────────────────────────────────────────────────
@@ -72,6 +79,8 @@ function openDB(): Promise<IDBDatabase> {
           store.createIndex("label", "label", { unique: false });
         }
       }
+
+      // v3: version and checksum fields are optional — no new indexes needed.
     };
 
     req.onsuccess = () => {
@@ -125,6 +134,134 @@ export function stateBytesToBlob(stateBytes: Uint8Array | null | undefined): Blo
   return new Blob([stateBytes as unknown as Uint8Array<ArrayBuffer>], { type: "application/octet-stream" });
 }
 
+// ── Checksum ──────────────────────────────────────────────────────────────────
+
+/**
+ * Compute a djb2 checksum over a Uint8Array, returned as an 8-character
+ * lowercase hex string.  Fast, dependency-free integrity check for save data.
+ */
+export function computeChecksum(data: Uint8Array): string {
+  let hash = 5381;
+  for (let i = 0; i < data.length; i++) {
+    hash = ((hash << 5) + hash + data[i]) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * Verify that a save entry's stateData matches its stored checksum.
+ * Returns true if the entry has no checksum (legacy), or if there is no
+ * stateData (nothing to verify).  Only returns false on a detected mismatch.
+ */
+export async function verifySaveChecksum(entry: SaveStateEntry): Promise<boolean> {
+  if (!entry.checksum || !entry.stateData) return true;
+  const bytes = new Uint8Array(await entry.stateData.arrayBuffer());
+  return computeChecksum(bytes) === entry.checksum;
+}
+
+// ── Compression ───────────────────────────────────────────────────────────────
+
+/**
+ * Compress a Uint8Array with the gzip algorithm via CompressionStream.
+ * Falls back to returning the original data unchanged when CompressionStream
+ * is not available in the current environment (e.g., older browsers, jsdom).
+ */
+export async function compressStateData(data: Uint8Array): Promise<Uint8Array> {
+  if (typeof CompressionStream === "undefined") return data;
+  try {
+    const cs     = new CompressionStream("gzip");
+    const writer = cs.writable.getWriter();
+    await writer.write(data as unknown as Uint8Array<ArrayBuffer>);
+    await writer.close();
+    return _collectStream(cs.readable);
+  } catch {
+    return data;
+  }
+}
+
+/**
+ * Decompress a gzip-compressed Uint8Array via DecompressionStream.
+ * Falls back to returning the original data unchanged when DecompressionStream
+ * is not available or decompression fails.
+ */
+export async function decompressStateData(data: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream === "undefined") return data;
+  try {
+    const ds     = new DecompressionStream("gzip");
+    const writer = ds.writable.getWriter();
+    await writer.write(data as unknown as Uint8Array<ArrayBuffer>);
+    await writer.close();
+    return _collectStream(ds.readable);
+  } catch {
+    return data;
+  }
+}
+
+async function _collectStream(readable: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const reader = readable.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+// ── Save Event Bus ────────────────────────────────────────────────────────────
+
+export type SaveEventType = "saved" | "deleted" | "migrated" | "cleared";
+
+export interface SaveEvent {
+  type: SaveEventType;
+  gameId?: string;
+  slot?: number;
+  timestamp: number;
+}
+
+type SaveEventListener = (event: SaveEvent) => void;
+
+/**
+ * Simple synchronous event bus for save-system lifecycle events.
+ * Subscribe with `saveEvents.on(type, handler)` or `saveEvents.on('*', handler)`
+ * for all event types.  Returns an unsubscribe function.
+ */
+export class SaveEventBus {
+  private readonly _listeners = new Map<SaveEventType | "*", Set<SaveEventListener>>();
+
+  on(type: SaveEventType | "*", listener: SaveEventListener): () => void {
+    if (!this._listeners.has(type)) {
+      this._listeners.set(type, new Set());
+    }
+    this._listeners.get(type)!.add(listener);
+    return () => this.off(type, listener);
+  }
+
+  off(type: SaveEventType | "*", listener: SaveEventListener): void {
+    this._listeners.get(type)?.delete(listener);
+  }
+
+  emit(event: SaveEvent): void {
+    this._listeners.get(event.type)?.forEach((l) => l(event));
+    this._listeners.get("*")?.forEach((l) => l(event));
+  }
+
+  /** Remove all listeners (useful in tests). */
+  clear(): void {
+    this._listeners.clear();
+  }
+}
+
+/** Module-level singleton — subscribe to save lifecycle events here. */
+export const saveEvents = new SaveEventBus();
+
 // ── SaveStateLibrary ──────────────────────────────────────────────────────────
 
 export class SaveStateLibrary {
@@ -132,14 +269,25 @@ export class SaveStateLibrary {
    * Store a save state entry.
    * If an entry for the same game+slot already exists, it is replaced.
    * Entries without a label get the default slot label.
+   * Automatically populates `version` and computes `checksum` from stateData.
    */
   async saveState(entry: SaveStateEntry): Promise<void> {
     const db = await openDB();
+
+    let checksum = entry.checksum;
+    if (!checksum && entry.stateData) {
+      const bytes = new Uint8Array(await entry.stateData.arrayBuffer());
+      checksum = computeChecksum(bytes);
+    }
+
     const normalized: SaveStateEntry = {
       ...entry,
-      label: entry.label || defaultSlotLabel(entry.slot),
+      label:    entry.label || defaultSlotLabel(entry.slot),
+      version:  entry.version ?? SAVE_FORMAT_VERSION,
+      checksum: checksum ?? "",
     };
     await promisify(tx(db, "readwrite").put(normalized));
+    saveEvents.emit({ type: "saved", gameId: entry.gameId, slot: entry.slot, timestamp: Date.now() });
   }
 
   /**
@@ -189,6 +337,7 @@ export class SaveStateLibrary {
     const db = await openDB();
     const id = saveStateKey(gameId, slot);
     await promisify(tx(db, "readwrite").delete(id));
+    saveEvents.emit({ type: "deleted", gameId, slot, timestamp: Date.now() });
   }
 
   /**
@@ -205,6 +354,7 @@ export class SaveStateLibrary {
       store.transaction.oncomplete = () => resolve();
       store.transaction.onerror    = () => reject(store.transaction.error);
     });
+    saveEvents.emit({ type: "deleted", gameId, timestamp: Date.now() });
   }
 
   /**
@@ -252,6 +402,7 @@ export class SaveStateLibrary {
       store.transaction.onerror    = () => reject(store.transaction.error);
     });
 
+    saveEvents.emit({ type: "migrated", gameId: newGameId, timestamp: Date.now() });
     return states.length;
   }
 
@@ -288,6 +439,8 @@ export class SaveStateLibrary {
 
   /**
    * Import a `.state` file into a specific slot for a game.
+   * Computes checksum from the blob before delegating to saveState() so that
+   * version/checksum population is handled in one place.
    */
   async importState(
     gameId: string,
@@ -297,6 +450,8 @@ export class SaveStateLibrary {
     stateBlob: Blob,
     label?: string
   ): Promise<void> {
+    const bytes    = new Uint8Array(await stateBlob.arrayBuffer());
+    const checksum = computeChecksum(bytes);
     const entry: SaveStateEntry = {
       id:         saveStateKey(gameId, slot),
       gameId,
@@ -308,6 +463,8 @@ export class SaveStateLibrary {
       thumbnail:  null,
       stateData:  stateBlob,
       isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    SAVE_FORMAT_VERSION,
+      checksum,
     };
     await this.saveState(entry);
   }
@@ -355,6 +512,7 @@ export class SaveStateLibrary {
   async clearAll(): Promise<void> {
     const db = await openDB();
     await promisify(tx(db, "readwrite").clear());
+    saveEvents.emit({ type: "cleared", timestamp: Date.now() });
   }
 
   /**
