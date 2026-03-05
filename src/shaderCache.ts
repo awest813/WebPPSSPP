@@ -21,12 +21,39 @@
  *     the main thread during GLSL pre-compilation
  */
 
+import type { PerformanceTier } from "./performance.js";
+
 const CACHE_DB_NAME    = "retrovault-shaders";
 const CACHE_DB_VERSION = 2;
 const CACHE_STORE      = "programs";
 const WGSL_STORE       = "wgslModules";
-const MAX_PROGRAMS     = 64;
-const MAX_WGSL_MODULES = 32;
+export const DEFAULT_MAX_PROGRAMS     = 64;
+export const DEFAULT_MAX_WGSL_MODULES = 32;
+
+/**
+ * Maximum cached GLSL programs, scaled by device tier.
+ * Low-spec devices benefit from a smaller cache to reduce IDB footprint.
+ */
+function maxProgramsForTier(tier: PerformanceTier): number {
+  switch (tier) {
+    case "low":    return 16;
+    case "medium": return 32;
+    case "high":   return 64;
+    case "ultra":  return 128;
+  }
+}
+
+/**
+ * Maximum cached WGSL modules, scaled by device tier.
+ */
+function maxWGSLModulesForTier(tier: PerformanceTier): number {
+  switch (tier) {
+    case "low":    return 8;
+    case "medium": return 16;
+    case "high":   return 32;
+    case "ultra":  return 64;
+  }
+}
 
 export interface CachedProgram {
   /** Stable key: djb2 hash of vsSource + "\0" + fsSource. */
@@ -156,8 +183,21 @@ interface ParallelShaderExt {
 // ── ShaderCache class ─────────────────────────────────────────────────────────
 
 export class ShaderCache {
+  private _tier: PerformanceTier = "medium";
   private _writesSinceEviction = 0;
   private _wgslWritesSinceEviction = 0;
+
+  setTier(tier: PerformanceTier): void {
+    this._tier = tier;
+  }
+
+  get maxPrograms(): number {
+    return maxProgramsForTier(this._tier);
+  }
+
+  get maxWGSLModules(): number {
+    return maxWGSLModulesForTier(this._tier);
+  }
   /**
    * Load all cached shader programs from IndexedDB.
    * Returns an empty array if the cache is empty or IDB is unavailable.
@@ -207,9 +247,9 @@ export class ShaderCache {
         const all = await idbGetAll<CachedProgram>(
           db.transaction(CACHE_STORE, "readonly").objectStore(CACHE_STORE),
         );
-        if (all.length > MAX_PROGRAMS) {
+        if (all.length > this.maxPrograms) {
           all.sort((a, b) => a.lastUsed - b.lastUsed);
-          const toDelete = all.slice(0, all.length - MAX_PROGRAMS);
+          const toDelete = all.slice(0, all.length - this.maxPrograms);
           const evictTxn = db.transaction(CACHE_STORE, "readwrite").objectStore(CACHE_STORE);
           for (const old of toDelete) {
             evictTxn.delete(old.key);
@@ -286,7 +326,8 @@ export class ShaderCache {
             gl.getProgramParameter(prog, parallelExt.COMPLETION_STATUS_KHR) === true
           );
           if (!allDone) {
-            setTimeout(poll, 4);
+            const pollInterval = this._tier === "low" ? 16 : this._tier === "medium" ? 8 : 4;
+            setTimeout(poll, pollInterval);
           } else {
             cleanup();
           }
@@ -373,9 +414,9 @@ export class ShaderCache {
         const all = await idbGetAll<CachedWGSLModule>(
           db.transaction(WGSL_STORE, "readonly").objectStore(WGSL_STORE),
         );
-        if (all.length > MAX_WGSL_MODULES) {
+        if (all.length > this.maxWGSLModules) {
           all.sort((a, b) => a.lastUsed - b.lastUsed);
-          const toDelete = all.slice(0, all.length - MAX_WGSL_MODULES);
+          const toDelete = all.slice(0, all.length - this.maxWGSLModules);
           const evictTxn = db.transaction(WGSL_STORE, "readwrite").objectStore(WGSL_STORE);
           for (const old of toDelete) {
             evictTxn.delete(old.key);
