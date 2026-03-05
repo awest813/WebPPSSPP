@@ -1815,7 +1815,7 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
 
 // ── Settings panel ────────────────────────────────────────────────────────────
 
-type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug";
+type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug" | "about";
 
 let _settingsPanelEscHandler: ((e: KeyboardEvent) => void) | null = null;
 
@@ -1880,6 +1880,7 @@ function buildSettingsContent(
     { id: "bios",         label: "💾 BIOS" },
     { id: "multiplayer",  label: "🌐 Multiplayer" },
     { id: "debug",        label: "🔧 Debug" },
+    { id: "about",        label: "ℹ️ About" },
   ];
   const tabIndexById = new Map<SettingsTab, number>(tabs.map((t, i) => [t.id, i]));
 
@@ -1973,6 +1974,7 @@ function buildSettingsContent(
   buildBiosTab(panels[3], biosLibrary);
   buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
   buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager);
+  buildAboutTab(panels[6]);
 }
 
 // ── Performance tab ───────────────────────────────────────────────────────────
@@ -2666,6 +2668,67 @@ function buildDebugTab(
   actionsSection.appendChild(btnCopy);
 
   container.append(settingsSection, envSection, stateSection, actionsSection);
+}
+
+// ── About tab ─────────────────────────────────────────────────────────────────
+
+function buildAboutTab(container: HTMLElement): void {
+  // Quick start section
+  const quickStartSection = make("div", { class: "settings-section" });
+  quickStartSection.appendChild(make("h4", { class: "settings-section__title" }, "Quick Start"));
+  quickStartSection.appendChild(make("p", { class: "settings-help" },
+    "1. Drop or browse for a ROM file to add it to your library.\n" +
+    "2. Click a game card to launch it in the emulator.\n" +
+    "3. Use F5 to quick save and F7 to quick load.\n" +
+    "4. Press Esc to return to the library."
+  ));
+
+  // Keyboard shortcuts
+  const shortcutsSection = make("div", { class: "settings-section" });
+  shortcutsSection.appendChild(make("h4", { class: "settings-section__title" }, "Keyboard Shortcuts"));
+
+  const shortcuts: Array<[string, string]> = [
+    ["F5", "Quick Save (slot 1)"],
+    ["F7", "Quick Load (slot 1)"],
+    ["F1", "Reset game"],
+    ["F9", "Open Settings → Debug"],
+    ["Esc", "Return to library"],
+  ];
+
+  const shortcutList = make("div", { class: "device-info-details" });
+  for (const [key, desc] of shortcuts) {
+    const row = make("div", { style: "display:flex;justify-content:space-between;align-items:center;padding:4px 0;gap:12px" });
+    const kbdEl = make("kbd", { style: "font-family:monospace;font-size:0.8rem;padding:2px 8px;background:var(--c-surface3);border:1px solid var(--c-border);border-radius:4px;color:var(--c-accent);font-weight:600;white-space:nowrap" }, key);
+    row.append(kbdEl, make("span", { class: "device-info", style: "margin:0" }, desc));
+    shortcutList.appendChild(row);
+  }
+  shortcutsSection.appendChild(shortcutList);
+
+  // About section
+  const aboutSection = make("div", { class: "settings-section" });
+  aboutSection.appendChild(make("h4", { class: "settings-section__title" }, "About RetroVault"));
+  aboutSection.appendChild(make("p", { class: "settings-help" },
+    "RetroVault is a browser-based multi-system retro game emulator supporting 20+ systems " +
+    "including PSP, N64, PS1, NDS, GBA, SNES, NES, and more. It runs entirely in your browser — " +
+    "no server, no account, no downloads required."
+  ));
+  aboutSection.appendChild(make("p", { class: "settings-help" },
+    "Your ROM files and save states are stored locally in IndexedDB. " +
+    "RetroVault never uploads your data anywhere."
+  ));
+
+  const links = make("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
+  const ejsLink = make("a", {
+    href: "https://emulatorjs.org",
+    target: "_blank",
+    rel: "noopener",
+    class: "btn",
+    style: "text-decoration:none",
+  }, "Powered by EmulatorJS");
+  links.appendChild(ejsLink);
+  aboutSection.appendChild(links);
+
+  container.append(quickStartSection, shortcutsSection, aboutSection);
 }
 
 // ── Toggle row builder ────────────────────────────────────────────────────────

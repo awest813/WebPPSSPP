@@ -15,6 +15,10 @@
     <!-- PWA manifest -->
     <link rel="manifest" href="/manifest.json" />
 
+    <!-- Preconnect to EmulatorJS CDN for faster game launches -->
+    <link rel="preconnect" href="https://cdn.emulatorjs.org" crossorigin />
+    <link rel="dns-prefetch" href="https://cdn.emulatorjs.org" />
+
     <!--
       coi-serviceworker.js injects Cross-Origin-Isolation headers (COOP + COEP)
       via a service worker. This is required for SharedArrayBuffer, which the

@@ -789,6 +789,7 @@ body {
   color: var(--c-text-dim);
   margin-bottom: 12px;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 /* Radio rows */
