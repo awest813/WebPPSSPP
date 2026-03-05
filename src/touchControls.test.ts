@@ -3,7 +3,11 @@
  *
  * Covers:
  *   - Default layout structure (button count, required fields)
+ *   - Portrait layout structure
  *   - Layout persistence (save → load round-trip, partial restore, reset)
+ *   - Button size persistence
+ *   - Portrait orientation: separate storage key, auto-switch on resize
+ *   - isPortrait() detection
  *   - isTouchDevice() detection
  *   - Haptic helpers (vibrate call routing)
  *   - TouchControlsOverlay lifecycle (show, hide, setEditing, setSystem)
@@ -13,10 +17,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   DEFAULT_LAYOUT,
+  DEFAULT_PORTRAIT_LAYOUT,
   loadLayout,
   saveLayout,
   resetLayout,
   isTouchDevice,
+  isPortrait,
   vibratePress,
   vibrateRelease,
   TouchControlsOverlay,
@@ -25,7 +31,8 @@ import {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const LS_KEY = (sys: string) => `rv:touch-layout:${sys}`;
+const LS_KEY          = (sys: string) => `rv:touch-layout:${sys}`;
+const LS_KEY_PORTRAIT = (sys: string) => `rv:touch-layout-portrait:${sys}`;
 
 function cleanLS(sys: string) {
   localStorage.removeItem(LS_KEY(sys));
@@ -91,6 +98,40 @@ describe("DEFAULT_LAYOUT", () => {
     const layout2 = loadLayout("__test_isolation__");
     expect(layout2[0].x).not.toBe(999);
     cleanLS("__test_isolation__");
+  });
+});
+
+// ── DEFAULT_PORTRAIT_LAYOUT ───────────────────────────────────────────────────
+
+describe("DEFAULT_PORTRAIT_LAYOUT", () => {
+  it("contains 12 buttons", () => {
+    expect(DEFAULT_PORTRAIT_LAYOUT).toHaveLength(12);
+  });
+
+  it("has the same button ids as DEFAULT_LAYOUT", () => {
+    const landscapeIds = DEFAULT_LAYOUT.map((b) => b.id).sort();
+    const portraitIds  = DEFAULT_PORTRAIT_LAYOUT.map((b) => b.id).sort();
+    expect(portraitIds).toEqual(landscapeIds);
+  });
+
+  it("all buttons have numeric x, y, size fields in valid ranges", () => {
+    for (const btn of DEFAULT_PORTRAIT_LAYOUT) {
+      expect(typeof btn.x).toBe("number");
+      expect(typeof btn.y).toBe("number");
+      expect(typeof btn.size).toBe("number");
+      expect(btn.x).toBeGreaterThanOrEqual(0);
+      expect(btn.x).toBeLessThanOrEqual(100);
+      expect(btn.y).toBeGreaterThanOrEqual(0);
+      expect(btn.y).toBeLessThanOrEqual(100);
+      expect(btn.size).toBeGreaterThan(0);
+    }
+  });
+
+  it("D-pad buttons are positioned lower than in landscape to reach thumbs in portrait", () => {
+    const portraitUp  = DEFAULT_PORTRAIT_LAYOUT.find((b) => b.id === "up")!;
+    const landscapeUp = DEFAULT_LAYOUT.find((b) => b.id === "up")!;
+    // Portrait D-pad should be lower on the screen (higher y %)
+    expect(portraitUp.y).toBeGreaterThan(landscapeUp.y);
   });
 });
 
@@ -178,7 +219,148 @@ describe("resetLayout", () => {
   });
 });
 
-// ── isTouchDevice ─────────────────────────────────────────────────────────────
+// ── loadLayout (portrait) ─────────────────────────────────────────────────────
+
+describe("loadLayout — portrait mode", () => {
+  const SYS = "test_load_portrait";
+
+  afterEach(() => {
+    localStorage.removeItem(LS_KEY_PORTRAIT(SYS));
+    localStorage.removeItem(LS_KEY(SYS));
+  });
+
+  it("returns portrait defaults when portrait=true and no saved layout exists", () => {
+    const layout = loadLayout(SYS, true);
+    expect(layout).toHaveLength(DEFAULT_PORTRAIT_LAYOUT.length);
+    const upBtn = layout.find((b) => b.id === "up")!;
+    const portraitDefault = DEFAULT_PORTRAIT_LAYOUT.find((b) => b.id === "up")!;
+    expect(upBtn.y).toBe(portraitDefault.y);
+  });
+
+  it("landscape and portrait use separate storage keys", () => {
+    const landscape = loadLayout(SYS, false);
+    landscape[0].x = 11;
+    saveLayout(SYS, landscape, false);
+
+    const portrait = loadLayout(SYS, true);
+    portrait[0].x = 55;
+    saveLayout(SYS, portrait, true);
+
+    // Landscape slot must not be affected by the portrait write
+    const reloadedLandscape = loadLayout(SYS, false);
+    expect(reloadedLandscape[0].x).toBeCloseTo(11);
+
+    // Portrait slot must not be affected by the landscape write
+    const reloadedPortrait = loadLayout(SYS, true);
+    expect(reloadedPortrait[0].x).toBeCloseTo(55);
+  });
+});
+
+// ── saveLayout — size persistence ────────────────────────────────────────────
+
+describe("saveLayout — size persistence", () => {
+  const SYS = "test_save_size";
+
+  afterEach(() => {
+    localStorage.removeItem(LS_KEY(SYS));
+    localStorage.removeItem(LS_KEY_PORTRAIT(SYS));
+  });
+
+  it("persists custom size on round-trip (landscape)", () => {
+    const layout = loadLayout(SYS, false);
+    const btn = layout.find((b) => b.id === "a")!;
+    btn.size = 72;
+    saveLayout(SYS, layout, false);
+
+    const restored = loadLayout(SYS, false);
+    const restoredBtn = restored.find((b) => b.id === "a")!;
+    expect(restoredBtn.size).toBe(72);
+  });
+
+  it("persists custom size on round-trip (portrait)", () => {
+    const layout = loadLayout(SYS, true);
+    const btn = layout.find((b) => b.id === "l")!;
+    btn.size = 64;
+    saveLayout(SYS, layout, true);
+
+    const restored = loadLayout(SYS, true);
+    const restoredBtn = restored.find((b) => b.id === "l")!;
+    expect(restoredBtn.size).toBe(64);
+  });
+
+  it("falls back to default size when size absent from saved blob", () => {
+    // Write a blob that predates size persistence (no size field)
+    localStorage.setItem(LS_KEY(SYS), JSON.stringify([{ id: "b", x: 10, y: 20 }]));
+    const layout = loadLayout(SYS, false);
+    const btn = layout.find((b) => b.id === "b")!;
+    const defaultBtn = DEFAULT_LAYOUT.find((b) => b.id === "b")!;
+    expect(btn.size).toBe(defaultBtn.size);
+  });
+});
+
+// ── resetLayout (portrait) ────────────────────────────────────────────────────
+
+describe("resetLayout — portrait mode", () => {
+  const SYS = "test_reset_portrait";
+
+  afterEach(() => {
+    localStorage.removeItem(LS_KEY_PORTRAIT(SYS));
+    localStorage.removeItem(LS_KEY(SYS));
+  });
+
+  it("removes the portrait layout and returns portrait defaults", () => {
+    const layout = loadLayout(SYS, true);
+    layout[0].x = 88;
+    saveLayout(SYS, layout, true);
+    expect(localStorage.getItem(LS_KEY_PORTRAIT(SYS))).not.toBeNull();
+
+    const defaults = resetLayout(SYS, true);
+    expect(defaults[0].x).toBe(DEFAULT_PORTRAIT_LAYOUT[0].x);
+    expect(localStorage.getItem(LS_KEY_PORTRAIT(SYS))).toBeNull();
+  });
+
+  it("landscape slot is unaffected when resetting the portrait slot", () => {
+    const ls = loadLayout(SYS, false);
+    ls[0].x = 77;
+    saveLayout(SYS, ls, false);
+
+    resetLayout(SYS, true); // reset portrait only
+
+    const reloaded = loadLayout(SYS, false);
+    expect(reloaded[0].x).toBeCloseTo(77);
+  });
+});
+
+// ── isPortrait ────────────────────────────────────────────────────────────────
+
+describe("isPortrait", () => {
+  it("returns false by default in jsdom (landscape stub)", () => {
+    // The testSetup stub always returns matches:false
+    expect(isPortrait()).toBe(false);
+  });
+
+  it("returns true when matchMedia reports portrait", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("portrait"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    expect(isPortrait()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to innerHeight > innerWidth when matchMedia throws", () => {
+    vi.stubGlobal("matchMedia", () => { throw new Error("not supported"); });
+    // jsdom default innerHeight (768) > innerWidth (1024) is false, so portrait=false
+    expect(isPortrait()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+});
 
 describe("isTouchDevice", () => {
   it("returns true when maxTouchPoints > 0", () => {
@@ -409,6 +591,129 @@ describe("TouchControlsOverlay", () => {
     overlay.destroy();
     expect(container.querySelector(".touch-controls")).toBeNull();
     expect(overlay.visible).toBe(false);
+  });
+
+  it("destroy() removes orientation change listeners (no rebuild after destroy)", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    overlay.destroy();
+
+    // Trigger a resize — should not throw or rebuild since listeners were removed
+    expect(() => window.dispatchEvent(new Event("resize"))).not.toThrow();
+    // Overlay should remain hidden
+    expect(container.querySelector(".touch-controls")).toBeNull();
+  });
+});
+
+// ── TouchControlsOverlay — orientation switching ──────────────────────────────
+
+describe("TouchControlsOverlay — orientation switching", () => {
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    container = makeContainer();
+    // Reset to landscape stub (the testSetup default)
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false, // landscape by default
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  });
+
+  afterEach(() => {
+    removeContainer(container);
+    cleanLS("psp");
+    localStorage.removeItem("rv:touch-layout-portrait:psp");
+    vi.unstubAllGlobals();
+  });
+
+  it("loads portrait layout when constructed in portrait orientation", () => {
+    // Simulate portrait orientation at construction time
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("portrait"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+
+    // Save a portrait-specific position so we can detect which layout loaded
+    const portraitLayout = DEFAULT_PORTRAIT_LAYOUT.map((b) => ({ ...b }));
+    const upBtn = portraitLayout.find((b) => b.id === "up")!;
+    upBtn.x = 99;
+    saveLayout("psp", portraitLayout, true);
+
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const upEl = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "up"
+    ) as HTMLElement | undefined;
+
+    expect(upEl?.style.left).toBe("99%");
+  });
+
+  it("rebuilds with portrait layout when a resize event switches to portrait", () => {
+    // Save a distinct portrait position so we can detect the rebuild
+    const portraitLayout = DEFAULT_PORTRAIT_LAYOUT.map((b) => ({ ...b }));
+    portraitLayout.find((b) => b.id === "up")!.x = 42;
+    saveLayout("psp", portraitLayout, true);
+
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    // Confirm we started in landscape
+    const upElBefore = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "up"
+    ) as HTMLElement | undefined;
+    expect(upElBefore?.style.left).not.toBe("42%");
+
+    // Switch to portrait and fire resize
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("portrait"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    window.dispatchEvent(new Event("resize"));
+
+    // After rebuild the overlay should reflect the portrait layout
+    const upElAfter = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "up"
+    ) as HTMLElement | undefined;
+    expect(upElAfter?.style.left).toBe("42%");
+
+    overlay.destroy();
+  });
+
+  it("does not rebuild if the orientation has not changed on resize", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    let rebuilds = 0;
+    const origBuild = (overlay as unknown as { _rebuild: () => void })._rebuild?.bind(overlay);
+    (overlay as unknown as { _rebuild: () => void })._rebuild = () => {
+      rebuilds++;
+      origBuild?.();
+    };
+
+    // Fire resize but keep same orientation (landscape → landscape)
+    window.dispatchEvent(new Event("resize"));
+
+    expect(rebuilds).toBe(0);
+    overlay.destroy();
   });
 });
 

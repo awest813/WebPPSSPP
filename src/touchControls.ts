@@ -70,48 +70,96 @@ export const DEFAULT_LAYOUT: TouchButtonDef[] = [
   { id: "start",  label: "STA", x: 56,  y: 90, size: 40, color: "rgba(40,40,60,0.85)"   },
 ];
 
+/**
+ * Default button layout for portrait orientation.
+ *
+ * Buttons are pushed lower and spread wider to stay in thumb reach when
+ * the device is held vertically.  Shoulder buttons sit at mid-screen height
+ * so they remain accessible without awkward finger stretching.
+ */
+export const DEFAULT_PORTRAIT_LAYOUT: TouchButtonDef[] = [
+  // D-pad cluster — lower-left, spread to use the wider relative thumb zone
+  { id: "up",     label: "▲",   x: 15,  y: 58, size: 46, color: "rgba(60,60,80,0.82)"   },
+  { id: "down",   label: "▼",   x: 15,  y: 80, size: 46, color: "rgba(60,60,80,0.82)"   },
+  { id: "left",   label: "◀",   x: 7,   y: 69, size: 46, color: "rgba(60,60,80,0.82)"   },
+  { id: "right",  label: "▶",   x: 23,  y: 69, size: 46, color: "rgba(60,60,80,0.82)"   },
+  // Face buttons — lower-right
+  { id: "a",      label: "A",   x: 88,  y: 69, size: 48, color: "rgba(190,50,50,0.82)"  },
+  { id: "b",      label: "B",   x: 80,  y: 80, size: 48, color: "rgba(190,130,30,0.82)" },
+  { id: "x",      label: "X",   x: 80,  y: 58, size: 48, color: "rgba(50,100,200,0.82)" },
+  { id: "y",      label: "Y",   x: 72,  y: 69, size: 48, color: "rgba(50,160,80,0.82)"  },
+  // Shoulder buttons — mid-screen corners so thumbs can reach without moving the hand
+  { id: "l",      label: "L",   x: 4,   y: 42, size: 52, color: "rgba(40,40,60,0.85)"   },
+  { id: "r",      label: "R",   x: 92,  y: 42, size: 52, color: "rgba(40,40,60,0.85)"   },
+  // Meta buttons — bottom centre
+  { id: "select", label: "SEL", x: 37,  y: 91, size: 40, color: "rgba(40,40,60,0.85)"   },
+  { id: "start",  label: "STA", x: 57,  y: 91, size: 40, color: "rgba(40,40,60,0.85)"   },
+];
+
 // ── Layout persistence ────────────────────────────────────────────────────────
 
-const LAYOUT_KEY_PREFIX = "rv:touch-layout:";
+const LAYOUT_KEY_PREFIX          = "rv:touch-layout:";
+const PORTRAIT_LAYOUT_KEY_PREFIX = "rv:touch-layout-portrait:";
 
-/** Load a saved layout for a system, or fall back to the default. */
-export function loadLayout(systemId: string): TouchButtonDef[] {
+/**
+ * Load a saved layout for a system, or fall back to the orientation default.
+ *
+ * When `portrait` is true the portrait-optimised defaults and storage key are
+ * used, giving each orientation an independent, persistable layout.
+ *
+ * The merge step ensures that buttons added in future versions always appear
+ * at their default positions even when the saved blob pre-dates them.
+ * Saved `size` values are also restored so users don't lose custom scaling.
+ */
+export function loadLayout(systemId: string, portrait = false): TouchButtonDef[] {
+  const prefix   = portrait ? PORTRAIT_LAYOUT_KEY_PREFIX : LAYOUT_KEY_PREFIX;
+  const defaults = portrait ? DEFAULT_PORTRAIT_LAYOUT     : DEFAULT_LAYOUT;
   try {
-    const raw = localStorage.getItem(`${LAYOUT_KEY_PREFIX}${systemId}`);
-    if (!raw) return DEFAULT_LAYOUT.map((b) => ({ ...b }));
+    const raw = localStorage.getItem(`${prefix}${systemId}`);
+    if (!raw) return defaults.map((b) => ({ ...b }));
     const saved = JSON.parse(raw) as Partial<TouchButtonDef>[];
-    // Merge saved positions onto the default definitions so new buttons added
-    // in future versions appear at their default positions.
-    return DEFAULT_LAYOUT.map((def) => {
+    return defaults.map((def) => {
       const match = saved.find((s) => s.id === def.id);
       if (!match) return { ...def };
       return {
         ...def,
-        x: typeof match.x === "number" ? match.x : def.x,
-        y: typeof match.y === "number" ? match.y : def.y,
+        x:    typeof match.x    === "number" ? match.x    : def.x,
+        y:    typeof match.y    === "number" ? match.y    : def.y,
+        size: typeof match.size === "number" ? match.size : def.size,
       };
     });
   } catch {
-    return DEFAULT_LAYOUT.map((b) => ({ ...b }));
+    return defaults.map((b) => ({ ...b }));
   }
 }
 
-/** Persist the current layout for a system. */
-export function saveLayout(systemId: string, buttons: TouchButtonDef[]): void {
+/**
+ * Persist the current layout for a system.
+ *
+ * Saves `{id, x, y, size}` so that both position and scale survive a reload.
+ * Pass `portrait = true` to write to the portrait-specific storage slot.
+ */
+export function saveLayout(systemId: string, buttons: TouchButtonDef[], portrait = false): void {
+  const prefix = portrait ? PORTRAIT_LAYOUT_KEY_PREFIX : LAYOUT_KEY_PREFIX;
   try {
-    const minimal = buttons.map(({ id, x, y }) => ({ id, x, y }));
-    localStorage.setItem(`${LAYOUT_KEY_PREFIX}${systemId}`, JSON.stringify(minimal));
+    const minimal = buttons.map(({ id, x, y, size }) => ({ id, x, y, size }));
+    localStorage.setItem(`${prefix}${systemId}`, JSON.stringify(minimal));
   } catch {
     // localStorage write failure is non-fatal
   }
 }
 
-/** Reset the layout for a system to defaults. */
-export function resetLayout(systemId: string): TouchButtonDef[] {
+/**
+ * Reset the layout for a system to defaults.
+ *
+ * Pass `portrait = true` to reset the portrait-specific slot.
+ */
+export function resetLayout(systemId: string, portrait = false): TouchButtonDef[] {
+  const prefix = portrait ? PORTRAIT_LAYOUT_KEY_PREFIX : LAYOUT_KEY_PREFIX;
   try {
-    localStorage.removeItem(`${LAYOUT_KEY_PREFIX}${systemId}`);
+    localStorage.removeItem(`${prefix}${systemId}`);
   } catch { /* ignore */ }
-  return DEFAULT_LAYOUT.map((b) => ({ ...b }));
+  return (portrait ? DEFAULT_PORTRAIT_LAYOUT : DEFAULT_LAYOUT).map((b) => ({ ...b }));
 }
 
 // ── Haptic feedback ───────────────────────────────────────────────────────────
@@ -152,6 +200,8 @@ export class TouchControlsOverlay {
   private _editing = false;
   private _hapticEnabled: boolean;
   private _pressedKeys = new Set<string>();
+  private _portrait: boolean;
+  private _orientationHandler: (() => void) | null = null;
 
   /** Called when the layout is saved (after drag ends in edit mode). */
   onLayoutSaved?: (systemId: string, layout: TouchButtonDef[]) => void;
@@ -160,7 +210,25 @@ export class TouchControlsOverlay {
     this._container = container;
     this._systemId = systemId;
     this._hapticEnabled = hapticEnabled;
-    this._buttons = loadLayout(systemId);
+    this._portrait = isPortrait();
+    this._buttons = loadLayout(systemId, this._portrait);
+
+    // Listen for orientation changes and swap to the appropriate layout.
+    // The `nowPortrait === this._portrait` guard at the top of the handler
+    // means that even if both `orientationchange` and `resize` fire for a
+    // single physical rotation, the (expensive) layout reload and DOM rebuild
+    // only runs once.
+    this._orientationHandler = () => {
+      const nowPortrait = isPortrait();
+      if (nowPortrait === this._portrait) return;
+      this._portrait = nowPortrait;
+      this._buttons = loadLayout(this._systemId, this._portrait);
+      if (this._visible) this._rebuild();
+    };
+    window.addEventListener("orientationchange", this._orientationHandler);
+    // `resize` catches browsers (notably some desktop Chromium builds) that
+    // fire resize instead of orientationchange when the viewport rotates.
+    window.addEventListener("resize", this._orientationHandler);
   }
 
   /** True when the overlay is currently visible. */
@@ -177,7 +245,7 @@ export class TouchControlsOverlay {
   /** Swap to a different system (reloads its layout). */
   setSystem(systemId: string): void {
     this._systemId = systemId;
-    this._buttons = loadLayout(systemId);
+    this._buttons = loadLayout(systemId, this._portrait);
     if (this._visible) this._rebuild();
   }
 
@@ -220,12 +288,17 @@ export class TouchControlsOverlay {
 
   /** Reset layout for the current system to defaults. */
   resetToDefaults(): void {
-    this._buttons = resetLayout(this._systemId);
+    this._buttons = resetLayout(this._systemId, this._portrait);
     if (this._visible) this._rebuild();
     this.onLayoutSaved?.(this._systemId, this._buttons);
   }
 
   destroy(): void {
+    if (this._orientationHandler) {
+      window.removeEventListener("orientationchange", this._orientationHandler);
+      window.removeEventListener("resize", this._orientationHandler);
+      this._orientationHandler = null;
+    }
     this.hide();
   }
 
@@ -317,7 +390,7 @@ export class TouchControlsOverlay {
       if (!dragActive) return;
       dragActive = false;
       el.style.cursor = "grab";
-      saveLayout(this._systemId, this._buttons);
+      saveLayout(this._systemId, this._buttons, this._portrait);
       this.onLayoutSaved?.(this._systemId, this._buttons);
     };
 
@@ -441,4 +514,17 @@ export function isTouchDevice(): boolean {
     "ontouchstart" in window ||
     navigator.maxTouchPoints > 0
   );
+}
+
+/** True when the viewport is currently in portrait orientation. */
+export function isPortrait(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // matchMedia is widely supported and more reliable than window.innerWidth/Height
+    // comparisons when the virtual keyboard is open.
+    return window.matchMedia("(orientation: portrait)").matches;
+  } catch {
+    // Fallback for environments where matchMedia is unavailable (e.g. jsdom in tests).
+    return window.innerHeight > window.innerWidth;
+  }
 }
