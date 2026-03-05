@@ -54,6 +54,10 @@ export interface GPUCapabilities {
   vertexArrayObject: boolean;
   /** Whether any S3TC / ETC / ASTC compressed texture format is supported. */
   compressedTextures: boolean;
+  /** Whether ETC2 texture compression is available. */
+  etc2Textures: boolean;
+  /** Whether ASTC texture compression is available. */
+  astcTextures: boolean;
   /** Maximum color attachments for Multiple Render Targets (MRT). */
   maxColorAttachments: number;
   /** Whether WEBGL_multi_draw is available (batched draw calls in one API call). */
@@ -92,6 +96,8 @@ export interface DeviceCapabilities {
   connectionQuality: "fast" | "slow" | "unknown";
   /** JS heap size limit in MB, or null if unavailable. */
   jsHeapLimitMB: number | null;
+  /** Estimated GPU VRAM in MB (heuristic from WebGL capabilities). */
+  estimatedVRAMMB: number;
 }
 
 /** Lightweight battery status snapshot. */
@@ -238,6 +244,8 @@ function probeGPU(): GPUCapabilities {
     webgl2: false,
     vertexArrayObject: false,
     compressedTextures: false,
+    etc2Textures: false,
+    astcTextures: false,
     maxColorAttachments: 1,
     multiDraw: false,
   };
@@ -300,6 +308,9 @@ function probeGPU(): GPUCapabilities {
       gl.getExtension("WEBKIT_WEBGL_compressed_texture_pvrtc")
     );
 
+    const etc2Textures = !!gl.getExtension("WEBGL_compressed_texture_etc");
+    const astcTextures = !!gl.getExtension("WEBGL_compressed_texture_astc");
+
     // Multiple Render Targets — used by deferred rendering and post-processing
     let maxColorAttachments = 1;
     if (gl instanceof WebGL2RenderingContext) {
@@ -331,6 +342,8 @@ function probeGPU(): GPUCapabilities {
       webgl2: isWebGL2,
       vertexArrayObject,
       compressedTextures,
+      etc2Textures,
+      astcTextures,
       maxColorAttachments,
       multiDraw,
     };
@@ -528,12 +541,15 @@ function benchmarkGPU(): number {
     gl.deleteShader(fs);
     gl.deleteProgram(prog);
 
-    // Normalise to 0–100. Thresholds derived from empirical testing:
-    //   ~200  draws/12ms  → very slow (software or old mobile)    → score ~2
-    //   ~1000 draws/12ms  → mid-range integrated (Chromebook)     → score ~10
-    //   ~5000 draws/12ms  → decent discrete GPU                   → score ~50
-    //   ~10000+ draws/12ms → high-end desktop                     → score ~100
-    const score = Math.min(100, Math.round((drawCalls / 10000) * 100));
+    // Logarithmic scale for better discrimination across GPU tiers.
+    // log10-based scoring maps the wide range of GPU capabilities more evenly:
+    //   ~100 draws/12ms  → score ~10 (very slow mobile/software)
+    //   ~1000 draws/12ms → score ~30 (integrated/Chromebook)
+    //   ~5000 draws/12ms → score ~55 (decent discrete GPU)
+    //   ~10000 draws/12ms → score ~70 (high-end desktop)
+    //   ~50000+ draws/12ms → score ~100 (top-tier desktop)
+    const clampedDraws = Math.max(1, drawCalls);
+    const score = Math.min(100, Math.round(Math.log10(clampedDraws) * 21.5));
     return score;
   } catch {
     return 0;
@@ -588,6 +604,8 @@ function classifyTier(
   if (gpuCaps.vertexArrayObject)         points += 1;
   if (gpuCaps.multiDraw)                 points += 1;
   if (gpuCaps.compressedTextures)        points += 2;
+  if (gpuCaps.etc2Textures)              points += 1;
+  if (gpuCaps.astcTextures)              points += 2;
 
   // Very-limited-GPU penalty: maxTextureSize < 2048 indicates ancient or
   // heavily constrained GPU hardware (e.g. very old mobile SoCs). These
@@ -606,6 +624,36 @@ function classifyTier(
   if (points >= 50) return "high";
   if (points >= 25) return "medium";
   return "low";
+}
+
+// ── VRAM estimation ───────────────────────────────────────────────────────────
+
+/**
+ * Estimate available VRAM from WebGL capabilities.
+ *
+ * WebGL does not expose VRAM directly, but we can use maxTextureSize and
+ * maxRenderbufferSize as proxies: GPUs with more VRAM typically support
+ * larger textures and renderbuffers.
+ *
+ * Returns estimated VRAM in MB (rough approximation).
+ */
+export function estimateVRAM(gpuCaps: GPUCapabilities): number {
+  // Heuristic: maxTextureSize correlates loosely with VRAM tier
+  // 16384 → ~4GB+, 8192 → ~1-2GB, 4096 → ~256-512MB, 2048 → ~128MB
+  const texSizeTier = gpuCaps.maxTextureSize >= 16384 ? 4096
+    : gpuCaps.maxTextureSize >= 8192 ? 1536
+    : gpuCaps.maxTextureSize >= 4096 ? 512
+    : 256;
+
+  // MRT support suggests a more capable GPU with more VRAM
+  const mrtBonus = gpuCaps.maxColorAttachments >= 8 ? 512
+    : gpuCaps.maxColorAttachments >= 4 ? 256
+    : 0;
+
+  // ASTC support typically means modern mobile GPU with decent VRAM
+  const compressionBonus = (gpuCaps.astcTextures ? 256 : 0) + (gpuCaps.etc2Textures ? 128 : 0);
+
+  return texSizeTier + mrtBonus + compressionBonus;
 }
 
 // ── Detection ─────────────────────────────────────────────────────────────────
@@ -632,6 +680,8 @@ export function detectCapabilities(): DeviceCapabilities {
 
   const tier = classifyTier(cpuCores, deviceMemoryGB, isSoftwareGPU, gpuBenchmarkScore, gpuCaps, chromeos);
 
+  const estimatedVRAM = estimateVRAM(gpuCaps);
+
   const isLowSpec = tier === "low";
 
   return {
@@ -649,6 +699,7 @@ export function detectCapabilities(): DeviceCapabilities {
     webgpuAvailable,
     connectionQuality,
     jsHeapLimitMB,
+    estimatedVRAMMB: estimatedVRAM,
   };
 }
 
@@ -840,6 +891,7 @@ export function formatDetailedSummary(caps: DeviceCapabilities): string {
   if (caps.gpuCaps.webgl2)             lines.push("WebGL 2: yes");
   if (caps.gpuCaps.multiDraw)          lines.push("Multi-draw: yes");
   if (caps.gpuCaps.compressedTextures) lines.push("Compressed textures: yes");
+  lines.push(`Estimated VRAM: ${caps.estimatedVRAMMB} MB`);
   if (caps.webgpuAvailable)            lines.push("WebGPU: available");
   if (caps.connectionQuality !== "unknown") lines.push(`Network: ${caps.connectionQuality}`);
   if (caps.isChromOS) {

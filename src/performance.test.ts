@@ -741,6 +741,7 @@ describe('performance', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       };
     }
