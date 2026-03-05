@@ -411,3 +411,147 @@ describe("TouchControlsOverlay", () => {
     expect(overlay.visible).toBe(false);
   });
 });
+
+// ── Multi-touch handling ──────────────────────────────────────────────────────
+
+/**
+ * Build a minimal Touch-like object for use in synthetic TouchEvents.
+ * jsdom does not fully implement Touch, so we cast as needed.
+ */
+function makeTouch(id: number, target: EventTarget): Touch {
+  return {
+    identifier:   id,
+    target,
+    clientX:      0,
+    clientY:      0,
+    screenX:      0,
+    screenY:      0,
+    pageX:        0,
+    pageY:        0,
+    radiusX:      1,
+    radiusY:      1,
+    rotationAngle: 0,
+    force:        1,
+  } as Touch;
+}
+
+describe("TouchControlsOverlay — multi-touch", () => {
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.parentNode?.removeChild(container);
+    localStorage.removeItem("rv:touch-layout:psp");
+  });
+
+  function getButtonEl(id: string): HTMLElement {
+    const el = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (e) => (e as HTMLElement).dataset.btnId === id
+    ) as HTMLElement | undefined;
+    if (!el) throw new Error(`Button "${id}" not found`);
+    return el;
+  }
+
+  it("pressing a button with two simultaneous touches fires keydown only once", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const keyEvents: string[] = [];
+    document.addEventListener("keydown", (e) => keyEvents.push(e.key));
+
+    const upEl = getButtonEl("up");
+    const t1 = makeTouch(1, upEl);
+    const t2 = makeTouch(2, upEl);
+
+    // Simulate two fingers landing simultaneously
+    upEl.dispatchEvent(new TouchEvent("touchstart", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t1, t2] as unknown as TouchList,
+      touches: [t1, t2] as unknown as TouchList,
+    }));
+
+    // Only one keydown should fire (not two)
+    expect(keyEvents.filter((k) => k === "ArrowUp")).toHaveLength(1);
+
+    document.removeEventListener("keydown", () => {});
+  });
+
+  it("key stays pressed when first of two simultaneous touches ends", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const keyEvents: string[] = [];
+    document.addEventListener("keydown",  (e) => keyEvents.push(`down:${e.key}`));
+    document.addEventListener("keyup",    (e) => keyEvents.push(`up:${e.key}`));
+
+    const upEl = getButtonEl("up");
+    const t1 = makeTouch(1, upEl);
+    const t2 = makeTouch(2, upEl);
+
+    // Both fingers land
+    upEl.dispatchEvent(new TouchEvent("touchstart", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t1, t2] as unknown as TouchList,
+      touches: [t1, t2] as unknown as TouchList,
+    }));
+
+    // First finger lifts — key must NOT be released yet
+    upEl.dispatchEvent(new TouchEvent("touchend", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t1] as unknown as TouchList,
+      touches: [t2] as unknown as TouchList,
+    }));
+
+    expect(keyEvents.some((e) => e.startsWith("up:"))).toBe(false);
+
+    // Second finger lifts — now the key should be released
+    upEl.dispatchEvent(new TouchEvent("touchend", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t2] as unknown as TouchList,
+      touches: [] as unknown as TouchList,
+    }));
+
+    expect(keyEvents).toContain("up:ArrowUp");
+  });
+
+  it("touchcancel releases key only after all active touches are cancelled", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const keyEvents: string[] = [];
+    document.addEventListener("keyup", (e) => keyEvents.push(e.key));
+
+    const aEl = getButtonEl("a");
+    const t1 = makeTouch(3, aEl);
+    const t2 = makeTouch(4, aEl);
+
+    // Two touches start
+    aEl.dispatchEvent(new TouchEvent("touchstart", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t1, t2] as unknown as TouchList,
+      touches: [t1, t2] as unknown as TouchList,
+    }));
+
+    // One touch is cancelled
+    aEl.dispatchEvent(new TouchEvent("touchcancel", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t1] as unknown as TouchList,
+      touches: [t2] as unknown as TouchList,
+    }));
+    // Key must still be held
+    expect(keyEvents).not.toContain("z");
+
+    // Second touch is cancelled
+    aEl.dispatchEvent(new TouchEvent("touchcancel", {
+      bubbles: true, cancelable: true,
+      changedTouches: [t2] as unknown as TouchList,
+      touches: [] as unknown as TouchList,
+    }));
+    // Now the key should be released
+    expect(keyEvents).toContain("z");
+  });
+});
