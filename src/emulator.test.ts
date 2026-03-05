@@ -121,11 +121,22 @@ describe('PSPEmulator', () => {
     // FPSMonitor internal type extended with adaptive-rate fields
     type FPSMonitorAdaptive = FPSMonitorInternal & {
       _callbackInterval: number;
+      _stableCallbackCount: number;
       _frameCount: number;
       _ringCount: number;
       _ring: Float64Array;
       _ringHead: number;
+      _onUpdate?: (snap: unknown) => void;
     };
+
+    /** Helper to prime the ring buffer with a given ms-per-frame delta. */
+    function primeRingBuffer(mon: FPSMonitorAdaptive, msPerFrame: number): void {
+      for (let i = 0; i < mon._ring.length; i++) {
+        mon._ring[i] = msPerFrame;
+        mon._ringHead = (mon._ringHead + 1) % mon._ring.length;
+        mon._ringCount = Math.min(mon._ringCount + 1, mon._ring.length);
+      }
+    }
 
     it('starts with the low callback interval (10 frames)', () => {
       const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
@@ -134,71 +145,101 @@ describe('PSPEmulator', () => {
       mon.stop();
     });
 
-    it('widens callback interval to 30 when average FPS exceeds stable threshold', () => {
+    it('widens callback interval to 30 only after 3 consecutive stable callbacks (hysteresis)', () => {
       const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
       mon.start();
-
-      // Prime the ring buffer with deltas consistent with ~60 fps (~16.67 ms)
-      const delta60 = 1000 / 60;
-      for (let i = 0; i < mon._ring.length; i++) {
-        mon._ring[i] = delta60;
-        mon._ringHead = (mon._ringHead + 1) % mon._ring.length;
-        mon._ringCount = Math.min(mon._ringCount + 1, mon._ring.length);
-      }
-
-      // Fire callback by ticking to a multiple of the current interval
-      const updates: unknown[] = [];
       mon._enabled = true;
-      // Attach an update listener so the internal callback can fire
-      const emu = emulator as unknown as { _fpsMonitor: typeof mon & { _onUpdate?: (s: unknown) => void } };
-      emu._fpsMonitor._onUpdate = (snap) => updates.push(snap);
+      mon._onUpdate = () => {};
 
-      // Advance frameCount to 10 (first low-interval callback)
-      mon._frameCount = 9; // tick will increment to 10
+      // Prime ring buffer with ~60 fps deltas
+      primeRingBuffer(mon, 1000 / 60);
+
+      // First stable callback — should NOT widen yet (only 1/3)
+      mon._frameCount = 9;
       mon._tick(performance.now());
-      // After a healthy FPS callback, interval should widen to 30
+      expect(mon._callbackInterval).toBe(10);
+      expect(mon._stableCallbackCount).toBe(1);
+
+      // Second stable callback — still not widened (2/3)
+      mon._frameCount = 19;
+      mon._tick(performance.now());
+      expect(mon._callbackInterval).toBe(10);
+      expect(mon._stableCallbackCount).toBe(2);
+
+      // Third stable callback — should widen now (3/3)
+      mon._frameCount = 29;
+      mon._tick(performance.now());
       expect(mon._callbackInterval).toBe(30);
+      expect(mon._stableCallbackCount).toBe(3);
 
       mon.stop();
     });
 
-    it('narrows callback interval back to 10 when FPS drops below threshold', () => {
+    it('callback fires at the widened 30-frame interval after widening', () => {
       const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
       mon.start();
-
-      // Prime ring buffer with deltas consistent with ~20 fps (very slow)
-      const delta20 = 1000 / 20;
-      for (let i = 0; i < mon._ring.length; i++) {
-        mon._ring[i] = delta20;
-        mon._ringHead = (mon._ringHead + 1) % mon._ring.length;
-        mon._ringCount = Math.min(mon._ringCount + 1, mon._ring.length);
-      }
-
       mon._enabled = true;
-      const emu = emulator as unknown as { _fpsMonitor: typeof mon & { _onUpdate?: (s: unknown) => void } };
-      emu._fpsMonitor._onUpdate = () => {};
+      const callbackFrames: number[] = [];
+      mon._onUpdate = () => callbackFrames.push(mon._frameCount);
 
-      // Force the interval to 30 first (as if it had been widened)
+      // Prime buffer and force interval to stable (3 consecutive callbacks)
+      primeRingBuffer(mon, 1000 / 60);
+      mon._stableCallbackCount = 3;
       mon._callbackInterval = 30;
+
+      // Tick to frame 30 — should fire
+      mon._frameCount = 29;
+      mon._tick(performance.now());
+      expect(callbackFrames).toContain(30);
+
+      // Tick to frames 31–58 — should NOT fire again
+      const before = callbackFrames.length;
+      for (let f = 31; f < 59; f++) {
+        mon._frameCount = f;
+        mon._tick(performance.now());
+      }
+      expect(callbackFrames.length).toBe(before); // no additional callbacks
+
+      // Tick to frame 60 — should fire again
+      mon._frameCount = 59;
+      mon._tick(performance.now());
+      expect(callbackFrames).toContain(60);
+
+      mon.stop();
+    });
+
+    it('narrows callback interval immediately to 10 when FPS drops', () => {
+      const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
+      mon.start();
+      mon._enabled = true;
+      mon._onUpdate = () => {};
+
+      // Prime ring buffer with ~20 fps (very slow)
+      primeRingBuffer(mon, 1000 / 20);
+
+      // Force the interval to widened state
+      mon._callbackInterval = 30;
+      mon._stableCallbackCount = 3;
 
       // Tick to a multiple of 30
       mon._frameCount = 29;
       mon._tick(performance.now());
-      // Low FPS detected — should narrow back to 10
+      // Low FPS — must narrow immediately
       expect(mon._callbackInterval).toBe(10);
+      expect(mon._stableCallbackCount).toBe(0);
 
       mon.stop();
     });
 
-    it('resets callback interval to 10 on start()', () => {
+    it('resets interval and stable count on start()', () => {
       const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
       mon.start();
-      // Widen it manually
       mon._callbackInterval = 30;
+      mon._stableCallbackCount = 5;
       mon.stop();
-      // Restart should reset
       mon.start();
       expect(mon._callbackInterval).toBe(10);
+      expect(mon._stableCallbackCount).toBe(0);
       mon.stop();
     });
   });

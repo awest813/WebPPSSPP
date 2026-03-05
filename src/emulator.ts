@@ -214,11 +214,18 @@ class FPSMonitor {
    * Frames between `_onUpdate` callbacks.
    *
    * Starts at 10 (fires ~6×/s at 60 fps). Automatically widened to 30
-   * (fires ~2×/s) when performance is healthy — reducing ring-buffer scan
-   * overhead by ~66% during normal gameplay. Narrows back to 10 as soon as
-   * FPS drops below the stable threshold so low-FPS detection remains prompt.
+   * (fires ~2×/s) after 3 consecutive healthy callbacks — reducing ring-buffer
+   * scan overhead by ~66% during sustained normal gameplay. Narrows back to 10
+   * immediately when FPS drops, keeping low-FPS detection prompt.
    */
   private _callbackInterval = FPSMonitor._CALLBACK_INTERVAL_LOW;
+
+  /**
+   * Consecutive stable-FPS callback count for hysteresis.
+   * The interval is widened only after this reaches the required count,
+   * preventing oscillation when FPS hovers around the threshold.
+   */
+  private _stableCallbackCount = 0;
 
   /**
    * FPS threshold above which the callback interval is considered "stable"
@@ -227,6 +234,8 @@ class FPSMonitor {
   private static readonly _FPS_STABLE_THRESHOLD = 55;
   private static readonly _CALLBACK_INTERVAL_LOW    = 10;
   private static readonly _CALLBACK_INTERVAL_STABLE = 30;
+  /** Consecutive stable callbacks required before widening the interval. */
+  private static readonly _STABLE_COUNT_REQUIRED = 3;
 
   private readonly _windowSize: number;
   private readonly _ring: Float64Array;
@@ -253,6 +262,7 @@ class FPSMonitor {
     this._droppedFrames = 0;
     this._frameCount = 0;
     this._callbackInterval = FPSMonitor._CALLBACK_INTERVAL_LOW;
+    this._stableCallbackCount = 0;
     this._lastTime = performance.now();
     this._running = true;
     this._enabled = true;
@@ -327,12 +337,19 @@ class FPSMonitor {
       if (this._enabled && this._frameCount % this._callbackInterval === 0) {
         const snap = this.getSnapshot();
         this._onUpdate?.(snap);
-        // Adapt callback frequency: when FPS is stable and healthy, widen the
-        // interval to reduce ring-buffer scan overhead during normal gameplay.
-        // This saves ~66% of callback CPU when the game runs at full speed.
-        this._callbackInterval = snap.average >= FPSMonitor._FPS_STABLE_THRESHOLD
-          ? FPSMonitor._CALLBACK_INTERVAL_STABLE
-          : FPSMonitor._CALLBACK_INTERVAL_LOW;
+        // Adapt callback frequency with hysteresis to avoid rapid oscillation
+        // when FPS hovers around the stable threshold:
+        //   - Narrow immediately when FPS drops (prompt low-FPS detection).
+        //   - Widen only after 3 consecutive healthy callbacks (prevents flickering).
+        if (snap.average >= FPSMonitor._FPS_STABLE_THRESHOLD) {
+          this._stableCallbackCount++;
+          if (this._stableCallbackCount >= FPSMonitor._STABLE_COUNT_REQUIRED) {
+            this._callbackInterval = FPSMonitor._CALLBACK_INTERVAL_STABLE;
+          }
+        } else {
+          this._stableCallbackCount = 0;
+          this._callbackInterval = FPSMonitor._CALLBACK_INTERVAL_LOW;
+        }
       }
     }
 
