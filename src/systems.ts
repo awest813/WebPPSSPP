@@ -170,7 +170,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_locked_cpu_speed: "0",
     ppsspp_force_max_fps: "60",
     ppsspp_cheats: "enabled",
-    ppsspp_skip_buffer_effects: "enabled",
+    ppsspp_skip_buffer_effects: "disabled",
     ppsspp_disable_slow_framebuf_effects: "enabled",
     // 2x anisotropic filtering is nearly free on any discrete GPU
     ppsspp_gpu_anisotropic_filtering: "2x",
@@ -200,7 +200,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_software_skinning: "enabled",
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "0",
-    ppsspp_inflight_frames: "3",
+    // 2 in-flight frames for more responsive input latency at high tier
+    ppsspp_inflight_frames: "2",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "1",
@@ -210,8 +211,8 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_cheats: "enabled",
     ppsspp_skip_buffer_effects: "disabled",
     ppsspp_disable_slow_framebuf_effects: "disabled",
-    // 4x anisotropic: strong texture quality improvement on oblique surfaces
-    ppsspp_gpu_anisotropic_filtering: "4x",
+    // 8x anisotropic: high-tier GPUs can handle this easily for sharp oblique textures
+    ppsspp_gpu_anisotropic_filtering: "8x",
     ppsspp_texture_shader: "Off",
     ppsspp_change_emulated_psp_cpu_clock: "0",
     ppsspp_separate_io_thread: "enabled",
@@ -240,13 +241,15 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_software_skinning: "enabled",
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "0",
-    ppsspp_inflight_frames: "3",
+    // 2 in-flight frames for better input responsiveness even on ultra
+    ppsspp_inflight_frames: "2",
     ppsspp_rendering_mode: "buffered",
     ppsspp_cpu_core: "JIT",
     // Minimum audio buffer for the lowest possible audio latency on capable hardware
     ppsspp_audio_latency: "0",
     ppsspp_audio_resampling: "enabled",
-    ppsspp_locked_cpu_speed: "0",
+    // Lock emulated CPU to 222 MHz for better compatibility with demanding titles
+    ppsspp_locked_cpu_speed: "222",
     ppsspp_force_max_fps: "0",
     ppsspp_cheats: "enabled",
     ppsspp_skip_buffer_effects: "disabled",
@@ -293,7 +296,8 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     "mupen64plus-BilinearMode": "standard",
     "mupen64plus-EnableFBEmulation": "True",
     "mupen64plus-EnableCopyColorToRDRAM": "Async",
-    "mupen64plus-EnableCopyDepthToRDRAM": "Software",
+    // FromMem is faster and more compatible than Software on medium tier
+    "mupen64plus-EnableCopyDepthToRDRAM": "FromMem",
     "mupen64plus-EnableCopyColorFromRDRAM": "False",
     "mupen64plus-EnableLOD": "True",
     "mupen64plus-EnableHWLighting": "False",
@@ -321,6 +325,10 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     // without the blurriness of stronger filters.
     "mupen64plus-txFilterMode": "Smooth filtering 1",
     "mupen64plus-txHiresEnable": "False",
+    // "As Is" passes textures through the enhancement pipeline without altering them,
+    // enabling texture filtering and caching without additional processing
+    "mupen64plus-txEnhancementMode": "As Is",
+    "mupen64plus-EnableN64DepthCompare": "False",
     "mupen64plus-EnableNoise": "True",
     "mupen64plus-astick-deadzone": "15",
     "mupen64plus-CountPerOp": "0",
@@ -345,6 +353,10 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     // Enhancement mode preserves original texture data while applying filters
     "mupen64plus-txEnhancementMode": "As Is",
     "mupen64plus-txHiresEnable": "False",
+    // N64 depth compare for highest accuracy at ultra tier
+    "mupen64plus-EnableN64DepthCompare": "True",
+    // Larger texture cache for better performance with enhanced textures
+    "mupen64plus-MaxTxCacheSize": "4000",
     "mupen64plus-EnableNoise": "True",
     "mupen64plus-astick-deadzone": "15",
     "mupen64plus-CountPerOp": "0",
@@ -379,6 +391,7 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_gfx_txthack: "disabled",
     desmume_screens_gap: "0",
     desmume_firmware_language: "Auto",
+    desmume_pointer_type: "touch",
   },
   high: {
     desmume_num_cores: "2",
@@ -393,9 +406,12 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_gfx_txthack: "disabled",
     desmume_screens_gap: "0",
     desmume_firmware_language: "Auto",
+    desmume_pointer_type: "touch",
+    desmume_mic_mode: "internal",
   },
   ultra: {
-    desmume_num_cores: "4",
+    // DeSmuME doesn't benefit from >2 cores; setting 4 wastes threads
+    desmume_num_cores: "2",
     desmume_cpu_mode: "jit",
     desmume_frameskip: "0",
     desmume_internal_resolution: "1024x768",
@@ -407,6 +423,8 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_gfx_txthack: "disabled",
     desmume_screens_gap: "0",
     desmume_firmware_language: "Auto",
+    desmume_pointer_type: "touch",
+    desmume_mic_mode: "internal",
   },
 };
 
@@ -509,7 +527,8 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_internal_resolution: "1x(native)",
     beetle_psx_frame_duping_enable: "enabled",
     beetle_psx_filter: "nearest",
-    beetle_psx_dither_mode: "internal",
+    // 1x(native) dithering for better accuracy than internal dithering
+    beetle_psx_dither_mode: "1x(native)",
     beetle_psx_cd_access_method: "async",
     beetle_psx_cpu_dynarec: "enabled",
     beetle_psx_dynarec_invalidate: "full",
@@ -521,7 +540,8 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_widescreen_hack: "disabled",
     beetle_psx_skip_deinterlacing: "enabled",
     beetle_psx_gpu_overclock: "1x(native)",
-    beetle_psx_cd_fastload: "4x",
+    // Medium hardware can handle faster CD access
+    beetle_psx_cd_fastload: "6x",
     // GTE overclock disabled on medium — dynarec is fast enough without it
     beetle_psx_gte_overclock: "disabled",
   },
@@ -547,11 +567,14 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_cd_fastload: "6x",
     // GTE overclock: reduces geometry transformation lag at 2× internal resolution
     beetle_psx_gte_overclock: "enabled",
+    // Adaptive smoothing for smoother 3D rendering at higher resolutions
+    beetle_psx_adaptive_smoothing: "enabled",
+    beetle_psx_super_sampling: "disabled",
   },
   ultra: {
     retroarch_core: "mednafen_psx_hw",
-    // 8x internal resolution: extremely sharp geometry at the cost of GPU bandwidth
-    beetle_psx_internal_resolution: "8x",
+    // 4x internal resolution: sweet spot for ultra — 8x is overkill for typical display sizes
+    beetle_psx_internal_resolution: "4x",
     beetle_psx_frame_duping_enable: "disabled",
     beetle_psx_filter: "bilinear",
     beetle_psx_dither_mode: "internal",
@@ -570,6 +593,9 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_cd_fastload: "8x",
     // GTE overclock: reduces geometry transformation lag for smoother animations
     beetle_psx_gte_overclock: "enabled",
+    beetle_psx_adaptive_smoothing: "enabled",
+    // Super sampling for highest quality anti-aliasing at ultra tier
+    beetle_psx_super_sampling: "enabled",
   },
 };
 
@@ -639,6 +665,7 @@ const SATURN_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_saturn_multitap_port2: "disabled",
     beetle_saturn_virtuagun_input: "disabled",
     beetle_saturn_shared_ext: "disabled",
+    beetle_saturn_horizontal_blend: "enabled",
   },
   high: {
     beetle_saturn_resolution: "4x",
@@ -650,6 +677,8 @@ const SATURN_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_saturn_multitap_port2: "disabled",
     beetle_saturn_virtuagun_input: "disabled",
     beetle_saturn_shared_ext: "disabled",
+    beetle_saturn_horizontal_blend: "enabled",
+    beetle_saturn_auto_calc_md5: "disabled",
   },
   ultra: {
     // 8x internal resolution for crisp sprite-heavy 2D and 3D geometry
@@ -662,6 +691,8 @@ const SATURN_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_saturn_multitap_port2: "disabled",
     beetle_saturn_virtuagun_input: "disabled",
     beetle_saturn_shared_ext: "disabled",
+    beetle_saturn_horizontal_blend: "enabled",
+    beetle_saturn_auto_calc_md5: "disabled",
   },
 };
 
@@ -681,7 +712,8 @@ const DREAMCAST_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> =
   medium: {
     flycast_internal_resolution: "1280x960",
     flycast_anisotropic_filtering: "4",
-    flycast_pvr_texture_upscaling: "1",
+    // Medium GPUs can handle 2x texture upscaling
+    flycast_pvr_texture_upscaling: "2",
     flycast_enable_dsp: "enabled",
     flycast_synchronous_rendering: "enabled",
     flycast_enable_rttb: "disabled",
@@ -697,17 +729,22 @@ const DREAMCAST_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> =
     flycast_enable_rttb: "enabled",
     flycast_div_matching: "enabled",
     flycast_auto_skip_frame: "disabled",
+    flycast_delay_frame_swapping: "disabled",
+    flycast_alpha_sorting: "Triangle Sorting",
   },
   ultra: {
     // 2560×1920 internal: 4× native Dreamcast resolution on high-end GPUs
     flycast_internal_resolution: "2560x1920",
     flycast_anisotropic_filtering: "16",
-    flycast_pvr_texture_upscaling: "4",
+    // 2x texture upscaling: 4x is excessive on DC, 2x is better balance
+    flycast_pvr_texture_upscaling: "2",
     flycast_enable_dsp: "enabled",
     flycast_synchronous_rendering: "disabled",
     flycast_enable_rttb: "enabled",
     flycast_div_matching: "enabled",
     flycast_auto_skip_frame: "disabled",
+    flycast_delay_frame_swapping: "disabled",
+    flycast_alpha_sorting: "Triangle Sorting",
   },
 };
 
