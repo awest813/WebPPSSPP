@@ -24,7 +24,7 @@ import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail, stateBytesToBlob } from "./saves.js";
-import { detectCapabilities, checkBatteryStatus, formatDetailedSummary } from "./performance.js";
+import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
          buildLandingControls, showTierDowngradePrompt,
@@ -197,8 +197,9 @@ function main(): void {
   if (!app) throw new Error("Root element #app not found");
   buildDOM(app);
 
-  // 2. Detect hardware
-  const deviceCaps = detectCapabilities();
+  // 2. Detect hardware — use session cache to skip the GPU benchmark (~12ms)
+  // on page navigations and soft-reloads within the same browser session.
+  const deviceCaps = detectCapabilitiesCached();
 
   // 3. Load settings
   const settings = loadSettings();
@@ -227,12 +228,6 @@ function main(): void {
   // 4a. Preconnect to CDN early for faster game launches
   emulator.preconnect();
 
-  // Pre-warm WebGL so first game launch doesn't stall on GPU driver init
-  emulator.preWarmWebGL();
-
-  // Pre-warm the PSP pipeline cache (PSP-representative shader patterns)
-  emulator.warmUpPSPPipeline();
-
   // Pre-warm IndexedDB connections to eliminate cold-open latency
   library.warmUp().catch(() => {});
   biosLibrary.warmUp().catch(() => {});
@@ -251,11 +246,19 @@ function main(): void {
     }).catch(() => {});
   }
 
-  // In idle time: load and pre-compile cached shaders from previous sessions
+  // Defer blocking GPU warm-up work to idle time so it does not delay the
+  // first render frame. preWarmWebGL and warmUpPSPPipeline each create a
+  // throwaway WebGL context and compile shaders, which blocks the main
+  // thread for up to ~20ms on slower devices.
   if ("requestIdleCallback" in window) {
+    window.requestIdleCallback!(() => emulator.preWarmWebGL());
+    window.requestIdleCallback!(() => emulator.warmUpPSPPipeline());
     window.requestIdleCallback!(() => emulator.preWarmShaderCache().catch(() => {}));
     window.requestIdleCallback!(() => emulator.prefetchLoader());
   } else {
+    // Fallback for browsers without requestIdleCallback (Safari < 16.4)
+    setTimeout(() => emulator.preWarmWebGL(), 500);
+    setTimeout(() => emulator.warmUpPSPPipeline(), 1000);
     setTimeout(() => emulator.preWarmShaderCache().catch(() => {}), 3000);
     setTimeout(() => emulator.prefetchLoader(), 2000);
   }

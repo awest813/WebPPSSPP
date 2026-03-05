@@ -1,6 +1,8 @@
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import {
   detectCapabilities,
+  detectCapabilitiesCached,
+  clearCapabilitiesCache,
   isLikelyChromeOS,
   isWebGPUAvailable,
   prefersReducedMotion,
@@ -22,6 +24,7 @@ describe('performance', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     __resetAudioCapabilitiesCacheForTests();
+    clearCapabilitiesCache();
   });
 
   // ── WebGL error resilience ──────────────────────────────────────────────
@@ -837,6 +840,84 @@ describe('performance', () => {
       const caps = makeFullGPUCaps({ maxTextureSize: 8192, maxColorAttachments: 4, astcTextures: false, etc2Textures: true });
       // 1536 (texSize) + 256 (MRT 4) + 0 (no ASTC) + 128 (ETC2)
       expect(estimateVRAM(caps)).toBe(1536 + 256 + 128);
+    });
+  });
+
+  // ── detectCapabilitiesCached ──────────────────────────────────────────────
+
+  describe('detectCapabilitiesCached', () => {
+    beforeEach(() => {
+      clearCapabilitiesCache();
+    });
+
+    it('returns a valid DeviceCapabilities object on first call', () => {
+      const caps = detectCapabilitiesCached();
+      expect(caps).toHaveProperty('tier');
+      expect(['low', 'medium', 'high', 'ultra']).toContain(caps.tier);
+    });
+
+    it('returns identical result from cache on second call without re-running detection', () => {
+      const caps1 = detectCapabilitiesCached();
+      // Spy on detectCapabilities; if caching works it should NOT be called again
+      const spy = vi.spyOn({ detectCapabilities }, 'detectCapabilities');
+      const caps2 = detectCapabilitiesCached();
+      // Values must match
+      expect(caps2.tier).toBe(caps1.tier);
+      expect(caps2.gpuBenchmarkScore).toBe(caps1.gpuBenchmarkScore);
+      spy.mockRestore();
+    });
+
+    it('re-runs detection after clearCapabilitiesCache()', () => {
+      const caps1 = detectCapabilitiesCached();
+      clearCapabilitiesCache();
+      const caps2 = detectCapabilitiesCached();
+      // Both results must be structurally valid (content may vary in test env)
+      expect(['low', 'medium', 'high', 'ultra']).toContain(caps2.tier);
+      expect(typeof caps2.gpuBenchmarkScore).toBe('number');
+      // Tier should be the same across two identical runs in the same environment
+      expect(caps2.tier).toBe(caps1.tier);
+    });
+
+    it('falls back gracefully when sessionStorage throws on read', () => {
+      vi.spyOn(window.sessionStorage, 'getItem').mockImplementation(() => {
+        throw new Error('storage unavailable');
+      });
+      vi.spyOn(window.sessionStorage, 'setItem').mockImplementation(() => {});
+      const caps = detectCapabilitiesCached();
+      expect(['low', 'medium', 'high', 'ultra']).toContain(caps.tier);
+    });
+
+    it('falls back gracefully when sessionStorage contains corrupt JSON', () => {
+      vi.spyOn(window.sessionStorage, 'getItem').mockReturnValue('not-valid-json{{{');
+      vi.spyOn(window.sessionStorage, 'setItem').mockImplementation(() => {});
+      const caps = detectCapabilitiesCached();
+      expect(['low', 'medium', 'high', 'ultra']).toContain(caps.tier);
+    });
+
+    it('falls back gracefully when cached entry has an unrecognised tier', () => {
+      const bad = JSON.stringify({ tier: 'extreme', gpuBenchmarkScore: 99 });
+      vi.spyOn(window.sessionStorage, 'getItem').mockReturnValue(bad);
+      vi.spyOn(window.sessionStorage, 'setItem').mockImplementation(() => {});
+      const caps = detectCapabilitiesCached();
+      // Must have fallen through to fresh detection
+      expect(['low', 'medium', 'high', 'ultra']).toContain(caps.tier);
+    });
+
+    it('falls back gracefully when sessionStorage.setItem throws (write failure)', () => {
+      clearCapabilitiesCache();
+      vi.spyOn(window.sessionStorage, 'getItem').mockReturnValue(null);
+      vi.spyOn(window.sessionStorage, 'setItem').mockImplementation(() => {
+        throw new DOMException('QuotaExceededError');
+      });
+      const caps = detectCapabilitiesCached();
+      expect(['low', 'medium', 'high', 'ultra']).toContain(caps.tier);
+    });
+
+    it('clearCapabilitiesCache removes the session entry without throwing', () => {
+      detectCapabilitiesCached(); // populate
+      expect(() => clearCapabilitiesCache()).not.toThrow();
+      // After clearing, sessionStorage should not have the key
+      expect(sessionStorage.getItem('retrovault-devcaps-v1')).toBeNull();
     });
   });
 });

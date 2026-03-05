@@ -718,6 +718,59 @@ export function detectCapabilities(): DeviceCapabilities {
   };
 }
 
+// ── Session-cached capability detection ──────────────────────────────────────
+
+/**
+ * sessionStorage key for the cached DeviceCapabilities result.
+ * Bump the suffix when the DeviceCapabilities interface changes shape so
+ * stale caches from old app versions are ignored automatically.
+ */
+const CAPABILITIES_SESSION_KEY = "retrovault-devcaps-v1";
+
+/**
+ * Detect device capabilities with session-level caching.
+ *
+ * The GPU micro-benchmark (~12 ms) and WebGL probe run only once per browser
+ * session. The result is serialised to sessionStorage (cleared on tab close)
+ * so that page navigations and soft-reloads within the same tab skip the
+ * expensive detection entirely.
+ *
+ * Falls back to the full `detectCapabilities()` run when:
+ *   - sessionStorage is unavailable (private browsing restrictions)
+ *   - the stored value is corrupt or has an unrecognised tier
+ */
+export function detectCapabilitiesCached(): DeviceCapabilities {
+  try {
+    const raw = sessionStorage.getItem(CAPABILITIES_SESSION_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as DeviceCapabilities;
+      // Sanity-check the most critical field to detect truncated/stale entries.
+      if ((["low", "medium", "high", "ultra"] as const).includes(parsed.tier)) {
+        return parsed;
+      }
+    }
+  } catch {
+    // sessionStorage unavailable or JSON corrupt — fall through to fresh detection.
+  }
+
+  const caps = detectCapabilities();
+
+  try {
+    sessionStorage.setItem(CAPABILITIES_SESSION_KEY, JSON.stringify(caps));
+  } catch {
+    // sessionStorage write failed (private mode quota / storage error) — ignore.
+  }
+
+  return caps;
+}
+
+/** Clear the cached capabilities (e.g. after the user forces re-detection). */
+export function clearCapabilitiesCache(): void {
+  try {
+    sessionStorage.removeItem(CAPABILITIES_SESSION_KEY);
+  } catch { /* ignore */ }
+}
+
 // ── Battery status (async) ────────────────────────────────────────────────────
 
 /**
