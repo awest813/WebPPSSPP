@@ -3,6 +3,7 @@ import {
   WebGPUPostProcessor,
   DEFAULT_POST_PROCESS_CONFIG,
   buildEffectPipeline,
+  adjustConfigForTier,
   type PostProcessConfig,
 } from "./webgpuPostProcess";
 
@@ -586,5 +587,37 @@ describe("PostProcessConfig typing", () => {
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "fxaa" },
     ];
     expect(configs).toHaveLength(6);
+  });
+});
+
+// ── adjustConfigForTier ───────────────────────────────────────────────────────
+
+describe("adjustConfigForTier", () => {
+  it("returns config unchanged for high tier", () => {
+    const config = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "high" as const, bloomIntensity: 0.8, curvature: 1.0 };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.bloomIntensity).toBe(0.8);
+    expect(adjusted.curvature).toBe(1.0);
+  });
+
+  it("caps bloom and curvature on medium tier", () => {
+    const config = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "medium" as const, bloomIntensity: 0.8, curvature: 1.0 };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.bloomIntensity).toBeLessThanOrEqual(0.3);
+    expect(adjusted.curvature).toBeLessThanOrEqual(0.5);
+  });
+
+  it("disables bloom and severely caps effects on low tier", () => {
+    const config = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "low" as const, bloomIntensity: 0.8, curvature: 1.0, scanlineIntensity: 0.8 };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.bloomIntensity).toBe(0);
+    expect(adjusted.curvature).toBeLessThanOrEqual(0.2);
+    expect(adjusted.scanlineIntensity).toBeLessThanOrEqual(0.3);
+  });
+
+  it("returns config unchanged when no tier is set", () => {
+    const config = { ...DEFAULT_POST_PROCESS_CONFIG, bloomIntensity: 0.8 };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.bloomIntensity).toBe(0.8);
   });
 });

@@ -2027,4 +2027,42 @@ describe('PSPEmulator', () => {
       expect(extErrors).toHaveLength(0);
     });
   });
+
+  // ── Diagnostic log ──────────────────────────────────────────────────────────
+
+  describe('diagnostic log', () => {
+    it('starts with an empty diagnostic log', () => {
+      expect(emulator.diagnosticLog).toEqual([]);
+    });
+
+    it('records diagnostic events with correct fields', () => {
+      emulator.logDiagnostic('performance', 'Test event');
+      const log = emulator.diagnosticLog;
+      expect(log).toHaveLength(1);
+      expect(log[0].category).toBe('performance');
+      expect(log[0].message).toBe('Test event');
+      expect(typeof log[0].timestamp).toBe('number');
+    });
+
+    it('caps diagnostic log at MAX_DIAGNOSTIC_EVENTS', () => {
+      for (let i = 0; i < 250; i++) {
+        emulator.logDiagnostic('system', `Event ${i}`);
+      }
+      expect(emulator.diagnosticLog.length).toBeLessThanOrEqual(200);
+    });
+
+    it('clears diagnostic log', () => {
+      emulator.logDiagnostic('audio', 'test');
+      emulator.clearDiagnosticLog();
+      expect(emulator.diagnosticLog).toEqual([]);
+    });
+
+    it('returns a copy of the diagnostic log (not a reference)', () => {
+      emulator.logDiagnostic('render', 'test');
+      const log1 = emulator.diagnosticLog;
+      const log2 = emulator.diagnosticLog;
+      expect(log1).not.toBe(log2);
+      expect(log1).toEqual(log2);
+    });
+  });
 });
