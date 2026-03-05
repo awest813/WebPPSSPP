@@ -929,14 +929,16 @@ function pickSystem(fileName: string, candidates: SystemInfo[], subtitleText?: s
 
     subtitle.textContent = subtitleText ?? `The file "${fileName}" could belong to several systems. Choose one:`;
     list.innerHTML = "";
+    const fragment = document.createDocumentFragment();
     for (const sys of candidates) {
       const btn   = make("button", { class: "system-pick-btn" });
       const badge = make("span", { class: "sys-badge" }, sys.shortName);
       badge.style.background = sys.color;
       btn.append(badge, document.createTextNode(sys.name));
       btn.addEventListener("click", () => close(sys));
-      list.appendChild(btn);
+      fragment.appendChild(btn);
     }
+    list.appendChild(fragment);
     panel.hidden = false;
 
     let closed = false;
@@ -1175,6 +1177,7 @@ function showGamePickerDialog(title: string, message: string, games: GameMetadat
     box.appendChild(make("p", { class: "confirm-body" }, message));
 
     const list = make("div", { class: "game-picker-list" });
+    const fragment = document.createDocumentFragment();
     for (const game of games) {
       const sys   = getSystemById(game.systemId);
       const btn   = make("button", { class: "game-picker-btn" });
@@ -1182,8 +1185,9 @@ function showGamePickerDialog(title: string, message: string, games: GameMetadat
       badge.style.background = sys?.color ?? "#555";
       btn.append(badge, document.createTextNode(" " + game.name));
       btn.addEventListener("click", () => close(game));
-      list.appendChild(btn);
+      fragment.appendChild(btn);
     }
+    list.appendChild(fragment);
     box.appendChild(list);
 
     const cancelBtn = make("button", { class: "btn" }, "Cancel");
@@ -2478,6 +2482,7 @@ function buildMultiplayerTab(
       ));
       return;
     }
+    const fragment = document.createDocumentFragment();
     for (const srv of iceServers) {
       const urls   = Array.isArray(srv.urls) ? srv.urls : [srv.urls];
       const urlStr = urls.join(", ");
@@ -2494,8 +2499,9 @@ function buildMultiplayerTab(
         renderIceList();
       });
       row.appendChild(removeBtn);
-      iceList.appendChild(row);
+      fragment.appendChild(row);
     }
+    iceList.appendChild(fragment);
   };
   renderIceList();
   iceSection.appendChild(iceList);

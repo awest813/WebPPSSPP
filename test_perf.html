@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Benchmark DOM Insertion</title>
+</head>
+<body>
+  <div id="grid"></div>
+  <script>
+    const ITERATIONS = 100;
+    const NUM_ITEMS = 1000;
+
+    const games = Array.from({ length: NUM_ITEMS }, (_, i) => ({ id: i, name: `Game ${i}` }));
+
+    function buildElement(game) {
+      const el = document.createElement("div");
+      el.className = "game-card";
+      el.textContent = game.name;
+      return el;
+    }
+
+    function testUnoptimized() {
+      const grid = document.getElementById("grid");
+      const times = [];
+
+      for (let i = 0; i < ITERATIONS; i++) {
+        const start = performance.now();
+        grid.innerHTML = "";
+        for (const game of games) {
+          grid.appendChild(buildElement(game));
+        }
+
+        // Force layout flush so we actually measure the cost of inserting
+        grid.offsetHeight;
+
+        times.push(performance.now() - start);
+      }
+
+      const sum = times.reduce((a, b) => a + b, 0);
+      return { avg: sum / ITERATIONS, total: sum };
+    }
+
+    function testOptimized() {
+      const grid = document.getElementById("grid");
+      const times = [];
+
+      for (let i = 0; i < ITERATIONS; i++) {
+        const start = performance.now();
+        grid.innerHTML = "";
+        const fragment = document.createDocumentFragment();
+        for (const game of games) {
+          fragment.appendChild(buildElement(game));
+        }
+        grid.appendChild(fragment);
+
+        // Force layout flush
+        grid.offsetHeight;
+
+        times.push(performance.now() - start);
+      }
+
+      const sum = times.reduce((a, b) => a + b, 0);
+      return { avg: sum / ITERATIONS, total: sum };
+    }
+
+    // Warmup
+    for(let i=0;i<5;i++) testUnoptimized();
+    for(let i=0;i<5;i++) testOptimized();
+
+    const stats1 = testUnoptimized();
+    const stats2 = testOptimized();
+
+    console.log(`Unoptimized Average: ${stats1.avg.toFixed(3)} ms`);
+    console.log(`Optimized Average: ${stats2.avg.toFixed(3)} ms`);
+    console.log(`Improvement: ${((stats1.avg - stats2.avg) / stats1.avg * 100).toFixed(2)}%`);
+  </script>
+</body>
+</html>
