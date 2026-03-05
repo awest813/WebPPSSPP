@@ -115,6 +115,92 @@ describe('PSPEmulator', () => {
       expect(mon._rafId).not.toBeNull();
       mon.stop();
     });
+
+    // ── Adaptive callback rate ───────────────────────────────────────────────
+
+    // FPSMonitor internal type extended with adaptive-rate fields
+    type FPSMonitorAdaptive = FPSMonitorInternal & {
+      _callbackInterval: number;
+      _frameCount: number;
+      _ringCount: number;
+      _ring: Float64Array;
+      _ringHead: number;
+    };
+
+    it('starts with the low callback interval (10 frames)', () => {
+      const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
+      mon.start();
+      expect(mon._callbackInterval).toBe(10);
+      mon.stop();
+    });
+
+    it('widens callback interval to 30 when average FPS exceeds stable threshold', () => {
+      const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
+      mon.start();
+
+      // Prime the ring buffer with deltas consistent with ~60 fps (~16.67 ms)
+      const delta60 = 1000 / 60;
+      for (let i = 0; i < mon._ring.length; i++) {
+        mon._ring[i] = delta60;
+        mon._ringHead = (mon._ringHead + 1) % mon._ring.length;
+        mon._ringCount = Math.min(mon._ringCount + 1, mon._ring.length);
+      }
+
+      // Fire callback by ticking to a multiple of the current interval
+      const updates: unknown[] = [];
+      mon._enabled = true;
+      // Attach an update listener so the internal callback can fire
+      const emu = emulator as unknown as { _fpsMonitor: typeof mon & { _onUpdate?: (s: unknown) => void } };
+      emu._fpsMonitor._onUpdate = (snap) => updates.push(snap);
+
+      // Advance frameCount to 10 (first low-interval callback)
+      mon._frameCount = 9; // tick will increment to 10
+      mon._tick(performance.now());
+      // After a healthy FPS callback, interval should widen to 30
+      expect(mon._callbackInterval).toBe(30);
+
+      mon.stop();
+    });
+
+    it('narrows callback interval back to 10 when FPS drops below threshold', () => {
+      const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
+      mon.start();
+
+      // Prime ring buffer with deltas consistent with ~20 fps (very slow)
+      const delta20 = 1000 / 20;
+      for (let i = 0; i < mon._ring.length; i++) {
+        mon._ring[i] = delta20;
+        mon._ringHead = (mon._ringHead + 1) % mon._ring.length;
+        mon._ringCount = Math.min(mon._ringCount + 1, mon._ring.length);
+      }
+
+      mon._enabled = true;
+      const emu = emulator as unknown as { _fpsMonitor: typeof mon & { _onUpdate?: (s: unknown) => void } };
+      emu._fpsMonitor._onUpdate = () => {};
+
+      // Force the interval to 30 first (as if it had been widened)
+      mon._callbackInterval = 30;
+
+      // Tick to a multiple of 30
+      mon._frameCount = 29;
+      mon._tick(performance.now());
+      // Low FPS detected — should narrow back to 10
+      expect(mon._callbackInterval).toBe(10);
+
+      mon.stop();
+    });
+
+    it('resets callback interval to 10 on start()', () => {
+      const mon = (emulator as unknown as { _fpsMonitor: FPSMonitorAdaptive })._fpsMonitor;
+      mon.start();
+      // Widen it manually
+      mon._callbackInterval = 30;
+      mon.stop();
+      // Restart should reset
+      mon.start();
+      expect(mon._callbackInterval).toBe(10);
+      mon.stop();
+    });
   });
 
   // ── Preconnect / prefetch ─────────────────────────────────────────────────

@@ -210,6 +210,24 @@ class FPSMonitor {
   private _onUpdate?: (snapshot: FPSSnapshot) => void;
   private _frameCount = 0;
 
+  /**
+   * Frames between `_onUpdate` callbacks.
+   *
+   * Starts at 10 (fires ~6×/s at 60 fps). Automatically widened to 30
+   * (fires ~2×/s) when performance is healthy — reducing ring-buffer scan
+   * overhead by ~66% during normal gameplay. Narrows back to 10 as soon as
+   * FPS drops below the stable threshold so low-FPS detection remains prompt.
+   */
+  private _callbackInterval = FPSMonitor._CALLBACK_INTERVAL_LOW;
+
+  /**
+   * FPS threshold above which the callback interval is considered "stable"
+   * and widened to CALLBACK_INTERVAL_STABLE to reduce CPU overhead.
+   */
+  private static readonly _FPS_STABLE_THRESHOLD = 55;
+  private static readonly _CALLBACK_INTERVAL_LOW    = 10;
+  private static readonly _CALLBACK_INTERVAL_STABLE = 30;
+
   private readonly _windowSize: number;
   private readonly _ring: Float64Array;
   private _ringHead = 0;
@@ -234,6 +252,7 @@ class FPSMonitor {
     this._ringCount = 0;
     this._droppedFrames = 0;
     this._frameCount = 0;
+    this._callbackInterval = FPSMonitor._CALLBACK_INTERVAL_LOW;
     this._lastTime = performance.now();
     this._running = true;
     this._enabled = true;
@@ -305,8 +324,15 @@ class FPSMonitor {
         this._droppedFrames++;
       }
 
-      if (this._enabled && this._frameCount % 10 === 0) {
-        this._onUpdate?.(this.getSnapshot());
+      if (this._enabled && this._frameCount % this._callbackInterval === 0) {
+        const snap = this.getSnapshot();
+        this._onUpdate?.(snap);
+        // Adapt callback frequency: when FPS is stable and healthy, widen the
+        // interval to reduce ring-buffer scan overhead during normal gameplay.
+        // This saves ~66% of callback CPU when the game runs at full speed.
+        this._callbackInterval = snap.average >= FPSMonitor._FPS_STABLE_THRESHOLD
+          ? FPSMonitor._CALLBACK_INTERVAL_STABLE
+          : FPSMonitor._CALLBACK_INTERVAL_LOW;
       }
     }
 
