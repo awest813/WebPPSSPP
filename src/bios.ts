@@ -5,7 +5,7 @@
  * game library so BIOS updates never require a game-library schema migration.
  *
  * Systems that require BIOS files:
- *   PlayStation 1  — SCPH-1001.bin / SCPH-5501.bin (optional but improves compatibility)
+ *   PlayStation 1  — SCPH-5500 (NTSC-J) / SCPH-1001 / SCPH-5501 / SCPH-5502 (optional but improves compatibility)
  *   Sega Saturn    — sega_101.bin or mpr-17933.bin  (required)
  *   Dreamcast      — dc_boot.bin + dc_flash.bin     (required)
  *   Atari Lynx     — lynxboot.img                   (optional)
@@ -67,6 +67,12 @@ export interface BiosRequirement {
 
 export const BIOS_REQUIREMENTS: Record<string, BiosRequirement[]> = {
   psx: [
+    {
+      fileName: "scph5500.bin",
+      displayName: "PS1 BIOS NTSC-J v3.0 (SCPH-5500)",
+      required: false,
+      description: "Japanese BIOS — required for NTSC-J titles and Japanese region-locked games",
+    },
     {
       fileName: "scph5501.bin",
       displayName: "PS1 BIOS NTSC-U v3.0 (SCPH-5501)",

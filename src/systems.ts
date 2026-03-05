@@ -476,6 +476,9 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
  *   beetle_psx_filter              — Texture filter (nearest = fastest)
  *   beetle_psx_dither_mode         — Ordered dither to hide colour banding
  *   beetle_psx_cd_access_method    — CD-ROM emulation speed (sync = safest)
+ *   beetle_psx_gte_overclock       — Overclock the Geometry Transformation Engine; reduces
+ *                                    polygon dropout / lag in heavily-triangulated scenes
+ *   beetle_psx_analog_calibration  — Correct analog stick drift via per-axis calibration
  */
 const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
@@ -498,6 +501,8 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_skip_deinterlacing: "enabled",
     beetle_psx_gpu_overclock: "1x(native)",
     beetle_psx_cd_fastload: "2x(native)",
+    // GTE overclock disabled on low — avoid the extra CPU overhead on slow devices
+    beetle_psx_gte_overclock: "disabled",
   },
   medium: {
     retroarch_core: "mednafen_psx_hw",
@@ -511,11 +516,14 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_pgxp_mode: "disabled",
     beetle_psx_pgxp_texture: "disabled",
     beetle_psx_pgxp_vertex: "disabled",
-    beetle_psx_analog_calibration: "disabled",
+    // Analog calibration corrects stick drift at negligible cost — enable from medium up
+    beetle_psx_analog_calibration: "enabled",
     beetle_psx_widescreen_hack: "disabled",
     beetle_psx_skip_deinterlacing: "enabled",
     beetle_psx_gpu_overclock: "1x(native)",
     beetle_psx_cd_fastload: "4x",
+    // GTE overclock disabled on medium — dynarec is fast enough without it
+    beetle_psx_gte_overclock: "disabled",
   },
   high: {
     retroarch_core: "mednafen_psx_hw",
@@ -537,6 +545,8 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     // 4x GPU overclock gives the PS1's GPU more headroom for high-res rendering
     beetle_psx_gpu_overclock: "4x",
     beetle_psx_cd_fastload: "6x",
+    // GTE overclock: reduces geometry transformation lag at 2× internal resolution
+    beetle_psx_gte_overclock: "enabled",
   },
   ultra: {
     retroarch_core: "mednafen_psx_hw",

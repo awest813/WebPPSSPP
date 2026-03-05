@@ -2001,7 +2001,7 @@ function buildSettingsContent(
   buildLibraryTab(panels[2], settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
   buildBiosTab(panels[3], biosLibrary);
   buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
-  buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager);
+  buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager, biosLibrary);
   buildAboutTab(panels[6]);
 }
 
@@ -2556,7 +2556,8 @@ function buildDebugTab(
   onSettingsChange: (patch: Partial<Settings>) => void,
   deviceCaps:       DeviceCapabilities,
   emulatorRef?:     import("./emulator.js").PSPEmulator,
-  netplayManager?:  import("./multiplayer.js").NetplayManager
+  netplayManager?:  import("./multiplayer.js").NetplayManager,
+  biosLibrary?:     BiosLibrary
 ): void {
   // Settings section
   const settingsSection = make("div", { class: "settings-section" });
@@ -2589,6 +2590,38 @@ function buildDebugTab(
   envSection.appendChild(make("p", { class: "device-info" },
     `User Agent: ${navigator.userAgent}`
   ));
+
+  // PS1 status section — shows BIOS file availability and core info
+  const ps1Section = make("div", { class: "settings-section" });
+  ps1Section.appendChild(make("h4", { class: "settings-section__title" }, "PS1 Status"));
+  ps1Section.appendChild(make("p", { class: "settings-help" },
+    "PlayStation 1 uses the Beetle PSX HW core (mednafen_psx_hw). A BIOS file is " +
+    "optional but improves game compatibility. Upload BIOS files in the BIOS tab."
+  ));
+
+  const psxBiosReqs = BIOS_REQUIREMENTS["psx"] ?? [];
+  // Snapshot map populated by async checks — used by the "Copy Debug Info" button
+  const psxBiosSnapshot = new Map<string, boolean | null>();
+  for (const req of psxBiosReqs) psxBiosSnapshot.set(req.fileName, null);
+
+  for (const req of psxBiosReqs) {
+    const row = make("p", { class: "device-info" });
+    row.textContent = `${req.displayName}: checking…`;
+    ps1Section.appendChild(row);
+
+    if (biosLibrary) {
+      biosLibrary.findBios("psx", req.fileName).then(found => {
+        psxBiosSnapshot.set(req.fileName, found !== null);
+        row.textContent = `${req.displayName}: ${found ? "✓ Uploaded" : "✗ Not found"}`;
+      }).catch(() => {
+        psxBiosSnapshot.set(req.fileName, null);
+        row.textContent = `${req.displayName}: — (could not check)`;
+      });
+    } else {
+      psxBiosSnapshot.set(req.fileName, null);
+      row.textContent = `${req.displayName}: — (BIOS library unavailable)`;
+    }
+  }
 
   // Emulator state section
   const stateSection = make("div", { class: "settings-section" });
@@ -2677,6 +2710,14 @@ function buildDebugTab(
         lines.push(`${key}: ${String(value)}`);
       }
     }
+    // Include PS1 BIOS status (populated asynchronously when the tab opened)
+    if (psxBiosReqs.length > 0) {
+      lines.push(``, `[PS1 BIOS]`);
+      for (const req of psxBiosReqs) {
+        const status = psxBiosSnapshot.get(req.fileName);
+        lines.push(`${req.fileName}: ${status === true ? "present" : status === false ? "missing" : "unknown"}`);
+      }
+    }
     lines.push(
       ``,
       `[Netplay]`,
@@ -2697,7 +2738,7 @@ function buildDebugTab(
   });
   actionsSection.appendChild(btnCopy);
 
-  container.append(settingsSection, envSection, stateSection, actionsSection);
+  container.append(settingsSection, envSection, ps1Section, stateSection, actionsSection);
 }
 
 // ── About tab ─────────────────────────────────────────────────────────────────

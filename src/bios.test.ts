@@ -60,6 +60,31 @@ describe('BIOS_REQUIREMENTS', () => {
     expect(psxReqs.every((r: BiosRequirement) => !r.required)).toBe(true);
   });
 
+  it('PS1 BIOS includes NTSC-J (SCPH-5500) entry for Japanese game compatibility', () => {
+    const psxReqs = BIOS_REQUIREMENTS['psx'];
+    expect(psxReqs).toBeDefined();
+    const fileNames = psxReqs.map((r: BiosRequirement) => r.fileName);
+    expect(fileNames).toContain('scph5500.bin');
+    const entry = psxReqs.find((r: BiosRequirement) => r.fileName === 'scph5500.bin');
+    expect(entry).toBeDefined();
+    expect(entry?.required).toBe(false);
+    // Description should mention Japanese or NTSC-J
+    expect(entry?.description.toLowerCase()).toMatch(/japan/);
+  });
+
+  it('PS1 BIOS includes NTSC-U entries (SCPH-5501 and SCPH-1001)', () => {
+    const psxReqs = BIOS_REQUIREMENTS['psx'];
+    const fileNames = psxReqs.map((r: BiosRequirement) => r.fileName);
+    expect(fileNames).toContain('scph5501.bin');
+    expect(fileNames).toContain('scph1001.bin');
+  });
+
+  it('PS1 BIOS includes PAL entry (SCPH-5502)', () => {
+    const psxReqs = BIOS_REQUIREMENTS['psx'];
+    const fileNames = psxReqs.map((r: BiosRequirement) => r.fileName);
+    expect(fileNames).toContain('scph5502.bin');
+  });
+
   it('Dreamcast has two required BIOS files', () => {
     const dcReqs = BIOS_REQUIREMENTS['segaDC'];
     expect(dcReqs).toBeDefined();

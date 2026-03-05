@@ -245,6 +245,26 @@ describe('systems performance profiles', () => {
         expect(settings.retroarch_core).toBe('mednafen_psx_hw');
       }
     });
+
+    it('enables GTE overclock on high and ultra tiers only', () => {
+      const psx = getSystemById('psx');
+      // Low and medium: GTE overclock disabled to conserve CPU on weaker devices
+      expect(psx?.tierSettings?.low?.beetle_psx_gte_overclock).toBe('disabled');
+      expect(psx?.tierSettings?.medium?.beetle_psx_gte_overclock).toBe('disabled');
+      // High and ultra: GTE overclock enabled — reduces polygon dropout at ≥2× resolution
+      expect(psx?.tierSettings?.high?.beetle_psx_gte_overclock).toBe('enabled');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_gte_overclock).toBe('enabled');
+    });
+
+    it('enables analog calibration from medium tier upward', () => {
+      const psx = getSystemById('psx');
+      // Low: disabled — saves a tiny bit of processing on low-spec devices
+      expect(psx?.tierSettings?.low?.beetle_psx_analog_calibration).toBe('disabled');
+      // Medium and above: enabled — corrects analog stick drift at negligible cost
+      expect(psx?.tierSettings?.medium?.beetle_psx_analog_calibration).toBe('enabled');
+      expect(psx?.tierSettings?.high?.beetle_psx_analog_calibration).toBe('enabled');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_analog_calibration).toBe('enabled');
+    });
   });
 
   // ── getNDSSettingsForTier ───────────────────────────────────────────────
