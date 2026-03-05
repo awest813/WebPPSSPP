@@ -172,6 +172,29 @@ export interface FPSSnapshot {
   droppedFrames: number;
 }
 
+// ── Diagnostic event log ──────────────────────────────────────────────────────
+
+/**
+ * A timestamped diagnostic event recorded during emulator operation.
+ * Used by the debug panel to display a performance event timeline.
+ */
+export interface DiagnosticEvent {
+  /** Unix timestamp (ms) when the event occurred. */
+  timestamp: number;
+  /** Category for filtering/display. */
+  category: "performance" | "audio" | "render" | "system" | "error";
+  /** Human-readable message. */
+  message: string;
+}
+
+/**
+ * Maximum number of diagnostic events retained in memory.
+ * 200 balances useful debug history (~3 min of gameplay at 1 event/s) against
+ * the ~40 KB peak memory footprint. The diagnostic timeline UI displays only
+ * the last 20 events; the full buffer is exported with "Copy Debug Info".
+ */
+const MAX_DIAGNOSTIC_EVENTS = 200;
+
 /**
  * FPS monitor using a fixed-size ring buffer to eliminate array
  * allocations and shift() overhead. The pre-allocated Float64Array
@@ -407,6 +430,8 @@ export class PSPEmulator {
   private _lastQualitySuggestionTime = Number.NEGATIVE_INFINITY;
   /** Timer ID for the launch watchdog — clears when the game starts or errors. */
   private _launchTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  /** Diagnostic event log for the debug panel timeline. */
+  private _diagnosticLog: DiagnosticEvent[] = [];
 
   /** When true, emit detailed debug information to the browser console. */
   verboseLogging = false;
@@ -470,8 +495,28 @@ export class PSPEmulator {
   /** Current post-processing configuration. */
   get postProcessConfig(): PostProcessConfig { return { ...this._postProcessConfig }; }
 
+  /**
+   * Diagnostic event log for the debug panel timeline.
+   * Returns a shallow copy — safe to iterate without mutations leaking.
+   */
+  get diagnosticLog(): ReadonlyArray<DiagnosticEvent> { return [...this._diagnosticLog]; }
+
   /** Get the current FPS snapshot (call anytime while running). */
   getFPS(): FPSSnapshot { return this._fpsMonitor.getSnapshot(); }
+
+  /**
+   * Record a diagnostic event.
+   * Capped at MAX_DIAGNOSTIC_EVENTS; oldest entries are evicted first.
+   */
+  logDiagnostic(category: DiagnosticEvent["category"], message: string): void {
+    this._diagnosticLog.push({ timestamp: Date.now(), category, message });
+    if (this._diagnosticLog.length > MAX_DIAGNOSTIC_EVENTS) {
+      this._diagnosticLog.splice(0, this._diagnosticLog.length - MAX_DIAGNOSTIC_EVENTS);
+    }
+  }
+
+  /** Clear all diagnostic events. */
+  clearDiagnosticLog(): void { this._diagnosticLog.length = 0; }
 
   /**
    * Enable or disable FPS monitoring callbacks.
@@ -1148,6 +1193,7 @@ export class PSPEmulator {
 
     this._setState("loading");
     this._emit("onProgress", "Preparing game file…");
+    this.logDiagnostic("system", `Launching "${fileName}" on ${opts.systemId} (${(opts.file.size / 1024 / 1024).toFixed(1)} MB)`);
 
     if (this.verboseLogging) {
       console.info(
@@ -1174,6 +1220,7 @@ export class PSPEmulator {
       const tier = opts.tierOverride ?? resolveTier(opts.performanceMode, opts.deviceCaps);
       this._activeTier = tier;
       this._resetAdaptiveQualityState();
+      this.logDiagnostic("performance", `Resolved tier: ${tier}${opts.tierOverride ? " (override)" : ""}`);
 
       // Reset audio underrun counter and level for the new session
       this._audioUnderruns = 0;
@@ -1195,6 +1242,9 @@ export class PSPEmulator {
       // reports a different latency profile.  This prevents crackles on
       // Bluetooth/USB audio devices (high base latency) and allows the
       // minimum buffer on DACs with very low output latency.
+      //
+      // Applies to PSP, N64, and PS1 — all three 3D cores expose audio
+      // buffer or latency knobs that benefit from hardware-aware tuning.
       const audioCaps = await audioCapabilitiesPromise;
       if (audioCaps && opts.systemId === "psp" && "ppsspp_audio_latency" in ejsSettings) {
         const tierLatency = ejsSettings["ppsspp_audio_latency"];
@@ -1210,6 +1260,36 @@ export class PSPEmulator {
             `suggests buffer tier "${hwBufTier}"; upgrading ppsspp_audio_latency ` +
             `from ${tierLatency} → ${hwNumeric}.`
           );
+        }
+      }
+
+      // N64 audio adaptation: mupen64plus-audio-buffer-size can be increased
+      // to prevent crackles on high-latency audio hardware.
+      if (audioCaps && opts.systemId === "n64") {
+        const hwBufTier = audioCaps.suggestedBufferTier;
+        if (hwBufTier === "high") {
+          ejsSettings["mupen64plus-audio-buffer-size"] = "2048";
+          if (this.verboseLogging) {
+            console.info(
+              `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
+              `— setting N64 audio buffer to 2048 samples.`
+            );
+          }
+        }
+      }
+
+      // PS1 audio adaptation: beetle_psx_cd_access_method can be forced to
+      // "sync" on high-latency hardware to prevent audio desync from async
+      // disc reads racing the audio output thread.
+      if (audioCaps && opts.systemId === "psx" && audioCaps.suggestedBufferTier === "high") {
+        if (ejsSettings["beetle_psx_cd_access_method"] === "async") {
+          ejsSettings["beetle_psx_cd_access_method"] = "sync";
+          if (this.verboseLogging) {
+            console.info(
+              `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
+              `— switching PS1 CD access to sync for audio stability.`
+            );
+          }
         }
       }
 

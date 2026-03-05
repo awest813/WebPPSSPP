@@ -149,20 +149,139 @@ WebGPU integration for post-processing, async GPU readback, and future rendering
 - [x] **GPU timestamp profiling**: `WebGPUPostProcessor` optionally inserts `timestamp-query` writes at the start and end of each render pass; timestamps are resolved to a `GPUBuffer`, read back asynchronously once per 60 frames, and exposed via the `lastGPUFrameTimeMs` getter; silently no-ops on devices that do not expose the feature
 - [x] **Bind group caching**: The `GPUBindGroup` wrapping the source texture, sampler, and uniform buffer is created once and reused across frames; invalidated only when the source texture handle is replaced (canvas resize or effect switch); eliminated the single largest per-frame GPU object allocation
 - [x] **WebGPU type safety**: Added `@webgpu/types` as a dev dependency and configured `tsconfig.json`; replaced inline `any` casts with proper WebGPU types throughout `emulator.ts`; WebGPU enum constants (`GPUShaderStage`, `GPUBufferUsage`, etc.) defined as numeric values to allow the pipeline to be tested in jsdom without runtime WebGPU
+- [x] **Tier-aware post-processing**: `adjustConfigForTier()` automatically reduces effect intensity on low/medium-tier devices — bloom is capped or disabled, curvature and scanline effects are softened — ensuring post-processing never drops below playable framerates on weaker hardware
+
+---
+
+## Phase 7.1 — 3D Emulator Overhaul (Complete)
+
+Comprehensive overhaul of all 3D system emulators with improved tier tuning,
+enhanced GPU benchmarking, and deeper debug/diagnostic infrastructure.
+
+### GPU Benchmark & Tier Classification
+
+- [x] **Logarithmic GPU scoring**: Replaced linear `drawCalls / 10000` with `log10(drawCalls) * 21.5` scoring — better discrimination across the full GPU spectrum from software renderers (~10 pts) to high-end desktops (~100 pts); mid-range GPUs that were compressed into the same band now receive meaningfully different scores
+- [x] **ETC2 / ASTC texture compression detection**: `probeGPU()` now independently detects ETC2 (`WEBGL_compressed_texture_etc`) and ASTC (`WEBGL_compressed_texture_astc`) extensions, surfaced as `gpuCaps.etc2Textures` / `gpuCaps.astcTextures` and as tier bonus points (+1 / +2)
+- [x] **VRAM estimation heuristic**: `estimateVRAM()` approximates available GPU memory from `maxTextureSize`, MRT colour attachment count, and compression extension support; exposed as `deviceCaps.estimatedVRAMMB` and surfaced in the Performance and Debug settings tabs
+- [x] **Tier-scaled shader cache**: `ShaderCache.setTier()` dynamically adjusts the GLSL program cap (16 → 128) and WGSL module cap (8 → 64) based on device tier; pre-compilation poll interval adapts from 16 ms (low) to 4 ms (high/ultra) to balance CPU load
+
+### 3D System Tier Overhaul
+
+- [x] **PSP**: High tier now uses 8× anisotropic filtering (was 4×) and reduced inflight frames (2 vs 3) for tighter input latency; ultra tier locks PSP CPU to 222 MHz for broader game compatibility
+- [x] **N64**: Medium tier switches to `FromMem` depth RDRAM (was `Software`) for better compatibility; high tier adds texture enhancement mode; ultra tier enables N64 depth compare and 4000-entry texture cache for highest accuracy
+- [x] **PS1**: Medium tier raises CD fast-load to 6× and improves dither mode; high tier adds adaptive smoothing; ultra tier uses 4× internal resolution (was 8× — diminishing returns above 4×) with super-sampling enabled for best anti-aliasing
+- [x] **NDS**: Ultra tier corrects core count from 4 → 2 (DeSmuME gains no benefit from >2 cores); high/ultra tiers add pointer type and microphone support
+- [x] **Saturn**: Medium/high/ultra tiers add horizontal colour blending; high/ultra tiers skip MD5 calculation for faster disc loads
+- [x] **Dreamcast**: Medium tier raises texture upscaling to 2× (was 1×); high/ultra tiers add triangle-sorted alpha blending and disabled frame-swap delay for lower input latency; ultra tier reduces texture upscaling to 2× (was 4× — excessive on DC)
+
+### Audio & Adaptive Quality
+
+- [x] **N64 audio adaptation**: High-latency audio hardware (Bluetooth, USB DACs) now triggers an enlarged audio buffer (`mupen64plus-audio-buffer-size: 2048`) to prevent crackles during gameplay
+- [x] **PS1 audio adaptation**: High-latency hardware forces synchronous CD access (`beetle_psx_cd_access_method: sync`) to prevent audio desync from async disc reads racing the output thread
+
+### Debug & Diagnostics
+
+- [x] **Diagnostic event timeline**: `PSPEmulator.logDiagnostic()` records timestamped events (categories: performance, audio, render, system, error) into a capped ring buffer (200 events); displayed in the Debug settings tab with category badges and timestamps; included in "Copy Debug Info" clipboard export
+- [x] **Enhanced Debug tab**: New "GPU & Memory" section displays GPU renderer string, estimated VRAM, max texture size, compressed texture support (ETC2/ASTC), MRT attachment count, and multi-draw status; diagnostic timeline section shows last 20 events with colour-coded badges
+- [x] **Expanded debug info export**: "Copy Debug Info" now includes estimated VRAM, ETC2/ASTC status, MRT attachment count, multi-draw support, and the full diagnostic event timeline (last 50 events) for comprehensive bug reports
+- [x] **Performance tab VRAM display**: Estimated VRAM surfaced alongside max texture size in the Performance settings tab device info section
+
+---
+
+## Phase 8 — Advanced 3D Rendering & Quality (Planned)
+
+Next-generation rendering improvements for the three primary 3D systems (PSP, N64, PS1).
+
+### Rendering Pipeline
+
+- [ ] **Upscaling shaders**: Implement FSR 1.0 (AMD FidelityFX Super Resolution) as a WGSL compute shader; runs as a post-process pass after the core renderer; takes the core's native or 2× output and upscales to display resolution with edge-aware sharpening; controllable quality slider in Settings
+- [ ] **Temporal anti-aliasing (TAA)**: Lightweight TAA pass that blends the current frame with a motion-compensated history buffer; reduces temporal aliasing (shimmer) on PSP and N64 games where geometry edges flicker at non-native resolutions; opt-in via Settings, disabled by default on low/medium tiers
+- [ ] **Resolution scaling presets**: "Native", "2× Crisp", "4× Ultra", "Display Match" presets that combine internal resolution, upscale shader, and AA settings into one-click configurations per system
+- [ ] **Dynamic resolution scaling (DRS)**: When FPS drops below the target for 2+ seconds, automatically lower the internal resolution by one step and re-raise when headroom is detected; entirely transparent to the user; logged in the diagnostic timeline
+- [ ] **Per-game graphics profiles**: Allow users to override tier settings on a per-game basis (e.g. force 1× resolution for a demanding PSP title while keeping 4× for lighter games); stored in localStorage, surfaced in a "Game Settings" overlay accessible from the emulator toolbar
+
+### Texture Management
+
+- [ ] **Texture replacement packs**: Load high-resolution replacement textures from user-uploaded ZIP archives; replacement textures matched by hash; supported for PSP (PPSSPP native format) and N64 (Rice/GLideN64 format)
+- [ ] **Texture prefetching**: Analyse the first 30 seconds of gameplay to identify frequently loaded textures; preload those textures into the GPU cache on subsequent launches to eliminate mid-game texture pop-in
+- [ ] **Compressed texture streaming**: On devices with ETC2/ASTC support, transcode textures on-the-fly to compressed GPU formats, reducing VRAM usage by 4–8× and improving fill-rate-limited scenarios
+
+### Audio Enhancement
+
+- [ ] **Audio enhancement filters**: Optional low-pass filter to smooth the characteristic "crunchiness" of PSP and N64 audio output; adjustable cutoff frequency in Settings
+- [ ] **Spatial audio**: Binaural spatialization for games that use stereo positioning (PSP, Dreamcast); implemented as an AudioWorklet filter node; toggled in Display settings
+
+---
+
+## Phase 9 — Intelligent Performance Optimization (Planned)
+
+Data-driven and heuristic approaches to automatically tune emulator settings.
+
+### Adaptive Tuning
+
+- [ ] **Game compatibility database**: Community-maintained JSON file mapping game IDs to known-good tier overrides, required BIOS, and known issues; bundled with the app and checked at launch to pre-select optimal settings
+- [ ] **Thermal-aware throttling**: On devices that expose the Compute Pressure API, monitor thermal state and proactively lower the tier before the OS forces CPU/GPU throttling; log thermal events in the diagnostic timeline
+- [ ] **Memory pressure detection**: Monitor `performance.measureUserAgentSpecificMemory()` (where available) and reduce texture cache sizes, disable texture scaling, or lower internal resolution when the JS heap approaches the limit; surface warnings in the debug panel
+- [ ] **Startup profiler**: Measure and log every phase of game launch (core download, WASM compile, BIOS load, first frame) with high-resolution timestamps; identify the slowest phase and surface actionable suggestions (e.g. "BIOS load took 2.3 s — consider uploading a smaller BIOS")
+- [ ] **FPS prediction**: Use the first 5 seconds of gameplay FPS data to predict whether the current tier will sustain 60 fps; if prediction is below threshold, offer an immediate tier downgrade instead of waiting for the 10-second low-FPS trigger
+
+### Caching & Preloading
+
+- [ ] **Intelligent core preloading**: Track which systems the user launches most frequently (from library metadata); on app startup, prefetch the top-2 cores to browser HTTP cache in the background; saves 5–15 seconds on the next game launch
+- [ ] **Shader warmup from gameplay**: Record the exact shader programs compiled during the first 60 seconds of each game; on subsequent launches of the same game, pre-compile exactly those shaders (not the generic set) for a more targeted warmup
+- [ ] **WASM compilation caching**: Detect whether the browser supports `WebAssembly.compileStreaming()` caching via HTTP cache headers; if the CDN does not set appropriate cache headers, use an IndexedDB-backed WASM module cache as a fallback
+
+---
+
+## Phase 10 — Community, Accessibility & Ecosystem (Planned)
+
+Features that grow the user base and make RetroVault accessible to everyone.
+
+### Accessibility
+
+- [ ] **Screen reader support**: Add ARIA labels, roles, and live regions to the library grid, settings panel, and emulator controls; ensure all interactive elements are keyboard-navigable
+- [ ] **High contrast mode**: Detect `prefers-contrast: more` and switch to a high-contrast CSS theme with larger touch targets and bolder text
+- [ ] **Colourblind-safe badges**: Replace the colour-only system badges with icon + colour combinations that remain distinguishable under protanopia, deuteranopia, and tritanopia
+- [ ] **Reduced motion compliance**: When `prefers-reduced-motion: reduce` is active, disable all CSS transitions, the FPS overlay animation, and the audio visualiser oscilloscope; already partially implemented for the tier badge
+
+### Community Features
+
+- [ ] **Game rating & notes**: Allow users to rate games (1–5 stars) and attach text notes; stored in IndexedDB alongside game metadata; surfaced on library cards
+- [ ] **Share configurations**: Export a game's tier overrides, graphics settings, and control layout as a JSON file; another user can import it to replicate the exact setup
+- [ ] **Community compatibility reports**: Optional anonymous telemetry (opt-in) that reports game ID + system + tier + average FPS; aggregated data used to build the game compatibility database (Phase 9)
+
+### Platform Expansion
+
+- [ ] **Electron wrapper**: Package RetroVault as a native desktop app via Electron; enables SharedArrayBuffer without service-worker workarounds, native filesystem access for ROMs, and system-tray integration
+- [ ] **Android TWA**: Publish RetroVault as a Trusted Web Activity on the Google Play Store; the PWA runs in a full-screen Chrome tab with native-app-like install/update lifecycle
+- [ ] **Gamepad API enhancements**: Full support for the Gamepad API including analog stick calibration, vibration (dual-rumble where supported), and per-game button remapping; control mapping editor in Settings
+- [ ] **Cloud save backends**: Implement Google Drive, Dropbox, and WebDAV adapters for the existing `CloudSyncInterface`; bidirectional sync with conflict resolution; end-to-end encryption of save data
+
+### Developer Experience
+
+- [ ] **Plugin API**: Define a stable plugin interface that allows third-party extensions to register custom post-processing shaders, alternative UI themes, and system-specific overlays; plugins loaded as ES modules from user-specified URLs
+- [ ] **Debug console**: In-game overlay console (toggle with backtick/tilde) showing live core-option values, FPS graph, audio buffer occupancy, and the diagnostic event timeline; supports runtime core-option changes for rapid experimentation
+- [ ] **Automated regression testing**: Headless Playwright test suite that boots representative ROMs from each 3D system, captures FPS after 10 seconds, and asserts above a minimum threshold; runs on CI to catch performance regressions
 
 ---
 
 ## Performance Targets
 
-| Metric | Current | Target |
-|--------|---------|--------|
-| First meaningful paint | ~200 ms | <=100 ms |
-| PSP game boot (cached core) | ~3 s | <=1.5 s |
-| PSP game boot (uncached core, fast connection) | ~15 s | <=8 s |
-| Audio base latency (low-latency HW) | ~12-20 ms | <=8 ms |
-| FPS overlay CPU overhead | ~0.1 ms/frame | <=0.05 ms/frame |
-| Initial JS bundle | ~80 KB gzip | <=40 KB gzip |
-| IndexedDB cold-open (first ROM add) | ~80 ms | <=20 ms |
+| Metric | Current | Target | Notes |
+|--------|---------|--------|-------|
+| First meaningful paint | ~200 ms | ≤100 ms | Reduce initial bundle, defer non-critical CSS |
+| PSP game boot (cached core) | ~3 s | ≤1.5 s | Shader pre-warm + WASM cache |
+| PSP game boot (uncached core, fast connection) | ~15 s | ≤8 s | Intelligent core preloading |
+| Audio base latency (low-latency HW) | ~12–20 ms | ≤8 ms | AudioWorklet + adaptive buffer |
+| FPS overlay CPU overhead | ~0.1 ms/frame | ≤0.05 ms/frame | Zero-GC ring buffer (done) |
+| Initial JS bundle | ~80 KB gzip | ≤40 KB gzip | Aggressive code splitting |
+| IndexedDB cold-open (first ROM add) | ~80 ms | ≤20 ms | Warm IDB connection at startup |
+| GPU benchmark duration | ~12 ms | ≤8 ms | Adaptive budget based on warmup |
+| Shader cache pre-compile (50 programs) | ~200 ms | ≤100 ms | KHR_parallel_shader_compile + tier-adaptive polling |
+| Post-process frame time (CRT + bloom) | ~2 ms | ≤1 ms | Bind group caching + tier reduction |
+| N64 sustained FPS (medium tier, 1× res) | ~45–55 fps | ≥58 fps | Optimised GLideN64 settings |
+| PS1 sustained FPS (high tier, 2× res) | ~50–55 fps | ≥58 fps | PGXP + GTE overclock tuning |
+| Diagnostic timeline overhead | N/A | ≤0.01 ms/event | Append-only array, capped at 200 |
 
 ---
 

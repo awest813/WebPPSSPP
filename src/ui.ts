@@ -2050,6 +2050,7 @@ function buildPerfTab(
 
   const gpuDetails = make("div", { class: "device-info-details" });
   gpuDetails.appendChild(make("p", { class: "device-info" }, `Max texture size: ${deviceCaps.gpuCaps.maxTextureSize}px`));
+  gpuDetails.appendChild(make("p", { class: "device-info" }, `Estimated VRAM: ${deviceCaps.estimatedVRAMMB} MB`));
   if (deviceCaps.gpuCaps.anisotropicFiltering) {
     gpuDetails.appendChild(make("p", { class: "device-info" }, `Anisotropic filtering: ${deviceCaps.gpuCaps.maxAnisotropy}×`));
   }
@@ -2591,6 +2592,26 @@ function buildDebugTab(
     `User Agent: ${navigator.userAgent}`
   ));
 
+  // GPU & VRAM section
+  const gpuSection = make("div", { class: "settings-section" });
+  gpuSection.appendChild(make("h4", { class: "settings-section__title" }, "GPU & Memory"));
+  gpuSection.appendChild(make("p", { class: "device-info" },
+    `GPU: ${deviceCaps.gpuCaps.renderer}`
+  ));
+  gpuSection.appendChild(make("p", { class: "device-info" },
+    `Estimated VRAM: ${deviceCaps.estimatedVRAMMB} MB`
+  ));
+  gpuSection.appendChild(make("p", { class: "device-info" },
+    `Max Texture Size: ${deviceCaps.gpuCaps.maxTextureSize}px`
+  ));
+  gpuSection.appendChild(make("p", { class: "device-info" },
+    `Compressed Textures: ${deviceCaps.gpuCaps.compressedTextures ? "✓" : "✗"} ` +
+    `(ETC2: ${deviceCaps.gpuCaps.etc2Textures ? "✓" : "✗"}, ASTC: ${deviceCaps.gpuCaps.astcTextures ? "✓" : "✗"})`
+  ));
+  gpuSection.appendChild(make("p", { class: "device-info" },
+    `MRT Attachments: ${deviceCaps.gpuCaps.maxColorAttachments} | Multi-Draw: ${deviceCaps.gpuCaps.multiDraw ? "✓" : "✗"}`
+  ));
+
   // PS1 status section — shows BIOS file availability and core info
   const ps1Section = make("div", { class: "settings-section" });
   ps1Section.appendChild(make("h4", { class: "settings-section__title" }, "PS1 Status"));
@@ -2665,6 +2686,38 @@ function buildDebugTab(
     stateSection.appendChild(coreSettingsSection);
   }
 
+  // Diagnostic event timeline section
+  const timelineSection = make("div", { class: "settings-section" });
+  timelineSection.appendChild(make("h4", { class: "settings-section__title" }, "Diagnostic Timeline"));
+  timelineSection.appendChild(make("p", { class: "settings-help" },
+    "Recent performance and system events logged during emulator operation."
+  ));
+
+  const diagnosticEvents = emulatorRef?.diagnosticLog ?? [];
+  if (diagnosticEvents.length === 0) {
+    timelineSection.appendChild(make("p", { class: "device-info" },
+      "No diagnostic events recorded yet. Events appear after launching a game."
+    ));
+  } else {
+    const eventList = make("ul", { class: "core-settings-list" });
+    // Display only the most recent events to keep the panel responsive
+    const MAX_DISPLAYED_DIAGNOSTIC_EVENTS = 20;
+    const recentEvents = diagnosticEvents.slice(-MAX_DISPLAYED_DIAGNOSTIC_EVENTS).reverse();
+    for (const evt of recentEvents) {
+      const item = make("li", { class: "core-settings-item" });
+      const time = new Date(evt.timestamp).toLocaleTimeString();
+      const badge = evt.category === "error" ? "🔴"
+        : evt.category === "performance" ? "⚡"
+        : evt.category === "audio" ? "🔊"
+        : evt.category === "render" ? "🖥"
+        : "ℹ️";
+      item.appendChild(make("span", { class: "core-settings-key" }, `${badge} ${time}`));
+      item.appendChild(make("span", { class: "core-settings-value" }, evt.message));
+      eventList.appendChild(item);
+    }
+    timelineSection.appendChild(eventList);
+  }
+
   // Actions section
   const actionsSection = make("div", { class: "settings-section" });
   actionsSection.appendChild(make("h4", { class: "settings-section__title" }, "Actions"));
@@ -2686,6 +2739,7 @@ function buildDebugTab(
       `[Device]`,
       `Tier: ${deviceCaps.tier}`,
       `GPU Score: ${deviceCaps.gpuBenchmarkScore}/100`,
+      `Estimated VRAM: ${deviceCaps.estimatedVRAMMB} MB`,
       `Low-Spec: ${deviceCaps.isLowSpec}`,
       `ChromeOS: ${deviceCaps.isChromOS}`,
       `WebGL2: ${deviceCaps.gpuCaps.webgl2}`,
@@ -2694,6 +2748,11 @@ function buildDebugTab(
       `Anisotropic: ${deviceCaps.gpuCaps.anisotropicFiltering} (max ${deviceCaps.gpuCaps.maxAnisotropy}×)`,
       `Float Textures: ${deviceCaps.gpuCaps.floatTextures}`,
       `Instanced Arrays: ${deviceCaps.gpuCaps.instancedArrays}`,
+      `ETC2 Textures: ${deviceCaps.gpuCaps.etc2Textures}`,
+      `ASTC Textures: ${deviceCaps.gpuCaps.astcTextures}`,
+      `Compressed Textures: ${deviceCaps.gpuCaps.compressedTextures}`,
+      `MRT Attachments: ${deviceCaps.gpuCaps.maxColorAttachments}`,
+      `Multi-Draw: ${deviceCaps.gpuCaps.multiDraw}`,
       ``,
       `[Emulator]`,
       `State: ${emulatorRef?.state ?? "unknown"}`,
@@ -2730,6 +2789,17 @@ function buildDebugTab(
       ),
     );
 
+    // Include diagnostic event log
+    const diagEvents = emulatorRef?.diagnosticLog ?? [];
+    if (diagEvents.length > 0) {
+      lines.push(``, `[Diagnostic Timeline (last ${Math.min(50, diagEvents.length)} events)]`);
+      const recentDiag = diagEvents.slice(-50);
+      for (const evt of recentDiag) {
+        const t = new Date(evt.timestamp).toLocaleTimeString();
+        lines.push(`[${t}] [${evt.category}] ${evt.message}`);
+      }
+    }
+
     navigator.clipboard.writeText(lines.join("\n")).then(() => {
       showInfoToast("Debug info copied to clipboard.");
     }).catch(() => {
@@ -2738,7 +2808,7 @@ function buildDebugTab(
   });
   actionsSection.appendChild(btnCopy);
 
-  container.append(settingsSection, envSection, ps1Section, stateSection, actionsSection);
+  container.append(settingsSection, envSection, gpuSection, ps1Section, stateSection, timelineSection, actionsSection);
 }
 
 // ── About tab ─────────────────────────────────────────────────────────────────

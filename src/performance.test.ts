@@ -13,6 +13,7 @@ import {
   resolveMode,
   resolveTier,
   estimateConnectionQuality,
+  estimateVRAM,
   DeviceCapabilities,
   GPUCapabilities,
 } from './performance';
@@ -741,6 +742,7 @@ describe('performance', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       };
     }
@@ -764,6 +766,56 @@ describe('performance', () => {
       // at "medium" without penalisation.
       const tier = __classifyTierForTests(4, 4, false, 0, makeGPUCaps(0), false);
       expect(tier).toBe('medium');
+    });
+  });
+
+  // ── estimateVRAM ────────────────────────────────────────────────────────────
+
+  describe('estimateVRAM', () => {
+    function makeFullGPUCaps(overrides: Partial<GPUCapabilities> = {}): GPUCapabilities {
+      return {
+        renderer: 'Test GPU',
+        vendor: 'Test Vendor',
+        maxTextureSize: 2048,
+        maxVertexAttribs: 16,
+        maxVaryingVectors: 8,
+        maxRenderbufferSize: 2048,
+        anisotropicFiltering: false,
+        maxAnisotropy: 0,
+        floatTextures: false,
+        halfFloatTextures: false,
+        instancedArrays: false,
+        webgl2: false,
+        vertexArrayObject: false,
+        compressedTextures: false,
+        etc2Textures: false,
+        astcTextures: false,
+        maxColorAttachments: 1,
+        multiDraw: false,
+        ...overrides,
+      };
+    }
+
+    it('returns minimum estimate for basic GPU capabilities', () => {
+      const caps = makeFullGPUCaps({ maxTextureSize: 2048, maxColorAttachments: 1, astcTextures: false, etc2Textures: false });
+      expect(estimateVRAM(caps)).toBe(256);
+    });
+
+    it('returns higher estimate for GPU with large textures and MRT', () => {
+      const caps = makeFullGPUCaps({ maxTextureSize: 16384, maxColorAttachments: 8 });
+      expect(estimateVRAM(caps)).toBe(4096 + 512);
+    });
+
+    it('includes compression bonuses for ASTC and ETC2', () => {
+      const caps = makeFullGPUCaps({ maxTextureSize: 4096, maxColorAttachments: 1, astcTextures: true, etc2Textures: true });
+      // 512 (texSize) + 0 (MRT) + 256 (ASTC) + 128 (ETC2)
+      expect(estimateVRAM(caps)).toBe(512 + 256 + 128);
+    });
+
+    it('returns mid-range estimate for typical discrete GPU', () => {
+      const caps = makeFullGPUCaps({ maxTextureSize: 8192, maxColorAttachments: 4, astcTextures: false, etc2Textures: true });
+      // 1536 (texSize) + 256 (MRT 4) + 0 (no ASTC) + 128 (ETC2)
+      expect(estimateVRAM(caps)).toBe(1536 + 256 + 128);
     });
   });
 });

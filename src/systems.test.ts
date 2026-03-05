@@ -200,9 +200,8 @@ describe('systems performance profiles', () => {
     it('uses higher resolution on high and ultra tiers', () => {
       const psx = getSystemById('psx');
       expect(psx?.tierSettings?.high?.beetle_psx_internal_resolution).toBe('2x');
-      // Ultra tier uses 8× for maximum sharpness — GPU overhead is acceptable
-      // on the high-end hardware that qualifies for this tier.
-      expect(psx?.tierSettings?.ultra?.beetle_psx_internal_resolution).toBe('8x');
+      // Ultra tier uses 4× as the sweet spot — 8× is overkill for typical display sizes
+      expect(psx?.tierSettings?.ultra?.beetle_psx_internal_resolution).toBe('4x');
     });
 
     it('enables frame duping on low and medium tiers to save GPU cycles', () => {
@@ -224,7 +223,7 @@ describe('systems performance profiles', () => {
       expect(lowSettings.beetle_psx_frame_duping_enable).toBe('enabled');
 
       const ultraSettings = getPSXSettingsForTier('ultra');
-      expect(ultraSettings.beetle_psx_internal_resolution).toBe('8x');
+      expect(ultraSettings.beetle_psx_internal_resolution).toBe('4x');
     });
 
     it('forces Beetle PSX HW core (mednafen_psx_hw) in all tiers', () => {

@@ -197,3 +197,34 @@ describe('ShaderCache WGSL', () => {
     await expect(cache.preCompileWGSL(mockDevice)).resolves.not.toThrow();
   });
 });
+
+// ── Tier scaling ──────────────────────────────────────────────────────────────
+
+describe('tier scaling', () => {
+  let cache: ShaderCache;
+
+  beforeEach(() => {
+    cache = new ShaderCache();
+  });
+
+  it('defaults to medium tier', () => {
+    expect(cache.maxPrograms).toBe(32);
+    expect(cache.maxWGSLModules).toBe(16);
+  });
+
+  it('scales max programs by tier', () => {
+    cache.setTier('low');
+    expect(cache.maxPrograms).toBe(16);
+    cache.setTier('high');
+    expect(cache.maxPrograms).toBe(64);
+    cache.setTier('ultra');
+    expect(cache.maxPrograms).toBe(128);
+  });
+
+  it('scales max WGSL modules by tier', () => {
+    cache.setTier('low');
+    expect(cache.maxWGSLModules).toBe(8);
+    cache.setTier('ultra');
+    expect(cache.maxWGSLModules).toBe(64);
+  });
+});

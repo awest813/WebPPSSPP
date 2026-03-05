@@ -31,6 +31,7 @@
  */
 
 import { shaderCache } from "./shaderCache.js";
+import type { PerformanceTier } from "./performance.js";
 
 // ── WebGPU enum constants (numeric to avoid runtime dependency on globals) ────
 // These values are stable and part of the WebGPU spec.
@@ -73,6 +74,8 @@ export interface PostProcessConfig {
   bloomIntensity: number;
   /** FXAA edge-detection / blend strength (0 = off, 1 = maximum quality). Default 0.75. */
   fxaaQuality: number;
+  /** Performance tier — used to auto-reduce effect quality on low-end devices. */
+  tier?: PerformanceTier;
 }
 
 export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
@@ -405,6 +408,32 @@ interface EffectPipeline {
   uniformBuffer: GPUBuffer | null;
   /** WGSL source strings built into this pipeline (vertex, fragment). */
   wgslSources: { vertex: string; fragment: string };
+}
+
+/**
+ * Adjust post-process parameters based on device tier.
+ * Reduces effect intensity on lower-tier devices to maintain framerate.
+ */
+export function adjustConfigForTier(config: PostProcessConfig): PostProcessConfig {
+  const tier = config.tier;
+  if (!tier || tier === "ultra" || tier === "high") return config;
+
+  const adjusted = { ...config };
+  if (tier === "low") {
+    // Disable expensive effects entirely on low-tier devices
+    const LOW_TIER_MAX_CURVATURE  = 0.2;
+    const LOW_TIER_MAX_SCANLINE   = 0.3;
+    adjusted.bloomIntensity = 0;
+    adjusted.curvature = Math.min(adjusted.curvature, LOW_TIER_MAX_CURVATURE);
+    adjusted.scanlineIntensity = Math.min(adjusted.scanlineIntensity, LOW_TIER_MAX_SCANLINE);
+  } else if (tier === "medium") {
+    // Reduce intensity on medium-tier devices
+    const MED_TIER_MAX_BLOOM     = 0.3;
+    const MED_TIER_MAX_CURVATURE = 0.5;
+    adjusted.bloomIntensity = Math.min(adjusted.bloomIntensity, MED_TIER_MAX_BLOOM);
+    adjusted.curvature = Math.min(adjusted.curvature, MED_TIER_MAX_CURVATURE);
+  }
+  return adjusted;
 }
 
 export function buildEffectPipeline(
@@ -911,20 +940,23 @@ export class WebGPUPostProcessor {
   private _writeUniforms(width: number, height: number): void {
     if (!this._effectPipeline?.uniformBuffer) return;
 
+    // Apply tier-based adjustments before writing to the GPU buffer
+    const cfg = adjustConfigForTier(this._config);
+
     // Reuse the pre-allocated buffer — no heap allocation
     const data = this._uniformData;
 
     switch (this._currentEffect) {
       case "crt":
-        data[0] = this._config.scanlineIntensity;
-        data[1] = this._config.curvature;
-        data[2] = this._config.vignetteStrength;
+        data[0] = cfg.scanlineIntensity;
+        data[1] = cfg.curvature;
+        data[2] = cfg.vignetteStrength;
         data[3] = 0; // padding
         data[4] = width;
         data[5] = height;
         break;
       case "sharpen":
-        data[0] = this._config.sharpenAmount;
+        data[0] = cfg.sharpenAmount;
         data[1] = 0;
         data[2] = 0;
         data[3] = 0;
@@ -932,23 +964,23 @@ export class WebGPUPostProcessor {
         data[5] = height;
         break;
       case "lcd":
-        data[0] = this._config.lcdShadowMask;
-        data[1] = this._config.lcdPixelScale;
+        data[0] = cfg.lcdShadowMask;
+        data[1] = cfg.lcdPixelScale;
         data[2] = 0;
         data[3] = 0;
         data[4] = width;
         data[5] = height;
         break;
       case "bloom":
-        data[0] = this._config.bloomThreshold;
-        data[1] = this._config.bloomIntensity;
+        data[0] = cfg.bloomThreshold;
+        data[1] = cfg.bloomIntensity;
         data[2] = 0;
         data[3] = 0;
         data[4] = width;
         data[5] = height;
         break;
       case "fxaa":
-        data[0] = this._config.fxaaQuality;
+        data[0] = cfg.fxaaQuality;
         data[1] = 0;
         data[2] = 0;
         data[3] = 0;
