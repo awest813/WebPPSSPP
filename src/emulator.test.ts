@@ -209,6 +209,7 @@ describe('PSPEmulator', () => {
           webgl2: false,
           vertexArrayObject: false,
           compressedTextures: false,
+          etc2Textures: false, astcTextures: false,
           maxColorAttachments: 1,
           multiDraw: false,
         },
@@ -216,7 +217,7 @@ describe('PSPEmulator', () => {
         prefersReducedMotion: false,
         webgpuAvailable: false,
         connectionQuality: 'unknown' as const,
-        jsHeapLimitMB: null,
+        jsHeapLimitMB: null, estimatedVRAMMB: 768,
       };
 
       await emulator.launch({
@@ -260,13 +261,14 @@ describe('PSPEmulator', () => {
             floatTextures: false, halfFloatTextures: false,
             instancedArrays: false, webgl2: false,
             vertexArrayObject: false, compressedTextures: false,
+            etc2Textures: false, astcTextures: false,
             maxColorAttachments: 1, multiDraw: false,
           },
           gpuBenchmarkScore: 30,
           prefersReducedMotion: false,
           webgpuAvailable: false,
           connectionQuality: 'unknown' as const,
-          jsHeapLimitMB: null,
+          jsHeapLimitMB: null, estimatedVRAMMB: 768,
         },
       });
 
@@ -304,13 +306,14 @@ describe('PSPEmulator', () => {
             floatTextures: false, halfFloatTextures: false,
             instancedArrays: false, webgl2: false,
             vertexArrayObject: false, compressedTextures: false,
+            etc2Textures: false, astcTextures: false,
             maxColorAttachments: 1, multiDraw: false,
           },
           gpuBenchmarkScore: 30,
           prefersReducedMotion: false,
           webgpuAvailable: false,
           connectionQuality: 'unknown' as const,
-          jsHeapLimitMB: null,
+          jsHeapLimitMB: null, estimatedVRAMMB: 768,
         },
       });
 
@@ -344,13 +347,14 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 50,
       prefersReducedMotion: false,
       webgpuAvailable: false,
       connectionQuality: 'unknown' as const,
-      jsHeapLimitMB: null,
+      jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     beforeEach(() => {
@@ -527,13 +531,14 @@ describe('PSPEmulator', () => {
             floatTextures: false, halfFloatTextures: false,
             instancedArrays: false, webgl2: false,
             vertexArrayObject: false, compressedTextures: false,
+            etc2Textures: false, astcTextures: false,
             maxColorAttachments: 1, multiDraw: false,
           },
           gpuBenchmarkScore: 50,
           prefersReducedMotion: false,
           webgpuAvailable: false,
           connectionQuality: 'unknown' as const,
-          jsHeapLimitMB: null,
+          jsHeapLimitMB: null, estimatedVRAMMB: 768,
         },
       });
 
@@ -992,10 +997,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 50, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     beforeEach(() => {
@@ -1419,10 +1425,11 @@ describe('PSPEmulator', () => {
             floatTextures: false, halfFloatTextures: false,
             instancedArrays: false, webgl2: false,
             vertexArrayObject: false, compressedTextures: false,
+            etc2Textures: false, astcTextures: false,
             maxColorAttachments: 1, multiDraw: false,
           },
           gpuBenchmarkScore: 30, prefersReducedMotion: false,
-          webgpuAvailable: false, connectionQuality: 'unknown', jsHeapLimitMB: null,
+          webgpuAvailable: false, connectionQuality: 'unknown', jsHeapLimitMB: null, estimatedVRAMMB: 768,
         },
       });
 
@@ -1446,10 +1453,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     it('emits "Unsupported file type" when extension mismatches system (default behavior)', async () => {
@@ -1518,10 +1526,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     beforeEach(() => {
@@ -1668,10 +1677,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     beforeEach(() => {
@@ -1738,10 +1748,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     it('emits a console.warn for ROMs larger than 500 MB', async () => {
@@ -1817,10 +1828,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     it('uses the fileName option for extension validation when provided', async () => {
@@ -1896,10 +1908,11 @@ describe('PSPEmulator', () => {
         floatTextures: false, halfFloatTextures: false,
         instancedArrays: false, webgl2: false,
         vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
         maxColorAttachments: 1, multiDraw: false,
       },
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
-      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
 
     beforeEach(() => {
