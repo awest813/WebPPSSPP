@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier } from './systems';
+import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier, type SystemInfo } from './systems';
 
 describe('systems performance profiles', () => {
   describe('detectSystem', () => {
@@ -23,7 +23,7 @@ describe('systems performance profiles', () => {
     it('.iso is shared between PSP and PSX — returns an array of candidates', () => {
       const detected = detectSystem('game.iso');
       expect(Array.isArray(detected)).toBe(true);
-      const ids = (detected as import('./systems').SystemInfo[]).map(s => s.id);
+      const ids = (detected as SystemInfo[]).map(s => s.id);
       expect(ids).toContain('psp');
       expect(ids).toContain('psx');
     });
@@ -31,7 +31,7 @@ describe('systems performance profiles', () => {
     it('.pbp is shared between PSP and PSX — returns an array of candidates', () => {
       const detected = detectSystem('eboot.pbp');
       expect(Array.isArray(detected)).toBe(true);
-      const ids = (detected as import('./systems').SystemInfo[]).map(s => s.id);
+      const ids = (detected as SystemInfo[]).map(s => s.id);
       expect(ids).toContain('psp');
       expect(ids).toContain('psx');
     });
@@ -41,7 +41,7 @@ describe('systems performance profiles', () => {
       // .bin may only match psx, or could be shared with other systems
       // Either way, psx must be in the result
       if (Array.isArray(detected)) {
-        const ids = (detected as import('./systems').SystemInfo[]).map(s => s.id);
+        const ids = (detected as SystemInfo[]).map(s => s.id);
         expect(ids).toContain('psx');
       } else {
         expect(detected?.id).toBe('psx');
@@ -62,18 +62,97 @@ describe('systems performance profiles', () => {
       const noExtDetected = detectSystem('game_without_extension');
       expect(noExtDetected).toBeNull();
     });
+
+    it('detects ambiguous extensions for Saturn, PSX, and Dreamcast', () => {
+      // .chd is shared between PSX, Saturn, and Dreamcast
+      const chdDetected = detectSystem('game.chd');
+      expect(Array.isArray(chdDetected)).toBe(true);
+      const ids = (chdDetected as SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('psx');
+      expect(ids).toContain('segaSaturn');
+      expect(ids).toContain('segaDC');
+    });
+
+    it('detects ambiguous extensions for Arcade and MAME 2003+', () => {
+      // .zip is shared between Arcade (MAME) and MAME 2003+
+      const zipDetected = detectSystem('romset.zip');
+      expect(Array.isArray(zipDetected)).toBe(true);
+      const ids = (zipDetected as SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('arcade');
+      expect(ids).toContain('mame2003');
+    });
+
+    it('detects ambiguous extensions for PS1 and Atari 7800', () => {
+      // .bin is shared between PS1 and Atari 7800
+      const binDetected = detectSystem('game.bin');
+      expect(Array.isArray(binDetected)).toBe(true);
+      const ids = (binDetected as SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('psx');
+      expect(ids).toContain('atari7800');
+    });
+
+    it('detects other ambiguous disc formats shared between systems', () => {
+      // .m3u is shared between PSX, Saturn, and Dreamcast
+      const m3uDetected = detectSystem('playlist.m3u');
+      expect(Array.isArray(m3uDetected)).toBe(true);
+      let ids = (m3uDetected as SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('psx');
+      expect(ids).toContain('segaSaturn');
+      expect(ids).toContain('segaDC');
+
+      // .cue, .img, .mdf, .ccd are shared between PSX and Saturn
+      ['game.cue', 'game.img', 'game.mdf', 'game.ccd'].forEach(file => {
+        const detected = detectSystem(file);
+        expect(Array.isArray(detected)).toBe(true);
+        ids = (detected as SystemInfo[]).map(s => s.id);
+        expect(ids).toContain('psx');
+        expect(ids).toContain('segaSaturn');
+      });
+    });
+
+    it('handles files with multiple dots correctly', () => {
+      // should detect the LAST extension
+      const detected = detectSystem('game.iso.zip');
+      expect(Array.isArray(detected)).toBe(true);
+      const ids = (detected as SystemInfo[]).map(s => s.id);
+      expect(ids).toContain('arcade');
+      expect(ids).toContain('mame2003');
+    });
+
+    it('handles files ending in a dot correctly', () => {
+      const detected = detectSystem('game.');
+      expect(detected).toBeNull();
+    });
+
+    it('handles empty filename correctly', () => {
+      const detected = detectSystem('');
+      expect(detected).toBeNull();
+    });
+
+    it('handles hidden files correctly (treating name after dot as extension)', () => {
+      // Currently detectSystem uses split(".").pop()
+      // For ".gitignore", pop() returns "gitignore"
+      const detected = detectSystem('.gitignore');
+      expect(detected).toBeNull();
+    });
   });
 
-  it('provides tier settings for PSP, NDS and N64', () => {
+  it('provides tier settings for PSP, NDS, N64, Saturn and Dreamcast', () => {
     const psp = getSystemById('psp');
     const nds = getSystemById('nds');
     const n64 = getSystemById('n64');
+    const saturn = getSystemById('segaSaturn');
+    const dc = getSystemById('segaDC');
 
     expect(psp?.tierSettings?.low?.ppsspp_internal_resolution).toBe('1');
     expect(nds?.tierSettings?.low?.desmume_frameskip).toBe('2');
     expect(nds?.tierSettings?.ultra?.desmume_internal_resolution).toBe('1024x768');
     expect(n64?.tierSettings?.low?.['mupen64plus-rdp-plugin']).toBe('rice');
     expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('4');
+    expect(saturn?.tierSettings?.low?.beetle_saturn_resolution).toBe('1x(native)');
+    expect(saturn?.tierSettings?.ultra?.beetle_saturn_resolution).toBe('8x');
+    expect(dc?.tierSettings?.low?.flycast_internal_resolution).toBe('640x480');
+    expect(dc?.tierSettings?.ultra?.flycast_internal_resolution).toBe('2560x1920');
   });
 
   describe('PSP audio latency settings', () => {
