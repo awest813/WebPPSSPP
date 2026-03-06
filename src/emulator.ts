@@ -88,6 +88,7 @@ interface EJSEmulatorInstance {
     FS?: {
       readFile(path: string): Uint8Array;
       writeFile(path: string, data: Uint8Array): void;
+      mkdir?(path: string, mode?: number): void;
       stat(path: string): { size: number };
       readdir(path: string): string[];
       unlink(path: string): void;
@@ -1580,7 +1581,12 @@ export class PSPEmulator {
       try {
         emu.Module.FS.stat(basePath);
       } catch {
-        return false;
+        // Directory doesn't exist yet — create it before writing.
+        try {
+          emu.Module.FS.mkdir?.(basePath, 0o777);
+        } catch {
+          return false;
+        }
       }
       emu.Module.FS.writeFile(statePath, data);
       return true;

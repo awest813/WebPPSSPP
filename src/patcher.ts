@@ -161,6 +161,7 @@ function readBpsVLQ(bytes: Uint8Array, cur: Cursor): number {
   let data  = 0;
   let shift = 1;
   for (;;) {
+    if (cur.pos >= bytes.length) throw new Error("BPS: unexpected end of patch data");
     const b = bytes[cur.pos++]!;
     data   += (b & 0x7f) * shift;
     if (b & 0x80) break;
@@ -271,6 +272,7 @@ function readUpsVLQ(bytes: Uint8Array, cur: Cursor): number {
   let result = 0;
   let shift  = 0;
   for (;;) {
+    if (cur.pos >= bytes.length) throw new Error("UPS: unexpected end of patch data");
     const b = bytes[cur.pos++]!;
     if (b & 0x80) {
       result += (b & 0x7f) << shift;
