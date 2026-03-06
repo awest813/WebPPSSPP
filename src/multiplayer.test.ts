@@ -10,6 +10,7 @@ import {
   stripRegionSuffix,
   stripRevisionSuffix,
   canonicalizeGameId,
+  normalizeRomTitle,
   roomDisplayNameForKey,
   validateAliasTable,
 } from './multiplayer';
@@ -792,4 +793,97 @@ describe('resolveNetplayRoomKey — stress test official vs unofficial ROM varia
       expect(key).not.toMatch(/^pokemon_gen/);
     });
   }
+});
+
+// ── normalizeRomTitle (Step 2) ────────────────────────────────────────────────
+
+describe('normalizeRomTitle', () => {
+  it('strips region tags and returns lowercase space-separated title', () => {
+    expect(normalizeRomTitle('Pokemon FireRed (USA)')).toBe('pokemon firered');
+    expect(normalizeRomTitle('Pokemon FireRed (Europe)')).toBe('pokemon firered');
+    expect(normalizeRomTitle('Pokemon FireRed (Japan)')).toBe('pokemon firered');
+  });
+
+  it('strips revision tags', () => {
+    expect(normalizeRomTitle('Pokemon FireRed (Rev 1)')).toBe('pokemon firered');
+    expect(normalizeRomTitle('Pokemon FireRed (Rev A)')).toBe('pokemon firered');
+    expect(normalizeRomTitle('Pokemon FireRed (v1.1)')).toBe('pokemon firered');
+  });
+
+  it('strips both region and revision tags together', () => {
+    expect(normalizeRomTitle('Pokemon - FireRed Version (USA) (Rev 1)')).toBe('pokemon firered version');
+  });
+
+  it('strips file extensions', () => {
+    expect(normalizeRomTitle('Pokemon FireRed (USA).gba')).toBe('pokemon firered');
+    expect(normalizeRomTitle('Pokemon Red (USA).gb')).toBe('pokemon red');
+    expect(normalizeRomTitle('Pokemon Diamond (USA).nds')).toBe('pokemon diamond');
+  });
+
+  it('normalizes diacritics', () => {
+    expect(normalizeRomTitle('Pokémon Crystal')).toBe('pokemon crystal');
+  });
+
+  it('returns space-separated (not underscore-separated) output', () => {
+    const result = normalizeRomTitle('Pokemon FireRed (USA)');
+    expect(result).toContain(' ');
+    expect(result).not.toContain('_');
+  });
+
+  it('differs from canonicalizeGameId which uses underscores', () => {
+    expect(normalizeRomTitle('Pokemon FireRed (USA)')).toBe('pokemon firered');
+    expect(canonicalizeGameId('Pokemon FireRed (USA)')).toBe('pokemon_firered');
+  });
+
+  it('handles No-Intro dash-separated titles', () => {
+    expect(normalizeRomTitle('Pokemon - Fire Red Version (USA)')).toBe('pokemon fire red version');
+  });
+
+  it('collapses multiple spaces/punctuation into single spaces', () => {
+    const result = normalizeRomTitle('Golden Sun  -  The Lost Age (USA)');
+    expect(result).not.toContain('  ');
+  });
+});
+
+// ── GB system support ─────────────────────────────────────────────────────────
+
+describe('resolveNetplayRoomKey — gb system support', () => {
+  it('SYSTEM_LINK_CAPABILITIES includes gb as link-capable', () => {
+    expect(SYSTEM_LINK_CAPABILITIES.gb).toBe(true);
+  });
+
+  it('NETPLAY_SUPPORTED_SYSTEM_IDS includes gb', () => {
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gb');
+  });
+
+  it('resolves Pokemon Red on gb to pokemon_gen1', () => {
+    expect(resolveNetplayRoomKey('Pokemon Red Version', 'gb')).toBe('pokemon_gen1');
+  });
+
+  it('resolves Pokemon Blue on gb to pokemon_gen1', () => {
+    expect(resolveNetplayRoomKey('Pokemon Blue Version', 'gb')).toBe('pokemon_gen1');
+  });
+
+  it('resolves Pokemon Yellow on gb to pokemon_gen1', () => {
+    expect(resolveNetplayRoomKey('Pokemon Yellow Version', 'gb')).toBe('pokemon_gen1');
+  });
+
+  it('gb and gbc produce the same room key for Gen 1 games', () => {
+    const gb  = resolveNetplayRoomKey('Pokemon Red Version', 'gb');
+    const gbc = resolveNetplayRoomKey('Pokemon Red Version', 'gbc');
+    expect(gb).toBe(gbc);
+  });
+
+  it('gb and gbc produce the same room key for Gen 2 games', () => {
+    const gb  = resolveNetplayRoomKey('Pokemon Gold Version', 'gb');
+    const gbc = resolveNetplayRoomKey('Pokemon Gold Version', 'gbc');
+    expect(gb).toBe(gbc);
+  });
+
+  it('isSupportedForSystem returns true for gb when active', () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://netplay.example.com');
+    expect(mgr.isSupportedForSystem('gb')).toBe(true);
+  });
 });
