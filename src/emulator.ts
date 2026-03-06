@@ -255,6 +255,13 @@ class FPSMonitor {
 
   private readonly _windowSize: number;
   private readonly _ring: Float64Array;
+  /**
+   * Reusable scratch space for percentile calculations.
+   *
+   * This avoids allocating a temporary JS Array and comparator closure inside
+   * getSnapshot(), which is called repeatedly from the render loop.
+   */
+  private readonly _sortedScratch: Float64Array;
   private _ringHead = 0;
   private _ringCount = 0;
 
@@ -262,6 +269,7 @@ class FPSMonitor {
     this._targetFPS = targetFPS;
     this._windowSize = 60;
     this._ring = new Float64Array(this._windowSize);
+    this._sortedScratch = new Float64Array(this._windowSize);
     this._tick = this._tick.bind(this);
   }
 
@@ -313,16 +321,18 @@ class FPSMonitor {
     let sum = 0;
     let maxDelta = 0;
     let minDelta = Infinity;
-    // Collect deltas for both summary stats and P95 computation.
-    // Pre-allocating count entries avoids push() overhead in the hot path.
-    const deltas = new Array<number>(count);
+    // Copy into reusable scratch space for percentile computation.
+    // NOTE: keep this allocation-free; getSnapshot() is called from rAF.
+    let idx = this._ringHead - count;
+    if (idx < 0) idx += this._windowSize;
     for (let i = 0; i < count; i++) {
-      const idx = (this._ringHead - count + i + this._windowSize) % this._windowSize;
       const d = this._ring[idx];
-      deltas[i] = d;
+      this._sortedScratch[i] = d;
       sum += d;
       if (d > maxDelta) maxDelta = d;
       if (d > 0 && d < minDelta) minDelta = d;
+      idx++;
+      if (idx === this._windowSize) idx = 0;
     }
 
     const avgDelta = sum / count;
@@ -330,12 +340,12 @@ class FPSMonitor {
     const min = maxDelta > 0 ? 1000 / maxDelta : 0;
     const max = isFinite(minDelta) && minDelta > 0 ? 1000 / minDelta : 0;
 
-    // P95 frame time: sort deltas ascending, pick the 95th-percentile value.
-    // Sorting ≤60 numbers takes ~1 μs — negligible compared to a rAF budget.
-    // A high P95 (e.g. >33 ms) reveals jank spikes that averaged-FPS hides.
-    deltas.sort((a, b) => a - b);
+    // P95 frame time: insertion-sort the scratch values ascending, then pick
+    // the 95th-percentile element. N is capped at 60, so this is tiny and
+    // consistently allocation-free (fewer GC spikes in long sessions).
+    this._sortScratchAscending(count);
     const p95Idx = Math.min(Math.floor(count * 0.95), count - 1);
-    const p95FrameTimeMs = Math.round(deltas[p95Idx]);
+    const p95FrameTimeMs = Math.round(this._sortedScratch[p95Idx]);
 
     return {
       current: Math.round(current),
@@ -345,6 +355,18 @@ class FPSMonitor {
       droppedFrames: this._droppedFrames,
       p95FrameTimeMs,
     };
+  }
+
+  private _sortScratchAscending(count: number): void {
+    for (let i = 1; i < count; i++) {
+      const value = this._sortedScratch[i];
+      let j = i - 1;
+      while (j >= 0 && this._sortedScratch[j] > value) {
+        this._sortedScratch[j + 1] = this._sortedScratch[j];
+        j--;
+      }
+      this._sortedScratch[j + 1] = value;
+    }
   }
 
   private _tick(now: number): void {
