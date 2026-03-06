@@ -2235,6 +2235,21 @@ function buildSettingsContent(
 ): void {
   container.innerHTML = "";
 
+  const settingsShell = make("div", { class: "settings-shell" });
+  const quickBar = make("div", { class: "settings-quickbar" });
+  const quickInfo = make("p", { class: "settings-quickbar__summary" },
+    `Mode: ${settings.performanceMode.toUpperCase()} · Detected tier: ${formatTierLabel(deviceCaps.tier)} · ` +
+    `${deviceCaps.isLowSpec ? "Low-spec profile" : "Standard profile"}`
+  );
+  const searchInput = make("input", {
+    class: "settings-search-input",
+    type: "search",
+    placeholder: "Search settings, features, and diagnostics…",
+    "aria-label": "Search settings",
+  }) as HTMLInputElement;
+  const searchStatus = make("p", { class: "settings-search-status", "aria-live": "polite" });
+  quickBar.append(quickInfo, searchInput, searchStatus);
+
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: "performance",  label: "⚡ Performance" },
     { id: "display",      label: "🖥 Display" },
@@ -2325,8 +2340,8 @@ function buildSettingsContent(
     panelsEl.appendChild(panel);
   });
 
-  container.appendChild(tabBar);
-  container.appendChild(panelsEl);
+  settingsShell.append(tabBar, panelsEl);
+  container.append(quickBar, settingsShell);
 
   // Ensure tab button classes and panel visibility match the active tab
   switchTab(activeTab);
@@ -2339,6 +2354,39 @@ function buildSettingsContent(
   buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
   buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager, biosLibrary);
   buildAboutTab(panels[6]);
+
+  const applySearchFilter = () => {
+    const query = searchInput.value.trim().toLowerCase();
+    let matchedSections = 0;
+
+    for (let i = 0; i < panels.length; i++) {
+      const panel = panels[i];
+      const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
+      let panelMatched = false;
+
+      for (const section of sections) {
+        const haystack = (section.textContent ?? "").toLowerCase();
+        const match = query.length === 0 || haystack.includes(query);
+        section.hidden = !match;
+        if (match) {
+          panelMatched = true;
+          matchedSections += 1;
+        }
+      }
+
+      tabBtns[i].classList.toggle("settings-tab--match", panelMatched && query.length > 0);
+    }
+
+    if (query.length === 0) {
+      searchStatus.textContent = "";
+      return;
+    }
+    searchStatus.textContent = matchedSections > 0
+      ? `${matchedSections} matching section${matchedSections === 1 ? "" : "s"}`
+      : "No matching settings";
+  };
+
+  searchInput.addEventListener("input", applySearchFilter);
 }
 
 // ── Performance tab ───────────────────────────────────────────────────────────
