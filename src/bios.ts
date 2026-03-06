@@ -130,6 +130,26 @@ export const BIOS_REQUIREMENTS: Record<string, BiosRequirement[]> = {
       description: "Atari Lynx bootstrap ROM — optional; most games work without it",
     },
   ],
+  nds: [
+    {
+      fileName: "bios7.bin",
+      displayName: "NDS ARM7 BIOS (bios7.bin)",
+      required: false,
+      description: "Nintendo DS ARM7 processor BIOS — optional; DeSmuME uses a built-in HLE replacement when absent, but some games require the real BIOS",
+    },
+    {
+      fileName: "bios9.bin",
+      displayName: "NDS ARM9 BIOS (bios9.bin)",
+      required: false,
+      description: "Nintendo DS ARM9 processor BIOS — optional; paired with bios7.bin for accurate hardware BIOS emulation",
+    },
+    {
+      fileName: "firmware.bin",
+      displayName: "NDS Firmware (firmware.bin)",
+      required: false,
+      description: "Nintendo DS firmware ROM — optional; provides proper regional settings and splash screen; some homebrew titles require it",
+    },
+  ],
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────

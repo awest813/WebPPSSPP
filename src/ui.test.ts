@@ -832,6 +832,23 @@ describe("buildDebugTab", () => {
     checkbox.dispatchEvent(new Event("change"));
     expect(onSettingsChange).toHaveBeenCalledWith({ verboseLogging: false });
   });
+
+  it("NDS Status section is present in the Debug tab", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const headings = Array.from(panel.querySelectorAll("h4"));
+    const ndsHeading = headings.find(h => h.textContent === "NDS Status");
+    expect(ndsHeading).toBeTruthy();
+  });
+
+  it("NDS Status section shows BIOS file rows for bios7.bin, bios9.bin, and firmware.bin", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const text = panel.textContent ?? "";
+    expect(text).toContain("bios7.bin");
+    expect(text).toContain("bios9.bin");
+    expect(text).toContain("firmware.bin");
+  });
 });
 
 // ── Settings panel close removes ESC handler ─────────────────────────────────

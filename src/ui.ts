@@ -3162,6 +3162,60 @@ function buildDebugTab(
     }
   }
 
+  // NDS status section — shows BIOS file availability and active DeSmuME settings
+  const ndsSection = make("div", { class: "settings-section" });
+  ndsSection.appendChild(make("h4", { class: "settings-section__title" }, "NDS Status"));
+  ndsSection.appendChild(make("p", { class: "settings-help" },
+    "Nintendo DS uses the DeSmuME 2015 core. BIOS files are optional — DeSmuME falls back to a " +
+    "built-in HLE BIOS when they are absent — but some games require the real files. " +
+    "Upload BIOS files in the BIOS tab."
+  ));
+
+  const ndsBiosReqs = BIOS_REQUIREMENTS["nds"] ?? [];
+  // Snapshot map populated by async checks — used by the "Copy Debug Info" button
+  const ndsBiosSnapshot = new Map<string, boolean | null>();
+  for (const req of ndsBiosReqs) ndsBiosSnapshot.set(req.fileName, null);
+
+  for (const req of ndsBiosReqs) {
+    const row = make("p", { class: "device-info" });
+    row.textContent = `${req.displayName}: checking…`;
+    ndsSection.appendChild(row);
+
+    if (biosLibrary) {
+      biosLibrary.findBios("nds", req.fileName).then(found => {
+        ndsBiosSnapshot.set(req.fileName, found !== null);
+        row.textContent = `${req.displayName}: ${found ? "✓ Uploaded" : "✗ Not found (optional)"}`;
+      }).catch(() => {
+        ndsBiosSnapshot.set(req.fileName, null);
+        row.textContent = `${req.displayName}: — (could not check)`;
+      });
+    } else {
+      ndsBiosSnapshot.set(req.fileName, null);
+      row.textContent = `${req.displayName}: — (BIOS library unavailable)`;
+    }
+  }
+
+  // Show active DeSmuME performance settings when an NDS game is running
+  const activeSystem = emulatorRef?.currentSystem;
+  const activeCoreSettingsForNds = emulatorRef?.activeCoreSettings;
+  if (activeSystem?.id === "nds" && activeCoreSettingsForNds) {
+    const dsCpuMode    = activeCoreSettingsForNds["desmume_cpu_mode"]             ?? "—";
+    const dsFrameskip  = activeCoreSettingsForNds["desmume_frameskip"]            ?? "—";
+    const dsResolution = activeCoreSettingsForNds["desmume_internal_resolution"]  ?? "—";
+    const dsOpenGL     = activeCoreSettingsForNds["desmume_opengl_mode"]          ?? "—";
+    const dsTiming     = activeCoreSettingsForNds["desmume_advanced_timing"]      ?? "—";
+    const dsColorDepth = activeCoreSettingsForNds["desmume_color_depth"]          ?? "—";
+    ndsSection.appendChild(make("p", { class: "device-info" },
+      `Active DeSmuME settings (tier: ${emulatorRef?.activeTier ?? "—"})`
+    ));
+    ndsSection.appendChild(make("p", { class: "device-info" },
+      `CPU mode: ${dsCpuMode} | Frameskip: ${dsFrameskip} | Resolution: ${dsResolution}`
+    ));
+    ndsSection.appendChild(make("p", { class: "device-info" },
+      `OpenGL: ${dsOpenGL} | Advanced timing: ${dsTiming} | Color depth: ${dsColorDepth}`
+    ));
+  }
+
   // Emulator state section
   const stateSection = make("div", { class: "settings-section" });
   stateSection.appendChild(make("h4", { class: "settings-section__title" }, "Emulator State"));
@@ -3295,6 +3349,14 @@ function buildDebugTab(
         lines.push(`${req.fileName}: ${status === true ? "present" : status === false ? "missing" : "unknown"}`);
       }
     }
+    // Include NDS BIOS status (populated asynchronously when the tab opened)
+    if (ndsBiosReqs.length > 0) {
+      lines.push(``, `[NDS BIOS]`);
+      for (const req of ndsBiosReqs) {
+        const status = ndsBiosSnapshot.get(req.fileName);
+        lines.push(`${req.fileName}: ${status === true ? "present" : status === false ? "missing (optional)" : "unknown"}`);
+      }
+    }
     lines.push(
       ``,
       `[Netplay]`,
@@ -3326,7 +3388,7 @@ function buildDebugTab(
   });
   actionsSection.appendChild(btnCopy);
 
-  container.append(settingsSection, envSection, gpuSection, ps1Section, stateSection, timelineSection, actionsSection);
+  container.append(settingsSection, envSection, gpuSection, ps1Section, ndsSection, stateSection, timelineSection, actionsSection);
 }
 
 // ── About tab ─────────────────────────────────────────────────────────────────

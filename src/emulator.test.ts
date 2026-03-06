@@ -1274,7 +1274,7 @@ describe('PSPEmulator', () => {
       expect(window.EJS_Settings).toEqual(active);
     });
 
-    it('records an NDS performance diagnostic event with tier, cpu_mode, frameskip, and resolution', async () => {
+    it('records an NDS performance diagnostic event with tier, cpu_mode, frameskip, resolution, timing, and color depth', async () => {
       emulator.onError = () => {};
       (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
         async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
@@ -1295,6 +1295,9 @@ describe('PSPEmulator', () => {
       // Entry must include cpu_mode and frameskip so it is actionable for debugging
       expect(ndsPerfEntry!.message).toContain('cpu=interpreter');
       expect(ndsPerfEntry!.message).toContain('frameskip=2');
+      // Entry must also surface advanced_timing and color_depth for full diagnostics
+      expect(ndsPerfEntry!.message).toContain('timing=');
+      expect(ndsPerfEntry!.message).toContain('depth=');
     });
 
     it('does not record an NDS performance diagnostic event for non-NDS systems', async () => {

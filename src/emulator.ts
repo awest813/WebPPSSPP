@@ -1430,15 +1430,18 @@ export class PSPEmulator {
         const dsCpuMode    = ejsSettings["desmume_cpu_mode"]             ?? "?";
         const dsResolution = ejsSettings["desmume_internal_resolution"]  ?? "?";
         const dsOpenGL     = ejsSettings["desmume_opengl_mode"]          ?? "?";
+        const dsTiming     = ejsSettings["desmume_advanced_timing"]      ?? "?";
+        const dsColorDepth = ejsSettings["desmume_color_depth"]          ?? "?";
         this.logDiagnostic(
           "performance",
-          `NDS tier=${tier}: cpu=${dsCpuMode} frameskip=${dsFrameskip} res=${dsResolution} opengl=${dsOpenGL}`
+          `NDS tier=${tier}: cpu=${dsCpuMode} frameskip=${dsFrameskip} res=${dsResolution} opengl=${dsOpenGL} timing=${dsTiming} depth=${dsColorDepth}`
         );
         if (this.verboseLogging) {
           console.info(
             `[RetroVault] DS performance settings — ` +
             `cpu_mode: ${dsCpuMode}, frameskip: ${dsFrameskip}, ` +
-            `resolution: ${dsResolution}, opengl: ${dsOpenGL}`
+            `resolution: ${dsResolution}, opengl: ${dsOpenGL}, ` +
+            `advanced_timing: ${dsTiming}, color_depth: ${dsColorDepth}`
           );
         }
       }
