@@ -5,6 +5,7 @@ import {
   DEFAULT_ICE_SERVERS,
   NETPLAY_SUPPORTED_SYSTEM_IDS,
   validateIceServerUrl,
+  resolveNetplayRoomKey,
 } from './multiplayer';
 
 // ── hashGameId ────────────────────────────────────────────────────────────────
@@ -106,6 +107,18 @@ describe('NetplayManager', () => {
 
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('nds');
     expect(mgr.isSupportedForSystem('nds')).toBe(true);
+  });
+
+
+  it('isSupportedForSystem includes gba and gbc for handheld link play', () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://netplay.example.com');
+
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gba');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gbc');
+    expect(mgr.isSupportedForSystem('gba')).toBe(true);
+    expect(mgr.isSupportedForSystem('gbc')).toBe(true);
   });
 
   it('isActive is false when server URL is whitespace only', () => {
@@ -483,5 +496,40 @@ describe('NetplayManager.fetchLobbyRooms', () => {
       expect.objectContaining({ method: 'GET' })
     );
     expect(rooms).toEqual([]);
+  });
+});
+
+
+describe('resolveNetplayRoomKey', () => {
+  it('maps Pokemon GBA paired versions to the same room key', () => {
+    const ruby = resolveNetplayRoomKey('Pokemon - Ruby Version (USA)', 'gba');
+    const emerald = resolveNetplayRoomKey('Pokémon Emerald (Europe)', 'gba');
+    const leafGreen = resolveNetplayRoomKey('Pokemon LeafGreen Version', 'gba');
+    expect(ruby).toBe('pokemon-gba-gen3');
+    expect(emerald).toBe('pokemon-gba-gen3');
+    expect(leafGreen).toBe('pokemon-gba-gen3');
+  });
+
+  it('maps Pokemon DS generation groups to shared room keys', () => {
+    const pearl = resolveNetplayRoomKey('Pokemon Pearl Version', 'nds');
+    const hg = resolveNetplayRoomKey('Pokemon HeartGold Version', 'nds');
+    const black = resolveNetplayRoomKey('Pokemon Black Version', 'nds');
+    const white2 = resolveNetplayRoomKey('Pokemon White 2 Version', 'nds');
+    expect(pearl).toBe('pokemon-nds-gen4');
+    expect(hg).toBe('pokemon-nds-gen4');
+    expect(black).toBe('pokemon-nds-gen5');
+    expect(white2).toBe('pokemon-nds-gen5');
+  });
+
+  it('maps Pokemon GBC titles into Gen 1 and Gen 2 compatibility keys', () => {
+    const red = resolveNetplayRoomKey('Pokemon Red Version', 'gbc');
+    const crystal = resolveNetplayRoomKey('Pokémon Crystal', 'gbc');
+    expect(red).toBe('pokemon-gbc-gen1');
+    expect(crystal).toBe('pokemon-gbc-gen2');
+  });
+
+  it('leaves non-Pokemon games untouched', () => {
+    const key = resolveNetplayRoomKey('Golden Sun - The Lost Age', 'gba');
+    expect(key).toBe('Golden Sun - The Lost Age');
   });
 });

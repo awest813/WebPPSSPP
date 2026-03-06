@@ -1469,7 +1469,7 @@ export class PSPEmulator {
       if (netplay?.isSupportedForSystem(opts.systemId) && opts.gameId) {
         window.EJS_netplayServer    = netplay.serverUrl;
         window.EJS_netplayICEServers = netplay.iceServers;
-        window.EJS_gameID           = netplay.gameIdFor(opts.gameId);
+        window.EJS_gameID           = netplay.gameIdFor(opts.gameId, opts.systemId);
         const playerName = netplay.username.trim();
         if (playerName) window.EJS_playerName = playerName;
         else delete window.EJS_playerName;

@@ -34,7 +34,29 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
  * intentionally gated per-system for deterministic behavior while support is
  * rolled out incrementally.
  */
-export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds"] as const;
+export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds", "gba", "gbc"] as const;
+
+/**
+ * Netplay room-key aliases used to group known cross-version compatible games.
+ *
+ * Pokémon titles are the primary use-case: trading/battling is often designed
+ * to work between paired versions, but our default room scoping hashes each ROM
+ * ID independently.  These aliases collapse compatible titles onto a shared key
+ * so players on different versions can discover the same rooms.
+ */
+const NETPLAY_ROOM_COMPAT_ALIASES: Record<string, Array<{ match: RegExp; roomKey: string }>> = {
+  gbc: [
+    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:red|blue|yellow|green)/i, roomKey: "pokemon-gbc-gen1" },
+    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:gold|silver|crystal)/i, roomKey: "pokemon-gbc-gen2" },
+  ],
+  gba: [
+    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:ruby|sapphire|emerald|firered|leafgreen)/i, roomKey: "pokemon-gba-gen3" },
+  ],
+  nds: [
+    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:diamond|pearl|platinum|heartgold|soulsilver)/i, roomKey: "pokemon-nds-gen4" },
+    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:black\s*2|white\s*2|black|white)/i, roomKey: "pokemon-nds-gen5" },
+  ],
+};
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -88,6 +110,26 @@ export function hashGameId(gameId: string): number {
   // button; any truthy number works. We avoid 0 as a defensive measure since
   // some server implementations may treat it as "unset".
   return (hash & 0x7fff_ffff) || 1; // never return 0
+}
+
+/**
+ * Resolve a canonical room-key for netplay game scoping.
+ *
+ * By default this returns `gameId` unchanged.  For known cross-version title
+ * families (for now: Pokémon on GBC/GBA/NDS), it returns a compatibility alias
+ * so those versions hash into one shared lobby namespace.
+ */
+export function resolveNetplayRoomKey(gameId: string, systemId?: string): string {
+  const normalizedSystem = systemId?.toLowerCase();
+  if (!normalizedSystem) return gameId;
+
+  const aliases = NETPLAY_ROOM_COMPAT_ALIASES[normalizedSystem];
+  if (!aliases || aliases.length === 0) return gameId;
+
+  for (const alias of aliases) {
+    if (alias.match.test(gameId)) return alias.roomKey;
+  }
+  return gameId;
 }
 
 // ── ICE server URL validation ─────────────────────────────────────────────────
@@ -196,8 +238,8 @@ export class NetplayManager {
    * Return a stable numeric game ID for the given string game identifier.
    * The returned value is suitable for `window.EJS_gameID`.
    */
-  gameIdFor(gameId: string): number {
-    return hashGameId(gameId);
+  gameIdFor(gameId: string, systemId?: string): number {
+    return hashGameId(resolveNetplayRoomKey(gameId, systemId));
   }
 
   /**
