@@ -357,6 +357,16 @@ describe('applyBPS', () => {
     const wrongSource = new Uint8Array([0xFF, 0xFF]);
     expect(() => applyBPS(wrongSource.buffer, patch)).toThrow('source CRC32 mismatch');
   });
+
+  it('throws on a truncated patch where VLQ data is cut off', () => {
+    // Build a valid patch, then truncate it so a VLQ read goes past the end
+    const source = new Uint8Array([0x00, 0x01]);
+    const target = new Uint8Array([0xAA, 0xBB]);
+    const full   = new Uint8Array(buildBpsTargetRead(source, target));
+    // Truncate after the header ("BPS1") so the first VLQ read fails
+    const truncated = full.slice(0, 5).buffer;
+    expect(() => applyBPS(source.buffer, truncated)).toThrow();
+  });
 });
 
 // ── applyUPS ─────────────────────────────────────────────────────────────────
@@ -392,6 +402,16 @@ describe('applyUPS', () => {
     const patch  = buildUPS(source, target);
     const wrongSource = new Uint8Array([0xAA, 0xBB]);
     expect(() => applyUPS(wrongSource.buffer, patch)).toThrow('source CRC32 mismatch');
+  });
+
+  it('throws on a truncated patch where VLQ data is cut off', () => {
+    // Build a valid UPS patch, then truncate it so VLQ reading hits end-of-buffer
+    const source = new Uint8Array([0x00, 0x01]);
+    const target = new Uint8Array([0xFF, 0x01]);
+    const full   = new Uint8Array(buildUPS(source, target));
+    // Truncate after the header ("UPS1") so the first VLQ read fails
+    const truncated = full.slice(0, 5).buffer;
+    expect(() => applyUPS(source.buffer, truncated)).toThrow();
   });
 });
 

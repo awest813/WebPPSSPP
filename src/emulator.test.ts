@@ -1364,6 +1364,112 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── readStateData / writeStateData ────────────────────────────────────────
+
+  describe('readStateData', () => {
+    afterEach(() => {
+      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
+      Reflect.deleteProperty(window, 'EJS_gameName');
+    });
+
+    it('returns null when EJS_emulator is not set', () => {
+      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
+      expect(emulator.readStateData(1)).toBeNull();
+    });
+
+    it('returns null when EJS_gameName is not set', () => {
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: vi.fn(), stat: vi.fn(), readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn().mockReturnValue({ exists: false }) } },
+      };
+      Reflect.deleteProperty(window, 'EJS_gameName');
+      expect(emulator.readStateData(1)).toBeNull();
+    });
+
+    it('returns state bytes when the file exists in the FS', () => {
+      const fakeData = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: {
+          FS: {
+            readFile: vi.fn().mockReturnValue(fakeData),
+            writeFile: vi.fn(),
+            stat: vi.fn(),
+            readdir: vi.fn(),
+            unlink: vi.fn(),
+            analyzePath: vi.fn().mockReturnValue({ exists: true }),
+          },
+        },
+      };
+      const result = emulator.readStateData(1);
+      expect(result).toEqual(fakeData);
+    });
+  });
+
+  describe('writeStateData', () => {
+    afterEach(() => {
+      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
+      Reflect.deleteProperty(window, 'EJS_gameName');
+    });
+
+    it('returns false when EJS_emulator is not set', () => {
+      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
+      expect(emulator.writeStateData(1, new Uint8Array([1, 2, 3]))).toBe(false);
+    });
+
+    it('returns false when EJS_gameName is not set', () => {
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: vi.fn(), mkdir: vi.fn(), stat: vi.fn(), readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      Reflect.deleteProperty(window, 'EJS_gameName');
+      expect(emulator.writeStateData(1, new Uint8Array([1, 2, 3]))).toBe(false);
+    });
+
+    it('returns true when the states directory exists', () => {
+      const writeFileMock = vi.fn();
+      const statMock = vi.fn(); // doesn't throw → directory exists
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: writeFileMock, mkdir: vi.fn(), stat: statMock, readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      const data = new Uint8Array([0xDE, 0xAD]);
+      const result = emulator.writeStateData(1, data);
+      expect(result).toBe(true);
+      expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state1', data);
+    });
+
+    it('creates the states directory and returns true when it does not exist', () => {
+      const writeFileMock = vi.fn();
+      const mkdirMock = vi.fn();
+      // stat throws → directory doesn't exist
+      const statMock = vi.fn().mockImplementation(() => { throw new Error('No such file'); });
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: writeFileMock, mkdir: mkdirMock, stat: statMock, readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      const data = new Uint8Array([0x01, 0x02]);
+      const result = emulator.writeStateData(1, data);
+      expect(result).toBe(true);
+      expect(mkdirMock).toHaveBeenCalledWith('/home/web_user/retroarch/states', 0o777);
+      expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state1', data);
+    });
+
+    it('returns false when mkdir also fails', () => {
+      const statMock = vi.fn().mockImplementation(() => { throw new Error('No such file'); });
+      const mkdirMock = vi.fn().mockImplementation(() => { throw new Error('mkdir failed'); });
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: vi.fn(), mkdir: mkdirMock, stat: statMock, readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      expect(emulator.writeStateData(1, new Uint8Array([1, 2]))).toBe(false);
+    });
+  });
+
   // ── webgpuDevice getter ────────────────────────────────────────────────────
 
   describe('webgpuDevice', () => {
