@@ -165,7 +165,9 @@ function readBpsVLQ(bytes: Uint8Array, cur: Cursor): number {
     const b = bytes[cur.pos++]!;
     data   += (b & 0x7f) * shift;
     if (b & 0x80) break;
-    shift <<= 7;
+    // Use multiplication instead of <<= 7 to avoid 32-bit integer overflow
+    // for large ROMs (>256 MB) where shift would exceed 2^28.
+    shift *= 128;
     data   += shift;
   }
   return data;
@@ -275,10 +277,12 @@ function readUpsVLQ(bytes: Uint8Array, cur: Cursor): number {
     if (cur.pos >= bytes.length) throw new Error("UPS: unexpected end of patch data");
     const b = bytes[cur.pos++]!;
     if (b & 0x80) {
-      result += (b & 0x7f) << shift;
+      // Use Math.pow(2, shift) instead of << shift to avoid 32-bit overflow
+      // for large ROM offsets where shift could reach or exceed 32.
+      result += (b & 0x7f) * Math.pow(2, shift);
       break;
     }
-    result += (b | 0x80) << shift;
+    result += (b | 0x80) * Math.pow(2, shift);
     shift  += 7;
   }
   return result;

@@ -977,24 +977,29 @@ export async function detectAudioCapabilities(
       if (!AudioContextCtor) return fallback;
 
       // Construct suspended so we don't trigger autoplay policy.
-      const ctx = new AudioContextCtor({ latencyHint: "playback" });
-      await ctx.suspend();
+      // Use try/finally to guarantee ctx.close() even if ctx.suspend() throws
+      // (e.g. when the browser puts the context into an "interrupted" state).
+      let ctx: AudioContext | undefined;
+      try {
+        ctx = new AudioContextCtor({ latencyHint: "playback" });
+        await ctx.suspend();
 
-      const baseLatencyMs    = (ctx.baseLatency   ?? null) !== null ? (ctx.baseLatency   * 1000) : null;
-      const outputLatencyMs  = (ctx.outputLatency  ?? null) !== null ? (ctx.outputLatency * 1000) : null;
-      const sampleRate       = ctx.sampleRate;
-      const maxChannelCount  = ctx.destination.maxChannelCount ?? null;
+        const baseLatencyMs    = (ctx.baseLatency   ?? null) !== null ? (ctx.baseLatency   * 1000) : null;
+        const outputLatencyMs  = (ctx.outputLatency  ?? null) !== null ? (ctx.outputLatency * 1000) : null;
+        const sampleRate       = ctx.sampleRate;
+        const maxChannelCount  = ctx.destination.maxChannelCount ?? null;
 
-      await ctx.close();
+        let suggestedBufferTier: AudioCapabilities["suggestedBufferTier"] = "medium";
+        if (baseLatencyMs !== null) {
+          if (baseLatencyMs <= 8)  suggestedBufferTier = "low";
+          else if (baseLatencyMs <= 20) suggestedBufferTier = "medium";
+          else                     suggestedBufferTier = "high";
+        }
 
-      let suggestedBufferTier: AudioCapabilities["suggestedBufferTier"] = "medium";
-      if (baseLatencyMs !== null) {
-        if (baseLatencyMs <= 8)  suggestedBufferTier = "low";
-        else if (baseLatencyMs <= 20) suggestedBufferTier = "medium";
-        else                     suggestedBufferTier = "high";
+        return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, maxChannelCount, suggestedBufferTier };
+      } finally {
+        ctx?.close().catch(() => { /* best-effort */ });
       }
-
-      return { baseLatencyMs, outputLatencyMs, audioWorklet, sampleRate, maxChannelCount, suggestedBufferTier };
     } catch {
       return fallback;
     }

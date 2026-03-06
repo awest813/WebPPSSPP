@@ -250,10 +250,14 @@ export class ShaderCache {
         if (all.length > this.maxPrograms) {
           all.sort((a, b) => a.lastUsed - b.lastUsed);
           const toDelete = all.slice(0, all.length - this.maxPrograms);
-          const evictTxn = db.transaction(CACHE_STORE, "readwrite").objectStore(CACHE_STORE);
-          for (const old of toDelete) {
-            evictTxn.delete(old.key);
-          }
+          await new Promise<void>((resolve, reject) => {
+            const evictObjStore = db.transaction(CACHE_STORE, "readwrite").objectStore(CACHE_STORE);
+            for (const old of toDelete) {
+              evictObjStore.delete(old.key);
+            }
+            evictObjStore.transaction.oncomplete = () => resolve();
+            evictObjStore.transaction.onerror    = () => reject(evictObjStore.transaction.error);
+          });
         }
       }
     } catch {
@@ -422,10 +426,14 @@ export class ShaderCache {
         if (all.length > this.maxWGSLModules) {
           all.sort((a, b) => a.lastUsed - b.lastUsed);
           const toDelete = all.slice(0, all.length - this.maxWGSLModules);
-          const evictTxn = db.transaction(WGSL_STORE, "readwrite").objectStore(WGSL_STORE);
-          for (const old of toDelete) {
-            evictTxn.delete(old.key);
-          }
+          await new Promise<void>((resolve, reject) => {
+            const evictObjStore = db.transaction(WGSL_STORE, "readwrite").objectStore(WGSL_STORE);
+            for (const old of toDelete) {
+              evictObjStore.delete(old.key);
+            }
+            evictObjStore.transaction.oncomplete = () => resolve();
+            evictObjStore.transaction.onerror    = () => reject(evictObjStore.transaction.error);
+          });
         }
       }
     } catch {

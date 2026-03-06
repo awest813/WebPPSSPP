@@ -252,6 +252,8 @@ export class NullCloudProvider implements CloudSaveProvider {
 
 /** Timeout (ms) for the isAvailable() connectivity check. */
 const AVAILABILITY_CHECK_TIMEOUT_MS = 8_000;
+/** Timeout (ms) for all other WebDAV fetch operations (upload, download, etc.). */
+const WEBDAV_OPERATION_TIMEOUT_MS   = 15_000;
 
 /**
  * CloudSaveProvider backed by a user-supplied WebDAV endpoint.
@@ -279,9 +281,15 @@ export class WebDAVProvider implements CloudSaveProvider {
   constructor(baseUrl: string, username: string, password: string) {
     this.baseUrl    = baseUrl.replace(/\/+$/, "");
     // Encode credentials as UTF-8 bytes then base64 — avoids the deprecated unescape() trick.
+    // Build the binary string iteratively to avoid spreading large arrays into
+    // String.fromCharCode(), which hits JS engine argument-count limits (~65k args).
     const credentials = `${username}:${password}`;
     const utf8Bytes   = new TextEncoder().encode(credentials);
-    this.authHeader   = "Basic " + btoa(String.fromCharCode(...utf8Bytes));
+    let binary = "";
+    for (let i = 0; i < utf8Bytes.length; i++) {
+      binary += String.fromCharCode(utf8Bytes[i]!);
+    }
+    this.authHeader   = "Basic " + btoa(binary);
   }
 
   // ── CloudSaveProvider implementation ───────────────────────────────────────
@@ -334,17 +342,23 @@ export class WebDAVProvider implements CloudSaveProvider {
   async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
     const base = this._slotUrl(gameId, slot);
 
-    const manifestRes = await fetch(`${base}/manifest.json`, { headers: this._headers() });
+    const manifestRes = await this._timedFetch(`${base}/manifest.json`, { headers: this._headers() });
     if (!manifestRes.ok) return null;
 
-    const manifest = await manifestRes.json() as CloudSaveManifest;
+    let manifest: CloudSaveManifest;
+    try {
+      manifest = await manifestRes.json() as CloudSaveManifest;
+    } catch {
+      // Non-JSON response (e.g. HTML error page with 200 status) — treat as no save.
+      return null;
+    }
 
     let stateData: Blob | null = null;
-    const stateRes = await fetch(`${base}/state.bin`, { headers: this._headers() });
+    const stateRes = await this._timedFetch(`${base}/state.bin`, { headers: this._headers() });
     if (stateRes.ok) stateData = await stateRes.blob();
 
     let thumbnail: Blob | null = null;
-    const thumbRes = await fetch(`${base}/thumb.jpg`, { headers: this._headers() });
+    const thumbRes = await this._timedFetch(`${base}/thumb.jpg`, { headers: this._headers() });
     if (thumbRes.ok) thumbnail = await thumbRes.blob();
 
     return {
@@ -391,22 +405,40 @@ export class WebDAVProvider implements CloudSaveProvider {
     return `${this.baseUrl}/${encodeURIComponent(gameId)}/${slot}`;
   }
 
+  /**
+   * Wrapper around fetch() that aborts after `timeoutMs` milliseconds.
+   * Prevents slow or unresponsive WebDAV servers from hanging sync operations.
+   */
+  private async _timedFetch(url: string, init: RequestInit, timeoutMs = WEBDAV_OPERATION_TIMEOUT_MS): Promise<Response> {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async _fetchManifest(gameId: string, slot: number): Promise<CloudSaveManifest | null> {
-    const res = await fetch(`${this._slotUrl(gameId, slot)}/manifest.json`, { headers: this._headers() });
+    const res = await this._timedFetch(`${this._slotUrl(gameId, slot)}/manifest.json`, { headers: this._headers() });
     if (!res.ok) return null;
-    return res.json() as Promise<CloudSaveManifest>;
+    try {
+      return await res.json() as CloudSaveManifest;
+    } catch {
+      return null;
+    }
   }
 
   private async _ensureDir(url: string): Promise<void> {
     try {
-      await fetch(url, { method: "MKCOL", headers: this._headers() });
+      await this._timedFetch(url, { method: "MKCOL", headers: this._headers() });
     } catch {
       // MKCOL is best-effort: ignore network/CORS errors; PUT will fail loudly if needed.
     }
   }
 
   private async _put(url: string, body: string, contentType: string): Promise<void> {
-    const r = await fetch(url, {
+    const r = await this._timedFetch(url, {
       method:  "PUT",
       headers: { ...this._headers(), "Content-Type": contentType },
       body,
@@ -415,7 +447,7 @@ export class WebDAVProvider implements CloudSaveProvider {
   }
 
   private async _putBlob(url: string, blob: Blob, contentType: string): Promise<void> {
-    const r = await fetch(url, {
+    const r = await this._timedFetch(url, {
       method:  "PUT",
       headers: { ...this._headers(), "Content-Type": contentType },
       body:    blob,
@@ -424,7 +456,7 @@ export class WebDAVProvider implements CloudSaveProvider {
   }
 
   private async _deleteFile(url: string): Promise<void> {
-    await fetch(url, { method: "DELETE", headers: this._headers() });
+    await this._timedFetch(url, { method: "DELETE", headers: this._headers() });
   }
 }
 
@@ -652,6 +684,11 @@ export class CloudSaveManager {
       const raw = localStorage.getItem(CloudSaveManager.SETTINGS_KEY);
       if (!raw) return;
       const p = JSON.parse(raw) as Partial<CloudSaveSettings>;
+      // providerId is stored as the literal string "null" (not JSON null) when
+      // no provider is configured, matching the CloudSaveSettings type definition.
+      if (p.providerId === "null" || p.providerId === "webdav") {
+        this.providerId = p.providerId;
+      }
       if (p.autoSyncEnabled === true) this.autoSyncEnabled = true;
       if (p.conflictResolution === "local" || p.conflictResolution === "remote" || p.conflictResolution === "newest") {
         this.conflictResolution = p.conflictResolution;

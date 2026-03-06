@@ -1656,6 +1656,7 @@ export class PSPEmulator {
     if (this._state !== "running") return;
     window.EJS_emulator?.pause?.();
     this._fpsMonitor.stop();
+    this._memoryMonitor.stop();
     this._setState("paused");
   }
 
@@ -1663,6 +1664,7 @@ export class PSPEmulator {
     if (this._state !== "paused") return;
     window.EJS_emulator?.resume?.();
     this._fpsMonitor.start();
+    this._memoryMonitor.start();
     this._setState("running");
   }
 
@@ -1876,7 +1878,13 @@ export class PSPEmulator {
 
   private _validateFileExt(fileName: string, system: SystemInfo, skipCheck?: boolean): boolean {
     if (skipCheck) return true;
-    const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+    // Use lastIndexOf to correctly handle filenames without dots (split(".").pop()
+    // would return the whole name, not an empty string, for extensionless files).
+    // Also reject filenames that are just "." or end with "." (empty extension).
+    const dotIdx = fileName.lastIndexOf(".");
+    const ext = (dotIdx > 0 && dotIdx < fileName.length - 1)
+      ? fileName.substring(dotIdx + 1).toLowerCase()
+      : "";
     if (!system.extensions.includes(ext)) {
       this._emitError(
         `Unsupported file type ".${ext}" for ${system.name}.\n` +

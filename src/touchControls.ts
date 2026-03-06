@@ -470,20 +470,27 @@ export class TouchControlsOverlay {
       if (activeTouchCount === 0) releaseKey();
     }, { passive: false });
 
-    // Mouse events (fallback for desktop testing)
+    // Mouse events (fallback for desktop testing).
+    // Attach mousemove/mouseup to document on drag start so the button keeps
+    // tracking even when the cursor moves outside the element boundary.
     el.addEventListener("mousedown", (e) => {
-      if (!onDragStart(e.clientX, e.clientY)) pressKey();
+      if (!onDragStart(e.clientX, e.clientY)) {
+        pressKey();
+        return;
+      }
+      const onMove = (ev: MouseEvent) => onDragMove(ev.clientX, ev.clientY);
+      const onUp   = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        onDragEnd();
+        releaseKey();
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
     });
-    el.addEventListener("mousemove", (e) => {
-      if (dragActive) onDragMove(e.clientX, e.clientY);
-    });
+    // Release the key on mouseup in play mode (non-drag path).
     el.addEventListener("mouseup", () => {
-      onDragEnd();
-      releaseKey();
-    });
-    el.addEventListener("mouseleave", () => {
-      onDragEnd();
-      releaseKey();
+      if (!dragActive) releaseKey();
     });
   }
 

@@ -139,8 +139,14 @@ export async function extractFromZip(
 
   for (let i = bytes.length - 22; i >= maxSearch; i--) {
     if (readUint32LE(view, i) === EOCD_MAGIC) {
-      eocdOffset = i;
-      break;
+      // Validate that the comment-length field at offset +20 exactly accounts
+      // for all remaining bytes. This rejects false-positive EOCD_MAGIC matches
+      // that may appear inside a ZIP comment containing the PK\x05\x06 sequence.
+      const commentLen = readUint16LE(view, i + 20);
+      if (i + 22 + commentLen === bytes.length) {
+        eocdOffset = i;
+        break;
+      }
     }
   }
 

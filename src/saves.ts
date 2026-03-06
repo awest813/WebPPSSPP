@@ -369,6 +369,7 @@ export class SaveStateLibrary {
     if (!state) return;
     const db = await openDB();
     await promisify(tx(db, "readwrite").put({ ...state, label: label.trim() || defaultSlotLabel(slot) }));
+    saveEvents.emit({ type: "saved", gameId, slot, timestamp: Date.now() });
   }
 
   /**
@@ -573,7 +574,10 @@ export async function createThumbnail(screenshot: Blob): Promise<Blob | null> {
     canvas.width  = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
 
     ctx.drawImage(bitmap, 0, 0, w, h);
     bitmap.close();
@@ -600,9 +604,10 @@ export function downloadBlob(blob: Blob, fileName: string): void {
   a.download = fileName;
   a.style.display = "none";
   document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-    a.remove();
-  }, 100);
+  try { a.click(); } finally {
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 100);
+  }
 }
