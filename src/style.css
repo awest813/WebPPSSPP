@@ -1312,6 +1312,47 @@ body {
   line-height: 1.4;
 }
 
+/* ── Netplay lobby browser ─────────────────────────────────── */
+.netplay-lobby-list { margin-bottom: 8px; }
+
+.netplay-lobby-empty,
+.netplay-lobby-loading,
+.netplay-lobby-error {
+  font-size: 0.82rem;
+  color: var(--c-text-dim);
+  font-style: italic;
+  margin: 4px 0;
+}
+
+.netplay-lobby-error { color: var(--c-error, #e05); }
+
+.netplay-lobby-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--c-border, rgba(255,255,255,0.08));
+}
+.netplay-lobby-row:last-child { border-bottom: none; }
+
+.netplay-lobby-name {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.netplay-lobby-host,
+.netplay-lobby-players {
+  font-size: 0.78rem;
+  color: var(--c-text-dim);
+  flex-shrink: 0;
+}
+
+.netplay-lobby-refresh { margin-top: 4px; }
+
 /* ── Custom confirm dialog ─────────────────────────────────── */
 .confirm-overlay {
   position: fixed;

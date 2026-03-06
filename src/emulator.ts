@@ -61,6 +61,8 @@ declare global {
     EJS_netplayICEServers?: RTCIceServer[];
     /** Numeric room-scoping ID derived from the game's string identifier. */
     EJS_gameID?:            number;
+    /** Player display name shown to other participants in a netplay room. */
+    EJS_playerName?:        string;
   }
 }
 
@@ -1441,10 +1443,14 @@ export class PSPEmulator {
         window.EJS_netplayServer    = netplay.serverUrl;
         window.EJS_netplayICEServers = netplay.iceServers;
         window.EJS_gameID           = netplay.gameIdFor(opts.gameId);
+        const playerName = netplay.username.trim();
+        if (playerName) window.EJS_playerName = playerName;
+        else delete window.EJS_playerName;
       } else {
         delete window.EJS_netplayServer;
         delete window.EJS_netplayICEServers;
         delete window.EJS_gameID;
+        delete window.EJS_playerName;
       }
 
       if (Object.keys(ejsSettings).length > 0) {

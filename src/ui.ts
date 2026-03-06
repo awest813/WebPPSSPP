@@ -2791,6 +2791,38 @@ function buildMultiplayerTab(
   urlRow.append(urlLabel, urlInput);
   serverSection.appendChild(urlRow);
 
+  // Username / display name row
+  const unameRow   = make("div", { class: "settings-input-row" });
+  const unameLabel = make("label", { class: "settings-input-label", for: "netplay-username" }, "Display Name");
+  const unameInput = make("input", {
+    type:         "text",
+    id:           "netplay-username",
+    class:        "settings-input",
+    placeholder:  "Anonymous",
+    value:        settings.netplayUsername,
+    autocomplete: "off",
+    spellcheck:   "false",
+    maxlength:    "32",
+  }) as HTMLInputElement;
+  unameInput.addEventListener("input", () => unameInput.setCustomValidity(""));
+  unameInput.addEventListener("change", () => {
+    const name = unameInput.value.trim();
+    const err = netplayManager?.validateUsername(name) ?? null;
+    if (err) {
+      unameInput.setCustomValidity(err);
+      unameInput.reportValidity();
+      return;
+    }
+    unameInput.setCustomValidity("");
+    onSettingsChange({ netplayUsername: name });
+    netplayManager?.setUsername(name);
+  });
+  unameRow.append(unameLabel, unameInput);
+  serverSection.appendChild(unameRow);
+  serverSection.appendChild(make("p", { class: "settings-help" },
+    "Optional name shown to other players in the netplay lobby. Leave blank to appear as anonymous."
+  ));
+
   // ICE / STUN section
   const iceSection = make("div", { class: "settings-section" });
   iceSection.appendChild(make("h4", { class: "settings-section__title" }, "ICE / STUN Servers"));
@@ -2840,6 +2872,7 @@ function buildMultiplayerTab(
   const addRow = make("div", { class: "settings-input-row" });
   const addInput = make("input", {
     type:         "text",
+    id:           "netplay-ice-add",
     class:        "settings-input",
     placeholder:  "stun:stun.example.com:3478",
     "aria-label": "New ICE server URL",
@@ -2883,6 +2916,89 @@ function buildMultiplayerTab(
   serverSection.appendChild(iceSection);
 
   container.append(serverSection);
+
+  // Lobby browser section — visible only when netplay is active
+  const lobbySection = make("div", { class: "settings-section netplay-lobby" });
+  lobbySection.hidden = !(netplayManager?.isActive ?? false);
+  lobbySection.appendChild(make("h4", { class: "settings-section__title" }, "Lobby Browser"));
+  lobbySection.appendChild(make("p", { class: "settings-help" },
+    "Browse open netplay rooms on the configured server. Rooms are scoped to your current game — " +
+    "start a game and open Settings to see rooms for that title."
+  ));
+
+  const lobbyRoomList = make("div", { class: "netplay-lobby-list" });
+  let lobbyAbort: AbortController | null = null;
+
+  const renderLobbyRooms = (rooms: import("./multiplayer.js").NetplayLobbyRoom[]) => {
+    lobbyRoomList.innerHTML = "";
+    if (rooms.length === 0) {
+      lobbyRoomList.appendChild(make("p", { class: "netplay-lobby-empty" },
+        "No open rooms found. Create one from the Netplay button inside the emulator."
+      ));
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const room of rooms) {
+      const row = make("div", { class: "netplay-lobby-row" });
+      const nameEl = make("span", { class: "netplay-lobby-name" },
+        room.name ?? `Room ${room.id}`
+      );
+      const hostEl = room.host
+        ? make("span", { class: "netplay-lobby-host" }, `Host: ${room.host}`)
+        : null;
+      const playersEl = (room.players !== undefined)
+        ? make("span", { class: "netplay-lobby-players" },
+            room.maxPlayers !== undefined
+              ? `${room.players}/${room.maxPlayers} players`
+              : `${room.players} player${room.players !== 1 ? "s" : ""}`
+          )
+        : null;
+      row.appendChild(nameEl);
+      if (hostEl)    row.appendChild(hostEl);
+      if (playersEl) row.appendChild(playersEl);
+      fragment.appendChild(row);
+    }
+    lobbyRoomList.appendChild(fragment);
+  };
+  renderLobbyRooms([]);
+  lobbySection.appendChild(lobbyRoomList);
+
+  const refreshBtn = make("button", { class: "btn btn--primary netplay-lobby-refresh" }, "Refresh") as HTMLButtonElement;
+  refreshBtn.addEventListener("click", async () => {
+    if (!netplayManager) return;
+    if (lobbyAbort) lobbyAbort.abort();
+    lobbyAbort = new AbortController();
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+    lobbyRoomList.innerHTML = "";
+    lobbyRoomList.appendChild(make("p", { class: "netplay-lobby-loading" }, "Loading rooms…"));
+    try {
+      const rooms = await netplayManager.fetchLobbyRooms(lobbyAbort.signal);
+      renderLobbyRooms(rooms);
+    } catch (err) {
+      // AbortError means the user clicked Refresh again — not a real failure
+      if (err instanceof Error && err.name === "AbortError") return;
+      console.warn("[RetroVault] Lobby fetch failed:", err);
+      lobbyRoomList.innerHTML = "";
+      lobbyRoomList.appendChild(make("p", { class: "netplay-lobby-error" },
+        "Could not reach the netplay server. Check the server URL and your connection."
+      ));
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = "Refresh";
+    }
+  });
+  lobbySection.appendChild(refreshBtn);
+
+  // Keep the lobby section visibility in sync with enable/server-URL changes
+  const syncLobbyVisibility = () => {
+    lobbySection.hidden = !(netplayManager?.isActive ?? false);
+  };
+  // Patch the enable-toggle handler to also update lobby visibility
+  introSection.addEventListener("change", syncLobbyVisibility);
+  urlInput.addEventListener("change", syncLobbyVisibility);
+
+  container.append(lobbySection);
 }
 
 // ── Debug tab ─────────────────────────────────────────────────────────────────

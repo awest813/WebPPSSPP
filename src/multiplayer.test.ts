@@ -90,6 +90,15 @@ describe('NetplayManager', () => {
     expect(mgr.isSupportedForSystem('nes')).toBe(false);
   });
 
+  it('isSupportedForSystem includes psp', () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://netplay.example.com');
+
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('psp');
+    expect(mgr.isSupportedForSystem('psp')).toBe(true);
+  });
+
   it('isActive is false when server URL is whitespace only', () => {
     const mgr = new NetplayManager();
     mgr.setEnabled(true);
@@ -164,6 +173,34 @@ describe('NetplayManager', () => {
     localStorage.setItem('rv:netplay', JSON.stringify({ enabled: true, serverUrl: '', iceServers: [] }));
     const mgr = new NetplayManager();
     expect(mgr.iceServers).toEqual(DEFAULT_ICE_SERVERS);
+  });
+
+  it('starts with an empty username by default', () => {
+    const mgr = new NetplayManager();
+    expect(mgr.username).toBe('');
+  });
+
+  it('setUsername persists to localStorage and trims whitespace', () => {
+    const mgr = new NetplayManager();
+    mgr.setUsername('  alice  ');
+
+    const mgr2 = new NetplayManager();
+    expect(mgr2.username).toBe('alice');
+  });
+
+  it('setUsername with empty string is valid and persists', () => {
+    const mgr = new NetplayManager();
+    mgr.setUsername('alice');
+    mgr.setUsername('');
+
+    const mgr2 = new NetplayManager();
+    expect(mgr2.username).toBe('');
+  });
+
+  it('falls back to empty username when field is absent in storage', () => {
+    localStorage.setItem('rv:netplay', JSON.stringify({ enabled: true, serverUrl: 'wss://x.com' }));
+    const mgr = new NetplayManager();
+    expect(mgr.username).toBe('');
   });
 });
 
@@ -284,6 +321,43 @@ describe('NetplayManager.validateIceServerUrl', () => {
     for (const url of inputs) {
       expect(mgr.validateIceServerUrl(url)).toBe(validateIceServerUrl(url));
     }
+  });
+});
+
+// ── NetplayManager.validateUsername ──────────────────────────────────────────
+
+describe('NetplayManager.validateUsername', () => {
+  let mgr: NetplayManager;
+
+  beforeEach(() => {
+    localStorage.clear();
+    mgr = new NetplayManager();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns null for an empty string (anonymous)', () => {
+    expect(mgr.validateUsername('')).toBeNull();
+  });
+
+  it('returns null for a whitespace-only string (treated as empty)', () => {
+    expect(mgr.validateUsername('   ')).toBeNull();
+  });
+
+  it('returns null for a normal username', () => {
+    expect(mgr.validateUsername('alice')).toBeNull();
+  });
+
+  it('returns null for a username exactly 32 characters long', () => {
+    expect(mgr.validateUsername('a'.repeat(32))).toBeNull();
+  });
+
+  it('returns an error for a username longer than 32 characters', () => {
+    const err = mgr.validateUsername('a'.repeat(33));
+    expect(err).not.toBeNull();
+    expect(err).toContain('32');
   });
 });
 

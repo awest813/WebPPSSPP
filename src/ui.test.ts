@@ -23,6 +23,7 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     orientationLock: true,
     netplayEnabled: false,
     netplayServerUrl: "",
+    netplayUsername: "",
     verboseLogging: false,
     ...overrides,
   };
@@ -479,7 +480,7 @@ describe("buildMultiplayerTab", () => {
     const setIceServers = vi.spyOn(mgr, "setIceServers");
 
     const panel = document.getElementById("tab-panel-multiplayer")!;
-    const addInput = panel.querySelector<HTMLInputElement>(".settings-input:not(#netplay-server-url)")!;
+    const addInput = panel.querySelector<HTMLInputElement>("#netplay-ice-add")!;
     const addBtn   = panel.querySelector<HTMLButtonElement>(".btn--primary")!;
     expect(addInput).toBeTruthy();
     expect(addBtn).toBeTruthy();
@@ -503,7 +504,7 @@ describe("buildMultiplayerTab", () => {
     const setIceServers = vi.spyOn(mgr, "setIceServers");
 
     const panel = document.getElementById("tab-panel-multiplayer")!;
-    const addInput = panel.querySelector<HTMLInputElement>(".settings-input:not(#netplay-server-url)")!;
+    const addInput = panel.querySelector<HTMLInputElement>("#netplay-ice-add")!;
     const addBtn   = panel.querySelector<HTMLButtonElement>(".btn--primary")!;
 
     addInput.value = "http://invalid-ice-server.com";
@@ -603,6 +604,44 @@ describe("buildMultiplayerTab", () => {
     const urlInput = document.getElementById("netplay-server-url") as HTMLInputElement;
     expect(urlInput.getAttribute("autocomplete")).toBe("off");
     expect(urlInput.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("username input is present and pre-populated from settings", () => {
+    settings = makeSettings({ netplayEnabled: true, netplayUsername: "alice" });
+    openMultiplayerTab();
+    const nameInput = document.getElementById("netplay-username") as HTMLInputElement;
+    expect(nameInput).toBeTruthy();
+    expect(nameInput.value).toBe("alice");
+  });
+
+  it("changing username calls onSettingsChange and netplayManager.setUsername", () => {
+    settings = makeSettings({ netplayEnabled: true });
+    openMultiplayerTab();
+    const setUsername = vi.spyOn(mgr, "setUsername");
+    const nameInput = document.getElementById("netplay-username") as HTMLInputElement;
+    nameInput.value = "Bob";
+    nameInput.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ netplayUsername: "Bob" });
+    expect(setUsername).toHaveBeenCalledWith("Bob");
+  });
+
+  it("lobby browser section is hidden when netplay is not active", () => {
+    openMultiplayerTab();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const lobby = panel.querySelector<HTMLElement>(".netplay-lobby");
+    expect(lobby).toBeTruthy();
+    expect(lobby!.hidden).toBe(true);
+  });
+
+  it("lobby browser section is visible when netplay is active", () => {
+    settings = makeSettings({ netplayEnabled: true, netplayServerUrl: "wss://netplay.example.com" });
+    mgr.setEnabled(true);
+    mgr.setServerUrl("wss://netplay.example.com");
+    openMultiplayerTab();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const lobby = panel.querySelector<HTMLElement>(".netplay-lobby");
+    expect(lobby).toBeTruthy();
+    expect(lobby!.hidden).toBe(false);
   });
 });
 

@@ -34,7 +34,7 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
  * intentionally gated per-system for deterministic behavior while support is
  * rolled out incrementally.
  */
-export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64"] as const;
+export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp"] as const;
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +44,8 @@ export interface NetplaySettings {
   enabled:    boolean;
   serverUrl:  string;
   iceServers: RTCIceServer[];
+  /** Display name shown to other players in a netplay room. Empty means anonymous. */
+  username:   string;
 }
 
 export interface NetplayLobbyRoom {
@@ -59,6 +61,7 @@ const DEFAULT_NETPLAY_SETTINGS: NetplaySettings = {
   enabled:    false,
   serverUrl:  "",
   iceServers: DEFAULT_ICE_SERVERS,
+  username:   "",
 };
 
 // ── Game ID hashing ───────────────────────────────────────────────────────────
@@ -122,6 +125,8 @@ export class NetplayManager {
   get enabled(): boolean   { return this._settings.enabled; }
   get serverUrl(): string  { return this._settings.serverUrl; }
   get iceServers(): RTCIceServer[] { return [...this._settings.iceServers]; }
+  /** Player display name shown to others in a netplay room. Empty string means anonymous. */
+  get username(): string   { return this._settings.username; }
 
   /**
    * True if netplay is enabled *and* a server URL has been configured.
@@ -158,6 +163,32 @@ export class NetplayManager {
   /** Reset ICE server list to the built-in public STUN defaults. */
   resetIceServers(): void {
     this.setIceServers(DEFAULT_ICE_SERVERS);
+  }
+
+  /**
+   * Set the player display name shown to others in a netplay room.
+   * Trims surrounding whitespace before storing.  An empty string means
+   * the player will appear as "anonymous" or use the server-assigned name.
+   */
+  setUsername(name: string): void {
+    this._settings = { ...this._settings, username: name.trim() };
+    this._save();
+  }
+
+  /**
+   * Validate a proposed player username.
+   *
+   * Returns `null` when the name is valid.  Returns a human-readable error
+   * message for names that are too long or contain only whitespace.
+   *
+   * Rules:
+   *  - An empty / whitespace-only string is valid (represents anonymous).
+   *  - Trimmed length must not exceed 32 characters.
+   */
+  validateUsername(name: string): string | null {
+    const trimmed = name.trim();
+    if (trimmed.length > 32) return "Display name must be 32 characters or fewer";
+    return null;
   }
 
   /**
@@ -256,6 +287,9 @@ export class NetplayManager {
         iceServers: Array.isArray(parsed.iceServers) && parsed.iceServers.length > 0
                       ? (parsed.iceServers as RTCIceServer[])
                       : DEFAULT_ICE_SERVERS,
+        username:   typeof parsed.username === "string"
+                      ? parsed.username
+                      : DEFAULT_NETPLAY_SETTINGS.username,
       };
     } catch {
       return { ...DEFAULT_NETPLAY_SETTINGS, iceServers: DEFAULT_ICE_SERVERS };

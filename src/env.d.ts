@@ -29,6 +29,8 @@ declare global {
     EJS_netplayICEServers?: RTCIceServer[];
     /** Numeric game identifier used by the netplay server for room scoping. */
     EJS_gameID?: number;
+    /** Player display name shown to other participants in a netplay room. */
+    EJS_playerName?: string;
   }
 }
 

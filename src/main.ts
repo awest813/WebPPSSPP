@@ -62,6 +62,8 @@ export interface Settings {
   netplayEnabled:  boolean;
   /** WebSocket URL of the EmulatorJS netplay signalling server. */
   netplayServerUrl: string;
+  /** Player display name shown to others in a netplay room. Empty means anonymous. */
+  netplayUsername: string;
   /** Whether verbose debug logging is written to the browser console. */
   verboseLogging:  boolean;
 }
@@ -82,6 +84,7 @@ const DEFAULT_SETTINGS: Settings = {
   orientationLock: true,
   netplayEnabled:  false,
   netplayServerUrl: "",
+  netplayUsername: "",
   verboseLogging:  false,
 };
 
@@ -133,6 +136,9 @@ function loadSettings(): Settings {
       netplayServerUrl: typeof parsed.netplayServerUrl === "string"
         ? parsed.netplayServerUrl
         : DEFAULT_SETTINGS.netplayServerUrl,
+      netplayUsername: typeof parsed.netplayUsername === "string"
+        ? parsed.netplayUsername
+        : DEFAULT_SETTINGS.netplayUsername,
       verboseLogging: typeof parsed.verboseLogging === "boolean"
         ? parsed.verboseLogging
         : DEFAULT_SETTINGS.verboseLogging,
@@ -366,6 +372,7 @@ function main(): void {
     // Sync netplay settings from app settings into the manager before launch
     netplayManager.setEnabled(settings.netplayEnabled);
     netplayManager.setServerUrl(settings.netplayServerUrl);
+    netplayManager.setUsername(settings.netplayUsername);
 
     await emulator.launch({
       file,
