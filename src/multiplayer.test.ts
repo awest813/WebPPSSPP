@@ -4,8 +4,13 @@ import {
   NetplayManager,
   DEFAULT_ICE_SERVERS,
   NETPLAY_SUPPORTED_SYSTEM_IDS,
+  SYSTEM_LINK_CAPABILITIES,
   validateIceServerUrl,
   resolveNetplayRoomKey,
+  stripRegionSuffix,
+  stripRevisionSuffix,
+  canonicalizeGameId,
+  roomDisplayNameForKey,
 } from './multiplayer';
 
 // ── hashGameId ────────────────────────────────────────────────────────────────
@@ -501,35 +506,76 @@ describe('NetplayManager.fetchLobbyRooms', () => {
 
 
 describe('resolveNetplayRoomKey', () => {
-  it('maps Pokemon GBA paired versions to the same room key', () => {
+  it('maps Pokemon GBA versions into kanto/hoenn compatibility groups', () => {
     const ruby = resolveNetplayRoomKey('Pokemon - Ruby Version (USA)', 'gba');
     const emerald = resolveNetplayRoomKey('Pokémon Emerald (Europe)', 'gba');
     const leafGreen = resolveNetplayRoomKey('Pokemon LeafGreen Version', 'gba');
-    expect(ruby).toBe('pokemon-gba-gen3');
-    expect(emerald).toBe('pokemon-gba-gen3');
-    expect(leafGreen).toBe('pokemon-gba-gen3');
+    expect(ruby).toBe('pokemon_gen3_hoenn');
+    expect(emerald).toBe('pokemon_gen3_hoenn');
+    expect(leafGreen).toBe('pokemon_gen3_kanto');
   });
 
   it('maps Pokemon DS generation groups to shared room keys', () => {
     const pearl = resolveNetplayRoomKey('Pokemon Pearl Version', 'nds');
-    const hg = resolveNetplayRoomKey('Pokemon HeartGold Version', 'nds');
     const black = resolveNetplayRoomKey('Pokemon Black Version', 'nds');
     const white2 = resolveNetplayRoomKey('Pokemon White 2 Version', 'nds');
-    expect(pearl).toBe('pokemon-nds-gen4');
-    expect(hg).toBe('pokemon-nds-gen4');
-    expect(black).toBe('pokemon-nds-gen5');
-    expect(white2).toBe('pokemon-nds-gen5');
+    expect(pearl).toBe('pokemon_gen4_sinnoh');
+    expect(black).toBe('pokemon_gen5_unova');
+    expect(white2).toBe('pokemon_gen5_unova');
   });
 
   it('maps Pokemon GBC titles into Gen 1 and Gen 2 compatibility keys', () => {
     const red = resolveNetplayRoomKey('Pokemon Red Version', 'gbc');
+    const yellow = resolveNetplayRoomKey('Pokemon Yellow Version', 'gbc');
     const crystal = resolveNetplayRoomKey('Pokémon Crystal', 'gbc');
-    expect(red).toBe('pokemon-gbc-gen1');
-    expect(crystal).toBe('pokemon-gbc-gen2');
+    expect(red).toBe('pokemon_gen1');
+    expect(yellow).toBe('pokemon_gen1');
+    expect(crystal).toBe('pokemon_gen2');
   });
 
-  it('leaves non-Pokemon games untouched', () => {
+  it('normalizes regional suffixes before alias resolution', () => {
+    const us = resolveNetplayRoomKey('Pokemon FireRed (USA)', 'gba');
+    const eu = resolveNetplayRoomKey('Pokemon FireRed (Europe)', 'gba');
+    const jp = resolveNetplayRoomKey('Pokemon FireRed (Japan)', 'gba');
+    expect(us).toBe('pokemon_gen3_kanto');
+    expect(eu).toBe('pokemon_gen3_kanto');
+    expect(jp).toBe('pokemon_gen3_kanto');
+  });
+
+  it('normalizes revision suffixes before alias resolution', () => {
+    const base = resolveNetplayRoomKey('Pokemon FireRed', 'gba');
+    const rev1 = resolveNetplayRoomKey('Pokemon FireRed (Rev 1)', 'gba');
+    const revA = resolveNetplayRoomKey('Pokemon FireRed (Rev A)', 'gba');
+    expect(base).toBe('pokemon_gen3_kanto');
+    expect(rev1).toBe('pokemon_gen3_kanto');
+    expect(revA).toBe('pokemon_gen3_kanto');
+  });
+
+  it('canonicalizes non-Pokemon games without aliasing them', () => {
     const key = resolveNetplayRoomKey('Golden Sun - The Lost Age', 'gba');
-    expect(key).toBe('Golden Sun - The Lost Age');
+    expect(key).toBe('golden_sun_the_lost_age');
+  });
+
+  it('exposes deterministic normalization utilities', () => {
+    expect(stripRegionSuffix('Pokemon FireRed (USA)')).toBe('Pokemon FireRed');
+    expect(stripRevisionSuffix('Pokemon FireRed (Rev 1)')).toBe('Pokemon FireRed');
+    expect(canonicalizeGameId('Pokemon FireRed (USA) (Rev 1).gba')).toBe('pokemon_firered');
+  });
+
+  it('has display names for known compatibility room keys', () => {
+    expect(roomDisplayNameForKey('pokemon_gen3_kanto')).toBe('Pokémon Gen3 Kanto Trading Room');
+    expect(roomDisplayNameForKey('custom_room_key')).toBe('custom_room_key');
+  });
+
+  it('supports link-capable handheld systems and blocks unsupported examples', () => {
+    expect(SYSTEM_LINK_CAPABILITIES.gbc).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.gba).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.nds).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.nes).toBe(false);
+  });
+
+  it('uses canonical fallback hashing for unknown titles', () => {
+    const mgr = new NetplayManager();
+    expect(mgr.gameIdFor('Custom Fighter (USA)', 'gba')).toBe(mgr.gameIdFor('Custom Fighter (Japan)', 'gba'));
   });
 });

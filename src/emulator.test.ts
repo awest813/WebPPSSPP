@@ -1952,6 +1952,8 @@ describe('PSPEmulator', () => {
       delete window.EJS_netplayServer;
       delete window.EJS_netplayICEServers;
       delete window.EJS_gameID;
+      delete window.EJS_roomKey;
+      delete window.EJS_netplayRoom;
     });
 
     afterEach(() => {
@@ -1961,6 +1963,8 @@ describe('PSPEmulator', () => {
       delete window.EJS_netplayServer;
       delete window.EJS_netplayICEServers;
       delete window.EJS_gameID;
+      delete window.EJS_roomKey;
+      delete window.EJS_netplayRoom;
     });
 
     it('sets EJS netplay globals when netplay is active for N64 and a gameId is provided', async () => {
@@ -1983,6 +1987,8 @@ describe('PSPEmulator', () => {
       expect(window.EJS_netplayICEServers).toBeDefined();
       expect(typeof window.EJS_gameID).toBe('number');
       expect(window.EJS_gameID).toBeGreaterThan(0);
+      expect(window.EJS_roomKey).toBe('psp_game_test');
+      expect(window.EJS_netplayRoom).toBe('psp_game_test');
     });
 
     it('does not set EJS netplay globals when netplay is disabled', async () => {
@@ -2003,6 +2009,7 @@ describe('PSPEmulator', () => {
 
       expect(window.EJS_netplayServer).toBeUndefined();
       expect(window.EJS_gameID).toBeUndefined();
+      expect(window.EJS_roomKey).toBeUndefined();
     });
 
     it('does not set EJS netplay globals when server URL is empty', async () => {
@@ -2023,6 +2030,7 @@ describe('PSPEmulator', () => {
 
       expect(window.EJS_netplayServer).toBeUndefined();
       expect(window.EJS_gameID).toBeUndefined();
+      expect(window.EJS_roomKey).toBeUndefined();
     });
 
     it('does not set EJS netplay globals when no gameId is provided', async () => {
@@ -2043,6 +2051,7 @@ describe('PSPEmulator', () => {
 
       expect(window.EJS_netplayServer).toBeUndefined();
       expect(window.EJS_gameID).toBeUndefined();
+      expect(window.EJS_roomKey).toBeUndefined();
     });
 
     it('EJS_gameID is derived from the gameId string deterministically', async () => {
@@ -2082,6 +2091,7 @@ describe('PSPEmulator', () => {
 
       expect(window.EJS_netplayServer).toBeUndefined();
       expect(window.EJS_gameID).toBeUndefined();
+      expect(window.EJS_roomKey).toBeUndefined();
     });
   });
 

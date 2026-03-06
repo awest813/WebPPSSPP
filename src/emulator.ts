@@ -29,7 +29,7 @@ import {
   MemoryMonitor,
 } from "./performance.js";
 import { shaderCache } from "./shaderCache.js";
-import type { NetplayManager } from "./multiplayer.js";
+import { roomDisplayNameForKey, type NetplayManager } from "./multiplayer.js";
 import {
   WebGPUPostProcessor,
   buildEffectPipeline,
@@ -61,6 +61,10 @@ declare global {
     EJS_netplayICEServers?: RTCIceServer[];
     /** Numeric room-scoping ID derived from the game's string identifier. */
     EJS_gameID?:            number;
+    /** Canonical string room key used for compatibility discovery. */
+    EJS_roomKey?:           string;
+    /** Friendly room name presented by supported netplay UIs. */
+    EJS_netplayRoom?:       string;
     /** Player display name shown to other participants in a netplay room. */
     EJS_playerName?:        string;
   }
@@ -1467,9 +1471,12 @@ export class PSPEmulator {
       // ── Netplay globals ───────────────────────────────────────────────────
       const netplay = opts.netplayManager;
       if (netplay?.isSupportedForSystem(opts.systemId) && opts.gameId) {
+        const roomKey = netplay.roomKeyFor(opts.gameId, opts.systemId);
         window.EJS_netplayServer    = netplay.serverUrl;
         window.EJS_netplayICEServers = netplay.iceServers;
         window.EJS_gameID           = netplay.gameIdFor(opts.gameId, opts.systemId);
+        window.EJS_roomKey          = roomKey;
+        window.EJS_netplayRoom      = roomDisplayNameForKey(roomKey);
         const playerName = netplay.username.trim();
         if (playerName) window.EJS_playerName = playerName;
         else delete window.EJS_playerName;
@@ -1477,6 +1484,8 @@ export class PSPEmulator {
         delete window.EJS_netplayServer;
         delete window.EJS_netplayICEServers;
         delete window.EJS_gameID;
+        delete window.EJS_roomKey;
+        delete window.EJS_netplayRoom;
         delete window.EJS_playerName;
       }
 

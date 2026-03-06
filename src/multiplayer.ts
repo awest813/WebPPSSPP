@@ -1,3 +1,5 @@
+import compatibilityAliases from "./compatibility_aliases.json";
+
 /**
  * multiplayer.ts — Phase 6: Multiplayer & Social
  *
@@ -36,6 +38,25 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
  */
 export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds", "gba", "gbc"] as const;
 
+export const SYSTEM_LINK_CAPABILITIES: Record<string, boolean> = {
+  nes: false,
+  snes: false,
+  n64: true,
+  psp: true,
+  gbc: true,
+  gba: true,
+  nds: true,
+};
+
+export const ROOM_KEY_DISPLAY_NAMES: Record<string, string> = {
+  pokemon_gen1: "Pokémon Gen1 Trading Room",
+  pokemon_gen2: "Pokémon Gen2 Trading Room",
+  pokemon_gen3_kanto: "Pokémon Gen3 Kanto Trading Room",
+  pokemon_gen3_hoenn: "Pokémon Gen3 Hoenn Trading Room",
+  pokemon_gen4_sinnoh: "Pokémon Gen4 Sinnoh Trading Room",
+  pokemon_gen5_unova: "Pokémon Gen5 Unova Trading Room",
+};
+
 /**
  * Netplay room-key aliases used to group known cross-version compatible games.
  *
@@ -44,19 +65,73 @@ export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds", "gba", "gbc"] 
  * ID independently.  These aliases collapse compatible titles onto a shared key
  * so players on different versions can discover the same rooms.
  */
-const NETPLAY_ROOM_COMPAT_ALIASES: Record<string, Array<{ match: RegExp; roomKey: string }>> = {
-  gbc: [
-    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:red|blue|yellow|green)/i, roomKey: "pokemon-gbc-gen1" },
-    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:gold|silver|crystal)/i, roomKey: "pokemon-gbc-gen2" },
-  ],
-  gba: [
-    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:ruby|sapphire|emerald|firered|leafgreen)/i, roomKey: "pokemon-gba-gen3" },
-  ],
-  nds: [
-    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:diamond|pearl|platinum|heartgold|soulsilver)/i, roomKey: "pokemon-nds-gen4" },
-    { match: /(?:pokemon|pok[ée]mon|pocket\s*monsters).*(?:black\s*2|white\s*2|black|white)/i, roomKey: "pokemon-nds-gen5" },
-  ],
-};
+type RoomAliasRule = { match: RegExp; roomKey: string };
+
+const NETPLAY_ALIAS_CONFIDENCE_THRESHOLD = 0.7;
+
+const NETPLAY_ROOM_COMPAT_ALIASES: Record<string, RoomAliasRule[]> = Object.entries(
+  compatibilityAliases as Record<string, string[]>
+).reduce<Record<string, RoomAliasRule[]>>((acc, [roomKey, patterns]) => {
+  const inferredSystem = roomKey.includes("gen1") || roomKey.includes("gen2")
+    ? "gbc"
+    : roomKey.includes("gen3")
+      ? "gba"
+      : "nds";
+  acc[inferredSystem] ??= [];
+  for (const pattern of patterns) {
+    acc[inferredSystem].push({ match: new RegExp(pattern, "i"), roomKey });
+  }
+  return acc;
+}, {});
+
+const REGION_TAG_REGEX = /\s*[\[(](?:usa|us|u|europe|eu|e|japan|jp|j|world|korea|france|germany|spain|italy|australia|canada|brazil|china|asia|global|intl|international|eng|en(?:[,-]\s*[a-z]{2,})*)[\])]/gi;
+const REVISION_TAG_REGEX = /\s*[\[(](?:rev(?:ision)?\s*[0-9a-z]+|v\s*\d+(?:\.\d+)*)[\])]/gi;
+
+export function stripRegionSuffix(gameId: string): string {
+  return gameId.replace(REGION_TAG_REGEX, " ").trim();
+}
+
+export function stripRevisionSuffix(gameId: string): string {
+  return gameId.replace(REVISION_TAG_REGEX, " ").trim();
+}
+
+export function canonicalizeGameId(gameId: string): string {
+  const noRegion = stripRegionSuffix(gameId);
+  const noRevision = stripRevisionSuffix(noRegion);
+  return noRevision
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\.(?:gba|gbc|gb|nds|nes|sfc|smc|n64|z64|v64|psp|iso|bin|rom)$/i, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+function aliasConfidence(canonicalGameId: string): number {
+  if (/^pokemon(?:_|$)|^pocket_monsters(?:_|$)/.test(canonicalGameId)) return 1;
+  return 0.25;
+}
+
+function resolveNetplayRoom(gameId: string, systemId?: string): { roomKey: string; confidence: number } {
+  const canonicalGameId = canonicalizeGameId(gameId);
+  const normalizedSystem = systemId?.toLowerCase();
+  if (!normalizedSystem) return { roomKey: canonicalGameId || gameId, confidence: 0 };
+
+  const aliases = NETPLAY_ROOM_COMPAT_ALIASES[normalizedSystem];
+  if (!aliases || aliases.length === 0) return { roomKey: canonicalGameId || gameId, confidence: 0 };
+
+  for (const alias of aliases) {
+    if (alias.match.test(canonicalGameId)) {
+      const confidence = aliasConfidence(canonicalGameId);
+      if (confidence >= NETPLAY_ALIAS_CONFIDENCE_THRESHOLD) {
+        return { roomKey: alias.roomKey, confidence };
+      }
+      return { roomKey: canonicalGameId || gameId, confidence };
+    }
+  }
+  return { roomKey: canonicalGameId || gameId, confidence: 0 };
+}
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -120,16 +195,13 @@ export function hashGameId(gameId: string): number {
  * so those versions hash into one shared lobby namespace.
  */
 export function resolveNetplayRoomKey(gameId: string, systemId?: string): string {
-  const normalizedSystem = systemId?.toLowerCase();
-  if (!normalizedSystem) return gameId;
+  const resolved = resolveNetplayRoom(gameId, systemId);
+  console.info(`[Netplay] Resolving room key\nGame: ${gameId}\nSystem: ${systemId ?? "unknown"}\nResolved Key: ${resolved.roomKey}`);
+  return resolved.roomKey;
+}
 
-  const aliases = NETPLAY_ROOM_COMPAT_ALIASES[normalizedSystem];
-  if (!aliases || aliases.length === 0) return gameId;
-
-  for (const alias of aliases) {
-    if (alias.match.test(gameId)) return alias.roomKey;
-  }
-  return gameId;
+export function roomDisplayNameForKey(roomKey: string): string {
+  return ROOM_KEY_DISPLAY_NAMES[roomKey] ?? roomKey;
 }
 
 // ── ICE server URL validation ─────────────────────────────────────────────────
@@ -183,7 +255,10 @@ export class NetplayManager {
    * True when netplay is active and the given system is currently supported.
    */
   isSupportedForSystem(systemId: string): boolean {
-    return this.isActive && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(systemId as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number]);
+    const normalizedSystemId = systemId.toLowerCase();
+    return this.isActive
+      && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(normalizedSystemId as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number])
+      && SYSTEM_LINK_CAPABILITIES[normalizedSystemId] === true;
   }
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -239,7 +314,15 @@ export class NetplayManager {
    * The returned value is suitable for `window.EJS_gameID`.
    */
   gameIdFor(gameId: string, systemId?: string): number {
-    return hashGameId(resolveNetplayRoomKey(gameId, systemId));
+    const resolved = resolveNetplayRoom(gameId, systemId);
+    const hashKey = resolved.confidence >= NETPLAY_ALIAS_CONFIDENCE_THRESHOLD
+      ? resolved.roomKey
+      : canonicalizeGameId(gameId);
+    return hashGameId(hashKey || gameId);
+  }
+
+  roomKeyFor(gameId: string, systemId?: string): string {
+    return resolveNetplayRoomKey(gameId, systemId);
   }
 
   /**

@@ -29,6 +29,10 @@ declare global {
     EJS_netplayICEServers?: RTCIceServer[];
     /** Numeric game identifier used by the netplay server for room scoping. */
     EJS_gameID?: number;
+    /** Canonical compatibility room key string for cross-version matchmaking. */
+    EJS_roomKey?: string;
+    /** Friendly room name used when creating a netplay room. */
+    EJS_netplayRoom?: string;
     /** Player display name shown to other participants in a netplay room. */
     EJS_playerName?: string;
   }
