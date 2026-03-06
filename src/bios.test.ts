@@ -40,6 +40,7 @@ describe('BIOS_REQUIREMENTS', () => {
     expect(BIOS_REQUIREMENTS).toHaveProperty('segaSaturn');
     expect(BIOS_REQUIREMENTS).toHaveProperty('segaDC');
     expect(BIOS_REQUIREMENTS).toHaveProperty('lynx');
+    expect(BIOS_REQUIREMENTS).toHaveProperty('nds');
   });
 
   it('each entry has required fields', () => {
@@ -122,6 +123,35 @@ describe('BIOS_REQUIREMENTS', () => {
     const lynxReqs = BIOS_REQUIREMENTS['lynx'];
     expect(lynxReqs).toBeDefined();
     expect(lynxReqs.every((r: BiosRequirement) => !r.required)).toBe(true);
+  });
+
+  it('NDS BIOS entries exist for bios7.bin, bios9.bin, and firmware.bin', () => {
+    const ndsReqs = BIOS_REQUIREMENTS['nds'];
+    expect(ndsReqs).toBeDefined();
+    const fileNames = ndsReqs.map((r: BiosRequirement) => r.fileName);
+    expect(fileNames).toContain('bios7.bin');
+    expect(fileNames).toContain('bios9.bin');
+    expect(fileNames).toContain('firmware.bin');
+  });
+
+  it('NDS BIOS entries are all optional', () => {
+    const ndsReqs = BIOS_REQUIREMENTS['nds'];
+    expect(ndsReqs).toBeDefined();
+    expect(ndsReqs.every((r: BiosRequirement) => !r.required)).toBe(true);
+  });
+
+  it('NDS bios7.bin description mentions ARM7', () => {
+    const ndsReqs = BIOS_REQUIREMENTS['nds'];
+    const entry = ndsReqs.find((r: BiosRequirement) => r.fileName === 'bios7.bin');
+    expect(entry).toBeDefined();
+    expect(entry?.description.toLowerCase()).toMatch(/arm7/);
+  });
+
+  it('NDS bios9.bin description mentions ARM9', () => {
+    const ndsReqs = BIOS_REQUIREMENTS['nds'];
+    const entry = ndsReqs.find((r: BiosRequirement) => r.fileName === 'bios9.bin');
+    expect(entry).toBeDefined();
+    expect(entry?.description.toLowerCase()).toMatch(/arm9/);
   });
 });
 
