@@ -1,0 +1,42 @@
+{
+  "pokemon_gen1": [
+    "pocket monsters blue",
+    "pocket monsters green",
+    "pocket monsters red",
+    "pocket monsters yellow",
+    "pokemon blue",
+    "pokemon green",
+    "pokemon red",
+    "pokemon yellow"
+  ],
+  "pokemon_gen2": [
+    "pocket monsters crystal",
+    "pocket monsters gold",
+    "pocket monsters silver",
+    "pokemon crystal",
+    "pokemon gold",
+    "pokemon silver"
+  ],
+  "pokemon_gen3_kanto": [
+    "pokemon fire red",
+    "pokemon firered",
+    "pokemon leaf green",
+    "pokemon leafgreen"
+  ],
+  "pokemon_gen3_hoenn": [
+    "pokemon emerald",
+    "pokemon ruby",
+    "pokemon sapphire"
+  ],
+  "pokemon_gen4_sinnoh": [
+    "pokemon diamond",
+    "pokemon pearl",
+    "pokemon platinum"
+  ],
+  "pokemon_gen5_unova": [
+    "pokemon black",
+    "pokemon black 2",
+    "pokemon white",
+    "pokemon white 2"
+  ]
+}

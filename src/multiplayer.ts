@@ -36,13 +36,14 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
  * intentionally gated per-system for deterministic behavior while support is
  * rolled out incrementally.
  */
-export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds", "gba", "gbc"] as const;
+export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds", "gba", "gbc", "gb"] as const;
 
 export const SYSTEM_LINK_CAPABILITIES: Record<string, boolean> = {
   nes: false,
   snes: false,
   n64: true,
   psp: true,
+  gb: true,
   gbc: true,
   gba: true,
   nds: true,
@@ -81,6 +82,14 @@ const NETPLAY_ROOM_COMPAT_ALIASES: Record<string, RoomAliasRule[]> = Object.entr
   for (const pattern of patterns) {
     acc[inferredSystem].push({ match: new RegExp(pattern, "i"), roomKey });
   }
+  // Original Game Boy (gb) shares compatibility aliases with GBC: GB cartridges
+  // run on GBC hardware and Pokémon Gen 1 link-cable trading works across both.
+  if (inferredSystem === "gbc") {
+    acc["gb"] ??= [];
+    for (const pattern of patterns) {
+      acc["gb"].push({ match: new RegExp(pattern, "i"), roomKey });
+    }
+  }
   return acc;
 }, {});
 
@@ -106,6 +115,30 @@ export function canonicalizeGameId(gameId: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .replace(/_+/g, "_");
+}
+
+/**
+ * Normalize a ROM title for display and alias grouping.
+ *
+ * Strips region tags (USA, Japan, Europe…), revision tags (Rev 1, v1.1…),
+ * dump annotations, file extensions, and diacritics.  Returns a lowercase
+ * space-separated string suitable for use in alias generation pipelines and
+ * the debug CLI.
+ *
+ * Example:
+ *   `normalizeRomTitle("Pokemon - FireRed Version (USA) (Rev 1)")` → `"pokemon firered version"`
+ */
+export function normalizeRomTitle(title: string): string {
+  const noRegion = stripRegionSuffix(title);
+  const noRevision = stripRevisionSuffix(noRegion);
+  return noRevision
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\.(?:gba|gbc|gb|nds|nes|sfc|smc|n64|z64|v64|psp|iso|bin|rom)$/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function aliasConfidence(canonicalGameId: string): number {
