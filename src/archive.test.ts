@@ -110,6 +110,28 @@ function buildZip(
   return buf;
 }
 
+function patchSingleEntrySizes(
+  zipBuf: ArrayBuffer,
+  fileName: string,
+  sizes: { uncompressedSize?: number },
+): ArrayBuffer {
+  const copy = zipBuf.slice(0);
+  const view = new DataView(copy);
+  const nameLen = new TextEncoder().encode(fileName).length;
+  const currentCompressedSize = view.getUint32(18, true);
+
+  if (sizes.uncompressedSize !== undefined) {
+    view.setUint32(22, sizes.uncompressedSize, true);
+  }
+
+  const centralOffset = (30 + nameLen) + currentCompressedSize;
+  if (sizes.uncompressedSize !== undefined) {
+    view.setUint32(centralOffset + 24, sizes.uncompressedSize, true);
+  }
+
+  return copy;
+}
+
 /**
  * Build a ZIP containing two entries: one non-ROM file and one ROM file.
  * Used to verify that the extractor prefers ROM-extension files.
@@ -285,6 +307,23 @@ describe('extractFromZip', () => {
 
     const extracted = new Uint8Array(await result!.blob.arrayBuffer());
     expect(extracted).toEqual(content);
+  });
+
+  it('throws when stored entry uncompressed size metadata is inconsistent', async () => {
+    const content  = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd]);
+    const zipBuf   = buildZip('game.nes', content);
+    const broken   = patchSingleEntrySizes(zipBuf, 'game.nes', { uncompressedSize: content.length + 1 });
+
+    await expect(extractFromZip(new Blob([broken]))).rejects.toThrow('ZIP entry size mismatch');
+  });
+
+  it('throws when the selected entry exceeds the extraction safety limit', async () => {
+    const content  = new Uint8Array([0xaa]);
+    const zipBuf   = buildZip('game.nes', content);
+    const hugeSize = 600 * 1024 * 1024;
+    const broken   = patchSingleEntrySizes(zipBuf, 'game.nes', { uncompressedSize: hugeSize });
+
+    await expect(extractFromZip(new Blob([broken]))).rejects.toThrow('too large to extract in-browser');
   });
 
   it('prefers a ROM-extension file over a non-ROM file', async () => {

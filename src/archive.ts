@@ -36,6 +36,7 @@ const ZIP64_EOCD_MAGIC   = 0x06064b50; // "PK\x06\x06" — handled but not full 
 
 const COMPRESS_STORED    = 0;
 const COMPRESS_DEFLATE   = 8;
+const MAX_EXTRACTED_ENTRY_BYTES = 512 * 1024 * 1024;
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
@@ -225,6 +226,13 @@ export async function extractFromZip(
 
   if (!target) return null;
 
+  if (target.uncompressedSize > MAX_EXTRACTED_ENTRY_BYTES) {
+    throw new Error(
+      `ZIP entry "${target.name}" is too large to extract in-browser ` +
+      `(${(target.uncompressedSize / 1073741824).toFixed(2)} GB).`
+    );
+  }
+
   // ── Read local file header to find the compressed data offset ─────────────
   const lhBase = target.localHeaderOffset;
   if (lhBase + 30 > bytes.length) return null;
@@ -243,6 +251,12 @@ export async function extractFromZip(
   let resultBlob: Blob;
 
   if (target.compressionMethod === COMPRESS_STORED) {
+    if (compressedSlice.length !== target.uncompressedSize) {
+      throw new Error(
+        `ZIP entry size mismatch for "${target.name}" (expected ${target.uncompressedSize} bytes, ` +
+        `got ${compressedSlice.length}).`
+      );
+    }
     resultBlob = new Blob([compressedSlice]);
 
   } else if (target.compressionMethod === COMPRESS_DEFLATE) {
@@ -267,6 +281,13 @@ export async function extractFromZip(
     }
 
     const totalLen  = chunks.reduce((n, c) => n + c.length, 0);
+
+    if (totalLen !== target.uncompressedSize) {
+      throw new Error(
+        `ZIP inflate size mismatch for "${target.name}" (expected ${target.uncompressedSize} bytes, got ${totalLen}).`
+      );
+    }
+
     const output    = new Uint8Array(totalLen);
     let writeOffset = 0;
     for (const chunk of chunks) {
