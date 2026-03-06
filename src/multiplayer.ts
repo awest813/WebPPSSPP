@@ -195,13 +195,73 @@ export function hashGameId(gameId: string): number {
  * so those versions hash into one shared lobby namespace.
  */
 export function resolveNetplayRoomKey(gameId: string, systemId?: string): string {
+  const normalized = canonicalizeGameId(gameId);
   const resolved = resolveNetplayRoom(gameId, systemId);
-  console.info(`[Netplay] Resolving room key\nGame: ${gameId}\nSystem: ${systemId ?? "unknown"}\nResolved Key: ${resolved.roomKey}`);
+  const roomHash = hashGameId(resolved.roomKey).toString(16);
+  console.info(
+    `[NetplayResolver]\nInput Game ID: ${gameId}\nNormalized: ${normalized}\nAlias Match: ${resolved.roomKey}\nSystem: ${systemId ?? "unknown"}\nRoom Hash: ${roomHash}`
+  );
   return resolved.roomKey;
 }
 
 export function roomDisplayNameForKey(roomKey: string): string {
   return ROOM_KEY_DISPLAY_NAMES[roomKey] ?? roomKey;
+}
+
+// ── Alias table integrity ─────────────────────────────────────────────────────
+
+/**
+ * Validate the compiled alias table for integrity issues.
+ *
+ * Checks for:
+ *  - Duplicate `roomKey` values within the same system bucket (same canonical
+ *    key registered twice under different patterns).
+ *  - Overlapping regex patterns — two rules that both match the same synthetic
+ *    canonical ID derived from the room key itself, which would cause
+ *    non-deterministic resolution depending on insertion order.
+ *
+ * Returns an array of human-readable violation strings.  An empty array means
+ * the table is clean.
+ */
+export function validateAliasTable(): string[] {
+  const violations: string[] = [];
+
+  for (const [systemId, rules] of Object.entries(NETPLAY_ROOM_COMPAT_ALIASES)) {
+    const seenRoomKeys = new Map<string, number>();
+
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+
+      // Detect duplicate roomKey registrations within the same system bucket.
+      const prev = seenRoomKeys.get(rule.roomKey);
+      if (prev !== undefined) {
+        violations.push(
+          `[${systemId}] Duplicate roomKey "${rule.roomKey}" at rule indices ${prev} and ${i}`
+        );
+      } else {
+        seenRoomKeys.set(rule.roomKey, i);
+      }
+
+      // Detect overlapping patterns: if two rules both match the same
+      // test ID (the roomKey itself), later rules would never fire and the
+      // ordering becomes load-order-dependent.
+      const testId = rule.roomKey;
+      for (let j = i + 1; j < rules.length; j++) {
+        if (rules[j].match.test(testId)) {
+          violations.push(
+            `[${systemId}] Overlapping patterns: rule ${i} (roomKey "${rule.roomKey}") and rule ${j} (roomKey "${rules[j].roomKey}") both match test ID "${testId}"`
+          );
+        }
+        if (rule.match.test(rules[j].roomKey)) {
+          violations.push(
+            `[${systemId}] Overlapping patterns: rule ${i} (roomKey "${rule.roomKey}") matches test ID "${rules[j].roomKey}" of rule ${j}`
+          );
+        }
+      }
+    }
+  }
+
+  return violations;
 }
 
 // ── ICE server URL validation ─────────────────────────────────────────────────

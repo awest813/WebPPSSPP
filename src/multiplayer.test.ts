@@ -11,6 +11,7 @@ import {
   stripRevisionSuffix,
   canonicalizeGameId,
   roomDisplayNameForKey,
+  validateAliasTable,
 } from './multiplayer';
 
 // ── hashGameId ────────────────────────────────────────────────────────────────
@@ -578,4 +579,212 @@ describe('resolveNetplayRoomKey', () => {
     const mgr = new NetplayManager();
     expect(mgr.gameIdFor('Custom Fighter (USA)', 'gba')).toBe(mgr.gameIdFor('Custom Fighter (Japan)', 'gba'));
   });
+});
+
+// ── validateAliasTable ────────────────────────────────────────────────────────
+
+describe('validateAliasTable', () => {
+  it('passes with no violations on the built-in alias table', () => {
+    const violations = validateAliasTable();
+    expect(violations).toEqual([]);
+  });
+});
+
+// ── Incorrect alias prevention (Step 4 / Step 11) ────────────────────────────
+
+describe('resolveNetplayRoomKey — incorrect alias prevention', () => {
+  it('does not alias Pokemon Stadium', () => {
+    const key = resolveNetplayRoomKey('Pokemon Stadium', 'n64');
+    expect(key).toBe('pokemon_stadium');
+  });
+
+  it('does not alias Pokemon Pinball', () => {
+    const key = resolveNetplayRoomKey('Pokemon Pinball', 'gbc');
+    expect(key).toBe('pokemon_pinball');
+  });
+
+  it('does not alias Pokemon Pinball Ruby and Sapphire', () => {
+    const key = resolveNetplayRoomKey('Pokemon Pinball Ruby and Sapphire', 'gba');
+    expect(key).not.toBe('pokemon_gen3_hoenn');
+    expect(key).toBe('pokemon_pinball_ruby_and_sapphire');
+  });
+
+  it('does not alias Pokemon Mystery Dungeon', () => {
+    const key = resolveNetplayRoomKey('Pokemon Mystery Dungeon', 'gba');
+    expect(key).not.toBe('pokemon_gen3_hoenn');
+    expect(key).toBe('pokemon_mystery_dungeon');
+  });
+
+  it('does not alias Pokemon Mystery Dungeon Red Rescue Team', () => {
+    const key = resolveNetplayRoomKey('Pokemon Mystery Dungeon Red Rescue Team', 'gbc');
+    expect(key).not.toBe('pokemon_gen1');
+    expect(key).toBe('pokemon_mystery_dungeon_red_rescue_team');
+  });
+
+  it('does not alias Pokemon Trading Card Game', () => {
+    const key = resolveNetplayRoomKey('Pokemon Trading Card Game', 'gbc');
+    expect(key).not.toBe('pokemon_gen1');
+    expect(key).toBe('pokemon_trading_card_game');
+  });
+
+  it('does not alias Pokemon Snap', () => {
+    const key = resolveNetplayRoomKey('Pokemon Snap', 'n64');
+    expect(key).toBe('pokemon_snap');
+  });
+
+  it('does not alias unofficial hack variants', () => {
+    expect(resolveNetplayRoomKey('Pokemon FireRed (Hack)', 'gba')).toBe('pokemon_firered_hack');
+    expect(resolveNetplayRoomKey('Pokemon FireRed Randomizer', 'gba')).toBe('pokemon_firered_randomizer');
+    expect(resolveNetplayRoomKey('Pokemon FireRed DX', 'gba')).toBe('pokemon_firered_dx');
+    expect(resolveNetplayRoomKey('Pokemon Ruby Destiny', 'gba')).toBe('pokemon_ruby_destiny');
+  });
+});
+
+// ── Generation grouping tests (Step 3) ───────────────────────────────────────
+
+describe('resolveNetplayRoomKey — generation grouping', () => {
+  it('groups Gen 1 titles under pokemon_gen1', () => {
+    expect(resolveNetplayRoomKey('Pokemon Red Version', 'gbc')).toBe('pokemon_gen1');
+    expect(resolveNetplayRoomKey('Pokemon Blue Version', 'gbc')).toBe('pokemon_gen1');
+    expect(resolveNetplayRoomKey('Pokemon Yellow Version', 'gbc')).toBe('pokemon_gen1');
+  });
+
+  it('groups Gen 2 titles under pokemon_gen2', () => {
+    expect(resolveNetplayRoomKey('Pokemon Gold Version', 'gbc')).toBe('pokemon_gen2');
+    expect(resolveNetplayRoomKey('Pokemon Silver Version', 'gbc')).toBe('pokemon_gen2');
+    expect(resolveNetplayRoomKey('Pokemon Crystal Version', 'gbc')).toBe('pokemon_gen2');
+  });
+
+  it('groups Gen 3 Hoenn titles under pokemon_gen3_hoenn', () => {
+    expect(resolveNetplayRoomKey('Pokemon Ruby Version', 'gba')).toBe('pokemon_gen3_hoenn');
+    expect(resolveNetplayRoomKey('Pokemon Sapphire Version', 'gba')).toBe('pokemon_gen3_hoenn');
+    expect(resolveNetplayRoomKey('Pokemon Emerald Version', 'gba')).toBe('pokemon_gen3_hoenn');
+  });
+
+  it('groups Gen 3 Kanto titles under pokemon_gen3_kanto', () => {
+    expect(resolveNetplayRoomKey('Pokemon FireRed Version', 'gba')).toBe('pokemon_gen3_kanto');
+    expect(resolveNetplayRoomKey('Pokemon LeafGreen Version', 'gba')).toBe('pokemon_gen3_kanto');
+  });
+
+  it('negative test: Red, Ruby, Diamond each produce different room keys', () => {
+    const red = resolveNetplayRoomKey('Pokemon Red Version', 'gbc');
+    const ruby = resolveNetplayRoomKey('Pokemon Ruby Version', 'gba');
+    const diamond = resolveNetplayRoomKey('Pokemon Diamond Version', 'nds');
+    expect(red).toBe('pokemon_gen1');
+    expect(ruby).toBe('pokemon_gen3_hoenn');
+    expect(diamond).toBe('pokemon_gen4_sinnoh');
+    expect(red).not.toBe(ruby);
+    expect(ruby).not.toBe(diamond);
+    expect(red).not.toBe(diamond);
+  });
+
+  it('also maps two-word "Fire Red" and "Leaf Green" variants to gen3_kanto', () => {
+    // Some ROM dumps use "Fire Red" (two words) — after canonicalization: "pokemon_fire_red"
+    expect(resolveNetplayRoomKey('Pokemon Fire Red (USA)', 'gba')).toBe('pokemon_gen3_kanto');
+    expect(resolveNetplayRoomKey('Pokemon Leaf Green (USA)', 'gba')).toBe('pokemon_gen3_kanto');
+  });
+});
+
+// ── Deterministic hash verification (Step 2) ─────────────────────────────────
+
+describe('resolveNetplayRoomKey — deterministic hash across regions/revisions', () => {
+  it('all FireRed region variants hash to the same numeric game ID', () => {
+    const mgr = new NetplayManager();
+    const us  = mgr.gameIdFor('Pokemon FireRed (USA)',    'gba');
+    const eu  = mgr.gameIdFor('Pokemon FireRed (Europe)', 'gba');
+    const jp  = mgr.gameIdFor('Pokemon FireRed (Japan)',  'gba');
+    const rev = mgr.gameIdFor('Pokemon FireRed (Rev 1)',  'gba');
+    expect(us).toBe(eu);
+    expect(us).toBe(jp);
+    expect(us).toBe(rev);
+  });
+
+  it('FireRed and LeafGreen share the same numeric game ID (same compat group)', () => {
+    const mgr = new NetplayManager();
+    const fr = mgr.gameIdFor('Pokemon FireRed (USA)', 'gba');
+    const lg = mgr.gameIdFor('Pokemon LeafGreen (USA)', 'gba');
+    expect(fr).toBe(lg);
+  });
+
+  it('FireRed and Ruby produce different numeric game IDs (different groups)', () => {
+    const mgr = new NetplayManager();
+    const fr = mgr.gameIdFor('Pokemon FireRed (USA)', 'gba');
+    const rb = mgr.gameIdFor('Pokemon Ruby (USA)', 'gba');
+    expect(fr).not.toBe(rb);
+  });
+});
+
+// ── System ID validation (Step 5) ────────────────────────────────────────────
+
+describe('resolveNetplayRoomKey — system ID validation', () => {
+  it('returns canonical game ID for unsupported system nes (no alias applied)', () => {
+    const key = resolveNetplayRoomKey('Pokemon Red Version', 'nes');
+    expect(key).toBe('pokemon_red_version');
+    expect(key).not.toBe('pokemon_gen1');
+  });
+
+  it('returns canonical game ID for unsupported system snes', () => {
+    const key = resolveNetplayRoomKey('Pokemon Gold Version', 'snes');
+    expect(key).not.toBe('pokemon_gen2');
+  });
+
+  it('returns canonical game ID when no systemId is provided', () => {
+    const key = resolveNetplayRoomKey('Pokemon Red Version');
+    expect(key).toBe('pokemon_red_version');
+    expect(key).not.toBe('pokemon_gen1');
+  });
+
+  it('NETPLAY_SUPPORTED_SYSTEM_IDS includes gba, gbc, nds but not nes/snes/n64/psx', () => {
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gba');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gbc');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('nds');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).not.toContain('nes');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).not.toContain('snes');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).not.toContain('psx');
+  });
+});
+
+// ── Stress test: official variants vs unofficial (Step 9) ────────────────────
+
+describe('resolveNetplayRoomKey — stress test official vs unofficial ROM variants', () => {
+  const officialVariants = [
+    ['Pokemon FireRed (USA) (Rev A)', 'gba', 'pokemon_gen3_kanto'],
+    ['Pokemon FireRed (USA)',          'gba', 'pokemon_gen3_kanto'],
+    ['Pokemon FireRed (Europe)',       'gba', 'pokemon_gen3_kanto'],
+    ['Pokemon FireRed (Japan)',        'gba', 'pokemon_gen3_kanto'],
+    ['Pokemon FireRed (Rev 1)',        'gba', 'pokemon_gen3_kanto'],
+    ['Pokemon LeafGreen (USA)',        'gba', 'pokemon_gen3_kanto'],
+    ['Pokemon Ruby (USA)',             'gba', 'pokemon_gen3_hoenn'],
+    ['Pokemon Sapphire (USA)',         'gba', 'pokemon_gen3_hoenn'],
+    ['Pokemon Emerald (USA)',          'gba', 'pokemon_gen3_hoenn'],
+    ['Pokemon Red (USA)',              'gbc', 'pokemon_gen1'],
+    ['Pokemon Blue (USA)',             'gbc', 'pokemon_gen1'],
+    ['Pokemon Yellow (USA)',           'gbc', 'pokemon_gen1'],
+    ['Pokemon Gold (USA)',             'gbc', 'pokemon_gen2'],
+    ['Pokemon Silver (USA)',           'gbc', 'pokemon_gen2'],
+    ['Pokemon Crystal (USA)',          'gbc', 'pokemon_gen2'],
+  ] as const;
+
+  for (const [title, system, expected] of officialVariants) {
+    it(`"${title}" → ${expected}`, () => {
+      expect(resolveNetplayRoomKey(title, system)).toBe(expected);
+    });
+  }
+
+  const unofficialVariants = [
+    ['Pokemon FireRed (Hack)',       'gba'],
+    ['Pokemon FireRed Randomizer',   'gba'],
+    ['Pokemon FireRed 1.1',          'gba'],
+    ['Pokemon FireRed DX',           'gba'],
+    ['Pokemon Ruby Destiny',         'gba'],
+    ['Pokemon Emerald Kaizo',        'gba'],
+    ['Pokemon Red++ (Hack)',         'gbc'],
+  ] as const;
+
+  for (const [title, system] of unofficialVariants) {
+    it(`"${title}" is NOT aliased to a compat group`, () => {
+      const key = resolveNetplayRoomKey(title, system);
+      expect(key).not.toMatch(/^pokemon_gen/);
+    });
+  }
 });

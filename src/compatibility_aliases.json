@@ -1,20 +1,20 @@
 {
   "pokemon_gen1": [
-    "(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters).*(?:red|blue|yellow|green)"
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:red|blue|yellow|green)(?:_version)?$"
   ],
   "pokemon_gen2": [
-    "(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters).*(?:gold|silver|crystal)"
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:gold|silver|crystal)(?:_version)?$"
   ],
   "pokemon_gen3_kanto": [
-    "(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters).*(?:firered|leafgreen)"
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:fire_?red|leaf_?green)(?:_version)?$"
   ],
   "pokemon_gen3_hoenn": [
-    "(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters).*(?:ruby|sapphire|emerald)"
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:ruby|sapphire|emerald)(?:_version)?$"
   ],
   "pokemon_gen4_sinnoh": [
-    "(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters).*(?:diamond|pearl|platinum)"
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:diamond|pearl|platinum)(?:_version)?$"
   ],
   "pokemon_gen5_unova": [
-    "(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters).*(?:black\\s*2|white\\s*2|black|white)"
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:black|white)(?:_version_2|_2_version|_version|_2)?$"
   ]
 }
