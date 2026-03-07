@@ -2615,6 +2615,64 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── Visibility auto-pause integration ─────────────────────────────────────
+
+  describe('visibility auto-pause', () => {
+    type EmuVisibilityInternal = {
+      _state: 'idle' | 'loading' | 'running' | 'paused' | 'error';
+      _pausedByVisibility: boolean;
+      _visibilityHandler: (() => void) | null;
+      _installVisibilityHandler(): void;
+      _removeVisibilityHandler(): void;
+    };
+
+    afterEach(() => {
+      // Clean up any injected emulator instance used by visibility handlers.
+      delete (window as Window & { EJS_emulator?: { pause?: () => void; resume?: () => void } }).EJS_emulator;
+    });
+
+    it('stops and restarts the memory monitor when tab visibility changes', () => {
+      const internal = emulator as unknown as EmuVisibilityInternal;
+      const pauseSpy = vi.fn();
+      const resumeSpy = vi.fn();
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        pause: pauseSpy,
+        resume: resumeSpy,
+      };
+
+      const memStopSpy  = vi.spyOn(emulator.memoryMonitor, 'stop');
+      const memStartSpy = vi.spyOn(emulator.memoryMonitor, 'start');
+      const fpsStopSpy  = vi.spyOn((emulator as unknown as { _fpsMonitor: { stop(): void } })._fpsMonitor, 'stop');
+      const fpsStartSpy = vi.spyOn((emulator as unknown as { _fpsMonitor: { start(): void } })._fpsMonitor, 'start');
+
+      const hiddenSpy = vi.spyOn(document, 'hidden', 'get');
+      hiddenSpy.mockReturnValue(true);
+
+      internal._state = 'running';
+      internal._installVisibilityHandler();
+      internal._visibilityHandler?.();
+
+      expect(internal._state).toBe('paused');
+      expect(internal._pausedByVisibility).toBe(true);
+      expect(pauseSpy).toHaveBeenCalledTimes(1);
+      expect(memStopSpy).toHaveBeenCalledTimes(1);
+      expect(fpsStopSpy).toHaveBeenCalledTimes(1);
+
+      hiddenSpy.mockReturnValue(false);
+      internal._visibilityHandler?.();
+
+      expect(internal._state).toBe('running');
+      expect(internal._pausedByVisibility).toBe(false);
+      expect(resumeSpy).toHaveBeenCalledTimes(1);
+      expect(memStartSpy).toHaveBeenCalledTimes(1);
+      expect(fpsStartSpy).toHaveBeenCalledTimes(1);
+
+      internal._removeVisibilityHandler();
+      hiddenSpy.mockRestore();
+    });
+  });
+
   // ── Performance marks ─────────────────────────────────────────────────────
 
   describe('performance marks', () => {

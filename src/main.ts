@@ -396,6 +396,11 @@ function main(): void {
     if (emulator.state === "error") {
       pendingAutoRestoreCancel?.();
       pendingAutoRestoreCancel = null;
+      // Launch failed after we attempted to lock orientation at start.
+      // Release lock so users are not left stuck in landscape on mobile.
+      try {
+        (screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.();
+      } catch { /* not supported */ }
       // Defensive revoke: for preflight failures the emulator never stores
       // the biosUrl, so we must revoke it here.  For mid-launch failures
       // the emulator revokes it itself (in its catch block), making this

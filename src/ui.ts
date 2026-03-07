@@ -81,6 +81,7 @@ let _onInstallPWA:  (() => Promise<boolean>) | undefined;
 
 // ── Cloud save manager (module-level singleton) ────────────────────────────────
 let _cloudManager: CloudSaveManager | null = null;
+let _initUICleanup: (() => void) | null = null;
 
 function getCloudManager(): CloudSaveManager {
   if (!_cloudManager) _cloudManager = new CloudSaveManager();
@@ -357,11 +358,27 @@ export interface UIOptions {
 }
 
 export function initUI(opts: UIOptions): void {
+  // Re-initialisation safety: remove previously registered listeners so
+  // repeated initUI() calls (tests/hot-reload) don't accumulate handlers.
+  _initUICleanup?.();
+  _initUICleanup = null;
+
   const { emulator, library, biosLibrary, saveLibrary, netplayManager, settings, deviceCaps,
           onLaunchGame, onSettingsChange, onReturnToLibrary,
           onApplyPatch, onFileChosen,
           getCurrentGameId, getCurrentGameName, getCurrentSystemId,
           getTouchOverlay, canInstallPWA, onInstallPWA } = opts;
+
+  const cleanupFns: Array<() => void> = [];
+  const bindEvent = (
+    target: EventTarget,
+    type: string,
+    handler: EventListenerOrEventListenerObject,
+    options?: AddEventListenerOptions | boolean,
+  ): void => {
+    target.addEventListener(type, handler, options);
+    cleanupFns.push(() => target.removeEventListener(type, handler, options));
+  };
 
   _canInstallPWA = canInstallPWA;
   _onInstallPWA  = onInstallPWA;
@@ -378,40 +395,47 @@ export function initUI(opts: UIOptions): void {
     dropZone.classList.remove("drag-over");
   };
 
-  fileInput.addEventListener("change", () => {
+  const onFileInputChange = () => {
     const file = fileInput.files?.[0];
     if (file) void onFileChosen(file);
     fileInput.value = "";
-  });
+  };
+  bindEvent(fileInput, "change", onFileInputChange);
 
-  dropZone.addEventListener("keydown", (e) => {
+  const onDropZoneKeydown = (event: Event) => {
+    const e = event as KeyboardEvent;
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     fileInput.click();
-  });
+  };
+  bindEvent(dropZone, "keydown", onDropZoneKeydown);
 
-  document.addEventListener("dragover", (e) => {
+  const onDragOver = (event: Event) => {
+    const e = event as DragEvent;
     e.preventDefault();
     if (!dragOverActive) {
       dragOverActive = true;
       dropZone.classList.add("drag-over");
     }
-  });
-  document.addEventListener("dragenter", (e) => {
+  };
+  const onDragEnter = (event: Event) => {
+    const e = event as DragEvent;
     e.preventDefault();
     dragDepth += 1;
     if (!dragOverActive) {
       dragOverActive = true;
       dropZone.classList.add("drag-over");
     }
-  });
-  document.addEventListener("dragleave", (e) => {
+  };
+  const onDragLeave = (event: Event) => {
+    const e = event as DragEvent;
     e.preventDefault();
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth > 0) return;
     clearDragOver();
-  });
-  document.addEventListener("drop", (e) => {
+  };
+  const onDrop = (event: Event) => {
+    const e = event as DragEvent;
     e.preventDefault();
     clearDragOver();
     const file = e.dataTransfer?.files[0];
@@ -421,11 +445,15 @@ export function initUI(opts: UIOptions): void {
       return;
     }
     void onFileChosen(file);
-  });
-  window.addEventListener("blur", clearDragOver);
+  };
+  bindEvent(document, "dragover", onDragOver);
+  bindEvent(document, "dragenter", onDragEnter);
+  bindEvent(document, "dragleave", onDragLeave);
+  bindEvent(document, "drop", onDrop);
+  bindEvent(window, "blur", clearDragOver);
 
   // ── Error banner ──────────────────────────────────────────────────────────
-  el("#error-close").addEventListener("click", hideError);
+  bindEvent(el("#error-close"), "click", hideError);
 
   // ── FPS overlay wiring ────────────────────────────────────────────────────
   emulator.setFPSMonitorEnabled(settings.showFPS);
@@ -462,7 +490,7 @@ export function initUI(opts: UIOptions): void {
     document.dispatchEvent(new CustomEvent("retrovault:gameStarted"));
   };
 
-  document.addEventListener("retrovault:resumeGame", () => {
+  const onResumeGameEvent = () => {
     showEjsContainer();
     hideLanding();
     const sys  = emulator.currentSystem;
@@ -480,12 +508,14 @@ export function initUI(opts: UIOptions): void {
       const overlay = getTouchOverlay?.();
       if (overlay) requestAnimationFrame(() => overlay.show());
     }
-  });
+  };
+  bindEvent(document, "retrovault:resumeGame", onResumeGameEvent);
 
   // Ensure overlay work is paused while browsing the library.
-  document.addEventListener("retrovault:returnToLibrary", () => {
+  const onReturnToLibraryEvent = () => {
     showFPSOverlay(false);
-  });
+  };
+  bindEvent(document, "retrovault:returnToLibrary", onReturnToLibraryEvent);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   // Register in the capture phase (third argument `true`) so our shortcuts
@@ -493,7 +523,8 @@ export function initUI(opts: UIOptions): void {
   // player element). Calling stopPropagation() here prevents F5/F7/F1/F9/Esc
   // from ever reaching EmulatorJS while all other keys (game controls) pass
   // through normally and are handled by EmulatorJS as expected.
-  document.addEventListener("keydown", (e) => {
+  const onGlobalShortcutKeydown = (event: Event) => {
+    const e = event as KeyboardEvent;
     // F9 opens the Debug tab from anywhere (landing or in-game)
     if (e.key === "F9") {
       e.preventDefault();
@@ -534,7 +565,8 @@ export function initUI(opts: UIOptions): void {
         onReturnToLibrary();
         break;
     }
-  }, { capture: true });
+  };
+  bindEvent(document, "keydown", onGlobalShortcutKeydown, { capture: true });
 
   // ── Landing header controls ───────────────────────────────────────────────
   buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, undefined, saveLibrary, netplayManager);
@@ -547,6 +579,11 @@ export function initUI(opts: UIOptions): void {
   }
 
   // ── Initial library render ────────────────────────────────────────────────
+  _initUICleanup = () => {
+    cleanupFns.forEach((cleanup) => cleanup());
+    cleanupFns.length = 0;
+  };
+
   void renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
 }
 
@@ -1331,6 +1368,12 @@ async function handleM3UFile(
 
   try {
     await onLaunchGame(syntheticFile, system.id);
+    // launch() reports many failures via emulator state/onError rather than
+    // throwing. If launch already failed at this point, revoke immediately.
+    if (emulatorRef?.state === "error") {
+      blobUrls.forEach(u => URL.revokeObjectURL(u));
+      return;
+    }
     // Revoke the disc blob URLs when the user returns to the library. The emulator
     // core keeps its own reference via the loaded game URL, so revoking here is
     // safe once the game has started — the emulator holds the data, not the URL.
@@ -1339,8 +1382,7 @@ async function handleM3UFile(
   } catch (err) {
     hideLoadingOverlay();
     showError(`Multi-disc launch failed: ${err instanceof Error ? err.message : String(err)}`);
-    // Revoke immediately; also remove the once-listener so it cannot fire later
-    // on a different game's returnToLibrary event.
+    // Revoke immediately on thrown launch errors.
     blobUrls.forEach(u => URL.revokeObjectURL(u));
   }
 }

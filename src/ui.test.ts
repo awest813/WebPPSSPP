@@ -90,6 +90,51 @@ describe("ui drag-over state", () => {
   });
 });
 
+describe("initUI listener idempotence", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("does not duplicate global keyboard shortcut handlers on re-init", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: null,
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    const opts = {
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+    };
+
+    initUI(opts);
+    initUI(opts);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "F7",
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    expect(emulatorMock.quickLoad).toHaveBeenCalledTimes(1);
+    expect(emulatorMock.quickLoad).toHaveBeenCalledWith(1);
+  });
+});
+
 describe("buildDOM", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -1168,7 +1213,7 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
     vi.restoreAllMocks();
   });
 
-  it("pressing F5 shows a 'Saved to Slot 1' toast", async () => {
+  it("pressing F5 triggers quick-save persistence flow", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
@@ -1207,12 +1252,12 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
     // F5 dispatched in the capture phase
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true, cancelable: true }));
 
-    // Allow async toast work to settle
-    await Promise.resolve();
-    vi.advanceTimersByTime(50);
+    // Allow async save work to settle under fake timers/microtasks.
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
 
-    const toast = document.getElementById("info-toast");
-    expect(toast?.textContent).toContain("Saved to Slot 1");
+    expect(emulatorMock.quickSave).toHaveBeenCalledWith(1);
+    expect(saveLib.saveState).toHaveBeenCalledTimes(1);
   });
 
   it("pressing F7 shows a 'Loaded Slot 1' toast", () => {

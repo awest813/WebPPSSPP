@@ -553,11 +553,13 @@ describe("CloudSaveManager — push / pull", () => {
     const m = new CloudSaveManager();
     await m.push(makeEntry()).catch(() => {}); // provider unavailable, no-op
     expect(provider.upload).not.toHaveBeenCalled();
+    expect(m.lastSyncAt).toBeNull();
   });
 
   it("pull() returns null when disconnected", async () => {
     const m = new CloudSaveManager();
     expect(await m.pull("game-1", 1)).toBeNull();
+    expect(m.lastSyncAt).toBeNull();
   });
 
   it("pull() records lastSyncAt on success", async () => {
@@ -608,6 +610,29 @@ describe("CloudSaveManager — syncGame", () => {
     const result = await m.syncGame("game-1", fakeLib);
 
     expect(result.errors).toBeGreaterThan(0);
+  });
+
+  it("persists pulled remote entries locally when saveState() is available", async () => {
+    const provider = makeMockProvider(true);
+    const remoteEntry = makeEntry({ slot: 1, timestamp: 2_000_000 });
+    provider.download.mockImplementation(async (_gameId: string, slot: number) =>
+      slot === 1 ? remoteEntry : null
+    );
+
+    const m = new CloudSaveManager();
+    await m.connect(provider);
+
+    const fakeLib = {
+      getStatesForGame: vi.fn().mockResolvedValue([]),
+      saveState: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await m.syncGame("game-1", fakeLib);
+
+    expect(result.pushed).toBe(0);
+    expect(result.pulled).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(fakeLib.saveState).toHaveBeenCalledWith(remoteEntry);
   });
 });
 

@@ -109,11 +109,13 @@ export function applyIPS(rom: ArrayBuffer, patch: ArrayBuffer): ArrayBuffer {
   }
 
   let pos = 5;
+  let sawEOF = false;
 
   while (pos + 3 <= pb.length) {
     // EOF marker is exactly "EOF" at the current position
     if (pb[pos] === 0x45 && pb[pos + 1] === 0x4f && pb[pos + 2] === 0x46) {
       pos += 3;
+      sawEOF = true;
       break;
     }
 
@@ -121,13 +123,17 @@ export function applyIPS(rom: ArrayBuffer, patch: ArrayBuffer): ArrayBuffer {
     const offset = (pb[pos]! << 16) | (pb[pos + 1]! << 8) | pb[pos + 2]!;
     pos += 3;
 
-    if (pos + 2 > pb.length) break;
+    if (pos + 2 > pb.length) {
+      throw new Error("Invalid IPS patch: truncated record size");
+    }
     const size = (pb[pos]! << 8) | pb[pos + 1]!;
     pos += 2;
 
     if (size === 0) {
       // RLE record
-      if (pos + 3 > pb.length) break;
+      if (pos + 3 > pb.length) {
+        throw new Error("Invalid IPS patch: truncated RLE record");
+      }
       const rleSize = (pb[pos]! << 8) | pb[pos + 1]!;
       const rleByte = pb[pos + 2]!;
       pos += 3;
@@ -135,11 +141,17 @@ export function applyIPS(rom: ArrayBuffer, patch: ArrayBuffer): ArrayBuffer {
       output.fill(rleByte, offset, offset + rleSize);
     } else {
       // Standard record
-      if (pos + size > pb.length) break;
+      if (pos + size > pb.length) {
+        throw new Error("Invalid IPS patch: truncated record data");
+      }
       ensureSize(offset + size);
       output.set(pb.slice(pos, pos + size), offset);
       pos += size;
     }
+  }
+
+  if (!sawEOF) {
+    throw new Error("Invalid IPS patch: missing EOF marker");
   }
 
   // Optional post-EOF truncation length (3 bytes BE)

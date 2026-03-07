@@ -301,6 +301,36 @@ describe('applyIPS', () => {
     expect(() => applyIPS(new ArrayBuffer(4), bad)).toThrow('Invalid IPS patch');
   });
 
+  it('throws when an IPS record is truncated before its size field', () => {
+    const bad = makeBuffer([
+      ...ascii('PATCH'),
+      0x00, 0x00, 0x01, // record offset
+      0x00,             // truncated size field (needs 2 bytes)
+    ]);
+    expect(() => applyIPS(new ArrayBuffer(4), bad)).toThrow('truncated record size');
+  });
+
+  it('throws when an IPS record data payload is truncated', () => {
+    const bad = makeBuffer([
+      ...ascii('PATCH'),
+      0x00, 0x00, 0x00, // record offset
+      0x00, 0x02,       // record size = 2 bytes
+      0xAA,             // only one data byte present
+    ]);
+    expect(() => applyIPS(new ArrayBuffer(4), bad)).toThrow('truncated record data');
+  });
+
+  it('throws when an IPS patch is missing the EOF marker', () => {
+    const bad = makeBuffer([
+      ...ascii('PATCH'),
+      0x00, 0x00, 0x00,
+      0x00, 0x01,
+      0xAA,
+      // EOF intentionally omitted
+    ]);
+    expect(() => applyIPS(new ArrayBuffer(4), bad)).toThrow('missing EOF marker');
+  });
+
   it('leaves bytes outside the patched region unchanged', () => {
     const rom   = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04]);
     const patch = buildIPS([{ offset: 2, data: [0xFF] }]);

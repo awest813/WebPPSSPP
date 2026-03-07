@@ -568,6 +568,9 @@ export class CloudSaveManager {
    */
   async push(entry: SaveStateEntry): Promise<void> {
     try {
+      // Preserve historical no-op semantics while disconnected / unavailable,
+      // but do not update lastSyncAt for operations that never ran remotely.
+      if (!(await this._sync.isAvailable())) return;
       await this._sync.push(entry);
       this._lastSyncAt = Date.now();
       this._lastError  = null;
@@ -585,6 +588,9 @@ export class CloudSaveManager {
    */
   async pull(gameId: string, slot: number): Promise<SaveStateEntry | null> {
     try {
+      // Keep disconnected pulls as no-op/null, but avoid reporting a fake
+      // successful sync timestamp for calls that never reached the provider.
+      if (!(await this._sync.isAvailable())) return null;
       const result     = await this._sync.pull(gameId, slot);
       this._lastSyncAt = Date.now();
       this._lastError  = null;
@@ -630,10 +636,15 @@ export class CloudSaveManager {
    *
    * @param gameId      Game identifier.
    * @param saveLibrary Object exposing `getStatesForGame(gameId)`.
+   *                    When `saveState(entry)` is available, pulled remote
+   *                    entries are persisted back to local storage.
    */
   async syncGame(
     gameId: string,
-    saveLibrary: { getStatesForGame(id: string): Promise<SaveStateEntry[]> },
+    saveLibrary: {
+      getStatesForGame(id: string): Promise<SaveStateEntry[]>;
+      saveState?(entry: SaveStateEntry): Promise<void>;
+    },
   ): Promise<GameSyncResult> {
     const states   = await saveLibrary.getStatesForGame(gameId);
     const stateMap = new Map(states.map(s => [s.slot, s]));
@@ -643,8 +654,16 @@ export class CloudSaveManager {
     await Promise.allSettled(slots.map(async slot => {
       try {
         const result = await this.syncSlot(gameId, slot, stateMap.get(slot) ?? null);
-        if (result?.direction === "pushed") pushed++;
-        if (result?.direction === "pulled") pulled++;
+        if (result?.direction === "pushed") {
+          pushed++;
+          return;
+        }
+        if (result?.direction === "pulled") {
+          if (saveLibrary.saveState) {
+            await saveLibrary.saveState(result.entry);
+          }
+          pulled++;
+        }
       } catch { errors++; }
     }));
 
