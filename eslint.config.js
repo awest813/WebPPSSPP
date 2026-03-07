@@ -14,7 +14,7 @@ export default [
     {
         files: ["**/*.js"],
         languageOptions: {
-            ecmaVersion: 2021,
+            ecmaVersion: 2022,
             sourceType: "module",
             globals: {
                 console: "readonly",
@@ -36,7 +36,7 @@ export default [
     {
         files: ["**/*.ts"],
         languageOptions: {
-            ecmaVersion: 2021,
+            ecmaVersion: 2022,
             sourceType: "module",
             parser: tsParser,
             parserOptions: {
