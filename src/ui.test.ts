@@ -152,6 +152,21 @@ describe("buildDOM", () => {
     expect(hint!.textContent).toMatch(/ZIP auto-extracted/i);
   });
 
+  it("includes expanded archive extensions in file input accept list", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const input = document.getElementById("file-input") as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+    const accept = input?.getAttribute("accept") ?? "";
+    expect(accept).toContain(".zip");
+    expect(accept).toContain(".7z");
+    expect(accept).toContain(".rar");
+    expect(accept).toContain(".tar");
+    expect(accept).toContain(".gz");
+  });
+
   it("resets library control state on a second buildDOM call", async () => {
     const settings = makeSettings();
     const gamesA: GameMetadata[] = [
