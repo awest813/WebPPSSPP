@@ -22,6 +22,10 @@ import {
   SpatialGrid,
   FrameBudget,
   DrawCallBatcher,
+  EntityComponentSystem,
+  Quadtree,
+  AssetLoader,
+  DeltaTracker,
   DeviceCapabilities,
   GPUCapabilities,
 } from './performance';
@@ -1463,6 +1467,374 @@ describe('performance', () => {
       expect(cmd.offset).toBe(48);
       expect(cmd.textureUnit).toBe(2);
       expect(cmd.programId).toBe(5);
+    });
+  });
+
+  // ── EntityComponentSystem ──────────────────────────────────────────────────
+
+  describe('EntityComponentSystem', () => {
+    it('createEntity returns incrementing IDs', () => {
+      const ecs = new EntityComponentSystem();
+      const a = ecs.createEntity();
+      const b = ecs.createEntity();
+      expect(typeof a).toBe('number');
+      expect(b).toBe(a + 1);
+    });
+
+    it('isAlive returns true for a live entity', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      expect(ecs.isAlive(id)).toBe(true);
+    });
+
+    it('isAlive returns false after destroyEntity', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.destroyEntity(id);
+      expect(ecs.isAlive(id)).toBe(false);
+    });
+
+    it('entityCount tracks live entities', () => {
+      const ecs = new EntityComponentSystem();
+      expect(ecs.entityCount).toBe(0);
+      const a = ecs.createEntity();
+      ecs.createEntity();
+      expect(ecs.entityCount).toBe(2);
+      ecs.destroyEntity(a);
+      expect(ecs.entityCount).toBe(1);
+    });
+
+    it('addComponent / getComponent round-trip', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.addComponent(id, 'position', { x: 3, y: 7 });
+      expect(ecs.getComponent<{x:number;y:number}>(id, 'position')).toEqual({ x: 3, y: 7 });
+    });
+
+    it('getComponent returns undefined for missing component', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      expect(ecs.getComponent(id, 'missing')).toBeUndefined();
+    });
+
+    it('hasComponent returns true/false correctly', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.addComponent(id, 'hp', { value: 100 });
+      expect(ecs.hasComponent(id, 'hp')).toBe(true);
+      expect(ecs.hasComponent(id, 'mana')).toBe(false);
+    });
+
+    it('removeComponent removes the component', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.addComponent(id, 'tag', { name: 'enemy' });
+      ecs.removeComponent(id, 'tag');
+      expect(ecs.hasComponent(id, 'tag')).toBe(false);
+    });
+
+    it('destroyEntity removes all components', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.addComponent(id, 'position', { x: 0, y: 0 });
+      ecs.addComponent(id, 'velocity', { vx: 1, vy: 0 });
+      ecs.destroyEntity(id);
+      expect(ecs.getComponent(id, 'position')).toBeUndefined();
+      expect(ecs.getComponent(id, 'velocity')).toBeUndefined();
+    });
+
+    it('destroyEntity is idempotent', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.destroyEntity(id);
+      expect(() => ecs.destroyEntity(id)).not.toThrow();
+    });
+
+    it('queryEntities returns only entities with all required components', () => {
+      const ecs = new EntityComponentSystem();
+      const a = ecs.createEntity();
+      const b = ecs.createEntity();
+      const c = ecs.createEntity();
+      ecs.addComponent(a, 'position', {});
+      ecs.addComponent(a, 'velocity', {});
+      ecs.addComponent(b, 'position', {});  // no velocity
+      ecs.addComponent(c, 'velocity', {});  // no position
+      const result = ecs.queryEntities(['position', 'velocity']);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBe(a);
+    });
+
+    it('queryEntities returns all live entities when types is empty', () => {
+      const ecs = new EntityComponentSystem();
+      const a = ecs.createEntity();
+      const b = ecs.createEntity();
+      const result = ecs.queryEntities([]);
+      expect(result).toContain(a);
+      expect(result).toContain(b);
+    });
+
+    it('queryEntities excludes destroyed entities', () => {
+      const ecs = new EntityComponentSystem();
+      const a = ecs.createEntity();
+      const b = ecs.createEntity();
+      ecs.addComponent(a, 'position', {});
+      ecs.addComponent(b, 'position', {});
+      ecs.destroyEntity(a);
+      const result = ecs.queryEntities(['position']);
+      expect(result).not.toContain(a);
+      expect(result).toContain(b);
+    });
+
+    it('clear resets all state', () => {
+      const ecs = new EntityComponentSystem();
+      const id = ecs.createEntity();
+      ecs.addComponent(id, 'hp', { value: 100 });
+      ecs.clear();
+      expect(ecs.entityCount).toBe(0);
+      expect(ecs.queryEntities(['hp'])).toHaveLength(0);
+    });
+  });
+
+  // ── Quadtree ───────────────────────────────────────────────────────────────
+
+  describe('Quadtree', () => {
+    it('query returns inserted points within range', () => {
+      const qt = new Quadtree<string>(0, 0, 100, 100);
+      qt.insert('A', 10, 10);
+      qt.insert('B', 90, 90);
+      const result = qt.query(0, 0, 50, 50);
+      expect(result).toContain('A');
+      expect(result).not.toContain('B');
+    });
+
+    it('query returns empty array for disjoint region', () => {
+      const qt = new Quadtree<string>(0, 0, 100, 100);
+      qt.insert('A', 10, 10);
+      expect(qt.query(60, 60, 100, 100)).toHaveLength(0);
+    });
+
+    it('ignores points outside the root bounds', () => {
+      const qt = new Quadtree<string>(0, 0, 100, 100);
+      qt.insert('out', -10, -10);
+      qt.insert('out2', 200, 200);
+      expect(qt.query(-50, -50, 300, 300)).toHaveLength(0);
+    });
+
+    it('subdivides and still returns correct results', () => {
+      // capacity=2 forces subdivision after 2 points
+      const qt = new Quadtree<number>(0, 0, 100, 100, 2);
+      for (let i = 0; i < 10; i++) {
+        qt.insert(i, i * 9, i * 9);
+      }
+      const result = qt.query(0, 0, 50, 50);
+      // Points 0–5 have coords < 50
+      for (let i = 0; i <= 5; i++) {
+        expect(result).toContain(i);
+      }
+    });
+
+    it('accepts a pre-allocated results array to avoid allocation', () => {
+      const qt = new Quadtree<number>(0, 0, 100, 100);
+      qt.insert(42, 10, 10);
+      const out: number[] = [];
+      qt.query(0, 0, 50, 50, out);
+      expect(out).toContain(42);
+    });
+
+    it('clear removes all points', () => {
+      const qt = new Quadtree<string>(0, 0, 100, 100);
+      qt.insert('A', 10, 10);
+      qt.clear();
+      expect(qt.query(0, 0, 100, 100)).toHaveLength(0);
+    });
+  });
+
+  // ── AssetLoader ────────────────────────────────────────────────────────────
+
+  describe('AssetLoader', () => {
+    it('loads and caches an asset', async () => {
+      const loader = new AssetLoader<string>(2);
+      const result = await loader.load('tex1', 0, () => Promise.resolve('texture-data'));
+      expect(result).toBe('texture-data');
+      expect(loader.has('tex1')).toBe(true);
+    });
+
+    it('returns cached result on second load without calling factory again', async () => {
+      const loader = new AssetLoader<string>(2);
+      const factory = vi.fn(() => Promise.resolve('data'));
+      await loader.load('key', 0, factory);
+      await loader.load('key', 0, factory);
+      expect(factory).toHaveBeenCalledTimes(1);
+    });
+
+    it('get returns cached asset synchronously', async () => {
+      const loader = new AssetLoader<number>(2);
+      await loader.load('k', 0, () => Promise.resolve(99));
+      expect(loader.get('k')).toBe(99);
+    });
+
+    it('get returns undefined for unloaded asset', () => {
+      const loader = new AssetLoader<number>(2);
+      expect(loader.get('missing')).toBeUndefined();
+    });
+
+    it('respects concurrency limit', async () => {
+      let active = 0;
+      let maxActive = 0;
+      const loader = new AssetLoader<number>(2);
+      const factory = (n: number) => () => new Promise<number>((res) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        setTimeout(() => { active--; res(n); }, 0);
+      });
+      const promises = [0, 1, 2, 3].map(n =>
+        loader.load(`k${n}`, 0 as const, factory(n)));
+      await Promise.all(promises);
+      expect(maxActive).toBeLessThanOrEqual(2);
+    });
+
+    it('higher-priority requests start before lower-priority ones', async () => {
+      const order: number[] = [];
+      // concurrency=1 so requests run strictly one at a time
+      const loader = new AssetLoader<number>(1);
+
+      // Saturate the single slot so queued items wait.
+      const blocker = loader.load('blocker', 0, () =>
+        new Promise(res => setTimeout(() => res(0), 0)));
+
+      // Queue two more requests while slot is busy.
+      void loader.load('low', 3, () => { order.push(3); return Promise.resolve(3); });
+      void loader.load('high', 0, () => { order.push(0); return Promise.resolve(0); });
+
+      await blocker;
+      await new Promise(res => setTimeout(res, 10));
+
+      // The priority-0 request must have run before priority-3.
+      const highIdx  = order.indexOf(0);
+      const lowIdx   = order.indexOf(3);
+      expect(highIdx).toBeGreaterThanOrEqual(0);
+      expect(lowIdx).toBeGreaterThan(highIdx);
+    });
+
+    it('evict removes an asset from the cache', async () => {
+      const loader = new AssetLoader<string>(2);
+      await loader.load('k', 0, () => Promise.resolve('v'));
+      loader.evict('k');
+      expect(loader.has('k')).toBe(false);
+    });
+
+    it('clearCache evicts all assets', async () => {
+      const loader = new AssetLoader<string>(2);
+      await loader.load('a', 0, () => Promise.resolve('A'));
+      await loader.load('b', 0, () => Promise.resolve('B'));
+      loader.clearCache();
+      expect(loader.has('a')).toBe(false);
+      expect(loader.has('b')).toBe(false);
+    });
+
+    it('rejects the promise when the factory throws', async () => {
+      const loader = new AssetLoader<string>(2);
+      await expect(
+        loader.load('err', 0, () => Promise.reject(new Error('fail'))),
+      ).rejects.toThrow('fail');
+    });
+
+    it('pendingCount reflects queued requests', () => {
+      const loader = new AssetLoader<string>(1);
+      // First load saturates the single slot.
+      void loader.load('first', 0, () => new Promise(() => {}));
+      // Second queues up.
+      void loader.load('second', 0, () => new Promise(() => {}));
+      expect(loader.pendingCount).toBe(1);
+      expect(loader.inFlight).toBe(1);
+    });
+  });
+
+  // ── DeltaTracker ──────────────────────────────────────────────────────────
+
+  describe('DeltaTracker', () => {
+    it('delta returns null when nothing has changed', () => {
+      const t = new DeltaTracker({ x: 0, y: 0 });
+      expect(t.delta()).toBeNull();
+    });
+
+    it('delta returns changed fields after set()', () => {
+      const t = new DeltaTracker({ x: 0, y: 0 });
+      t.set('x', 5);
+      expect(t.delta()).toEqual({ x: 5 });
+    });
+
+    it('delta omits unchanged fields', () => {
+      const t = new DeltaTracker({ x: 0, y: 0 });
+      t.set('x', 3);
+      const d = t.delta();
+      expect(d).not.toHaveProperty('y');
+    });
+
+    it('commit advances the baseline', () => {
+      const t = new DeltaTracker({ x: 0 });
+      t.set('x', 10);
+      t.commit();
+      expect(t.delta()).toBeNull();
+    });
+
+    it('rollback reverts to baseline', () => {
+      const t = new DeltaTracker({ x: 0 });
+      t.set('x', 99);
+      t.rollback();
+      expect(t.get('x')).toBe(0);
+      expect(t.delta()).toBeNull();
+    });
+
+    it('isDirty returns true when a field has changed', () => {
+      const t = new DeltaTracker({ hp: 100 });
+      t.set('hp', 80);
+      expect(t.isDirty()).toBe(true);
+    });
+
+    it('isDirty returns false after commit', () => {
+      const t = new DeltaTracker({ hp: 100 });
+      t.set('hp', 80);
+      t.commit();
+      expect(t.isDirty()).toBe(false);
+    });
+
+    it('epsilon suppresses small changes', () => {
+      const t = new DeltaTracker({ angle: 0 }, 0.01);
+      t.set('angle', 0.005);  // within epsilon
+      expect(t.delta()).toBeNull();
+    });
+
+    it('epsilon allows changes beyond the threshold', () => {
+      const t = new DeltaTracker({ angle: 0 }, 0.01);
+      t.set('angle', 0.02);  // beyond epsilon
+      expect(t.delta()).toEqual({ angle: 0.02 });
+    });
+
+    it('get returns the current value', () => {
+      const t = new DeltaTracker({ score: 0 });
+      t.set('score', 42);
+      expect(t.get('score')).toBe(42);
+    });
+
+    it('get returns undefined for unknown key', () => {
+      const t = new DeltaTracker({ x: 0 });
+      expect(t.get('z')).toBeUndefined();
+    });
+
+    it('reset replaces state and clears dirty', () => {
+      const t = new DeltaTracker({ x: 0, y: 0 });
+      t.set('x', 100);
+      t.reset({ x: 50, y: 50 });
+      expect(t.delta()).toBeNull();
+      expect(t.get('x')).toBe(50);
+    });
+
+    it('accepts new keys added after construction', () => {
+      const t = new DeltaTracker({ x: 0 });
+      t.set('z', 7);
+      const d = t.delta();
+      expect(d).toHaveProperty('z', 7);
     });
   });
 });

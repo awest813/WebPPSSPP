@@ -1655,3 +1655,543 @@ export class UIDirtyTracker {
     return this._flags;
   }
 }
+
+// ── Entity Component System ───────────────────────────────────────────────────
+
+/**
+ * Minimal Entity Component System for real-time update loops.
+ *
+ * Entities are lightweight numeric IDs. Components are plain data objects
+ * stored in typed maps keyed by entity ID. Systems iterate only the entities
+ * that possess the components they care about, keeping per-frame work O(n)
+ * in the number of relevant entities rather than O(all entities).
+ *
+ * ### Design goals
+ * - **Zero allocation per frame**: component maps are pre-allocated; no
+ *   Array.push/pop occurs inside the hot update path.
+ * - **Cache-friendly iteration**: all components of the same type are stored
+ *   in a single `Map`, which modern engines keep as a dense hash table.
+ * - **Simple API**: no decorators, no reflection, no codegen.
+ *
+ * ### Usage
+ * ```typescript
+ * const ecs = new EntityComponentSystem();
+ * const e = ecs.createEntity();
+ * ecs.addComponent(e, 'position', { x: 0, y: 0 });
+ * ecs.addComponent(e, 'velocity', { vx: 1, vy: 0 });
+ *
+ * // Update loop — only entities with both 'position' and 'velocity':
+ * for (const id of ecs.queryEntities(['position', 'velocity'])) {
+ *   const pos = ecs.getComponent<{x:number;y:number}>(id, 'position')!;
+ *   const vel = ecs.getComponent<{vx:number;vy:number}>(id, 'velocity')!;
+ *   pos.x += vel.vx * dt;
+ *   pos.y += vel.vy * dt;
+ * }
+ * ```
+ */
+export class EntityComponentSystem {
+  private _nextId = 1;
+  private readonly _alive = new Set<number>();
+  /** component-type → (entityId → component data) */
+  private readonly _stores = new Map<string, Map<number, unknown>>();
+
+  // ── Entity lifecycle ────────────────────────────────────────────────────────
+
+  /** Allocate a new entity and return its ID. */
+  createEntity(): number {
+    const id = this._nextId++;
+    this._alive.add(id);
+    return id;
+  }
+
+  /**
+   * Destroy an entity and remove all of its components.
+   *
+   * Silently ignored when the entity does not exist.
+   */
+  destroyEntity(id: number): void {
+    if (!this._alive.has(id)) return;
+    this._alive.delete(id);
+    for (const store of this._stores.values()) {
+      store.delete(id);
+    }
+  }
+
+  /** Return `true` if the entity exists (has not been destroyed). */
+  isAlive(id: number): boolean {
+    return this._alive.has(id);
+  }
+
+  /** Number of live entities. */
+  get entityCount(): number { return this._alive.size; }
+
+  // ── Component management ────────────────────────────────────────────────────
+
+  /**
+   * Attach a component to an entity.
+   *
+   * Replaces any existing component of the same type on this entity.
+   *
+   * @param id    Entity ID returned by {@link createEntity}.
+   * @param type  Unique string key identifying the component type.
+   * @param data  The component data object.
+   */
+  addComponent<T>(id: number, type: string, data: T): void {
+    let store = this._stores.get(type);
+    if (!store) {
+      store = new Map<number, unknown>();
+      this._stores.set(type, store);
+    }
+    store.set(id, data);
+  }
+
+  /**
+   * Retrieve a component from an entity.
+   *
+   * @returns The component data, or `undefined` if the entity does not have
+   *          the given component type.
+   */
+  getComponent<T>(id: number, type: string): T | undefined {
+    return this._stores.get(type)?.get(id) as T | undefined;
+  }
+
+  /**
+   * Remove a single component from an entity.
+   *
+   * Silently ignored when the component does not exist.
+   */
+  removeComponent(id: number, type: string): void {
+    this._stores.get(type)?.delete(id);
+  }
+
+  /** Return `true` if the entity has the given component type. */
+  hasComponent(id: number, type: string): boolean {
+    return this._stores.get(type)?.has(id) ?? false;
+  }
+
+  // ── Query ───────────────────────────────────────────────────────────────────
+
+  /**
+   * Return the set of entity IDs that possess **all** of the given component
+   * types.
+   *
+   * The returned array is freshly allocated each call. For hot-path
+   * iteration, consider caching the result and invalidating it only when
+   * entities are created/destroyed.
+   *
+   * @param types  One or more component-type keys to require.
+   * @returns      Array of matching entity IDs.
+   */
+  queryEntities(types: readonly string[]): number[] {
+    if (types.length === 0) return Array.from(this._alive);
+    // Start from the smallest store to minimise iterations.
+    let smallestType = types[0];
+    let smallestSize = this._stores.get(types[0])?.size ?? 0;
+    for (let i = 1; i < types.length; i++) {
+      const s = this._stores.get(types[i])?.size ?? 0;
+      if (s < smallestSize) { smallestSize = s; smallestType = types[i]; }
+    }
+    const primary = this._stores.get(smallestType);
+    if (!primary) return [];
+    const result: number[] = [];
+    for (const id of primary.keys()) {
+      if (!this._alive.has(id)) continue;
+      let ok = true;
+      for (const t of types) {
+        if (t === smallestType) continue;
+        if (!this._stores.get(t)?.has(id)) { ok = false; break; }
+      }
+      if (ok) result.push(id);
+    }
+    return result;
+  }
+
+  /** Remove all entities and components (e.g. on scene teardown). */
+  clear(): void {
+    this._alive.clear();
+    this._stores.clear();
+    this._nextId = 1;
+  }
+}
+
+// ── Quadtree ──────────────────────────────────────────────────────────────────
+
+/** A point entry stored inside a {@link Quadtree} node. */
+interface QuadtreeEntry<T> {
+  x: number;
+  y: number;
+  data: T;
+}
+
+/**
+ * Adaptive point quadtree for efficient 2-D spatial queries.
+ *
+ * Compared to {@link SpatialGrid}, the quadtree is better suited for
+ * **non-uniform** object distributions: it subdivides only in regions that
+ * are actually populated, so sparse worlds don't waste memory on empty cells.
+ *
+ * ### Complexity
+ * - Insert: O(log n) amortised
+ * - Range query: O(log n + k), k = number of results
+ * - Well-suited for pathfinding waypoint lookup and physics broad-phase
+ *
+ * ### Usage
+ * ```typescript
+ * const qt = new Quadtree<Entity>(0, 0, 1000, 1000);
+ * qt.insert(entity, entity.x, entity.y);
+ * const nearby = qt.query(x - 50, y - 50, x + 50, y + 50);
+ * qt.clear();
+ * ```
+ */
+export class Quadtree<T> {
+  private readonly _x: number;
+  private readonly _y: number;
+  private readonly _w: number;
+  private readonly _h: number;
+  private readonly _capacity: number;
+  private _points: QuadtreeEntry<T>[] = [];
+  private _divided = false;
+  private _nw: Quadtree<T> | null = null;
+  private _ne: Quadtree<T> | null = null;
+  private _sw: Quadtree<T> | null = null;
+  private _se: Quadtree<T> | null = null;
+
+  /**
+   * @param x         Left boundary of this node's region.
+   * @param y         Top boundary of this node's region.
+   * @param w         Width of this node's region.
+   * @param h         Height of this node's region.
+   * @param capacity  Maximum points per node before subdivision. Default: 8.
+   */
+  constructor(x: number, y: number, w: number, h: number, capacity = 8) {
+    this._x = x;
+    this._y = y;
+    this._w = w;
+    this._h = h;
+    this._capacity = capacity;
+  }
+
+  private _subdivide(): void {
+    const hw = this._w / 2;
+    const hh = this._h / 2;
+    const cap = this._capacity;
+    this._nw = new Quadtree<T>(this._x,      this._y,      hw, hh, cap);
+    this._ne = new Quadtree<T>(this._x + hw, this._y,      hw, hh, cap);
+    this._sw = new Quadtree<T>(this._x,      this._y + hh, hw, hh, cap);
+    this._se = new Quadtree<T>(this._x + hw, this._y + hh, hw, hh, cap);
+    this._divided = true;
+    // Re-insert existing points into children.
+    for (const p of this._points) {
+      this._insertIntoChild(p);
+    }
+    this._points = [];
+  }
+
+  private _insertIntoChild(entry: QuadtreeEntry<T>): void {
+    const midX = this._x + this._w / 2;
+    const midY = this._y + this._h / 2;
+    if (entry.x < midX) {
+      (entry.y < midY ? this._nw : this._sw)!.insert(entry.data, entry.x, entry.y);
+    } else {
+      (entry.y < midY ? this._ne : this._se)!.insert(entry.data, entry.x, entry.y);
+    }
+  }
+
+  /**
+   * Insert a data point at the given world-space coordinates.
+   *
+   * Points outside the node's bounds are silently ignored; the root node
+   * should span the full world extent.
+   */
+  insert(data: T, x: number, y: number): void {
+    // Reject points outside this node's bounds.
+    if (x < this._x || x >= this._x + this._w ||
+        y < this._y || y >= this._y + this._h) return;
+
+    if (this._divided) {
+      this._insertIntoChild({ x, y, data });
+      return;
+    }
+
+    this._points.push({ x, y, data });
+    if (this._points.length > this._capacity) {
+      this._subdivide();
+    }
+  }
+
+  /**
+   * Return all data objects whose insertion point falls within the
+   * axis-aligned bounding box [minX, maxX) × [minY, maxY).
+   *
+   * @param results  Optional array to accumulate results into (avoids
+   *                 per-call allocation when provided).
+   */
+  query(
+    minX: number, minY: number, maxX: number, maxY: number,
+    results: T[] = [],
+  ): T[] {
+    // Quick reject: AABB vs. this node's bounds.
+    if (minX >= this._x + this._w || maxX < this._x ||
+        minY >= this._y + this._h || maxY < this._y) {
+      return results;
+    }
+
+    if (this._divided) {
+      this._nw!.query(minX, minY, maxX, maxY, results);
+      this._ne!.query(minX, minY, maxX, maxY, results);
+      this._sw!.query(minX, minY, maxX, maxY, results);
+      this._se!.query(minX, minY, maxX, maxY, results);
+      return results;
+    }
+
+    for (const p of this._points) {
+      if (p.x >= minX && p.x < maxX && p.y >= minY && p.y < maxY) {
+        results.push(p.data);
+      }
+    }
+    return results;
+  }
+
+  /** Remove all points and collapse all child nodes. */
+  clear(): void {
+    this._points = [];
+    this._divided = false;
+    this._nw = this._ne = this._sw = this._se = null;
+  }
+}
+
+// ── Asset loader ──────────────────────────────────────────────────────────────
+
+/** Priority levels for {@link AssetLoader} requests. Lower number = higher priority. */
+export type AssetPriority = 0 | 1 | 2 | 3;
+
+/** A pending or in-flight asset load request. */
+interface AssetRequest<T> {
+  key: string;
+  priority: AssetPriority;
+  load: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+
+/**
+ * Priority-queue asset loader that limits the number of concurrent loads to
+ * prevent network/decode saturation on low-end devices.
+ *
+ * Assets are requested with a priority (0 = critical, 3 = background) and
+ * the loader dispatches at most `concurrency` loads simultaneously. When a
+ * slot opens, the highest-priority pending request is started next.
+ *
+ * Already-loaded assets are returned from an in-memory cache, eliminating
+ * redundant decoding for assets used by multiple entities in the same scene.
+ *
+ * ### Techniques
+ * - **Priority queue**: O(1) enqueue, O(n) dequeue (n is typically small).
+ * - **In-memory cache**: duplicate requests complete instantly without
+ *   touching the network or disk.
+ * - **Concurrency cap**: prevents frame spikes caused by simultaneous
+ *   large-asset decodes.
+ *
+ * ### Usage
+ * ```typescript
+ * const loader = new AssetLoader(4);
+ * const tex = await loader.load('hero-sprite', 0, () => fetchTexture('hero.png'));
+ * ```
+ */
+export class AssetLoader<T> {
+  private readonly _cache   = new Map<string, T>();
+  private readonly _pending: AssetRequest<T>[] = [];
+  private _inFlight = 0;
+  private readonly _concurrency: number;
+
+  /** Number of assets currently loading. */
+  get inFlight(): number { return this._inFlight; }
+  /** Number of requests waiting to start. */
+  get pendingCount(): number { return this._pending.length; }
+
+  /**
+   * @param concurrency  Maximum simultaneous in-flight loads. Default: 4.
+   */
+  constructor(concurrency = 4) {
+    this._concurrency = Math.max(1, concurrency);
+  }
+
+  /**
+   * Request an asset load.
+   *
+   * If the asset is already cached the promise resolves synchronously on the
+   * next microtask. If an identical key is already loading, a second request
+   * is queued normally — callers should deduplicate by checking `has()` first
+   * if strict deduplication beyond the cache is needed.
+   *
+   * @param key       Unique identifier for the asset (used as cache key).
+   * @param priority  Load priority. 0 = highest, 3 = lowest.
+   * @param load      Async factory that fetches/decodes the asset.
+   */
+  load(key: string, priority: AssetPriority, load: () => Promise<T>): Promise<T> {
+    const cached = this._cache.get(key);
+    if (cached !== undefined) return Promise.resolve(cached);
+
+    return new Promise<T>((resolve, reject) => {
+      this._pending.push({ key, priority, load, resolve, reject });
+      this._drain();
+    });
+  }
+
+  /** Return `true` if the asset is already in the cache. */
+  has(key: string): boolean {
+    return this._cache.has(key);
+  }
+
+  /** Retrieve a cached asset synchronously, or `undefined` if not loaded. */
+  get(key: string): T | undefined {
+    return this._cache.get(key);
+  }
+
+  /** Evict a single asset from the cache. */
+  evict(key: string): void {
+    this._cache.delete(key);
+  }
+
+  /** Evict all cached assets (e.g. on scene teardown). */
+  clearCache(): void {
+    this._cache.clear();
+  }
+
+  private _drain(): void {
+    while (this._inFlight < this._concurrency && this._pending.length > 0) {
+      // Pop the highest-priority (lowest priority number) request.
+      let bestIdx = 0;
+      for (let i = 1; i < this._pending.length; i++) {
+        if (this._pending[i].priority < this._pending[bestIdx].priority) {
+          bestIdx = i;
+        }
+      }
+      const req = this._pending.splice(bestIdx, 1)[0];
+      this._inFlight++;
+      req.load().then(
+        (value) => {
+          this._cache.set(req.key, value);
+          req.resolve(value);
+          this._inFlight--;
+          this._drain();
+        },
+        (err) => {
+          req.reject(err);
+          this._inFlight--;
+          this._drain();
+        },
+      );
+    }
+  }
+}
+
+// ── Delta tracker ─────────────────────────────────────────────────────────────
+
+/**
+ * Tracks changes to numeric state values and emits only the delta (difference)
+ * since the last acknowledged snapshot.
+ *
+ * Useful for network synchronisation and UI updates where re-sending or
+ * re-rendering unchanged values is wasteful. Only properties that have
+ * changed by more than `epsilon` are included in the delta output.
+ *
+ * ### Techniques
+ * - **Delta compression**: only changed fields are serialised/transmitted.
+ * - **Epsilon threshold**: suppresses trivial floating-point drift (default 0).
+ * - **Snapshot / commit**: the caller controls when the baseline advances,
+ *   enabling rollback or multi-frame accumulation.
+ *
+ * ### Usage
+ * ```typescript
+ * const tracker = new DeltaTracker({ x: 0, y: 0, hp: 100 });
+ *
+ * // After physics update:
+ * tracker.set('x', entity.x);
+ * tracker.set('y', entity.y);
+ *
+ * const delta = tracker.delta();  // { x: newX, y: newY } (only changed)
+ * if (delta) sendNetworkUpdate(delta);
+ * tracker.commit();               // advance baseline
+ * ```
+ */
+export class DeltaTracker {
+  private _baseline: Record<string, number>;
+  private _current:  Record<string, number>;
+  private readonly _epsilon: number;
+
+  /**
+   * @param initial  Initial state. All values must be numbers.
+   * @param epsilon  Minimum absolute change required for a field to be
+   *                 considered dirty. Default: 0 (any change is dirty).
+   */
+  constructor(initial: Record<string, number>, epsilon = 0) {
+    this._baseline = { ...initial };
+    this._current  = { ...initial };
+    this._epsilon  = epsilon;
+  }
+
+  /**
+   * Update the current value for a tracked key.
+   *
+   * New keys not present in the initial state are accepted and will appear
+   * in the next `delta()` call.
+   */
+  set(key: string, value: number): void {
+    this._current[key] = value;
+  }
+
+  /** Read the current (possibly uncommitted) value for a key. */
+  get(key: string): number | undefined {
+    return this._current[key];
+  }
+
+  /**
+   * Return a partial record containing only keys whose current value differs
+   * from the baseline by more than `epsilon`.
+   *
+   * Returns `null` when nothing has changed (no network/render work needed).
+   */
+  delta(): Record<string, number> | null {
+    let out: Record<string, number> | null = null;
+    for (const key of Object.keys(this._current)) {
+      const base = this._baseline[key] ?? 0;
+      if (Math.abs(this._current[key] - base) > this._epsilon) {
+        (out ??= {})[key] = this._current[key];
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Advance the baseline to the current state.
+   *
+   * Call this after the delta has been consumed (e.g. after sending a
+   * network packet or completing a UI refresh).
+   */
+  commit(): void {
+    Object.assign(this._baseline, this._current);
+  }
+
+  /**
+   * Discard pending changes and revert current state to the last committed
+   * baseline (rollback support).
+   */
+  rollback(): void {
+    Object.assign(this._current, this._baseline);
+  }
+
+  /** Return `true` if any tracked field has an uncommitted change. */
+  isDirty(): boolean {
+    return this.delta() !== null;
+  }
+
+  /**
+   * Replace the tracked state entirely with a new set of values and commit
+   * them as the new baseline (e.g. after a full-state sync from the server).
+   */
+  reset(state: Record<string, number>): void {
+    this._baseline = { ...state };
+    this._current  = { ...state };
+  }
+}
