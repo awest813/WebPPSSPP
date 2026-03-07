@@ -277,12 +277,7 @@ export function hashGameId(gameId: string): number {
  * so those versions hash into one shared lobby namespace.
  */
 export function resolveNetplayRoomKey(gameId: string, systemId?: string): string {
-  const normalized = canonicalizeGameId(gameId);
   const resolved = resolveNetplayRoom(gameId, systemId);
-  const roomHash = hashGameId(resolved.roomKey).toString(16);
-  console.info(
-    `[Netplay]\n  ROM:          ${gameId}\n  Normalized ID: ${normalized}\n  Alias Group:   ${resolved.roomKey}\n  System:        ${systemId ?? "unknown"}\n  Room Hash:     ${roomHash}`
-  );
   return resolved.roomKey;
 }
 

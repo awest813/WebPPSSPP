@@ -319,6 +319,16 @@ export class WebDAVProvider implements CloudSaveProvider {
     await this._ensureDir(`${this.baseUrl}/${entry.gameId}`);
     await this._ensureDir(base);
 
+    // Upload binary payloads first so the manifest only becomes visible on the
+    // server after all data is in place. This prevents a partial-upload window
+    // where the manifest references a state.bin that doesn't exist yet.
+    if (entry.stateData) {
+      await this._putBlob(`${base}/state.bin`, entry.stateData, "application/octet-stream");
+    }
+    if (entry.thumbnail) {
+      await this._putBlob(`${base}/thumb.jpg`, entry.thumbnail, "image/jpeg");
+    }
+
     const manifest: CloudSaveManifest = {
       gameId:    entry.gameId,
       slot:      entry.slot,
@@ -330,13 +340,6 @@ export class WebDAVProvider implements CloudSaveProvider {
       version:   entry.version ?? 1,
     };
     await this._put(`${base}/manifest.json`, JSON.stringify(manifest), "application/json");
-
-    if (entry.stateData) {
-      await this._putBlob(`${base}/state.bin`, entry.stateData, "application/octet-stream");
-    }
-    if (entry.thumbnail) {
-      await this._putBlob(`${base}/thumb.jpg`, entry.thumbnail, "image/jpeg");
-    }
   }
 
   async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
@@ -672,7 +675,12 @@ export class CloudSaveManager {
 
   // ── WebDAV credential storage ───────────────────────────────────────────────
 
-  /** Persist WebDAV connection parameters (stored in a separate localStorage key). */
+  /** Persist WebDAV connection parameters (stored in a separate localStorage key).
+   *
+   * ⚠️  Security note: the password is stored in plaintext in localStorage,
+   * which is accessible to any JavaScript running on the same origin.
+   * Users should be aware of this risk, particularly on shared devices.
+   */
   saveWebDAVConfig(url: string, username: string, password: string): void {
     try {
       localStorage.setItem(

@@ -721,6 +721,14 @@ export function detectCapabilities(): DeviceCapabilities {
 // ── Session-cached capability detection ──────────────────────────────────────
 
 /**
+ * Schema version embedded inside the serialised capabilities object.
+ * Increment this when the DeviceCapabilities interface gains or removes fields
+ * so that cached entries without the new fields are automatically discarded,
+ * even if the sessionStorage key name is not also bumped.
+ */
+const CAPS_SCHEMA_VERSION = 1;
+
+/**
  * sessionStorage key for the cached DeviceCapabilities result.
  * Bump the suffix when the DeviceCapabilities interface changes shape so
  * stale caches from old app versions are ignored automatically.
@@ -738,15 +746,21 @@ const CAPABILITIES_SESSION_KEY = "retrovault-devcaps-v1";
  * Falls back to the full `detectCapabilities()` run when:
  *   - sessionStorage is unavailable (private browsing restrictions)
  *   - the stored value is corrupt or has an unrecognised tier
+ *   - the stored value has an older schema version
  */
 export function detectCapabilitiesCached(): DeviceCapabilities {
   try {
     const raw = sessionStorage.getItem(CAPABILITIES_SESSION_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as DeviceCapabilities;
-      // Sanity-check the most critical field to detect truncated/stale entries.
-      if ((["low", "medium", "high", "ultra"] as const).includes(parsed.tier)) {
-        return parsed;
+      const parsed = JSON.parse(raw) as DeviceCapabilities & { __v?: number };
+      // Sanity-check the most critical field to detect truncated/stale entries,
+      // and verify the schema version to reject entries missing newer fields.
+      if (
+        parsed.__v === CAPS_SCHEMA_VERSION &&
+        (["low", "medium", "high", "ultra"] as const).includes(parsed.tier)
+      ) {
+        const { __v: _v, ...caps } = parsed;
+        return caps as DeviceCapabilities;
       }
     }
   } catch {
@@ -756,7 +770,10 @@ export function detectCapabilitiesCached(): DeviceCapabilities {
   const caps = detectCapabilities();
 
   try {
-    sessionStorage.setItem(CAPABILITIES_SESSION_KEY, JSON.stringify(caps));
+    sessionStorage.setItem(
+      CAPABILITIES_SESSION_KEY,
+      JSON.stringify({ ...caps, __v: CAPS_SCHEMA_VERSION }),
+    );
   } catch {
     // sessionStorage write failed (private mode quota / storage error) — ignore.
   }

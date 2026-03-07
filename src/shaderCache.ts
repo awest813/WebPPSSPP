@@ -306,15 +306,19 @@ export class ShaderCache {
           gl.attachShader(prog, fs);
           gl.linkProgram(prog);
 
-          // Skip entries that failed to compile/link — they would stall
-          // the parallel-compile poll and occupy GPU resources for nothing.
-          if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS) ||
-              !gl.getShaderParameter(fs, gl.COMPILE_STATUS) ||
-              !gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-            gl.deleteShader(vs);
-            gl.deleteShader(fs);
-            gl.deleteProgram(prog);
-            continue;
+          // When KHR_parallel_shader_compile is available, defer the status
+          // check to after the poll (checking COMPILE_STATUS/LINK_STATUS here
+          // would force a synchronous GPU stall, negating the extension's benefit).
+          // Without the extension, validate immediately to skip broken entries early.
+          if (!parallelExt) {
+            if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS) ||
+                !gl.getShaderParameter(fs, gl.COMPILE_STATUS) ||
+                !gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+              gl.deleteShader(vs);
+              gl.deleteShader(fs);
+              gl.deleteProgram(prog);
+              continue;
+            }
           }
 
           compiled.push({ vs, fs, prog });

@@ -350,7 +350,7 @@ class FPSMonitor {
     // the 95th-percentile element. N is capped at 60, so this is tiny and
     // consistently allocation-free (fewer GC spikes in long sessions).
     this._sortScratchAscending(count);
-    const p95Idx = Math.min(Math.floor(count * 0.95), count - 1);
+    const p95Idx = Math.max(0, Math.ceil(count * 0.95) - 1);
     const p95FrameTimeMs = Math.round(this._sortedScratch[p95Idx]);
 
     return {
@@ -1196,11 +1196,16 @@ export class PSPEmulator {
   async setupAudioWorklet(workletBaseUrl: string): Promise<boolean> {
     if (!("AudioWorkletNode" in window)) return false;
 
+    // Hoist ctx/ctxOwned so the catch block can close a self-created context,
+    // preventing AudioContext quota exhaustion (browsers cap at ~6 contexts).
+    let ctx: AudioContext | undefined;
+    let ctxOwned = false;
+
     try {
       // Prefer the game's OpenAL context so we're in the same audio graph
       const ejsCtx = window.EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
-      const ctx = ejsCtx ?? new AudioContext({ latencyHint: "playback" });
-      const ctxOwned = !ejsCtx;
+      ctx = ejsCtx ?? new AudioContext({ latencyHint: "playback" });
+      ctxOwned = !ejsCtx;
 
       // Resume a suspended context (may happen due to autoplay policy)
       if (ctx.state === "suspended") {
@@ -1225,7 +1230,14 @@ export class PSPEmulator {
         const alCtx = window.EJS_emulator?.Module?.AL?.currentCtx;
         if (alCtx?.sources) {
           const gainNodes = Object.values(alCtx.sources).map(s => s.gain);
-          gainNodes.forEach(g => g.connect(workletNode));
+          gainNodes.forEach(g => {
+            // Disconnect from the original destination to prevent the audio
+            // signal from reaching ctx.destination through two paths (which
+            // would double the volume). Ignore errors for nodes not yet
+            // connected to the destination.
+            try { (g as AudioNode).disconnect(ctx!.destination); } catch { /* not connected */ }
+            g.connect(workletNode);
+          });
         }
       }
       workletNode.connect(analyserNode);
@@ -1241,7 +1253,12 @@ export class PSPEmulator {
       }
       return true;
     } catch {
-      // AudioWorklet unavailable or module failed to load — fall back silently
+      // AudioWorklet unavailable or module failed to load — fall back silently.
+      // If we created the AudioContext ourselves, close it to avoid exhausting
+      // the browser's AudioContext quota (typically capped at 6 contexts).
+      if (ctxOwned && ctx) {
+        ctx.close().catch(() => { /* best-effort */ });
+      }
       return false;
     }
   }
@@ -1776,8 +1793,9 @@ export class PSPEmulator {
         this._fpsMonitor.stop();
         this._memoryMonitor.stop();
         this._setState("paused");
-      } else if (!document.hidden && this._pausedByVisibility) {
+      } else if (!document.hidden && this._pausedByVisibility && this._state === "paused") {
         this._pausedByVisibility = false;
+        this._lowFPSStartTime = 0;   // prevent false-positive low-FPS alert after a hidden period
         window.EJS_emulator?.resume?.();
         this._fpsMonitor.start();
         this._memoryMonitor.start();

@@ -254,7 +254,10 @@ export async function extractFromZip(
 
   const romCandidates = entries.filter(e => {
     if (isDir(e)) return false;
-    const ext = e.name.split(".").pop()?.toLowerCase() ?? "";
+    const dotIdx = e.name.lastIndexOf(".");
+    const ext = dotIdx > 0
+      ? e.name.substring(dotIdx + 1).toLowerCase()
+      : "";
     return _romExtensions.has(ext);
   });
 

@@ -221,8 +221,14 @@ export function applyBPS(rom: ArrayBuffer, patch: ArrayBuffer): ArrayBuffer {
   const source = new Uint8Array(rom);
   const target = new Uint8Array(targetSize);
 
-  // Verify source CRC32
+  // Verify source CRC32 — validate size first to avoid slicing fewer bytes
+  // than expected, which could cause a wrong-ROM to pass the CRC check.
   const sourceCRC = pv.getUint32(pb.length - 12, true);
+  if (source.length < sourceSize) {
+    throw new Error(
+      `BPS patch expects a source ROM of ${sourceSize} bytes but got ${source.length}`
+    );
+  }
   if (crc32(source.slice(0, sourceSize)) !== sourceCRC) {
     throw new Error("BPS patch source CRC32 mismatch — wrong base ROM provided");
   }

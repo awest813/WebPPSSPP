@@ -2539,9 +2539,10 @@ describe('PSPEmulator', () => {
       mon._ringCount = 20;
 
       // Sorted 20 samples: 16×18 samples, 100, 200
-      // P95 index = floor(20 × 0.95) = 19, i.e., index 19 → 200 ms
+      // P95 index = ceil(20 × 0.95) - 1 = ceil(19) - 1 = 18, i.e., index 18 → 100 ms
+      // (19 out of 20 elements, 95%, are ≤ 100 ms — the 200 ms spike is the top 5%)
       const snap = mon.getSnapshot();
-      expect(snap.p95FrameTimeMs).toBe(200);
+      expect(snap.p95FrameTimeMs).toBe(100);
     });
 
     it('p95FrameTimeMs with all identical samples equals that sample', () => {
