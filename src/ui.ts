@@ -1196,7 +1196,25 @@ export async function resolveSystemAndAdd(
       });
 
       if (extracted) {
-        resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
+        const extractedCandidates = extracted.candidates ?? [];
+        if (extractedCandidates.length > 1) {
+          hideLoadingOverlay();
+          const picked = await showArchiveEntryPickerDialog(
+            extracted.format,
+            extractedCandidates,
+          );
+          if (!picked) return;
+          resolvedFile = new File([picked.blob], picked.name, { type: picked.blob.type });
+          showLoadingOverlay();
+          setLoadingMessage("Archive entry selected. Detecting system…");
+          logImport(
+            emulatorRef,
+            settings,
+            `Archive entry selected: "${picked.name}" (${formatBytes(picked.size)})`,
+          );
+        } else {
+          resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
+        }
         setLoadingMessage("Archive extracted. Detecting system…");
         logImport(
           emulatorRef,
@@ -1437,6 +1455,66 @@ function showGamePickerDialog(title: string, message: string, games: GameMetadat
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); close(null); } };
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
     document.addEventListener("keydown", onKey);
+    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+  });
+}
+
+function showArchiveEntryPickerDialog(
+  format: ArchiveFormat,
+  candidates: Array<{ name: string; blob: Blob; size: number }>
+): Promise<{ name: string; blob: Blob; size: number } | null> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box = make(
+      "div",
+      { class: "confirm-box", role: "dialog", "aria-modal": "true", "aria-label": "Choose archive entry" }
+    );
+
+    const pretty = format === "gzip" ? "GZIP" : format.toUpperCase();
+    box.appendChild(make("h3", { class: "confirm-title" }, "Choose File from Archive"));
+    box.appendChild(make(
+      "p",
+      { class: "confirm-body" },
+      `${pretty} archive contains multiple game files. Choose which one to import:`
+    ));
+
+    const list = make("div", { class: "game-picker-list" });
+    const fragment = document.createDocumentFragment();
+    for (const candidate of candidates) {
+      const btn = make("button", { class: "game-picker-btn" });
+      const badge = make("span", { class: "sys-badge" }, formatBytes(candidate.size));
+      badge.style.background = "var(--c-accent)";
+      btn.append(
+        badge,
+        document.createTextNode(" " + candidate.name),
+      );
+      btn.addEventListener("click", () => close(candidate));
+      fragment.appendChild(btn);
+    }
+    list.appendChild(fragment);
+    box.appendChild(list);
+
+    const footer = make("div", { class: "confirm-footer" });
+    const btnCancel = make("button", { class: "btn" }, "Cancel");
+    footer.appendChild(btnCancel);
+    box.appendChild(footer);
+
+    let closed = false;
+    const close = (picked: { name: string; blob: Blob; size: number } | null) => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onEsc);
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 180);
+      resolve(picked);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") close(null); };
+    btnCancel.addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", onEsc);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
   });
 }

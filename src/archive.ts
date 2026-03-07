@@ -93,6 +93,19 @@ export interface ArchiveExtractOptions {
   onProgress?: (progress: ArchiveExtractProgress) => void;
 }
 
+export interface ArchiveExtractCandidate {
+  name: string;
+  blob: Blob;
+  size: number;
+}
+
+export interface ArchiveExtractResult {
+  name: string;
+  blob: Blob;
+  format: ArchiveFormat;
+  candidates?: ArchiveExtractCandidate[];
+}
+
 function emitProgress(
   options: ArchiveExtractOptions | undefined,
   progress: ArchiveExtractProgress
@@ -221,6 +234,24 @@ function selectBestRomEntry(entries: ArchiveEntry[]): ArchiveEntry | null {
     .sort((a, b) => b.score - a.score);
 
   return ranked[0]?.entry ?? null;
+}
+
+function selectTopRomEntries(entries: ArchiveEntry[], limit = 8): ArchiveEntry[] {
+  if (entries.length === 0) return [];
+  return entries
+    .map(entry => ({ entry, score: scoreArchiveEntry(entry.name, entry.bytes.byteLength) }))
+    .filter(item => Number.isFinite(item.score))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(1, limit))
+    .map(item => item.entry);
+}
+
+function toArchiveCandidates(entries: ArchiveEntry[]): ArchiveExtractCandidate[] {
+  return entries.map((entry) => ({
+    name: shortNameFromPath(entry.name),
+    blob: new Blob([new Uint8Array(entry.bytes)]),
+    size: entry.bytes.byteLength,
+  }));
 }
 
 async function decompressWithStream(
@@ -701,7 +732,7 @@ export async function extractFromGzip(
 export async function extractFromArchive(
   blob: Blob,
   options: ArchiveExtractOptions = {}
-): Promise<{ name: string; blob: Blob; format: ArchiveFormat } | null> {
+): Promise<ArchiveExtractResult | null> {
   emitProgress(options, {
     format: "unknown",
     stage: "detect",
@@ -749,10 +780,13 @@ export async function extractFromArchive(
       });
       const selected = selectBestRomEntry(entries);
       if (!selected) return null;
+      const top = selectTopRomEntries(entries, 10);
+      const candidates = toArchiveCandidates(top);
       return {
         format,
         name: shortNameFromPath(selected.name),
         blob: new Blob([new Uint8Array(selected.bytes)]),
+        candidates,
       };
     }
 

@@ -729,6 +729,47 @@ describe('extractFromArchive', () => {
     const result = await extractFromArchive(new Blob([bz]));
     expect(result).toBeNull();
   });
+
+  it('returns ranked candidates for RAR archives with multiple ROM entries', async () => {
+    const originalWorker = globalThis.Worker;
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+
+    class MockWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      constructor(_url: string) {}
+      postMessage(_data: ArrayBuffer): void {
+        queueMicrotask(() => {
+          this.onmessage?.({ data: { t: 2, file: 'readme.txt', data: new Uint8Array([0x52]) } } as MessageEvent);
+          this.onmessage?.({ data: { t: 2, file: 'alpha.nes', data: new Uint8Array([0xaa]) } } as MessageEvent);
+          this.onmessage?.({ data: { t: 2, file: 'beta.nes', data: new Uint8Array([0xbb]) } } as MessageEvent);
+          this.onmessage?.({ data: { t: 1 } } as MessageEvent);
+        });
+      }
+      terminate(): void {}
+    }
+
+    vi.stubGlobal('Worker', MockWorker as unknown as typeof Worker);
+    URL.createObjectURL = vi.fn(() => 'blob:mock-worker');
+    URL.revokeObjectURL = vi.fn();
+
+    try {
+      const rarHeader = new Uint8Array([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00, 0x00]);
+      const result = await extractFromArchive(new Blob([rarHeader]));
+      expect(result).not.toBeNull();
+      expect(result!.format).toBe('rar');
+      expect(result!.candidates?.length).toBe(2);
+      const names = (result!.candidates ?? []).map(c => c.name);
+      expect(names).toContain('alpha.nes');
+      expect(names).toContain('beta.nes');
+    } finally {
+      vi.unstubAllGlobals();
+      globalThis.Worker = originalWorker;
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
 });
 
 // ── ROM/ISO format-specific extraction ───────────────────────────────────────
