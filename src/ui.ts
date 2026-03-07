@@ -156,6 +156,7 @@ export function buildDOM(app: HTMLElement): void {
   // Build a concise format hint: first extension of the first 8 systems + archive note
   const hintExts = SYSTEMS.slice(0, 8).map(s => `.${s.extensions[0]}`).join(" · ");
   const formatHint = `${hintExts} + more · ZIP auto-extracted · 7Z/RAR/TAR/GZ supported`;
+  const touchUI = isTouchDevice();
 
   app.innerHTML = `
     <!-- Skip navigation link for keyboard users -->
@@ -244,8 +245,8 @@ export function buildDOM(app: HTMLElement): void {
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </div>
-          <p class="drop-zone__label">Drop a ROM file here to start playing</p>
-          <p class="drop-zone__sub">or <span class="drop-zone__browse">browse your device</span></p>
+          <p class="drop-zone__label">${touchUI ? "Tap to add a ROM and start playing" : "Drop a ROM file here to start playing"}</p>
+          <p class="drop-zone__sub">${touchUI ? "Browse your device to select a file" : 'or <span class="drop-zone__browse">browse your device</span>'}</p>
           <p class="drop-zone__formats" title="Supported file formats">${formatHint}</p>
         </div>
 

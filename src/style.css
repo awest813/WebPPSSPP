@@ -45,11 +45,17 @@
   --radius-xl:    28px;
   --radius-pill:  999px;
 
+  /* ── Safe area insets (iOS notch / home bar) ── */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+
   /* ── Layout ── */
   --header-h:     60px;
   --footer-h:     36px;
   --sidebar-w:    300px;
-  --toast-bottom: calc(var(--footer-h) + 14px);
+  --toast-bottom: calc(var(--footer-h) + var(--safe-bottom) + 14px);
 
   /* ── Transitions ── */
   --transition:       0.18s ease;
@@ -83,6 +89,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
   /* Subtle dot-grid background texture */
   background-image: radial-gradient(circle, rgba(45, 49, 84, 0.45) 1px, transparent 1px);
   background-size: 28px 28px;
@@ -119,9 +127,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
-  height: var(--header-h);
-  min-height: var(--header-h);
+  padding: var(--safe-top) calc(20px + var(--safe-right)) 0 calc(20px + var(--safe-left));
+  height: calc(var(--header-h) + var(--safe-top));
+  min-height: calc(var(--header-h) + var(--safe-top));
   background: var(--glass-bg);
   backdrop-filter: blur(12px) saturate(1.4);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
@@ -197,6 +205,7 @@ body {
   flex-direction: column;
   align-items: center;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 28px 20px 20px;
   gap: 22px;
   background: transparent;
@@ -1283,8 +1292,7 @@ body {
 
 /* ── Footer / status bar ──────────────────────────────────── */
 .app-footer {
-  height: var(--footer-h);
-  min-height: var(--footer-h);
+  min-height: calc(var(--footer-h) + var(--safe-bottom));
   flex-shrink: 0;
   background: var(--glass-bg);
   backdrop-filter: blur(8px);
@@ -1292,7 +1300,7 @@ body {
   border-top: 1px solid var(--glass-border);
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 calc(16px + var(--safe-right)) var(--safe-bottom) calc(16px + var(--safe-left));
   gap: 18px;
   font-size: 0.74rem;
   color: var(--c-text-dim);
@@ -1578,6 +1586,8 @@ body {
 
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 10px; }
   .game-card__remove { opacity: 1; }
+  .game-card__patch { opacity: 1; }
+  .game-card__change-sys { opacity: 1; }
 
   .modal-box,
   .settings-modal-box { width: 96vw; }
@@ -1591,6 +1601,39 @@ body {
 @media (max-width: 400px) { .library-grid { grid-template-columns: repeat(2, 1fr); } }
 
 @media (min-width: 900px) { .library-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } }
+
+/* ── Touch device (pointer: coarse) ──────────────────────── */
+/* Applied to any device with a coarse pointer (phone, tablet) */
+@media (pointer: coarse) {
+  /* Minimum 44 × 44 pt tap targets (Apple HIG) */
+  .btn { min-height: 44px; }
+  .modal-close { width: 44px; height: 44px; }
+  .sys-filter-chip { min-height: 36px; padding: 7px 14px; }
+
+  /* Game card action buttons — always visible on touch since hover is unavailable */
+  .game-card__remove,
+  .game-card__patch,
+  .game-card__change-sys { opacity: 1; }
+
+  /* Save slot edit button — always visible on touch */
+  .save-slot-card__edit-btn { opacity: 1; }
+
+  /* Show the play overlay on tap (active state) */
+  .game-card:active .game-card__play-overlay { opacity: 1; }
+
+  /* Suppress hover lift animation on cards — use active instead for cleaner feel */
+  .game-card:hover:not(:active) { transform: none; }
+
+  /* Volume slider is impractical on touch — hide it; mute button remains */
+  .vol-control input[type="range"] { display: none; }
+
+  /* Stronger active-press feedback on buttons */
+  .btn:active:not(:disabled) { transform: scale(0.92); }
+
+  /* Settings panels: smooth momentum scrolling on iOS */
+  .settings-panels,
+  .system-picker-list { -webkit-overflow-scrolling: touch; }
+}
 
 /* ── Reduced motion ───────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
@@ -2282,13 +2325,13 @@ input[type="range"]::-moz-range-thumb {
 /* ── Touch controls panel ──────────────────────────────────── */
 .touch-controls-panel {
   position: fixed;
-  bottom: var(--footer-h);
+  bottom: calc(var(--footer-h) + var(--safe-bottom));
   left: 0;
   right: 0;
   z-index: 60;
   background: var(--c-surface);
   border-top: 1.5px solid var(--c-border);
-  padding: 12px 16px;
+  padding: 12px calc(16px + var(--safe-right)) 12px calc(16px + var(--safe-left));
   display: flex;
   align-items: center;
   gap: 12px;
