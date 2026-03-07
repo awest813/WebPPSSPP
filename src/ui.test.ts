@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
+import * as archive from "./archive.js";
 import type { PSPEmulator } from "./emulator.js";
 import type { GameLibrary, GameMetadata } from "./library.js";
 import type { BiosLibrary } from "./bios.js";
@@ -223,6 +224,66 @@ describe("buildDOM", () => {
     await new Promise(r => setTimeout(r, 150));
     // getAllGamesMetadata is called once on init and once on the debounced search
     expect(library2.getAllGamesMetadata).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("resolveSystemAndAdd mobile archive handling", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    buildDOM(document.body);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("extracts ZIP files detected by magic header when extension is missing (mobile picker case)", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("zip");
+    vi.spyOn(archive, "extractFromZip").mockResolvedValue({
+      name: "mobile-cart.nes",
+      blob: new Blob([new Uint8Array([0x4e, 0x45, 0x53])], { type: "application/octet-stream" }),
+    });
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn().mockResolvedValue({
+        id: "game-1",
+        name: "mobile-cart",
+        fileName: "mobile-cart.nes",
+        systemId: "nes",
+      }),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "mobile-upload", { type: "application/octet-stream" });
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    expect(archive.detectArchiveFormat).toHaveBeenCalledWith(file);
+    expect(archive.extractFromZip).toHaveBeenCalledWith(file);
+    expect(library.addGame).toHaveBeenCalledTimes(1);
+    expect(onLaunchGame).toHaveBeenCalledWith(expect.any(File), "nes", "game-1");
+  });
+
+  it("blocks unsupported archives detected by content when extension is missing", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("rar");
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([0x52, 0x61, 0x72, 0x21])], "mobile-upload", { type: "application/octet-stream" });
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    const errorMessage = document.getElementById("error-message")?.textContent ?? "";
+    expect(errorMessage).toContain("RAR archives are not supported");
+    expect(library.addGame).not.toHaveBeenCalled();
+    expect(onLaunchGame).not.toHaveBeenCalled();
   });
 });
 
