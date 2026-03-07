@@ -281,8 +281,8 @@ describe("resolveSystemAndAdd mobile archive handling", () => {
     expect(onLaunchGame).toHaveBeenCalledWith(expect.any(File), "nes", "game-1");
   });
 
-  it("blocks unsupported archives detected by content when extension is missing", async () => {
-    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("rar");
+  it("blocks unsupported archives (bzip2) detected by content when extension is missing", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("bzip2");
 
     const library = {
       findByFileName: vi.fn().mockResolvedValue(null),
@@ -291,14 +291,44 @@ describe("resolveSystemAndAdd mobile archive handling", () => {
     } as unknown as GameLibrary;
 
     const onLaunchGame = vi.fn(async () => {});
-    const file = new File([new Uint8Array([0x52, 0x61, 0x72, 0x21])], "mobile-upload", { type: "application/octet-stream" });
+    const file = new File([new Uint8Array([0x42, 0x5a, 0x68])], "mobile-upload", { type: "application/octet-stream" });
 
     await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
 
     const errorMessage = document.getElementById("error-message")?.textContent ?? "";
-    expect(errorMessage).toContain("RAR archives are not supported");
+    expect(errorMessage).toContain("BZIP2 archives are not supported");
     expect(library.addGame).not.toHaveBeenCalled();
     expect(onLaunchGame).not.toHaveBeenCalled();
+  });
+
+  it("attempts extraction for RAR files detected by content when extension is missing", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("rar");
+    vi.spyOn(archive, "extractFromArchive").mockResolvedValue({
+      name: "mobile-game.nes",
+      blob: new Blob([new Uint8Array([0x4e, 0x45, 0x53])], { type: "application/octet-stream" }),
+      format: "rar",
+    });
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn().mockResolvedValue({
+        id: "game-rar-1",
+        name: "mobile-game",
+        fileName: "mobile-game.nes",
+        systemId: "nes",
+      }),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const rarHeader = new Uint8Array([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00, 0x00]);
+    const file = new File([rarHeader], "mobile-upload", { type: "application/octet-stream" });
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    expect(archive.extractFromArchive).toHaveBeenCalledWith(file, expect.any(Object));
+    expect(library.addGame).toHaveBeenCalledTimes(1);
+    expect(onLaunchGame).toHaveBeenCalledWith(expect.any(File), "nes", "game-rar-1");
   });
 });
 

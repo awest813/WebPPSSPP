@@ -1194,7 +1194,7 @@ export async function resolveSystemAndAdd(
     }
   }
 
-  if (archiveFormat === "bzip2" || archiveFormat === "xz" || archiveFormat === "rar") {
+  if (archiveFormat === "bzip2" || archiveFormat === "xz") {
     showError(
       `${archiveFormat.toUpperCase()} archives are not supported for automatic extraction.\n\n` +
       "Please extract the archive first and then import the ROM file directly."
@@ -2831,7 +2831,8 @@ function buildPerfTab(
   const perfSection = make("div", { class: "settings-section" });
   perfSection.appendChild(make("h4", { class: "settings-section__title" }, "Performance Mode"));
   perfSection.appendChild(make("p", { class: "settings-help" },
-    "Controls rendering resolution, frameskip, and GPU settings for demanding systems (PSP, DS, N64, and similar 3D cores)."
+    "Controls rendering resolution, frameskip, and GPU settings for demanding systems (PSP, DS, N64, and similar 3D cores). " +
+    "Changes take effect the next time you launch or restart a game."
   ));
 
   const modes: Array<{ value: PerformanceMode; label: string; desc: string }> = [
@@ -3148,7 +3149,10 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
     for (const req of reqs) {
       const row           = make("div", { class: "bios-row" });
       const statusDot     = make("span", { class: "bios-dot bios-dot--unknown" });
-      const label         = make("span", { class: "bios-label" }, req.displayName);
+      // Label wrapper: display name on one line, required filename on the next
+      const labelWrap     = make("span", { class: "bios-label" });
+      labelWrap.appendChild(document.createTextNode(req.displayName));
+      labelWrap.appendChild(make("code", { class: "bios-filename" }, req.fileName));
       const desc          = make("span", { class: "bios-desc" }, req.description);
       const requiredBadge = req.required
         ? make("span", { class: "bios-required" }, "Required")
@@ -3166,7 +3170,10 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
         if (!file) return;
         uploadInput.value = "";
         try {
-          await biosLibrary.addBios(file, sysId);
+          // Rename the file to the canonical filename so the emulator
+          // always finds it regardless of the user's local file name.
+          const canonical = new File([file], req.fileName, { type: file.type });
+          await biosLibrary.addBios(canonical, sysId);
           statusDot.className = "bios-dot bios-dot--ok";
           uploadBtn.textContent = "Replace";
         } catch (err) {
@@ -3179,7 +3186,7 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
         else if (req.required) { statusDot.className = "bios-dot bios-dot--missing"; }
       }).catch(() => {});
 
-      row.append(statusDot, uploadInput, label, requiredBadge, desc, uploadBtn);
+      row.append(statusDot, uploadInput, labelWrap, requiredBadge, desc, uploadBtn);
       sysBlock.appendChild(row);
     }
     biosGrid.appendChild(sysBlock);

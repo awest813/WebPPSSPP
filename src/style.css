@@ -1928,7 +1928,17 @@ body {
 .bios-dot--missing { background: var(--c-danger); }
 .bios-dot--unknown { background: var(--c-text-faint); }
 
-.bios-label  { font-size: 0.86rem; font-weight: 700; color: var(--c-text); grid-column: 2; }
+.bios-label  { font-size: 0.86rem; font-weight: 700; color: var(--c-text); grid-column: 2; display: flex; flex-direction: column; gap: 2px; }
+
+.bios-filename {
+  font-size: 0.74rem; font-weight: 500;
+  font-family: monospace;
+  color: var(--c-text-dim);
+  background: var(--c-surface3);
+  border-radius: 3px;
+  padding: 0 4px;
+  align-self: flex-start;
+}
 
 .bios-required {
   font-size: 0.72rem; font-weight: 700;
