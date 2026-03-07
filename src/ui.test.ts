@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import type { PSPEmulator } from "./emulator.js";
 import type { GameLibrary, GameMetadata } from "./library.js";
@@ -1438,5 +1438,431 @@ describe("UIDirtyTracker", () => {
     const tracker = new UIDirtyTracker();
     tracker.mark(UIDirtyFlags.FPS_OVERLAY);
     expect((tracker.raw & UIDirtyFlags.FPS_OVERLAY) !== 0).toBe(true);
+  });
+});
+
+// ── Shared test helpers ───────────────────────────────────────────────────────
+
+const fullCapsForTests: DeviceCapabilities = {
+  isLowSpec: false,
+  isChromOS: false,
+  gpuRenderer: "unknown",
+  isSoftwareGPU: false,
+  recommendedMode: "quality",
+  tier: "medium",
+  deviceMemoryGB: 4,
+  cpuCores: 4,
+  gpuBenchmarkScore: 50,
+  prefersReducedMotion: false,
+  webgpuAvailable: false,
+  connectionQuality: "unknown",
+  jsHeapLimitMB: null,
+  estimatedVRAMMB: 768,
+  gpuCaps: {
+    renderer: "unknown",
+    vendor: "unknown",
+    maxTextureSize: 4096,
+    maxVertexAttribs: 16,
+    maxVaryingVectors: 30,
+    maxRenderbufferSize: 4096,
+    anisotropicFiltering: false,
+    maxAnisotropy: 0,
+    floatTextures: false,
+    halfFloatTextures: false,
+    instancedArrays: true,
+    webgl2: true,
+    vertexArrayObject: true,
+    compressedTextures: false,
+    etc2Textures: false,
+    astcTextures: false,
+    maxColorAttachments: 4,
+    multiDraw: false,
+  },
+};
+
+const makeFullLibForTests = () =>
+  ({ getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary);
+
+const makeBiosLibForTests = () =>
+  ({ findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary);
+
+// ── Landing page multiplayer button ──────────────────────────────────────────
+
+describe("buildLandingControls multiplayer button", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("renders a Multiplayer button in the landing header", () => {
+    const settings = makeSettings();
+    buildLandingControls(
+      settings, fullCapsForTests,
+      makeFullLibForTests(), makeBiosLibForTests(),
+      vi.fn(),
+    );
+    const headerActions = document.getElementById("header-actions")!;
+    const btn = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.textContent?.includes("Multiplayer"));
+    expect(btn).toBeTruthy();
+    expect(btn!.title).toContain("Multiplayer");
+  });
+
+  it("clicking the Multiplayer button opens settings on the Multiplayer tab", () => {
+    const settings = makeSettings();
+    const mgr = new NetplayManager();
+    buildLandingControls(
+      settings, fullCapsForTests,
+      makeFullLibForTests(), makeBiosLibForTests(),
+      vi.fn(),
+      undefined, undefined, undefined, undefined, mgr,
+    );
+
+    const headerActions = document.getElementById("header-actions")!;
+    const btn = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.textContent?.includes("Multiplayer"))!;
+    btn.click();
+
+    const panel = document.getElementById("settings-panel")!;
+    expect(panel.hidden).toBe(false);
+
+    // The Multiplayer tab panel should be visible
+    const multiplayerPanel = document.getElementById("tab-panel-multiplayer");
+    expect(multiplayerPanel).toBeTruthy();
+    expect(multiplayerPanel!.hidden).toBe(false);
+
+    // Other tab panels should be hidden
+    const perfPanel = document.getElementById("tab-panel-performance");
+    expect(perfPanel!.hidden).toBe(true);
+  });
+
+  it("clicking the Settings button opens settings on the Performance tab (default)", () => {
+    const settings = makeSettings();
+    buildLandingControls(
+      settings, fullCapsForTests,
+      makeFullLibForTests(), makeBiosLibForTests(),
+      vi.fn(),
+    );
+
+    const headerActions = document.getElementById("header-actions")!;
+    const btn = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.getAttribute("aria-label") === "Open settings")!;
+    expect(btn).toBeTruthy();
+    btn.click();
+
+    const panel = document.getElementById("settings-panel")!;
+    expect(panel.hidden).toBe(false);
+
+    const perfPanel = document.getElementById("tab-panel-performance");
+    expect(perfPanel!.hidden).toBe(false);
+  });
+});
+
+// ── buildMultiplayerTab — new UX sections ────────────────────────────────────
+
+describe("buildMultiplayerTab — supported systems section", () => {
+  let settings: Settings;
+  let mgr: NetplayManager;
+
+  function openMultiplayerTabWith(
+    gameName?: string | null,
+    systemId?: string | null,
+  ) {
+    const emulatorRefMock = systemId
+      ? { currentSystem: { id: systemId } } as unknown as PSPEmulator
+      : undefined;
+    if (gameName) settings = makeSettings({ lastGameName: gameName });
+    openSettingsPanel(
+      settings,
+      fullCapsForTests,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      vi.fn(),
+      emulatorRefMock,
+      undefined,
+      undefined,
+      mgr,
+    );
+    (document.getElementById("tab-multiplayer") as HTMLButtonElement).click();
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    settings = makeSettings();
+    mgr = new NetplayManager();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a supported systems section with system chips", () => {
+    openMultiplayerTabWith();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const sysList = panel.querySelector<HTMLElement>(".netplay-sys-list");
+    expect(sysList).toBeTruthy();
+    const chips = Array.from(sysList!.querySelectorAll(".sys-chip"));
+    expect(chips.length).toBeGreaterThan(0);
+  });
+
+  it("supported systems include GBA, GBC, GB, NDS, N64, PSP chips", () => {
+    openMultiplayerTabWith();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const chipLabels = Array.from(panel.querySelectorAll<HTMLElement>(".netplay-sys-list .sys-chip"))
+      .map(c => c.textContent?.trim() ?? "");
+    expect(chipLabels).toContain("GBA");
+    expect(chipLabels).toContain("GBC");
+    expect(chipLabels).toContain("GB");
+    expect(chipLabels).toContain("DS");
+    expect(chipLabels).toContain("N64");
+    expect(chipLabels).toContain("PSP");
+  });
+
+  it("shows a room actions section guidance when netplay is inactive", () => {
+    openMultiplayerTabWith();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
+    const roomSection = sections.find(s =>
+      s.querySelector("h4")?.textContent?.includes("Room Actions")
+    );
+    expect(roomSection).toBeTruthy();
+    expect(roomSection!.textContent).toContain("Server URL is required");
+  });
+
+  it("shows Create Room and Join Room buttons when netplay is active", () => {
+    settings = makeSettings({ netplayEnabled: true, netplayServerUrl: "wss://netplay.example.com" });
+    mgr.setEnabled(true);
+    mgr.setServerUrl("wss://netplay.example.com");
+    openMultiplayerTabWith();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const createBtn = panel.querySelector<HTMLButtonElement>(".netplay-create-room");
+    const joinBtn   = panel.querySelector<HTMLButtonElement>(".netplay-join-room");
+    expect(createBtn).toBeTruthy();
+    expect(joinBtn).toBeTruthy();
+  });
+
+  it("does not show the game compatibility section when no game is loaded", () => {
+    openMultiplayerTabWith(null, null);
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
+    const gameSection = sections.find(s =>
+      s.querySelector("h4")?.textContent?.includes("Current Game")
+    );
+    expect(gameSection).toBeUndefined();
+  });
+
+  it("shows game compatibility section when a GBA game is loaded", () => {
+    openMultiplayerTabWith("My GBA Game", "gba");
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
+    const gameSection = sections.find(s =>
+      s.querySelector("h4")?.textContent?.includes("Current Game")
+    );
+    expect(gameSection).toBeTruthy();
+    expect(gameSection!.textContent).toContain("My GBA Game");
+  });
+
+  it("shows Pokémon compatibility badge for Pokémon Fire Red (GBA)", () => {
+    openMultiplayerTabWith("Pokemon Fire Red (USA)", "gba");
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const badge = panel.querySelector<HTMLElement>(".netplay-compat-badge");
+    expect(badge).toBeTruthy();
+    expect(badge!.textContent).toContain("Kanto");
+  });
+
+  it("shows Pokémon Gen1 compatibility badge for Pokémon Red (GBC)", () => {
+    openMultiplayerTabWith("Pokemon Red Version (USA)", "gbc");
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const badge = panel.querySelector<HTMLElement>(".netplay-compat-badge");
+    expect(badge).toBeTruthy();
+    expect(badge!.textContent?.toLowerCase()).toContain("gen1");
+  });
+
+  it("does not show a compat badge for a non-Pokémon GBA game", () => {
+    openMultiplayerTabWith("Super Mario World (USA)", "gba");
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const badge = panel.querySelector<HTMLElement>(".netplay-compat-badge");
+    expect(badge).toBeNull();
+    const gameSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
+      .find(s => s.querySelector("h4")?.textContent?.includes("Current Game"));
+    expect(gameSection!.textContent).toContain("unique room key");
+  });
+
+  it("shows incompatibility message for unsupported system (SNES)", () => {
+    openMultiplayerTabWith("Super Mario World (USA)", "snes");
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const gameSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
+      .find(s => s.querySelector("h4")?.textContent?.includes("Current Game"));
+    expect(gameSection).toBeTruthy();
+    expect(gameSection!.textContent).toContain("does not currently support netplay");
+  });
+
+  it("intro section now uses updated title 'Online Multiplayer'", () => {
+    openMultiplayerTabWith();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const heading = panel.querySelector<HTMLElement>("h4");
+    expect(heading!.textContent).toContain("Online Multiplayer");
+  });
+});
+
+// ── In-game Netplay button ────────────────────────────────────────────────────
+
+describe("buildInGameControls — Netplay button", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  function triggerGameStart(
+    opts: {
+      systemId?: string;
+      netplayEnabled?: boolean;
+      netplayServerUrl?: string;
+    } = {}
+  ) {
+    const settings = makeSettings({
+      netplayEnabled:   opts.netplayEnabled  ?? false,
+      netplayServerUrl: opts.netplayServerUrl ?? "",
+    });
+
+    const mgr = new NetplayManager();
+    if (opts.netplayEnabled)   mgr.setEnabled(true);
+    if (opts.netplayServerUrl) mgr.setServerUrl(opts.netplayServerUrl);
+
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: opts.systemId ? { id: opts.systemId, shortName: opts.systemId.toUpperCase(), name: opts.systemId } : null,
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null as unknown,
+      onProgress: null as unknown,
+      onError: null as unknown,
+      onGameStart: null as unknown,
+      onFPSUpdate: null as unknown,
+      webgpuAdapterInfo: null,
+      activeCoreSettings: {},
+      diagnosticLog: [],
+    } as unknown as PSPEmulator;
+
+    const uiOpts = {
+      ...makeOpts(settings),
+      emulator: emulatorMock,
+      netplayManager: mgr,
+      getCurrentSystemId: () => opts.systemId ?? null,
+    };
+
+    initUI(uiOpts);
+
+    // Trigger game-start to call buildInGameControls
+    if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    }
+
+    return { settings, mgr, emulatorMock };
+  }
+
+  it("shows a Netplay button in the in-game header when onOpenSettings is wired", () => {
+    const { emulatorMock } = triggerGameStart({ systemId: "gba" });
+    // Simulate onGameStart being called
+    if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    }
+    const headerActions = document.getElementById("header-actions")!;
+    const btn = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.textContent?.includes("Netplay") || b.getAttribute("aria-label")?.includes("multiplayer"));
+    expect(btn).toBeTruthy();
+  });
+
+  it("Netplay button is disabled for unsupported systems (e.g. SNES)", () => {
+    const { emulatorMock } = triggerGameStart({ systemId: "snes" });
+    if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    }
+    const headerActions = document.getElementById("header-actions")!;
+    const btn = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.getAttribute("aria-label")?.includes("multiplayer"));
+    expect(btn).toBeTruthy();
+    expect(btn!.disabled).toBe(true);
+  });
+
+  it("Netplay button is enabled for supported system (GBA) when netplay is active", () => {
+    const { emulatorMock } = triggerGameStart({
+      systemId: "gba",
+      netplayEnabled: true,
+      netplayServerUrl: "wss://netplay.example.com",
+    });
+    if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    }
+    const headerActions = document.getElementById("header-actions")!;
+    const btn = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.getAttribute("aria-label")?.includes("multiplayer"));
+    expect(btn).toBeTruthy();
+    expect(btn!.disabled).toBe(false);
+    expect(btn!.className).toContain("btn--active");
+  });
+});
+
+// ── Focus trap module-level cleanup ──────────────────────────────────────────
+
+describe("settings panel focus trap cleanup", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    // Call initUI with an idle emulator to clean up stale event listeners
+    // (e.g., capture-phase Escape handlers) left by previous tests.
+    initUI(makeOpts(makeSettings()));
+  });
+
+  it("opening settings twice does not accumulate duplicate Tab-key handlers", () => {
+    // Open the panel twice without closing in between
+    openSettingsPanel(makeSettings(), fullCapsForTests, makeFullLibForTests(), makeBiosLibForTests(), vi.fn());
+    openSettingsPanel(makeSettings(), fullCapsForTests, makeFullLibForTests(), makeBiosLibForTests(), vi.fn());
+
+    const panel = document.getElementById("settings-panel")!;
+    expect(panel.hidden).toBe(false);
+
+    // Closing should work correctly after double-open
+    (document.getElementById("settings-close") as HTMLButtonElement).click();
+    expect(panel.hidden).toBe(true);
+  });
+
+  it("Escape closes the panel after a re-open without double-firing", () => {
+    openSettingsPanel(makeSettings(), fullCapsForTests, makeFullLibForTests(), makeBiosLibForTests(), vi.fn());
+    (document.getElementById("settings-close") as HTMLButtonElement).click();
+
+    openSettingsPanel(makeSettings(), fullCapsForTests, makeFullLibForTests(), makeBiosLibForTests(), vi.fn());
+    const panel = document.getElementById("settings-panel")!;
+    expect(panel.hidden).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(panel.hidden).toBe(true);
   });
 });
