@@ -106,6 +106,11 @@ export interface ArchiveExtractResult {
   candidates?: ArchiveExtractCandidate[];
 }
 
+interface ArchiveCandidateOptions {
+  includeCandidates?: boolean;
+  maxCandidates?: number;
+}
+
 function emitProgress(
   options: ArchiveExtractOptions | undefined,
   progress: ArchiveExtractProgress
@@ -486,8 +491,9 @@ export async function detectArchiveFormat(blob: Blob): Promise<ArchiveFormat> {
  * Returns `null` when the archive contains no ROM-like entries.
  */
 export async function extractFromZip(
-  blob: Blob
-): Promise<{ name: string; blob: Blob } | null> {
+  blob: Blob,
+  opts: ArchiveCandidateOptions = {}
+): Promise<{ name: string; blob: Blob; candidates?: ArchiveExtractCandidate[] } | null> {
   assertArchiveSize(blob, "ZIP");
 
   const buffer = await blob.arrayBuffer();
@@ -583,53 +589,83 @@ export async function extractFromZip(
   const target = romCandidates[0]?.entry ?? null;
   if (!target) return null;
 
-  if (target.uncompressedSize > MAX_EXTRACTED_ENTRY_BYTES) {
-    throw new Error(
-      `ZIP entry "${target.name}" is too large to extract in-browser ` +
-      `(${(target.uncompressedSize / 1073741824).toFixed(2)} GB).`
-    );
-  }
-
-  // ── Read local file header to find compressed data offset ────────────────
-  const lhBase = target.localHeaderOffset;
-  if (lhBase + 30 > bytes.length) return null;
-  if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;
-
-  const lhFileNameLen = readUint16LE(view, lhBase + 26);
-  const lhExtraLen    = readUint16LE(view, lhBase + 28);
-  const dataStart     = lhBase + 30 + lhFileNameLen + lhExtraLen;
-  const dataEnd2      = dataStart + target.compressedSize;
-
-  if (dataEnd2 > bytes.length) return null;
-  const compressedSlice = bytes.slice(dataStart, dataEnd2);
-
-  // ── Decompress ────────────────────────────────────────────────────────────
-  let output: Uint8Array;
-  if (target.compressionMethod === COMPRESS_STORED) {
-    if (compressedSlice.length !== target.uncompressedSize) {
+  const extractZipEntry = async (entry: CentralDirEntry): Promise<ArchiveEntry | null> => {
+    if (entry.uncompressedSize > MAX_EXTRACTED_ENTRY_BYTES) {
       throw new Error(
-        `ZIP entry size mismatch for "${target.name}" (expected ${target.uncompressedSize} bytes, ` +
-        `got ${compressedSlice.length}).`
+        `ZIP entry "${entry.name}" is too large to extract in-browser ` +
+        `(${(entry.uncompressedSize / 1073741824).toFixed(2)} GB).`
       );
     }
-    output = compressedSlice;
-  } else if (target.compressionMethod === COMPRESS_DEFLATE) {
-    output = await decompressWithStream("deflate-raw", compressedSlice);
-    if (output.length !== target.uncompressedSize) {
+
+    const lhBase = entry.localHeaderOffset;
+    if (lhBase + 30 > bytes.length) return null;
+    if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;
+
+    const lhFileNameLen = readUint16LE(view, lhBase + 26);
+    const lhExtraLen    = readUint16LE(view, lhBase + 28);
+    const dataStart     = lhBase + 30 + lhFileNameLen + lhExtraLen;
+    const dataEnd2      = dataStart + entry.compressedSize;
+
+    if (dataEnd2 > bytes.length) return null;
+    const compressedSlice = bytes.slice(dataStart, dataEnd2);
+
+    let output: Uint8Array;
+    if (entry.compressionMethod === COMPRESS_STORED) {
+      if (compressedSlice.length !== entry.uncompressedSize) {
+        throw new Error(
+          `ZIP entry size mismatch for "${entry.name}" (expected ${entry.uncompressedSize} bytes, ` +
+          `got ${compressedSlice.length}).`
+        );
+      }
+      output = compressedSlice;
+    } else if (entry.compressionMethod === COMPRESS_DEFLATE) {
+      output = await decompressWithStream("deflate-raw", compressedSlice);
+      if (output.length !== entry.uncompressedSize) {
+        throw new Error(
+          `ZIP inflate size mismatch for "${entry.name}" (expected ${entry.uncompressedSize} bytes, got ${output.length}).`
+        );
+      }
+    } else {
       throw new Error(
-        `ZIP inflate size mismatch for "${target.name}" (expected ${target.uncompressedSize} bytes, got ${output.length}).`
+        `Unsupported ZIP compression method ${entry.compressionMethod}. ` +
+        "Only Stored (0) and Deflate (8) are supported."
       );
     }
-  } else {
-    throw new Error(
-      `Unsupported ZIP compression method ${target.compressionMethod}. ` +
-      "Only Stored (0) and Deflate (8) are supported."
-    );
+
+    return {
+      name: entry.name,
+      bytes: output,
+    };
+  };
+
+  const selected = await extractZipEntry(target);
+  if (!selected) return null;
+
+  let candidates: ArchiveExtractCandidate[] | undefined;
+  if (opts.includeCandidates) {
+    const max = Math.max(1, opts.maxCandidates ?? 8);
+    const topEntries = romCandidates.slice(0, max).map(item => item.entry);
+    const cache = new Map<number, ArchiveEntry>();
+    cache.set(target.localHeaderOffset, selected);
+    const topExtracted: ArchiveEntry[] = [];
+    for (const entry of topEntries) {
+      const cached = cache.get(entry.localHeaderOffset);
+      if (cached) {
+        topExtracted.push(cached);
+        continue;
+      }
+      const out = await extractZipEntry(entry);
+      if (!out) continue;
+      cache.set(entry.localHeaderOffset, out);
+      topExtracted.push(out);
+    }
+    candidates = toArchiveCandidates(topExtracted);
   }
 
   return {
-    name: shortNameFromPath(target.name),
-    blob: new Blob([new Uint8Array(output)]),
+    name: shortNameFromPath(selected.name),
+    blob: new Blob([new Uint8Array(selected.bytes)]),
+    candidates,
   };
 }
 
@@ -637,8 +673,9 @@ export async function extractFromZip(
  * Extract a ROM-like file from a TAR archive.
  */
 export async function extractFromTar(
-  blob: Blob
-): Promise<{ name: string; blob: Blob } | null> {
+  blob: Blob,
+  opts: ArchiveCandidateOptions = {}
+): Promise<{ name: string; blob: Blob; candidates?: ArchiveExtractCandidate[] } | null> {
   assertArchiveSize(blob, "TAR");
 
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -688,9 +725,16 @@ export async function extractFromTar(
   const selected = selectBestRomEntry(entries);
   if (!selected) return null;
 
+  let candidates: ArchiveExtractCandidate[] | undefined;
+  if (opts.includeCandidates) {
+    const top = selectTopRomEntries(entries, Math.max(1, opts.maxCandidates ?? 8));
+    candidates = toArchiveCandidates(top);
+  }
+
   return {
     name: shortNameFromPath(selected.name),
     blob: new Blob([new Uint8Array(selected.bytes)]),
+    candidates,
   };
 }
 
@@ -703,15 +747,16 @@ export async function extractFromTar(
  */
 export async function extractFromGzip(
   blob: Blob,
-  sourceName = "archive.gz"
-): Promise<{ name: string; blob: Blob } | null> {
+  sourceName = "archive.gz",
+  opts: ArchiveCandidateOptions = {}
+): Promise<{ name: string; blob: Blob; candidates?: ArchiveExtractCandidate[] } | null> {
   assertArchiveSize(blob, "GZIP");
 
   const compressed = new Uint8Array(await blob.arrayBuffer());
   const decompressed = await decompressWithStream("gzip", compressed);
 
   if (isTarBuffer(decompressed)) {
-    return extractFromTar(new Blob([new Uint8Array(decompressed)]));
+    return extractFromTar(new Blob([new Uint8Array(decompressed)]), opts);
   }
 
   const stripped = sourceName.replace(/\.(tgz|gz|gzip)$/i, "");
@@ -753,18 +798,18 @@ export async function extractFromArchive(
 
   switch (format) {
     case "zip": {
-      const extracted = await extractFromZip(blob);
+      const extracted = await extractFromZip(blob, { includeCandidates: true, maxCandidates: 10 });
       return extracted ? { ...extracted, format } : null;
     }
 
     case "tar": {
-      const extracted = await extractFromTar(blob);
+      const extracted = await extractFromTar(blob, { includeCandidates: true, maxCandidates: 10 });
       return extracted ? { ...extracted, format } : null;
     }
 
     case "gzip": {
       const sourceName = blob instanceof File ? blob.name : "archive.gz";
-      const extracted = await extractFromGzip(blob, sourceName);
+      const extracted = await extractFromGzip(blob, sourceName, { includeCandidates: true, maxCandidates: 10 });
       return extracted ? { ...extracted, format } : null;
     }
 

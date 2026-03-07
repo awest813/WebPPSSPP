@@ -724,10 +724,36 @@ describe('extractFromArchive', () => {
     expect(result!.name).toBe('game.nes');
   });
 
+  it('returns candidate list for multi-ROM ZIP archives', async () => {
+    const zipBuf = buildZipWithTwoEntries(
+      'alpha.nes', new Uint8Array([0xaa]),
+      'beta.nes',  new Uint8Array([0xbb]),
+    );
+    const result = await extractFromArchive(new Blob([zipBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.format).toBe('zip');
+    const names = (result!.candidates ?? []).map(c => c.name);
+    expect(names).toContain('alpha.nes');
+    expect(names).toContain('beta.nes');
+  });
+
   it('returns null for unsupported formats (bzip2)', async () => {
     const bz = new Uint8Array([0x42, 0x5a, 0x68, 0x39]);
     const result = await extractFromArchive(new Blob([bz]));
     expect(result).toBeNull();
+  });
+
+  it('returns candidate list for TAR archives with multiple ROM entries', async () => {
+    const tarBuf = buildTar([
+      { name: 'alpha.nes', data: new Uint8Array([0xaa]) },
+      { name: 'beta.nes', data: new Uint8Array([0xbb]) },
+    ]);
+    const result = await extractFromArchive(new Blob([tarBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.format).toBe('tar');
+    const names = (result!.candidates ?? []).map(c => c.name);
+    expect(names).toContain('alpha.nes');
+    expect(names).toContain('beta.nes');
   });
 
   it('returns ranked candidates for RAR archives with multiple ROM entries', async () => {
