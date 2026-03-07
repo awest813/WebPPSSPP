@@ -122,6 +122,19 @@ function make<K extends keyof HTMLElementTagNameMap>(
 
 // ── Build DOM ─────────────────────────────────────────────────────────────────
 
+/** Mini controller SVG icon (reused in header brand and footer) */
+const _CTRL_SVG_MINI = `<svg width="12" height="12" viewBox="0 0 28 28" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     aria-hidden="true" style="color:var(--c-accent);opacity:0.6;flex-shrink:0">
+  <rect x="2" y="7" width="24" height="14" rx="7"/>
+  <rect x="7" y="12.5" width="5" height="3" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
+  <rect x="8.5" y="11" width="2" height="6" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
+  <circle cx="20" cy="12.5" r="1.1" fill="currentColor" stroke="none"/>
+  <circle cx="22.5" cy="14" r="1.1" fill="currentColor" stroke="none"/>
+  <circle cx="20" cy="15.5" r="1.1" fill="currentColor" stroke="none"/>
+  <circle cx="17.5" cy="14" r="1.1" fill="currentColor" stroke="none"/>
+</svg>`;
+
 export function buildDOM(app: HTMLElement): void {
   // Reset module-level state that is tied to DOM nodes created below
   if (_librarySearchDebounce !== null) {
@@ -243,19 +256,19 @@ export function buildDOM(app: HTMLElement): void {
           <div class="onboarding__features">
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">💾</span>
-              <span>Save states with screenshots</span>
+              <span><strong>Save States</strong><br>Snapshot your progress with screenshots, load anytime</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🎮</span>
-              <span>Touch controls &amp; gamepad support</span>
+              <span><strong>Touch &amp; Gamepad</strong><br>Customisable on-screen controls and USB/Bluetooth gamepads</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">⚡</span>
-              <span>Auto performance optimization</span>
+              <span><strong>Auto Performance</strong><br>Detects your hardware and picks the best settings</span>
             </div>
             <div class="onboarding__feature">
-              <span class="onboarding__feature-icon" aria-hidden="true">📲</span>
-              <span>Installable as a PWA</span>
+              <span class="onboarding__feature-icon" aria-hidden="true">🔒</span>
+              <span><strong>Privacy First</strong><br>Everything stays in your browser — no account, no uploads</span>
             </div>
           </div>
         </div>
@@ -356,8 +369,9 @@ export function buildDOM(app: HTMLElement): void {
         <span class="status-item__label">Tier:</span>
         <span class="status-item__value" id="status-tier">—</span>
       </div>
-      <div class="status-item hide-mobile" style="margin-left:auto">
-        <span class="status-item__value" style="opacity:0.5">RetroVault v1.0</span>
+      <div class="status-item hide-mobile" style="margin-left:auto;gap:6px">
+        ${_CTRL_SVG_MINI}
+        <span class="status-item__value" style="opacity:0.45;font-size:0.7rem">RetroVault v1.0</span>
       </div>
     </footer>
   `;
@@ -1902,6 +1916,19 @@ function buildInGameControls(
   for (const ctrl of controls) {
     if (ctrl) container.appendChild(ctrl);
   }
+
+  // "Now Playing" chip — appended last so it sits at the far right with auto margin
+  const gameName = getCurrentGameName?.();
+  if (gameName) {
+    const chip = make("span", {
+      class: "now-playing-chip",
+      title: gameName,
+      "aria-label": `Now playing: ${gameName}`,
+      style: "margin-left: auto",
+    }, gameName);
+    container.appendChild(chip);
+  }
+
   updateHeaderOverflow();
 }
 
@@ -4394,14 +4421,23 @@ export function showInfoToast(msg: string): void {
   toast.id = "info-toast";
   toast.className = "info-toast";
   toast.setAttribute("role", "status");
-  toast.textContent = msg;
+
+  // Checkmark icon
+  const icon = document.createElement("span");
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = "✓";
+  icon.style.cssText = "color:var(--c-accent);font-size:1rem;font-weight:800;flex-shrink:0";
+
+  const text = document.createElement("span");
+  text.textContent = msg;
 
   const closeBtn = document.createElement("button");
   closeBtn.className = "error-close";
   closeBtn.textContent = "✕";
   closeBtn.setAttribute("aria-label", "Dismiss");
   closeBtn.addEventListener("click", () => { toast.classList.remove("visible"); setTimeout(() => toast.remove(), 200); });
-  toast.appendChild(closeBtn);
+
+  toast.append(icon, text, closeBtn);
   document.body.appendChild(toast);
 
   requestAnimationFrame(() => toast.classList.add("visible"));
