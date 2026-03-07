@@ -13,6 +13,10 @@ import {
   normalizeRomTitle,
   roomDisplayNameForKey,
   validateAliasTable,
+  clearNetplayResolutionCache,
+  NetplayCompatibilityErrorCode,
+  netplayErrorMessage,
+  NetplayMetricsCollector,
 } from './multiplayer';
 
 // ── hashGameId ────────────────────────────────────────────────────────────────
@@ -885,5 +889,259 @@ describe('resolveNetplayRoomKey — gb system support', () => {
     mgr.setEnabled(true);
     mgr.setServerUrl('wss://netplay.example.com');
     expect(mgr.isSupportedForSystem('gb')).toBe(true);
+  });
+});
+
+// ── clearNetplayResolutionCache ───────────────────────────────────────────────
+
+describe('clearNetplayResolutionCache', () => {
+  it('exists and can be called without error', () => {
+    expect(() => clearNetplayResolutionCache()).not.toThrow();
+  });
+
+  it('resolution results remain consistent after clearing the cache', () => {
+    const key1 = resolveNetplayRoomKey('Pokemon FireRed (USA)', 'gba');
+    clearNetplayResolutionCache();
+    const key2 = resolveNetplayRoomKey('Pokemon FireRed (USA)', 'gba');
+    expect(key1).toBe(key2);
+    expect(key1).toBe('pokemon_gen3_kanto');
+  });
+
+  it('repeated calls with the same input return the same result (cache hit)', () => {
+    clearNetplayResolutionCache();
+    const first  = resolveNetplayRoomKey('Pokemon Ruby Version', 'gba');
+    const second = resolveNetplayRoomKey('Pokemon Ruby Version', 'gba');
+    const third  = resolveNetplayRoomKey('Pokemon Ruby Version', 'gba');
+    expect(first).toBe(second);
+    expect(second).toBe(third);
+    expect(first).toBe('pokemon_gen3_hoenn');
+  });
+
+  it('cache does not bleed between different system IDs', () => {
+    clearNetplayResolutionCache();
+    const gbaKey = resolveNetplayRoomKey('Pokemon Red Version', 'gba');
+    const gbcKey = resolveNetplayRoomKey('Pokemon Red Version', 'gbc');
+    // GBC resolves to pokemon_gen1; GBA has no matching alias so falls back
+    expect(gbcKey).toBe('pokemon_gen1');
+    expect(gbaKey).not.toBe('pokemon_gen1');
+  });
+
+  it('cache does not bleed between different game IDs', () => {
+    clearNetplayResolutionCache();
+    const firered = resolveNetplayRoomKey('Pokemon FireRed (USA)', 'gba');
+    const ruby    = resolveNetplayRoomKey('Pokemon Ruby Version', 'gba');
+    expect(firered).toBe('pokemon_gen3_kanto');
+    expect(ruby).toBe('pokemon_gen3_hoenn');
+    expect(firered).not.toBe(ruby);
+  });
+});
+
+// ── netplayErrorMessage ───────────────────────────────────────────────────────
+
+describe('netplayErrorMessage', () => {
+  it('returns an incompatible ROM message', () => {
+    const msg = netplayErrorMessage(NetplayCompatibilityErrorCode.IncompatibleRom);
+    expect(msg).toContain('not compatible');
+  });
+
+  it('returns an unsupported system message', () => {
+    const msg = netplayErrorMessage(NetplayCompatibilityErrorCode.UnsupportedSystem);
+    expect(msg.toLowerCase()).toContain('system');
+  });
+
+  it('returns a network timeout message', () => {
+    const msg = netplayErrorMessage(NetplayCompatibilityErrorCode.NetworkTimeout);
+    expect(msg.toLowerCase()).toContain('timed out');
+  });
+
+  it('returns a room full message', () => {
+    const msg = netplayErrorMessage(NetplayCompatibilityErrorCode.RoomFull);
+    expect(msg.toLowerCase()).toContain('full');
+  });
+
+  it('returns a room not found message', () => {
+    const msg = netplayErrorMessage(NetplayCompatibilityErrorCode.RoomNotFound);
+    expect(msg.toLowerCase()).toContain('not found');
+  });
+
+  it('returns a server unavailable message', () => {
+    const msg = netplayErrorMessage(NetplayCompatibilityErrorCode.ServerUnavailable);
+    expect(msg.toLowerCase()).toContain('unavailable');
+  });
+
+  it('returns a generic fallback message for unknown codes', () => {
+    const msg = netplayErrorMessage('unknown_future_error_code');
+    expect(msg).toBeTruthy();
+    expect(msg.toLowerCase()).toContain('unknown');
+  });
+
+  it('all known error codes produce non-empty messages', () => {
+    for (const code of Object.values(NetplayCompatibilityErrorCode)) {
+      const msg = netplayErrorMessage(code);
+      expect(msg.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ── NetplayMetricsCollector ───────────────────────────────────────────────────
+
+describe('NetplayMetricsCollector', () => {
+  it('starts with zeroed metrics', () => {
+    const collector = new NetplayMetricsCollector();
+    const snap = collector.snapshot();
+    expect(snap.averageLatencyMs).toBe(0);
+    expect(snap.worstLatencyMs).toBe(0);
+    expect(snap.packetLoss).toBe(0);
+    expect(snap.averageFrameDelay).toBe(0);
+    expect(snap.resyncCount).toBe(0);
+  });
+
+  it('sessionDurationMs is non-negative immediately after construction', () => {
+    const collector = new NetplayMetricsCollector();
+    expect(collector.snapshot().sessionDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('recordLatency updates averageLatencyMs and worstLatencyMs', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordLatency(20);
+    collector.recordLatency(40);
+    collector.recordLatency(60);
+    const snap = collector.snapshot();
+    expect(snap.averageLatencyMs).toBe(40);
+    expect(snap.worstLatencyMs).toBe(60);
+  });
+
+  it('single latency sample: average equals worst', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordLatency(35);
+    const snap = collector.snapshot();
+    expect(snap.averageLatencyMs).toBe(35);
+    expect(snap.worstLatencyMs).toBe(35);
+  });
+
+  it('recordFrameDelay updates averageFrameDelay', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordFrameDelay(2);
+    collector.recordFrameDelay(4);
+    const snap = collector.snapshot();
+    expect(snap.averageFrameDelay).toBe(3);
+  });
+
+  it('recordPacket with no losses gives packetLoss = 0', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordPacket();
+    collector.recordPacket();
+    collector.recordPacket();
+    expect(collector.snapshot().packetLoss).toBe(0);
+  });
+
+  it('recordPacket with some losses gives correct fraction', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordPacket();       // sent
+    collector.recordPacket(true);   // lost
+    collector.recordPacket();       // sent
+    collector.recordPacket(true);   // lost
+    expect(collector.snapshot().packetLoss).toBe(0.5);
+  });
+
+  it('recordPacket with all losses gives packetLoss = 1', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordPacket(true);
+    collector.recordPacket(true);
+    expect(collector.snapshot().packetLoss).toBe(1);
+  });
+
+  it('recordResync increments resyncCount', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordResync();
+    collector.recordResync();
+    expect(collector.snapshot().resyncCount).toBe(2);
+  });
+
+  it('reset() clears all accumulated metrics and restarts the clock', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordLatency(100);
+    collector.recordPacket(true);
+    collector.recordResync();
+    collector.reset();
+    const snap = collector.snapshot();
+    expect(snap.averageLatencyMs).toBe(0);
+    expect(snap.worstLatencyMs).toBe(0);
+    expect(snap.packetLoss).toBe(0);
+    expect(snap.resyncCount).toBe(0);
+  });
+
+  it('snapshot() is non-destructive — multiple calls return consistent results', () => {
+    const collector = new NetplayMetricsCollector();
+    collector.recordLatency(50);
+    const snap1 = collector.snapshot();
+    const snap2 = collector.snapshot();
+    expect(snap1.averageLatencyMs).toBe(snap2.averageLatencyMs);
+    expect(snap1.worstLatencyMs).toBe(snap2.worstLatencyMs);
+  });
+});
+
+// ── fetchLobbyRooms — systemId and latencyMs parsing ─────────────────────────
+
+describe('NetplayManager.fetchLobbyRooms — systemId and latencyMs fields', () => {
+  let mgr: NetplayManager;
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    localStorage.clear();
+    mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://netplay.example.com');
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    globalThis.fetch = originalFetch;
+  });
+
+  it('parses systemId from server response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([
+      { id: 'room-1', systemId: 'gba', name: 'GBA Room' },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    const rooms = await mgr.fetchLobbyRooms();
+    expect(rooms[0].systemId).toBe('gba');
+  });
+
+  it('parses system_id (snake_case) from server response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([
+      { id: 'room-2', system_id: 'nds' },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    const rooms = await mgr.fetchLobbyRooms();
+    expect(rooms[0].systemId).toBe('nds');
+  });
+
+  it('parses latencyMs from server response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([
+      { id: 'room-3', latencyMs: 32 },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    const rooms = await mgr.fetchLobbyRooms();
+    expect(rooms[0].latencyMs).toBe(32);
+  });
+
+  it('parses ping field as latencyMs', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([
+      { id: 'room-4', ping: 45 },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    const rooms = await mgr.fetchLobbyRooms();
+    expect(rooms[0].latencyMs).toBe(45);
+  });
+
+  it('systemId and latencyMs are undefined when absent from server response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([
+      { id: 'room-5', name: 'Basic Room' },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    const rooms = await mgr.fetchLobbyRooms();
+    expect(rooms[0].systemId).toBeUndefined();
+    expect(rooms[0].latencyMs).toBeUndefined();
   });
 });

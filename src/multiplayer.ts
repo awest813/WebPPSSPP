@@ -146,24 +146,69 @@ function aliasConfidence(canonicalGameId: string): number {
   return 0.25;
 }
 
+// ── Resolution cache ──────────────────────────────────────────────────────────
+
+/**
+ * Module-level cache keyed on `"<gameId>\0<systemId>"`.
+ *
+ * Each entry stores the result of a full alias-resolution pass so that repeated
+ * calls with the same (gameId, systemId) pair avoid redundant regex evaluation
+ * and string normalization.  This reduces average resolution time from O(n)
+ * regex evaluations to O(1) map lookup after the first call.
+ *
+ * The cache is intentionally unbounded: alias tables are small and game ID
+ * strings are short, so memory pressure is negligible in practice.
+ *
+ * Cache key format: `"<gameId>\0<systemId>"`.  The null-byte separator is used
+ * because it cannot appear in a valid game title or system ID string, so there
+ * is no risk of two different (gameId, systemId) pairs colliding on the same
+ * key.
+ */
+const _resolutionCache = new Map<string, { roomKey: string; confidence: number }>();
+
+/**
+ * Clear the compatibility-resolution cache.
+ *
+ * Intended for use in tests that need to verify resolution from a cold start,
+ * and for callers that update alias rules at runtime.
+ */
+export function clearNetplayResolutionCache(): void {
+  _resolutionCache.clear();
+}
+
 function resolveNetplayRoom(gameId: string, systemId?: string): { roomKey: string; confidence: number } {
+  const cacheKey = `${gameId}\0${systemId ?? ""}`;
+  const cached = _resolutionCache.get(cacheKey);
+  if (cached) return cached;
+
   const canonicalGameId = canonicalizeGameId(gameId);
   const normalizedSystem = systemId?.toLowerCase();
-  if (!normalizedSystem) return { roomKey: canonicalGameId || gameId, confidence: 0 };
+  if (!normalizedSystem) {
+    const result = { roomKey: canonicalGameId || gameId, confidence: 0 };
+    _resolutionCache.set(cacheKey, result);
+    return result;
+  }
 
   const aliases = NETPLAY_ROOM_COMPAT_ALIASES[normalizedSystem];
-  if (!aliases || aliases.length === 0) return { roomKey: canonicalGameId || gameId, confidence: 0 };
+  if (!aliases || aliases.length === 0) {
+    const result = { roomKey: canonicalGameId || gameId, confidence: 0 };
+    _resolutionCache.set(cacheKey, result);
+    return result;
+  }
 
   for (const alias of aliases) {
     if (alias.match.test(canonicalGameId)) {
       const confidence = aliasConfidence(canonicalGameId);
-      if (confidence >= NETPLAY_ALIAS_CONFIDENCE_THRESHOLD) {
-        return { roomKey: alias.roomKey, confidence };
-      }
-      return { roomKey: canonicalGameId || gameId, confidence };
+      const result = confidence >= NETPLAY_ALIAS_CONFIDENCE_THRESHOLD
+        ? { roomKey: alias.roomKey, confidence }
+        : { roomKey: canonicalGameId || gameId, confidence };
+      _resolutionCache.set(cacheKey, result);
+      return result;
     }
   }
-  return { roomKey: canonicalGameId || gameId, confidence: 0 };
+  const result = { roomKey: canonicalGameId || gameId, confidence: 0 };
+  _resolutionCache.set(cacheKey, result);
+  return result;
 }
 
 // ── Storage ───────────────────────────────────────────────────────────────────
@@ -179,13 +224,17 @@ export interface NetplaySettings {
 }
 
 export interface NetplayLobbyRoom {
-  id:      string;
-  gameId?: number;
-  name?:   string;
-  host?:   string;
-  players?: number;
+  id:          string;
+  gameId?:     number;
+  name?:       string;
+  host?:       string;
+  players?:    number;
   maxPlayers?: number;
   hasPassword?: boolean;
+  /** System identifier (e.g. "gba", "nds") reported by the server. */
+  systemId?:   string;
+  /** Round-trip latency in milliseconds as measured or reported by the server. */
+  latencyMs?:  number;
 }
 
 const DEFAULT_NETPLAY_SETTINGS: NetplaySettings = {
@@ -232,7 +281,7 @@ export function resolveNetplayRoomKey(gameId: string, systemId?: string): string
   const resolved = resolveNetplayRoom(gameId, systemId);
   const roomHash = hashGameId(resolved.roomKey).toString(16);
   console.info(
-    `[NetplayResolver]\nInput Game ID: ${gameId}\nNormalized: ${normalized}\nAlias Match: ${resolved.roomKey}\nSystem: ${systemId ?? "unknown"}\nRoom Hash: ${roomHash}`
+    `[Netplay]\n  ROM:          ${gameId}\n  Normalized ID: ${normalized}\n  Alias Group:   ${resolved.roomKey}\n  System:        ${systemId ?? "unknown"}\n  Room Hash:     ${roomHash}`
   );
   return resolved.roomKey;
 }
@@ -295,6 +344,170 @@ export function validateAliasTable(): string[] {
   }
 
   return violations;
+}
+
+// ── Compatibility error handling ──────────────────────────────────────────────
+
+/**
+ * Known netplay compatibility / connection failure codes.
+ *
+ * These are returned by the UI layer when a netplay attempt fails so the
+ * error message renderer can show a clear, localised string to the user
+ * instead of a raw technical error or a silent failure.
+ */
+export const NetplayCompatibilityErrorCode = {
+  IncompatibleRom:   "incompatible_rom",
+  UnsupportedSystem: "unsupported_system",
+  NetworkTimeout:    "network_timeout",
+  RoomFull:          "room_full",
+  RoomNotFound:      "room_not_found",
+  ServerUnavailable: "server_unavailable",
+} as const;
+
+export type NetplayCompatibilityErrorCode =
+  typeof NetplayCompatibilityErrorCode[keyof typeof NetplayCompatibilityErrorCode];
+
+const _ERROR_MESSAGES: Record<string, string> = {
+  [NetplayCompatibilityErrorCode.IncompatibleRom]:
+    "This game version is not compatible with the host.",
+  [NetplayCompatibilityErrorCode.UnsupportedSystem]:
+    "This system does not support netplay.",
+  [NetplayCompatibilityErrorCode.NetworkTimeout]:
+    "Connection timed out. Please check your network and try again.",
+  [NetplayCompatibilityErrorCode.RoomFull]:
+    "This room is full. Please try another room or create a new one.",
+  [NetplayCompatibilityErrorCode.RoomNotFound]:
+    "Room not found. It may have been closed by the host.",
+  [NetplayCompatibilityErrorCode.ServerUnavailable]:
+    "Netplay server is unavailable. Please try again later.",
+};
+
+/**
+ * Return a human-readable error message for the given compatibility error code.
+ *
+ * Falls back to a generic message for unknown codes so callers never receive
+ * an empty string.
+ */
+export function netplayErrorMessage(code: string): string {
+  return _ERROR_MESSAGES[code] ?? "An unknown netplay error occurred.";
+}
+
+// ── Session metrics ───────────────────────────────────────────────────────────
+
+/**
+ * A snapshot of netplay session performance metrics.
+ *
+ * Produced by {@link NetplayMetricsCollector.snapshot} and suitable for
+ * display in a debug overlay or for logging at the end of a session.
+ */
+export interface NetplaySessionMetrics {
+  /** Mean round-trip latency across all recorded samples, in milliseconds. */
+  averageLatencyMs:  number;
+  /** Highest recorded round-trip latency, in milliseconds. */
+  worstLatencyMs:    number;
+  /** Fraction of packets lost (0–1).  0 means no loss, 1 means total loss. */
+  packetLoss:        number;
+  /** Mean frame delay across all recorded samples, in emulator frames. */
+  averageFrameDelay: number;
+  /** Total number of state re-synchronisation events recorded. */
+  resyncCount:       number;
+  /** Wall-clock duration of the session so far, in milliseconds. */
+  sessionDurationMs: number;
+}
+
+/**
+ * Collects and aggregates netplay session performance metrics.
+ *
+ * Callers feed raw measurements via {@link recordLatency}, {@link recordFrameDelay},
+ * {@link recordPacket}, and {@link recordResync}.  At any point a
+ * {@link snapshot} can be taken that returns the current aggregated
+ * {@link NetplaySessionMetrics}.
+ *
+ * All aggregations (running sum, worst-case) are maintained incrementally so
+ * that {@link snapshot} is O(1) regardless of how many samples have been
+ * recorded.
+ *
+ * Example:
+ * ```ts
+ * const metrics = new NetplayMetricsCollector();
+ * metrics.recordLatency(42);
+ * metrics.recordPacket();
+ * const report = metrics.snapshot();
+ * console.log(report.averageLatencyMs); // 42
+ * ```
+ */
+export class NetplayMetricsCollector {
+  private _latencySum      = 0;
+  private _latencyCount    = 0;
+  private _worstLatency    = 0;
+  private _frameDelaySum   = 0;
+  private _frameDelayCount = 0;
+  private _packetsSent     = 0;
+  private _packetsLost     = 0;
+  private _resyncCount     = 0;
+  private _startTime:      number;
+
+  constructor() {
+    this._startTime = Date.now();
+  }
+
+  /** Record a round-trip latency measurement in milliseconds. */
+  recordLatency(ms: number): void {
+    this._latencySum += ms;
+    this._latencyCount++;
+    if (ms > this._worstLatency) this._worstLatency = ms;
+  }
+
+  /** Record a frame-delay measurement in emulator frames. */
+  recordFrameDelay(frames: number): void {
+    this._frameDelaySum += frames;
+    this._frameDelayCount++;
+  }
+
+  /**
+   * Record that a packet was sent.
+   * Pass `lost = true` when the packet is confirmed dropped.
+   */
+  recordPacket(lost = false): void {
+    this._packetsSent++;
+    if (lost) this._packetsLost++;
+  }
+
+  /** Record a state re-synchronisation event. */
+  recordResync(): void {
+    this._resyncCount++;
+  }
+
+  /** Reset all accumulated metrics and restart the session clock. */
+  reset(): void {
+    this._latencySum       = 0;
+    this._latencyCount     = 0;
+    this._worstLatency     = 0;
+    this._frameDelaySum    = 0;
+    this._frameDelayCount  = 0;
+    this._packetsSent      = 0;
+    this._packetsLost      = 0;
+    this._resyncCount      = 0;
+    this._startTime        = Date.now();
+  }
+
+  /** Return a point-in-time snapshot of the current session metrics. */
+  snapshot(): NetplaySessionMetrics {
+    return {
+      averageLatencyMs:  this._latencyCount > 0
+                           ? this._latencySum / this._latencyCount
+                           : 0,
+      worstLatencyMs:    this._worstLatency,
+      packetLoss:        this._packetsSent > 0
+                           ? this._packetsLost / this._packetsSent
+                           : 0,
+      averageFrameDelay: this._frameDelayCount > 0
+                           ? this._frameDelaySum / this._frameDelayCount
+                           : 0,
+      resyncCount:       this._resyncCount,
+      sessionDurationMs: Date.now() - this._startTime,
+    };
+  }
 }
 
 // ── ICE server URL validation ─────────────────────────────────────────────────
@@ -571,6 +784,8 @@ export class NetplayManager {
           : (typeof row.has_password === "boolean"
             ? row.has_password
             : undefined),
+        systemId:  this._readOptionalString(row, ["systemId", "system_id", "system"]),
+        latencyMs: this._readOptionalNumber(row, ["latencyMs", "latency_ms", "latency", "ping"]),
       });
     }
     return out;
