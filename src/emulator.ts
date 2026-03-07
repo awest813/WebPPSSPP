@@ -1388,8 +1388,9 @@ export class PSPEmulator {
       // Bluetooth/USB audio devices (high base latency) and allows the
       // minimum buffer on DACs with very low output latency.
       //
-      // Applies to PSP, N64, and PS1 — all three 3D cores expose audio
-      // buffer or latency knobs that benefit from hardware-aware tuning.
+      // Applies to all 3D and audio-sensitive cores: PSP, N64, PS1, GBA,
+      // NDS, and Dreamcast — each exposes audio buffer or timing knobs that
+      // benefit from hardware-aware tuning.
       const audioCaps = await audioCapabilitiesPromise;
       if (audioCaps && opts.systemId === "psp" && "ppsspp_audio_latency" in ejsSettings) {
         const tierLatency = ejsSettings["ppsspp_audio_latency"];
@@ -1435,6 +1436,77 @@ export class PSPEmulator {
             console.info(
               `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
               `— switching PS1 CD access to sync for audio stability.`
+            );
+          }
+        }
+      }
+
+      // GBA audio adaptation: mgba_audio_buffer_size maps sample-count to
+      // hardware latency tier.  The tier default already picks an appropriate
+      // size, but on high-latency hardware we always promote to the 4096-sample
+      // buffer to prevent underruns regardless of what the tier selected.
+      // On low-latency hardware we allow the tier default to stand unmodified.
+      if (audioCaps && opts.systemId === "gba" && "mgba_audio_buffer_size" in ejsSettings) {
+        const hwBufTier   = audioCaps.suggestedBufferTier;
+        const tierSamples = parseInt(ejsSettings["mgba_audio_buffer_size"], 10);
+        // High-latency hardware (Bluetooth/USB): always use 4096-sample buffer.
+        // Medium-latency hardware:               use at least 1024 samples.
+        // Low-latency hardware:                  let the tier choice stand.
+        const minSamples = hwBufTier === "high" ? 4096 : hwBufTier === "medium" ? 1024 : 0;
+        if (minSamples > tierSamples) {
+          ejsSettings["mgba_audio_buffer_size"] = String(minSamples);
+          this.logDiagnostic(
+            "audio",
+            `GBA audio buffer promoted ${tierSamples} → ${minSamples} samples (HW tier: ${hwBufTier})`
+          );
+          if (this.verboseLogging) {
+            console.info(
+              `[RetroVault] Audio: hardware latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
+              `suggests buffer tier "${hwBufTier}"; upgrading mgba_audio_buffer_size ` +
+              `from ${tierSamples} → ${minSamples} samples.`
+            );
+          }
+        }
+      }
+
+      // NDS audio adaptation: on high-latency hardware, disable advanced
+      // timing emulation to decouple audio output from the DS CPU timing
+      // model.  This prevents audio desync on Bluetooth/USB audio devices
+      // where the output thread lags behind the emulated CPU clock.
+      // advanced_timing is only forced off when it is currently "enabled"
+      // (i.e. the tier selected it); lower tiers already have it disabled.
+      if (audioCaps && opts.systemId === "nds" && audioCaps.suggestedBufferTier === "high") {
+        if (ejsSettings["desmume_advanced_timing"] === "enabled") {
+          ejsSettings["desmume_advanced_timing"] = "disabled";
+          this.logDiagnostic(
+            "audio",
+            `NDS advanced_timing disabled for high-latency audio hardware (${audioCaps.baseLatencyMs?.toFixed(1)} ms)`
+          );
+          if (this.verboseLogging) {
+            console.info(
+              `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
+              `— disabling NDS advanced_timing to prevent audio desync.`
+            );
+          }
+        }
+      }
+
+      // Dreamcast audio adaptation: on high-latency hardware, disable DSP
+      // emulation (flycast_enable_dsp) to reduce CPU load and prevent audio
+      // underruns.  The Dreamcast DSP emulates the AICA sound chip's programmable
+      // DSP unit for reverb/chorus effects; disabling it falls back to simpler
+      // mixing that is significantly cheaper on the main thread.
+      if (audioCaps && opts.systemId === "segaDC" && audioCaps.suggestedBufferTier === "high") {
+        if (ejsSettings["flycast_enable_dsp"] === "enabled") {
+          ejsSettings["flycast_enable_dsp"] = "disabled";
+          this.logDiagnostic(
+            "audio",
+            `Dreamcast DSP disabled for high-latency audio hardware (${audioCaps.baseLatencyMs?.toFixed(1)} ms)`
+          );
+          if (this.verboseLogging) {
+            console.info(
+              `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
+              `— disabling Dreamcast DSP to reduce CPU load and prevent audio underruns.`
             );
           }
         }

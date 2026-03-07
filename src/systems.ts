@@ -439,6 +439,10 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
  *   mgba_interframe_blending — Ghost/blend between frames (mimics LCD blur)
  *   mgba_skip_bios         — Skip the GBA boot logo (always ON for speed)
  *   mgba_idle_optimization — Detect busy-wait loops and replace with halts
+ *   mgba_audio_buffer_size — Audio output buffer in samples (512/1024/2048/4096).
+ *                            Larger buffers prevent underruns on high-latency audio
+ *                            hardware (Bluetooth/USB); smaller buffers reduce latency
+ *                            on direct-wired audio.
  */
 const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
@@ -450,6 +454,9 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     mgba_solar_sensor_level: "0",
     mgba_allow_opposing_directions: "no",
     mgba_force_gbp: "OFF",
+    // Larger buffer on low-spec hardware: more headroom to prevent audio
+    // underruns when the CPU is already under pressure from frameskip recovery.
+    mgba_audio_buffer_size: "2048",
   },
   medium: {
     mgba_skip_bios: "ON",
@@ -460,6 +467,7 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     mgba_solar_sensor_level: "0",
     mgba_allow_opposing_directions: "no",
     mgba_force_gbp: "OFF",
+    mgba_audio_buffer_size: "1024",
   },
   high: {
     mgba_skip_bios: "ON",
@@ -470,6 +478,8 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     mgba_solar_sensor_level: "0",
     mgba_allow_opposing_directions: "no",
     mgba_force_gbp: "OFF",
+    // 512-sample buffer for lowest latency on capable hardware
+    mgba_audio_buffer_size: "512",
   },
   ultra: {
     mgba_skip_bios: "ON",
@@ -480,6 +490,7 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     mgba_solar_sensor_level: "0",
     mgba_allow_opposing_directions: "no",
     mgba_force_gbp: "OFF",
+    mgba_audio_buffer_size: "512",
   },
 };
 

@@ -1338,7 +1338,120 @@ describe('PSPEmulator', () => {
     });
   });
 
-  // ── Post-processing ─────────────────────────────────────────────────────────
+  // ── Audio latency adaptation ────────────────────────────────────────────────
+
+  describe('audio latency adaptation', () => {
+    const baseCaps = {
+      deviceMemoryGB: 8, cpuCores: 8, gpuRenderer: 'unknown',
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      recommendedMode: 'quality' as const, tier: 'high' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 4096,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 4096,
+        anisotropicFiltering: true, maxAnisotropy: 16,
+        floatTextures: true, halfFloatTextures: true,
+        instancedArrays: true, webgl2: true,
+        vertexArrayObject: true, compressedTextures: true,
+        etc2Textures: true, astcTextures: false,
+        maxColorAttachments: 8, multiDraw: true,
+      },
+      gpuBenchmarkScore: 80, prefersReducedMotion: false,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const,
+      jsHeapLimitMB: null, estimatedVRAMMB: 4096,
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    // ── GBA ──────────────────────────────────────────────────────────────────
+
+    it('GBA: promotes mgba_audio_buffer_size from 512 to 1024 on medium-latency hardware', async () => {
+      // jsdom has no AudioContext → detectAudioCapabilities returns suggestedBufferTier="medium"
+      // High tier starts with mgba_audio_buffer_size="512"; medium HW requires at least 1024.
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.gba'),
+        volume:          0.7,
+        systemId:        'gba',
+        performanceMode: 'auto',
+        deviceCaps:      { ...baseCaps, tier: 'high' as const },
+      });
+
+      const settings = emulator.activeCoreSettings;
+      expect(settings).not.toBeNull();
+      // High tier default is 512; medium HW (jsdom fallback) must promote it to 1024
+      expect(settings?.mgba_audio_buffer_size).toBe('1024');
+    });
+
+    it('GBA: does not shrink mgba_audio_buffer_size on low tier (2048 ≥ medium minimum of 1024)', async () => {
+      // Low tier starts with 2048 which is already above the medium minimum
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.gba'),
+        volume:          0.7,
+        systemId:        'gba',
+        performanceMode: 'performance',
+        deviceCaps:      { ...baseCaps, tier: 'low' as const },
+      });
+
+      const settings = emulator.activeCoreSettings;
+      expect(settings).not.toBeNull();
+      expect(settings?.mgba_audio_buffer_size).toBe('2048');
+    });
+
+    it('GBA: records an audio diagnostic event when buffer is promoted', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.gba'),
+        volume:          0.7,
+        systemId:        'gba',
+        performanceMode: 'auto',
+        deviceCaps:      { ...baseCaps, tier: 'high' as const },
+      });
+
+      const audioEntry = emulator.diagnosticLog.find(e =>
+        e.category === 'audio' && e.message.includes('GBA audio buffer promoted')
+      );
+      expect(audioEntry).toBeDefined();
+      expect(audioEntry!.message).toContain('512');
+      expect(audioEntry!.message).toContain('1024');
+    });
+
+    it('GBA: does not record an audio diagnostic event when buffer is already adequate (low tier)', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.gba'),
+        volume:          0.7,
+        systemId:        'gba',
+        performanceMode: 'performance',
+        deviceCaps:      { ...baseCaps, tier: 'low' as const },
+      });
+
+      const audioEntry = emulator.diagnosticLog.find(e =>
+        e.category === 'audio' && e.message.includes('GBA audio buffer promoted')
+      );
+      expect(audioEntry).toBeUndefined();
+    });
+  });
 
   describe('post-processing', () => {
     it('postProcessActive is false by default', () => {
