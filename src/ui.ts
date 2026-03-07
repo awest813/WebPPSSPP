@@ -72,7 +72,14 @@ import type { Settings } from "./main.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
 import { isTouchDevice, isPortrait } from "./touchControls.js";
 import type { NetplayManager } from "./multiplayer.js";
-import { DEFAULT_ICE_SERVERS, validateIceServerUrl as standaloneValidateIceServerUrl } from "./multiplayer.js";
+import {
+  DEFAULT_ICE_SERVERS,
+  validateIceServerUrl as standaloneValidateIceServerUrl,
+  resolveNetplayRoomKey,
+  roomDisplayNameForKey,
+  NETPLAY_SUPPORTED_SYSTEM_IDS,
+  SYSTEM_LINK_CAPABILITIES,
+} from "./multiplayer.js";
 import { CloudSaveManager, WebDAVProvider } from "./cloudSave.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
@@ -477,10 +484,12 @@ export function initUI(opts: UIOptions): void {
     setStatusGame(name);
     setStatusTier(emulator.activeTier);
     document.title = `${name} — RetroVault`;
+    const openSettingsWith = (tab?: SettingsTab) =>
+      openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab);
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
-      getTouchOverlay
+      getTouchOverlay, openSettingsWith, netplayManager
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
     if (settings.touchControls) {
@@ -498,10 +507,12 @@ export function initUI(opts: UIOptions): void {
     document.title = `${name} — RetroVault`;
     setStatusSystem(sys ? sys.shortName : "—");
     setStatusGame(name);
+    const openSettingsWithResume = (tab?: SettingsTab) =>
+      openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab);
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
-      getTouchOverlay
+      getTouchOverlay, openSettingsWithResume, netplayManager
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
     if (settings.touchControls) {
@@ -1429,7 +1440,17 @@ export function buildLandingControls(
     openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager);
   });
 
+  const btnMultiplayer = make("button", {
+    class: "btn",
+    title: "Open Multiplayer Settings",
+    "aria-label": "Open multiplayer settings",
+  }, "🌐 Multiplayer") as HTMLButtonElement;
+  btnMultiplayer.addEventListener("click", () => {
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager, "multiplayer");
+  });
+
   container.appendChild(btnSettings);
+  container.appendChild(btnMultiplayer);
   updateHeaderOverflow();
 }
 
@@ -1442,7 +1463,9 @@ function buildInGameControls(
   getCurrentGameId?:  () => string | null,
   getCurrentGameName?: () => string | null,
   getCurrentSystemId?: () => string | null,
-  getTouchOverlay?:   (() => TouchControlsOverlay | null) | undefined
+  getTouchOverlay?:   (() => TouchControlsOverlay | null) | undefined,
+  onOpenSettings?:    (tab?: SettingsTab) => void,
+  netplayManager?:    import("./multiplayer.js").NetplayManager,
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
@@ -1611,7 +1634,41 @@ function buildInGameControls(
   });
   volWrap.append(volBtn, volSlider);
 
-  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouchToggle, btnTouch, btnTouchReset, volWrap];
+  // Netplay button — always visible in-game when onOpenSettings is wired
+  let btnNetplay: HTMLButtonElement | null = null;
+  if (onOpenSettings) {
+    const systemId = getCurrentSystemId?.() ?? "";
+    const isNetplaySystem = (NETPLAY_SUPPORTED_SYSTEM_IDS as readonly string[]).includes(systemId);
+    const isLinkCapable   = !systemId || SYSTEM_LINK_CAPABILITIES[systemId] === true;
+    const isSupported     = isNetplaySystem && isLinkCapable;
+    const isActive        = netplayManager?.isActive ?? false;
+
+    let netplayTitle: string;
+    if (systemId && !isSupported) {
+      const sysName = getSystemById(systemId)?.shortName ?? systemId.toUpperCase();
+      netplayTitle = `Netplay is not supported for this system (${sysName})`;
+    } else if (!isActive) {
+      netplayTitle = "Open Multiplayer Settings to configure netplay";
+    } else {
+      netplayTitle = "Open Multiplayer Settings";
+    }
+
+    btnNetplay = make("button", {
+      class: (isSupported && isActive) ? "btn btn--active" : "btn",
+      title: netplayTitle,
+      "aria-label": "Open multiplayer settings",
+    }, "🌐 Netplay") as HTMLButtonElement;
+
+    if (systemId && !isSupported) {
+      btnNetplay.disabled = true;
+    }
+
+    btnNetplay.addEventListener("click", () => {
+      onOpenSettings("multiplayer");
+    });
+  }
+
+  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouchToggle, btnTouch, btnTouchReset, btnNetplay, volWrap];
   for (const ctrl of controls) {
     if (ctrl) container.appendChild(ctrl);
   }
@@ -2263,6 +2320,7 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
 type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug" | "about";
 
 let _settingsPanelEscHandler: ((e: KeyboardEvent) => void) | null = null;
+let _settingsPanelFocusTrap: ((e: KeyboardEvent) => void) | null = null;
 
 export function openSettingsPanel(
   settings:         Settings,
@@ -2288,7 +2346,7 @@ export function openSettingsPanel(
   });
 
   // Focus trap: keep Tab navigation inside the settings panel
-  const _settingsFocusTrap = (e: KeyboardEvent) => {
+  const focusTrapFn = (e: KeyboardEvent) => {
     if (e.key !== "Tab") return;
     const focusable = Array.from(
       panel.querySelectorAll<HTMLElement>(
@@ -2311,20 +2369,27 @@ export function openSettingsPanel(
       document.removeEventListener("keydown", _settingsPanelEscHandler);
       _settingsPanelEscHandler = null;
     }
-    document.removeEventListener("keydown", _settingsFocusTrap);
+    if (_settingsPanelFocusTrap) {
+      document.removeEventListener("keydown", _settingsPanelFocusTrap);
+      _settingsPanelFocusTrap = null;
+    }
     previousFocus?.focus();
   };
 
-  // Remove any previously registered Escape handler before attaching a new one.
+  // Remove any previously registered handlers before attaching new ones.
   if (_settingsPanelEscHandler) {
     document.removeEventListener("keydown", _settingsPanelEscHandler);
   }
+  if (_settingsPanelFocusTrap) {
+    document.removeEventListener("keydown", _settingsPanelFocusTrap);
+  }
   _settingsPanelEscHandler = (e: KeyboardEvent) => { if (e.key !== "Escape") return; close(); };
+  _settingsPanelFocusTrap  = focusTrapFn;
 
   document.getElementById("settings-close")!.onclick   = close;
   document.getElementById("settings-backdrop")!.onclick = close;
   document.addEventListener("keydown", _settingsPanelEscHandler);
-  document.addEventListener("keydown", _settingsFocusTrap);
+  document.addEventListener("keydown", _settingsPanelFocusTrap);
 }
 
 function buildSettingsContent(
@@ -2458,7 +2523,7 @@ function buildSettingsContent(
   buildDisplayTab(panels[1], settings, deviceCaps, onSettingsChange, emulatorRef);
   buildLibraryTab(panels[2], settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
   buildBiosTab(panels[3], biosLibrary);
-  buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager);
+  buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager, settings.lastGameName, emulatorRef?.currentSystem?.id);
   buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager, biosLibrary);
   buildAboutTab(panels[6]);
 
@@ -2872,13 +2937,15 @@ function buildMultiplayerTab(
   container:        HTMLElement,
   settings:         Settings,
   onSettingsChange: (patch: Partial<Settings>) => void,
-  netplayManager?:  import("./multiplayer.js").NetplayManager
+  netplayManager?:  import("./multiplayer.js").NetplayManager,
+  currentGameName?: string | null,
+  currentSystemId?: string | null,
 ): void {
   // Intro section
   const introSection = make("div", { class: "settings-section" });
-  introSection.appendChild(make("h4", { class: "settings-section__title" }, "Netplay (Experimental)"));
+  introSection.appendChild(make("h4", { class: "settings-section__title" }, "Online Multiplayer (Netplay)"));
   introSection.appendChild(make("p", { class: "settings-help" },
-    "Enables the built-in EmulatorJS Netplay feature. When active, a Netplay button appears " +
+    "Enable online play for supported systems. When active, a Netplay button appears " +
     "in the emulator toolbar, letting you create or join rooms with other players for the same game. " +
     "Requires a compatible netplay signalling server."
   ));
@@ -2888,8 +2955,8 @@ function buildMultiplayerTab(
   const updateStatusBadge = () => {
     const active = netplayManager?.isActive ?? false;
     statusBadge.textContent = active
-      ? "Netplay active — server configured"
-      : "Netplay inactive — enable and set a server URL to activate";
+      ? "● Netplay active — server configured"
+      : "○ Netplay inactive — enable and set a server URL to activate";
     statusBadge.classList.toggle("netplay-status--active", active);
   };
   updateStatusBadge();
@@ -3159,9 +3226,92 @@ function buildMultiplayerTab(
   urlInput.addEventListener("change", syncLobbyVisibility);
 
   container.append(lobbySection);
-}
 
-// ── Debug tab ─────────────────────────────────────────────────────────────────
+  // === Supported systems section ============================================
+  const supportedSysSection = make("div", { class: "settings-section" });
+  supportedSysSection.appendChild(make("h4", { class: "settings-section__title" }, "Supported Systems"));
+  supportedSysSection.appendChild(make("p", { class: "settings-help" },
+    "Netplay is available for the following systems. Other systems load fine but online play is not yet supported."
+  ));
+  const supportedSysList = make("div", { class: "netplay-sys-list" });
+  for (const sysId of NETPLAY_SUPPORTED_SYSTEM_IDS) {
+    const sysInfo = getSystemById(sysId);
+    const chip = make("span", { class: "sys-chip" }, sysInfo?.shortName ?? sysId.toUpperCase());
+    if (sysInfo) chip.title = sysInfo.name;
+    supportedSysList.appendChild(chip);
+  }
+  supportedSysSection.appendChild(supportedSysList);
+  container.appendChild(supportedSysSection);
+
+  // === Current game compatibility section ====================================
+  if (currentGameName && currentSystemId) {
+    const gameCompatSection = make("div", { class: "settings-section" });
+    gameCompatSection.appendChild(make("h4", { class: "settings-section__title" }, "Current Game"));
+
+    const isNetplaySystem = (NETPLAY_SUPPORTED_SYSTEM_IDS as readonly string[]).includes(currentSystemId);
+    const isLinkCapable   = SYSTEM_LINK_CAPABILITIES[currentSystemId] === true;
+
+    if (!isNetplaySystem || !isLinkCapable) {
+      const sysName = getSystemById(currentSystemId)?.name ?? currentSystemId.toUpperCase();
+      gameCompatSection.appendChild(make("p", { class: "settings-help" },
+        `This system (${sysName}) does not currently support netplay in this app.`
+      ));
+    } else {
+      const roomKey     = resolveNetplayRoomKey(currentGameName, currentSystemId);
+      const displayName = roomDisplayNameForKey(roomKey);
+      const hasCompatRoom = displayName !== roomKey;
+
+      const gameRow = make("div", { class: "netplay-game-info-row" });
+      gameRow.appendChild(make("span", { class: "netplay-game-name" }, currentGameName));
+      if (hasCompatRoom) {
+        gameRow.appendChild(make("span", { class: "netplay-compat-badge" }, displayName));
+      }
+      gameCompatSection.appendChild(gameRow);
+      gameCompatSection.appendChild(make("p", { class: "settings-help" },
+        hasCompatRoom
+          ? "This game can share rooms with compatible versions. Players on paired versions will appear in the same lobby."
+          : "This game uses a unique room key. Only players with the same ROM will appear in the same lobby."
+      ));
+    }
+    container.appendChild(gameCompatSection);
+  }
+
+  // === Room actions section ==================================================
+  const roomSection = make("div", { class: "settings-section" });
+  roomSection.appendChild(make("h4", { class: "settings-section__title" }, "Room Actions"));
+
+  if (!(netplayManager?.isActive)) {
+    roomSection.appendChild(make("p", { class: "settings-help" },
+      "Enable netplay and configure a server URL above to create or join rooms."
+    ));
+    roomSection.appendChild(make("p", { class: "netplay-status" },
+      "Server URL is required before netplay can start."
+    ));
+  } else {
+    roomSection.appendChild(make("p", { class: "settings-help" },
+      "Use the Netplay button inside the emulator toolbar to create or join rooms. " +
+      "Rooms are scoped to your current game — open Settings while a game is running to see rooms for that title."
+    ));
+    const actionRow = make("div", { class: "netplay-room-actions" });
+    const createBtn = make("button", {
+      class: "btn btn--primary netplay-create-room",
+      title: "Opens the in-game Netplay button to create a new room",
+    }, "Create Room") as HTMLButtonElement;
+    const joinBtn = make("button", {
+      class: "btn netplay-join-room",
+      title: "Opens the in-game Netplay button to join an existing room",
+    }, "Join Room") as HTMLButtonElement;
+    createBtn.addEventListener("click", () => {
+      showInfoToast("Start a game and use the Netplay button in the emulator toolbar to create a room.");
+    });
+    joinBtn.addEventListener("click", () => {
+      showInfoToast("Start a game and use the Netplay button in the emulator toolbar to join a room.");
+    });
+    actionRow.append(createBtn, joinBtn);
+    roomSection.appendChild(actionRow);
+  }
+  container.appendChild(roomSection);
+}
 
 function buildDebugTab(
   container:        HTMLElement,
