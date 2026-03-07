@@ -81,6 +81,7 @@ import {
   SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayer.js";
 import { CloudSaveManager, WebDAVProvider } from "./cloudSave.js";
+import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
 let _canInstallPWA: (() => boolean) | undefined;
@@ -132,10 +133,16 @@ export function buildDOM(app: HTMLElement): void {
   _librarySortMode      = "lastPlayed";
   _librarySystemFilter  = "";
 
-  const acceptList = ALL_EXTENSIONS.map(e => `.${e}`).join(",");
+  const archivePickerExts = [
+    "zip", "7z", "rar", "tar", "gz", "tgz",
+    "bz2", "tbz", "tbz2", "xz", "txz",
+    "zst", "lz", "lzma", "cab",
+  ];
+  const acceptExts = [...new Set([...ALL_EXTENSIONS, ...archivePickerExts])];
+  const acceptList = acceptExts.map(e => `.${e}`).join(",");
   // Build a concise format hint: first extension of the first 8 systems + archive note
   const hintExts = SYSTEMS.slice(0, 8).map(s => `.${s.extensions[0]}`).join(" · ");
-  const formatHint = `${hintExts} + more · ZIP auto-extracted`;
+  const formatHint = `${hintExts} + more · ZIP auto-extracted · 7Z/RAR/TAR/GZ supported`;
 
   app.innerHTML = `
     <!-- Skip navigation link for keyboard users -->
@@ -1053,6 +1060,64 @@ function pickSystem(fileName: string, candidates: SystemInfo[], subtitleText?: s
 // ── Resolve system then add to library and launch ─────────────────────────────
 
 const PATCH_EXT_SET = new Set(["ips", "bps", "ups"]);
+const IMPORT_ARCHIVE_EXT_SET = new Set([
+  "zip", "7z", "rar", "tar", "gz", "tgz",
+  "bz2", "tbz", "tbz2", "xz", "txz",
+  "zst", "lz", "lzma", "cab",
+]);
+const IMPORT_ARCHIVE_FORMAT_BY_EXT: Partial<Record<string, ArchiveFormat>> = {
+  zip: "zip",
+  "7z": "7z",
+  rar: "rar",
+  tar: "tar",
+  gz: "gzip",
+  tgz: "gzip",
+  gzip: "gzip",
+  bz2: "bzip2",
+  tbz: "bzip2",
+  tbz2: "bzip2",
+  xz: "xz",
+  txz: "xz",
+};
+const EXTRACTABLE_ARCHIVE_FORMATS = new Set<ArchiveFormat>(["zip", "7z", "rar", "tar", "gzip"]);
+
+function fileExt(fileName: string): string {
+  const dotIdx = fileName.lastIndexOf(".");
+  if (dotIdx <= 0 || dotIdx >= fileName.length - 1) return "";
+  return fileName.substring(dotIdx + 1).toLowerCase();
+}
+
+function inferFileForSystem(original: File, system: SystemInfo): File {
+  const currentExt = fileExt(original.name);
+  if (system.extensions.includes(currentExt)) return original;
+
+  const baseName = original.name.replace(/\.[^.]+$/, "") || "game";
+  const inferredExt = system.extensions[0] ?? "bin";
+  return new File([original], `${baseName}.${inferredExt}`, { type: original.type });
+}
+
+function formatArchiveProgressMessage(progress: ArchiveExtractProgress): string {
+  const pct = typeof progress.percent === "number" ? ` ${progress.percent}%` : "";
+  return `${progress.message}${pct}`;
+}
+
+function logImport(
+  emulatorRef: PSPEmulator | undefined,
+  settings: Settings,
+  message: string,
+): void {
+  emulatorRef?.logDiagnostic("system", `Import: ${message}`);
+  if (settings.verboseLogging) console.info(`[RetroVault] ${message}`);
+}
+
+function logImportWarn(
+  emulatorRef: PSPEmulator | undefined,
+  settings: Settings,
+  message: string,
+): void {
+  emulatorRef?.logDiagnostic("error", `Import: ${message}`);
+  if (settings.verboseLogging) console.warn(`[RetroVault] ${message}`);
+}
 
 export async function resolveSystemAndAdd(
   file:          File,
@@ -1062,131 +1127,205 @@ export async function resolveSystemAndAdd(
   emulatorRef?:  PSPEmulator,
   onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
 ): Promise<void> {
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const ext = fileExt(file.name);
   if (PATCH_EXT_SET.has(ext)) {
     await handlePatchFileDrop(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     return;
   }
 
-  // RAR and other compressed archive formats cannot be extracted in-browser.
-  // 7z is intentionally not blocked here because it can be a native package
-  // format for arcade sets.
-  const blockedArchiveExts = new Set(["rar", "tar", "gz", "tgz", "bz2", "tbz", "tbz2", "xz", "txz", "zst", "lz", "lzma", "cab"]);
-  if (blockedArchiveExts.has(ext)) {
+  let resolvedFile = file;
+  let archiveFormat: ArchiveFormat = "unknown";
+  let archiveModulePromise: Promise<typeof import("./archive.js")> | null = null;
+  const getArchiveModule = (): Promise<typeof import("./archive.js")> => {
+    if (!archiveModulePromise) archiveModulePromise = import("./archive.js");
+    return archiveModulePromise;
+  };
+
+  logImport(
+    emulatorRef,
+    settings,
+    `Received file "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)} MB)`,
+  );
+
+  // Mobile file pickers may strip/mangle extensions. Sniff archive signatures
+  // whenever extension hints are archive-like OR extension is absent.
+  const shouldSniffArchive = IMPORT_ARCHIVE_EXT_SET.has(ext) || ext === "";
+  if (shouldSniffArchive) {
+    const archiveModule = await getArchiveModule();
+    archiveFormat = await archiveModule.detectArchiveFormat(file);
+    if (archiveFormat === "unknown") {
+      archiveFormat = IMPORT_ARCHIVE_FORMAT_BY_EXT[ext] ?? "unknown";
+    }
+    if (archiveFormat !== "unknown") {
+      logImport(
+        emulatorRef,
+        settings,
+        `Archive format detected: ${archiveFormat.toUpperCase()} (from "${file.name}")`,
+      );
+    }
+  }
+
+  if (archiveFormat === "bzip2" || archiveFormat === "xz") {
     showError(
-      `.${ext} archives are not supported for automatic extraction.\n\n` +
+      `${archiveFormat.toUpperCase()} archives are not supported for automatic extraction.\n\n` +
       "Please extract the archive first and then import the ROM file directly."
+    );
+    logImportWarn(
+      emulatorRef,
+      settings,
+      `${archiveFormat.toUpperCase()} archive requires manual extraction`,
     );
     return;
   }
 
-  let resolvedFile = file;
-
-  // Determine whether to attempt ZIP extraction.
-  // 1. Extension-based: .zip is always treated as a ZIP.
-  // 2. Content-based fallback: when the extension is absent or not a recognised
-  //    ROM/archive type, read the first 8 bytes to detect the format from its
-  //    magic header. This handles mobile file pickers (especially iOS Safari)
-  //    that may strip or mangle file extensions.
-  let treatAsZip = ext === "zip";
-  if (!treatAsZip && ext !== "7z" && !blockedArchiveExts.has(ext)) {
-    const { detectArchiveFormat } = await import("./archive.js");
-    const fmt = await detectArchiveFormat(file);
-    if (fmt === "zip") {
-      treatAsZip = true;
-      if (settings.verboseLogging) {
-        console.info(
-          `[RetroVault] ZIP archive detected by content (extension: "${ext || "(none)"}") for "${file.name}"`
-        );
-      }
-    } else if (fmt === "7z") {
-      // 7z detected by content — ensure the file can still route through
-      // extension-based system detection (important for missing/mangled names).
-      if (ext !== "7z") {
-        resolvedFile = new File([file], `${file.name}.7z`, { type: file.type });
-      }
-      if (settings.verboseLogging) {
-        console.info(
-          `[RetroVault] 7-Zip archive detected by content for "${file.name}", routing as native package.`
-        );
-      }
-    } else if (fmt === "rar" || fmt === "tar" || fmt === "gzip" || fmt === "bzip2" || fmt === "xz") {
-      showError(
-        `${fmt.toUpperCase()} archives are not supported for automatic extraction.\n\n` +
-        "Please extract the archive first and then import the ROM file directly."
-      );
-      return;
-    }
-  }
-
-  // ZIP is extraction-capable. 7z is treated as a native package and routed
-  // through normal system detection (MAME 2003+) rather than being blocked.
-  if (treatAsZip) {
-    const { extractFromZip } = await import("./archive.js");
+  if (EXTRACTABLE_ARCHIVE_FORMATS.has(archiveFormat)) {
+    const archiveModule = await getArchiveModule();
     showLoadingOverlay();
-    setLoadingMessage("Extracting archive…");
-    if (settings.verboseLogging) {
-      console.info(
-        `[RetroVault] ZIP extraction started: "${file.name}" ` +
-        `(${(file.size / 1024 / 1024).toFixed(1)} MB)`
-      );
-    }
+    setLoadingMessage(`Extracting ${archiveFormat.toUpperCase()} archive…`);
+    logImport(
+      emulatorRef,
+      settings,
+      `Starting ${archiveFormat.toUpperCase()} extraction`,
+    );
+
     try {
-      const extracted = await extractFromZip(file);
+      const extracted = await archiveModule.extractFromArchive(file, {
+        onProgress: (progress) => {
+          setLoadingMessage(formatArchiveProgressMessage(progress));
+        },
+      });
+
       if (extracted) {
-        resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
-        setLoadingMessage("Archive extracted. Adding to library…");
-        if (settings.verboseLogging) {
-          console.info(
-            `[RetroVault] ZIP extraction succeeded: "${extracted.name}" ` +
-            `(${(extracted.blob.size / 1024 / 1024).toFixed(1)} MB extracted)`
+        const extractedCandidates = extracted.candidates ?? [];
+        if (extractedCandidates.length > 1) {
+          hideLoadingOverlay();
+          const picked = await showArchiveEntryPickerDialog(
+            extracted.format,
+            extractedCandidates,
           );
+          if (!picked) return;
+          resolvedFile = new File([picked.blob], picked.name, { type: picked.blob.type });
+          showLoadingOverlay();
+          setLoadingMessage("Archive entry selected. Detecting system…");
+          logImport(
+            emulatorRef,
+            settings,
+            `Archive entry selected: "${picked.name}" (${formatBytes(picked.size)})`,
+          );
+        } else {
+          resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
         }
+        setLoadingMessage("Archive extracted. Detecting system…");
+        logImport(
+          emulatorRef,
+          settings,
+          `${extracted.format.toUpperCase()} extraction succeeded: "${resolvedFile.name}" ` +
+          `(${(resolvedFile.size / 1024 / 1024).toFixed(1)} MB)`,
+        );
       } else {
-        // No extractable ROM entry found. Fall back to native package handling
-        // (e.g. arcade/MAME zip sets) via the normal detectSystem flow below.
-        if (settings.verboseLogging) {
-          console.info(
-            `[RetroVault] ZIP extraction: no ROM entry found in "${file.name}", ` +
-            `falling back to native package handling.`
-          );
-        }
         hideLoadingOverlay();
+        const strictFormats = new Set<ArchiveFormat>(["rar", "tar", "gzip"]);
+        if (strictFormats.has(archiveFormat)) {
+          const pretty = archiveFormat === "gzip" ? "GZIP" : archiveFormat.toUpperCase();
+          showError(
+            `${pretty} archive does not contain a recognised ROM file.\n\n` +
+            "Try extracting the archive manually and import the ROM file directly."
+          );
+          logImportWarn(
+            emulatorRef,
+            settings,
+            `${pretty} extraction produced no ROM candidate`,
+          );
+          return;
+        }
+        // ZIP/7z may be native package formats (e.g. arcade sets), so keep
+        // the original archive and continue through normal system detection.
+        logImport(
+          emulatorRef,
+          settings,
+          `${archiveFormat.toUpperCase()} extraction found no ROM candidate; falling back to native package routing`,
+        );
       }
     } catch (err) {
-      // Extraction is best-effort. If parsing/decompression fails, continue
-      // with the original zip as a native package candidate.
-      if (settings.verboseLogging) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`[RetroVault] ZIP extraction failed for "${file.name}": ${reason}`);
-      }
       hideLoadingOverlay();
+      const reason = err instanceof Error ? err.message : String(err);
+      const fallbackAllowed = archiveFormat === "zip" || archiveFormat === "7z";
+      if (!fallbackAllowed) {
+        showError(
+          `Could not extract ${archiveFormat.toUpperCase()} archive:\n${reason}\n\n` +
+          "Please extract the archive manually and import the ROM file directly."
+        );
+        logImportWarn(
+          emulatorRef,
+          settings,
+          `${archiveFormat.toUpperCase()} extraction failed: ${reason}`,
+        );
+        return;
+      }
+      logImportWarn(
+        emulatorRef,
+        settings,
+        `${archiveFormat.toUpperCase()} extraction failed (${reason}); falling back to native package routing`,
+      );
     }
+  } else if (IMPORT_ARCHIVE_EXT_SET.has(ext) && archiveFormat === "unknown") {
+    // Extension says "archive", but content signature was unrecognised.
+    // Keep going — this may still be a native package for arcade cores.
+    logImportWarn(
+      emulatorRef,
+      settings,
+      `Archive extension ".${ext}" had no recognised signature; attempting native package routing`,
+    );
   }
 
   const detected = detectSystem(resolvedFile.name);
   let system: SystemInfo | null = null;
 
   if (detected === null) {
-    hideLoadingOverlay();
-    showError(`Unrecognised file type: "${resolvedFile.name}".\nSupported extensions: ${ALL_EXTENSIONS.map(e => `.${e}`).join("  ·  ")}`);
-    return;
+    const resolvedExt = fileExt(resolvedFile.name);
+    const shouldOfferSystemPicker =
+      resolvedExt === "" || (!ALL_EXTENSIONS.includes(resolvedExt) && !IMPORT_ARCHIVE_EXT_SET.has(resolvedExt));
+
+    if (shouldOfferSystemPicker) {
+      hideLoadingOverlay();
+      logImport(
+        emulatorRef,
+        settings,
+        `System detection failed for "${resolvedFile.name}". Prompting manual system selection.`,
+      );
+      const picked = await pickSystem(resolvedFile.name, SYSTEMS);
+      if (!picked) return;
+      system = picked;
+      resolvedFile = inferFileForSystem(resolvedFile, picked);
+      logImport(
+        emulatorRef,
+        settings,
+        `Manual system selected: ${picked.id}. Inferred filename "${resolvedFile.name}"`,
+      );
+    } else {
+      hideLoadingOverlay();
+      showError(
+        `Unrecognised file type: "${resolvedFile.name}".\n` +
+        `Supported extensions: ${ALL_EXTENSIONS.map(e => `.${e}`).join("  ·  ")}`
+      );
+      return;
+    }
   } else if (Array.isArray(detected)) {
     hideLoadingOverlay();
     system = await pickSystem(resolvedFile.name, detected);
     if (!system) return;
   } else {
     // Single system detected — do not hide the overlay here.
-    // If a ZIP was just extracted the overlay is still showing; leaving it
-    // visible avoids a flicker (hide → immediate show) on the happy path.
+    // If an archive was just extracted the overlay may still be showing;
+    // keeping it visible avoids hide/show flicker on the happy path.
     system = detected;
   }
 
-  if (settings.verboseLogging) {
-    console.info(
-      `[RetroVault] System detected for "${resolvedFile.name}": ${system.id} (${system.name})`
-    );
-  }
+  logImport(
+    emulatorRef,
+    settings,
+    `System resolved: ${system.id} (${system.name}) for "${resolvedFile.name}"`,
+  );
 
   if (resolvedFile.name.toLowerCase().endsWith(".m3u")) {
     await handleM3UFile(resolvedFile, system, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
@@ -1207,6 +1346,11 @@ export async function resolveSystemAndAdd(
       try {
         const existingFile = toLaunchFile(existing.blob, existing.fileName);
         await library.markPlayed(existing.id);
+        logImport(
+          emulatorRef,
+          settings,
+          `Launching existing library entry: "${existing.name}" (${existing.id})`,
+        );
         await onLaunchGame(existingFile, existing.systemId, existing.id);
       } catch (err) {
         hideLoadingOverlay();
@@ -1222,13 +1366,17 @@ export async function resolveSystemAndAdd(
   try {
     const entry = await library.addGame(resolvedFile, system.id);
     settings.lastGameName = entry.name;
-    if (settings.verboseLogging) {
-      console.info(
-        `[RetroVault] Game added to library: "${entry.name}" ` +
-        `(id: ${entry.id}, system: ${entry.systemId})`
-      );
-    }
+    logImport(
+      emulatorRef,
+      settings,
+      `Game added to library: "${entry.name}" (id: ${entry.id}, system: ${entry.systemId})`,
+    );
     void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    logImport(
+      emulatorRef,
+      settings,
+      `Launching newly added game "${entry.name}"`,
+    );
     await onLaunchGame(resolvedFile, system.id, entry.id);
   } catch (err) {
     hideLoadingOverlay();
@@ -1307,6 +1455,66 @@ function showGamePickerDialog(title: string, message: string, games: GameMetadat
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); close(null); } };
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
     document.addEventListener("keydown", onKey);
+    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+  });
+}
+
+function showArchiveEntryPickerDialog(
+  format: ArchiveFormat,
+  candidates: Array<{ name: string; blob: Blob; size: number }>
+): Promise<{ name: string; blob: Blob; size: number } | null> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box = make(
+      "div",
+      { class: "confirm-box", role: "dialog", "aria-modal": "true", "aria-label": "Choose archive entry" }
+    );
+
+    const pretty = format === "gzip" ? "GZIP" : format.toUpperCase();
+    box.appendChild(make("h3", { class: "confirm-title" }, "Choose File from Archive"));
+    box.appendChild(make(
+      "p",
+      { class: "confirm-body" },
+      `${pretty} archive contains multiple game files. Choose which one to import:`
+    ));
+
+    const list = make("div", { class: "game-picker-list" });
+    const fragment = document.createDocumentFragment();
+    for (const candidate of candidates) {
+      const btn = make("button", { class: "game-picker-btn" });
+      const badge = make("span", { class: "sys-badge" }, formatBytes(candidate.size));
+      badge.style.background = "var(--c-accent)";
+      btn.append(
+        badge,
+        document.createTextNode(" " + candidate.name),
+      );
+      btn.addEventListener("click", () => close(candidate));
+      fragment.appendChild(btn);
+    }
+    list.appendChild(fragment);
+    box.appendChild(list);
+
+    const footer = make("div", { class: "confirm-footer" });
+    const btnCancel = make("button", { class: "btn" }, "Cancel");
+    footer.appendChild(btnCancel);
+    box.appendChild(footer);
+
+    let closed = false;
+    const close = (picked: { name: string; blob: Blob; size: number } | null) => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onEsc);
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 180);
+      resolve(picked);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") close(null); };
+    btnCancel.addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", onEsc);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
   });
 }

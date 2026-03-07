@@ -153,6 +153,21 @@ describe("buildDOM", () => {
     expect(hint!.textContent).toMatch(/ZIP auto-extracted/i);
   });
 
+  it("includes expanded archive extensions in file input accept list", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const input = document.getElementById("file-input") as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+    const accept = input?.getAttribute("accept") ?? "";
+    expect(accept).toContain(".zip");
+    expect(accept).toContain(".7z");
+    expect(accept).toContain(".rar");
+    expect(accept).toContain(".tar");
+    expect(accept).toContain(".gz");
+  });
+
   it("resets library control state on a second buildDOM call", async () => {
     const settings = makeSettings();
     const gamesA: GameMetadata[] = [
@@ -332,6 +347,107 @@ describe("library stale system filter recovery", () => {
       .map(el => el.textContent?.trim());
     expect(cardNames).toEqual(["Mario"]);
     expect(document.querySelector(".library-empty")).toBeNull();
+  });
+});
+
+describe("resolveSystemAndAdd mobile/import fallbacks", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("allows extensionless files via manual system selection fallback", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const settings = makeSettings();
+    const onLaunchGame = vi.fn(async () => {});
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "game-1",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+        blob: incoming,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const file = new File([new Uint8Array([1, 2, 3])], "mystery", { type: "application/octet-stream" });
+    const importPromise = resolveSystemAndAdd(file, library, settings, onLaunchGame);
+
+    await new Promise(r => setTimeout(r, 0));
+    const systemBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".system-pick-btn"));
+    expect(systemBtns.length).toBeGreaterThan(0);
+    systemBtns[0].click();
+
+    await importPromise;
+
+    expect(onLaunchGame).toHaveBeenCalledTimes(1);
+    const launchedFile = (onLaunchGame.mock.calls[0] as unknown as [File, string, string?])[0];
+    expect(launchedFile.name.includes(".")).toBe(true);
+    expect(library.addGame).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows archive entry picker when extraction yields multiple candidates", async () => {
+    const candidateA = {
+      name: "alpha.nes",
+      blob: new Blob([new Uint8Array([0xaa])]),
+      size: 1,
+    };
+    const candidateB = {
+      name: "beta.nes",
+      blob: new Blob([new Uint8Array([0xbb])]),
+      size: 1,
+    };
+
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("zip");
+    vi.spyOn(archive, "extractFromArchive").mockResolvedValue({
+      format: "zip",
+      name: candidateA.name,
+      blob: candidateA.blob,
+      candidates: [candidateA, candidateB],
+    });
+
+    const settings = makeSettings();
+    const onLaunchGame = vi.fn(async () => {});
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "game-2",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+        blob: incoming,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const zipFile = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "bundle.zip");
+    const importPromise = resolveSystemAndAdd(zipFile, library, settings, onLaunchGame);
+
+    await new Promise(r => setTimeout(r, 0));
+    const candidateBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".game-picker-btn"));
+    expect(candidateBtns.length).toBeGreaterThanOrEqual(2);
+    candidateBtns[1].click();
+
+    await importPromise;
+
+    expect(onLaunchGame).toHaveBeenCalledTimes(1);
+    const launchedFile = (onLaunchGame.mock.calls[0] as unknown as [File, string, string?])[0];
+    expect(launchedFile.name).toBe("beta.nes");
   });
 });
 

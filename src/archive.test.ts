@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   detectArchiveFormat,
+  extractFromArchive,
+  extractFromGzip,
+  extractFromTar,
   extractFromZip,
   isArchiveExtension,
   ARCHIVE_SUPPORT_NOTE,
@@ -217,6 +220,66 @@ function buildZipWithTwoEntries(
   writeUint16LE(view, pos + 20, 0);
 
   return buf;
+}
+
+/**
+ * Build a minimal TAR archive with provided file entries.
+ */
+function buildTar(entries: Array<{ name: string; data: Uint8Array }>): ArrayBuffer {
+  const blocks: Uint8Array[] = [];
+  const encoder = new TextEncoder();
+
+  const writeOctal = (header: Uint8Array, start: number, length: number, value: number): void => {
+    const oct = value.toString(8).padStart(length - 1, '0');
+    const bytes = encoder.encode(oct);
+    header.set(bytes.slice(0, length - 1), start);
+    header[start + length - 1] = 0;
+  };
+
+  for (const entry of entries) {
+    const header = new Uint8Array(512);
+    const nameBytes = encoder.encode(entry.name);
+    header.set(nameBytes.slice(0, 100), 0);
+
+    writeOctal(header, 100, 8, 0o644); // mode
+    writeOctal(header, 108, 8, 0);     // uid
+    writeOctal(header, 116, 8, 0);     // gid
+    writeOctal(header, 124, 12, entry.data.length); // size
+    writeOctal(header, 136, 12, 0);    // mtime
+
+    // checksum field initialized with spaces for checksum calculation
+    for (let i = 148; i < 156; i++) header[i] = 0x20;
+    header[156] = 0x30; // typeflag: regular file
+
+    const magic = encoder.encode('ustar');
+    header.set(magic, 257);
+    header[262] = 0; // ustar\0
+    header[263] = 0x30; // version "00"
+    header[264] = 0x30;
+
+    let checksum = 0;
+    for (const byte of header) checksum += byte;
+    writeOctal(header, 148, 8, checksum);
+
+    blocks.push(header);
+    blocks.push(entry.data);
+
+    const pad = (512 - (entry.data.length % 512)) % 512;
+    if (pad > 0) blocks.push(new Uint8Array(pad));
+  }
+
+  // End of archive: two zero blocks
+  blocks.push(new Uint8Array(512));
+  blocks.push(new Uint8Array(512));
+
+  const total = blocks.reduce((n, b) => n + b.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const b of blocks) {
+    out.set(b, offset);
+    offset += b.length;
+  }
+  return out.buffer;
 }
 
 // ── detectArchiveFormat ───────────────────────────────────────────────────────
@@ -579,6 +642,159 @@ describe('extractFromZip', () => {
       const extracted = new Uint8Array(await result!.blob.arrayBuffer());
       expect(extracted).toEqual(originalContent);
     });
+  });
+});
+
+// ── extractFromTar / extractFromGzip / extractFromArchive ────────────────────
+
+describe('extractFromTar', () => {
+  it('extracts a ROM-like entry from TAR archives', async () => {
+    const note = new TextEncoder().encode('notes');
+    const rom = new Uint8Array([0x4e, 0x45, 0x53, 0x1a]); // NES header
+    const tarBuf = buildTar([
+      { name: 'README.txt', data: note },
+      { name: 'roms/game.nes', data: rom },
+    ]);
+
+    const result = await extractFromTar(new Blob([tarBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.nes');
+    expect(new Uint8Array(await result!.blob.arrayBuffer())).toEqual(rom);
+  });
+
+  it('returns null when TAR has no ROM-like entries', async () => {
+    const tarBuf = buildTar([
+      { name: 'README.txt', data: new TextEncoder().encode('hello') },
+      { name: 'docs/manual.txt', data: new TextEncoder().encode('# docs') },
+    ]);
+
+    const result = await extractFromTar(new Blob([tarBuf]));
+    expect(result).toBeNull();
+  });
+});
+
+describe('extractFromGzip', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('extracts an inner TAR payload when gzip decompresses to tar bytes', async () => {
+    const tarBuf = buildTar([
+      { name: 'game.gba', data: new Uint8Array([1, 2, 3, 4]) },
+    ]);
+    const tarBytes = new Uint8Array(tarBuf);
+
+    const mockReadable = {
+      getReader: () => {
+        let done = false;
+        return {
+          read: async () => {
+            if (done) return { value: undefined, done: true };
+            done = true;
+            return { value: tarBytes, done: false };
+          },
+        };
+      },
+    };
+    const mockWritable = {
+      getWriter: () => ({
+        write: async (_chunk: Uint8Array) => { /* no-op */ },
+        close: async () => { /* no-op */ },
+      }),
+    };
+
+    vi.stubGlobal('DecompressionStream', class {
+      get readable() { return mockReadable; }
+      get writable() { return mockWritable; }
+    });
+
+    const compressed = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]); // fake gzip bytes
+    const result = await extractFromGzip(new Blob([compressed]), 'archive.tgz');
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.gba');
+  });
+});
+
+describe('extractFromArchive', () => {
+  it('extracts ZIP archives through the unified entrypoint', async () => {
+    const zipBuf = buildZip('game.nes', new Uint8Array([0xaa, 0xbb]));
+    const result = await extractFromArchive(new Blob([zipBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.format).toBe('zip');
+    expect(result!.name).toBe('game.nes');
+  });
+
+  it('returns candidate list for multi-ROM ZIP archives', async () => {
+    const zipBuf = buildZipWithTwoEntries(
+      'alpha.nes', new Uint8Array([0xaa]),
+      'beta.nes',  new Uint8Array([0xbb]),
+    );
+    const result = await extractFromArchive(new Blob([zipBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.format).toBe('zip');
+    const names = (result!.candidates ?? []).map(c => c.name);
+    expect(names).toContain('alpha.nes');
+    expect(names).toContain('beta.nes');
+  });
+
+  it('returns null for unsupported formats (bzip2)', async () => {
+    const bz = new Uint8Array([0x42, 0x5a, 0x68, 0x39]);
+    const result = await extractFromArchive(new Blob([bz]));
+    expect(result).toBeNull();
+  });
+
+  it('returns candidate list for TAR archives with multiple ROM entries', async () => {
+    const tarBuf = buildTar([
+      { name: 'alpha.nes', data: new Uint8Array([0xaa]) },
+      { name: 'beta.nes', data: new Uint8Array([0xbb]) },
+    ]);
+    const result = await extractFromArchive(new Blob([tarBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.format).toBe('tar');
+    const names = (result!.candidates ?? []).map(c => c.name);
+    expect(names).toContain('alpha.nes');
+    expect(names).toContain('beta.nes');
+  });
+
+  it('returns ranked candidates for RAR archives with multiple ROM entries', async () => {
+    const originalWorker = globalThis.Worker;
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+
+    class MockWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      constructor(_url: string) {}
+      postMessage(_data: ArrayBuffer): void {
+        queueMicrotask(() => {
+          this.onmessage?.({ data: { t: 2, file: 'readme.txt', data: new Uint8Array([0x52]) } } as MessageEvent);
+          this.onmessage?.({ data: { t: 2, file: 'alpha.nes', data: new Uint8Array([0xaa]) } } as MessageEvent);
+          this.onmessage?.({ data: { t: 2, file: 'beta.nes', data: new Uint8Array([0xbb]) } } as MessageEvent);
+          this.onmessage?.({ data: { t: 1 } } as MessageEvent);
+        });
+      }
+      terminate(): void {}
+    }
+
+    vi.stubGlobal('Worker', MockWorker as unknown as typeof Worker);
+    URL.createObjectURL = vi.fn(() => 'blob:mock-worker');
+    URL.revokeObjectURL = vi.fn();
+
+    try {
+      const rarHeader = new Uint8Array([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00, 0x00]);
+      const result = await extractFromArchive(new Blob([rarHeader]));
+      expect(result).not.toBeNull();
+      expect(result!.format).toBe('rar');
+      expect(result!.candidates?.length).toBe(2);
+      const names = (result!.candidates ?? []).map(c => c.name);
+      expect(names).toContain('alpha.nes');
+      expect(names).toContain('beta.nes');
+    } finally {
+      vi.unstubAllGlobals();
+      globalThis.Worker = originalWorker;
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
   });
 });
 
