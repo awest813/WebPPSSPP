@@ -1165,7 +1165,7 @@ export async function resolveSystemAndAdd(
     }
   }
 
-  if (archiveFormat === "bzip2" || archiveFormat === "xz") {
+  if (archiveFormat === "bzip2" || archiveFormat === "xz" || archiveFormat === "rar") {
     showError(
       `${archiveFormat.toUpperCase()} archives are not supported for automatic extraction.\n\n` +
       "Please extract the archive first and then import the ROM file directly."
@@ -1189,11 +1189,18 @@ export async function resolveSystemAndAdd(
     );
 
     try {
-      const extracted = await archiveModule.extractFromArchive(file, {
-        onProgress: (progress) => {
-          setLoadingMessage(formatArchiveProgressMessage(progress));
-        },
-      });
+      // Mobile file pickers (ext === "") strip extensions, so the file was
+      // detected purely by magic bytes.  For that path we call extractFromZip
+      // directly — it has no progress API but the extraction is lightweight.
+      // Named-extension ZIPs go through extractFromArchive to get progress
+      // callbacks and multi-candidate support.
+      const extracted = archiveFormat === "zip" && ext === ""
+        ? await archiveModule.extractFromZip(file).then(r => r ? { ...r, format: "zip" as const } : null)
+        : await archiveModule.extractFromArchive(file, {
+            onProgress: (progress) => {
+              setLoadingMessage(formatArchiveProgressMessage(progress));
+            },
+          });
 
       if (extracted) {
         const extractedCandidates = extracted.candidates ?? [];
@@ -1224,7 +1231,7 @@ export async function resolveSystemAndAdd(
         );
       } else {
         hideLoadingOverlay();
-        const strictFormats = new Set<ArchiveFormat>(["rar", "tar", "gzip"]);
+        const strictFormats = new Set<ArchiveFormat>(["tar", "gzip"]);
         if (strictFormats.has(archiveFormat)) {
           const pretty = archiveFormat === "gzip" ? "GZIP" : archiveFormat.toUpperCase();
           showError(
