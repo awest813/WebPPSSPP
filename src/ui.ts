@@ -3152,7 +3152,7 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
       // Label wrapper: display name on one line, required filename on the next
       const labelWrap     = make("span", { class: "bios-label" });
       labelWrap.appendChild(document.createTextNode(req.displayName));
-      labelWrap.appendChild(make("code", { class: "bios-filename" }, req.fileName));
+      labelWrap.appendChild(make("code", { class: "bios-filename", title: `Required filename: ${req.fileName}`, "aria-label": `Required filename: ${req.fileName}` }, req.fileName));
       const desc          = make("span", { class: "bios-desc" }, req.description);
       const requiredBadge = req.required
         ? make("span", { class: "bios-required" }, "Required")

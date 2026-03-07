@@ -321,6 +321,7 @@ describe("resolveSystemAndAdd mobile archive handling", () => {
     } as unknown as GameLibrary;
 
     const onLaunchGame = vi.fn(async () => {});
+    // RAR v4 magic bytes: "Rar!\x1a\x07\x00\x00"
     const rarHeader = new Uint8Array([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00, 0x00]);
     const file = new File([rarHeader], "mobile-upload", { type: "application/octet-stream" });
 
