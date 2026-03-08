@@ -3222,8 +3222,8 @@ function buildMultiplayerTab(
   const updateStatusBadge = () => {
     const active = netplayManager?.isActive ?? false;
     statusBadge.textContent = active
-      ? "● Netplay active — server configured"
-      : "○ Netplay inactive — enable and set a server URL to activate";
+      ? "Netplay active — server configured"
+      : "Netplay inactive — enable and set a server URL to activate";
     statusBadge.classList.toggle("netplay-status--active", active);
   };
   updateStatusBadge();
@@ -3412,13 +3412,19 @@ function buildMultiplayerTab(
   const lobbySection = make("div", { class: "settings-section netplay-lobby" });
   lobbySection.hidden = !(netplayManager?.isActive ?? false);
   lobbySection.appendChild(make("h4", { class: "settings-section__title" }, "Lobby Browser"));
+
+  // Show game-scope hint — if a game is running, name it; otherwise give
+  // a generic prompt so the user knows rooms are per-game.
+  const lobbyScopeHint = currentGameName
+    ? `Showing rooms for: ${currentGameName}`
+    : "Start a game and open Settings to see rooms for that title.";
   lobbySection.appendChild(make("p", { class: "settings-help" },
-    "Browse open netplay rooms on the configured server. Rooms are scoped to your current game — " +
-    "start a game and open Settings to see rooms for that title."
+    `Browse open netplay rooms on the configured server. ${lobbyScopeHint}`
   ));
 
   const lobbyRoomList = make("div", { class: "netplay-lobby-list" });
   let lobbyAbort: AbortController | null = null;
+  const lobbyLastRefreshed = make("p", { class: "netplay-lobby-timestamp" });
 
   const renderLobbyRooms = (rooms: import("./multiplayer.js").NetplayLobbyRoom[]) => {
     lobbyRoomList.innerHTML = "";
@@ -3434,6 +3440,9 @@ function buildMultiplayerTab(
       const nameEl = make("span", { class: "netplay-lobby-name" },
         room.name ?? `Room ${room.id}`
       );
+      if (room.hasPassword) {
+        nameEl.appendChild(document.createTextNode(" 🔒"));
+      }
       const hostEl = room.host
         ? make("span", { class: "netplay-lobby-host" }, `Host: ${room.host}`)
         : null;
@@ -3444,12 +3453,15 @@ function buildMultiplayerTab(
               : `${room.players} player${room.players !== 1 ? "s" : ""}`
           )
         : null;
-      if (room.hasPassword) {
-        nameEl.appendChild(document.createTextNode(" 🔒"));
-      }
+      const latencyEl = (room.latencyMs !== undefined)
+        ? make("span", { class: "netplay-lobby-latency", title: "Round-trip latency" },
+            `${Math.round(room.latencyMs)} ms`
+          )
+        : null;
       row.appendChild(nameEl);
       if (hostEl)    row.appendChild(hostEl);
       if (playersEl) row.appendChild(playersEl);
+      if (latencyEl) row.appendChild(latencyEl);
       fragment.appendChild(row);
     }
     lobbyRoomList.appendChild(fragment);
@@ -3457,20 +3469,26 @@ function buildMultiplayerTab(
   renderLobbyRooms([]);
   lobbySection.appendChild(lobbyRoomList);
 
+  const lobbyFooter = make("div", { class: "netplay-lobby-footer" });
   const refreshBtn = make("button", { class: "btn btn--primary netplay-lobby-refresh" }, "Refresh") as HTMLButtonElement;
-  refreshBtn.addEventListener("click", async () => {
+
+  const doLobbyRefresh = async () => {
     if (!netplayManager) return;
     if (lobbyAbort) lobbyAbort.abort();
     lobbyAbort = new AbortController();
     refreshBtn.disabled = true;
     refreshBtn.textContent = "Refreshing…";
+    lobbyLastRefreshed.textContent = "";
     lobbyRoomList.innerHTML = "";
     lobbyRoomList.appendChild(make("p", { class: "netplay-lobby-loading" }, "Loading rooms…"));
     try {
       const rooms = await netplayManager.fetchLobbyRooms(lobbyAbort.signal);
       renderLobbyRooms(rooms);
+      const now = new Date();
+      lobbyLastRefreshed.textContent =
+        `Updated ${now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
     } catch (err) {
-      // AbortError means the user clicked Refresh again — not a real failure
+      // AbortError means the user clicked Refresh again — not a real failure.
       if (err instanceof Error && err.name === "AbortError") return;
       console.warn("[RetroVault] Lobby fetch failed:", err);
       lobbyRoomList.innerHTML = "";
@@ -3481,14 +3499,23 @@ function buildMultiplayerTab(
       refreshBtn.disabled = false;
       refreshBtn.textContent = "Refresh";
     }
-  });
-  lobbySection.appendChild(refreshBtn);
-
-  // Keep the lobby section visibility in sync with enable/server-URL changes
-  const syncLobbyVisibility = () => {
-    lobbySection.hidden = !(netplayManager?.isActive ?? false);
   };
-  // Patch the enable-toggle handler to also update lobby visibility
+
+  refreshBtn.addEventListener("click", doLobbyRefresh);
+  lobbyFooter.append(refreshBtn, lobbyLastRefreshed);
+  lobbySection.appendChild(lobbyFooter);
+
+  // Keep the lobby section visibility in sync with enable/server-URL changes.
+  // When the section transitions from hidden → visible, trigger an auto-refresh
+  // so the user immediately sees current rooms without a manual click.
+  const syncLobbyVisibility = () => {
+    const wasHidden = lobbySection.hidden;
+    const nowActive = netplayManager?.isActive ?? false;
+    lobbySection.hidden = !nowActive;
+    if (wasHidden && nowActive) {
+      void doLobbyRefresh();
+    }
+  };
   introSection.addEventListener("change", syncLobbyVisibility);
   urlInput.addEventListener("change", syncLobbyVisibility);
 

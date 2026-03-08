@@ -548,6 +548,24 @@ describe('NetplayManager.fetchLobbyRooms', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(rooms).toEqual([]);
   });
+
+  it('propagates AbortError so callers can detect cancellation', async () => {
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://netplay.example.com');
+
+    const controller = new AbortController();
+    const abortErr = Object.assign(new Error('AbortError'), { name: 'AbortError' });
+
+    // First endpoint throws an AbortError (signal was aborted mid-request)
+    const fetchMock = vi.fn().mockRejectedValueOnce(abortErr);
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    // fetchLobbyRooms must re-throw the AbortError rather than swallowing it
+    await expect(mgr.fetchLobbyRooms(controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+
+    // Only one fetch call should have been made before propagating
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 
