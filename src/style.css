@@ -2765,3 +2765,62 @@ kbd {
   .modal-box, .confirm-box { will-change: auto; }
   .info-toast, .perf-suggestion { will-change: auto; }
 }
+
+
+/* ── Lightweight UI mode (auto on low-spec/slow-data devices) ───────────── */
+.lite-ui .app-header,
+.lite-ui .status-panel,
+.lite-ui .fps-overlay,
+.lite-ui .dev-overlay,
+.lite-ui .game-card__remove,
+.lite-ui .game-card__patch,
+.lite-ui .game-card__change-sys,
+.lite-ui .perf-suggestion,
+.lite-ui .info-toast {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.lite-ui .game-card,
+.lite-ui .drop-zone,
+.lite-ui .modal-box,
+.lite-ui .confirm-box,
+.lite-ui .settings-modal-box {
+  box-shadow: var(--shadow-sm);
+}
+
+.lite-ui .game-card:hover,
+.lite-ui .game-card:focus-visible,
+.lite-ui .btn:hover:not(:disabled),
+.lite-ui .status-btn:hover:not(:disabled) {
+  transform: none;
+}
+
+.lite-ui .status-dot.running,
+.lite-ui .now-playing-chip::before {
+  animation: none;
+}
+
+.lite-ui .game-card__icon::after {
+  opacity: 0;
+}
+
+@media (max-width: 760px) {
+  .app-header__actions {
+    max-width: 62vw;
+  }
+
+  .library-controls {
+    gap: 8px;
+  }
+
+  .library-search-wrap {
+    min-width: 0;
+    flex: 1 1 200px;
+  }
+
+  .library-sort {
+    flex: 1 1 140px;
+    min-width: 120px;
+  }
+}

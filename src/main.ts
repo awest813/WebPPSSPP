@@ -210,6 +210,18 @@ function main(): void {
   // 3. Load settings
   const settings = loadSettings();
 
+  // UI-lite mode trims expensive visual effects on constrained devices or when
+  // the user explicitly asks for lower data/motion usage.
+  const navConnection = (navigator as Navigator & {
+    connection?: { saveData?: boolean };
+  }).connection;
+  const useLiteUI =
+    deviceCaps.isLowSpec ||
+    deviceCaps.connectionQuality === "slow" ||
+    deviceCaps.prefersReducedMotion ||
+    navConnection?.saveData === true;
+  document.documentElement.classList.toggle("lite-ui", useLiteUI);
+
   // 4. Instantiate services
   const emulator      = new PSPEmulator("ejs-player");
   const library       = new GameLibrary();
