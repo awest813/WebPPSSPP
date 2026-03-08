@@ -3,30 +3,36 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Vite](https://img.shields.io/badge/built%20with-Vite-646CFF.svg)
 ![TypeScript](https://img.shields.io/badge/language-TypeScript-3178C6.svg)
+![Tests](https://img.shields.io/badge/tests-1050%20passing-brightgreen.svg)
+![Node](https://img.shields.io/badge/node-18%2B-339933.svg)
 
-RetroVault is a browser-based multi-system retro emulator frontend that runs EmulatorJS cores in WebAssembly with local ROM, save-state, and performance-management tooling.
+RetroVault is a browser-based multi-system retro emulator frontend that runs EmulatorJS cores in WebAssembly. It provides a complete, self-hostable gaming experience with ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
 
 ## Overview
 
-RetroVault is designed for people who want a self-hostable retro gaming experience in the browser without running a backend server.
+RetroVault is designed for users who want a polished, self-hostable retro gaming experience in the browser without running a backend server.
 
-It solves a few practical problems that raw EmulatorJS integrations often leave to app developers:
+It solves the practical problems that raw EmulatorJS integrations leave to app developers:
 
-- system detection and ROM-library management
-- BIOS file storage and validation
-- per-device performance tuning (Low/Medium/High/Ultra)
-- save-state UX (slots, thumbnails, import/export)
-- modern browser requirements for threaded cores (COOP/COEP)
+- Automatic system detection and ROM-library management
+- BIOS file storage and per-system validation
+- Per-device hardware tier detection (Low / Medium / High / Ultra) with system-specific tuning
+- Save-state UX with slots, thumbnails, auto-save, export/import, and optional cloud sync
+- Cross-origin isolation for threaded cores (COOP/COEP via service worker)
+- WebGPU post-processing pipeline (CRT, sharpen, LCD, bloom, FXAA)
+- Touch controls, PWA install flow, and mobile-first orientation handling
 
 **Who it is for:**
 
-- Users who want a polished browser emulator frontend
-- Developers who want to extend a TypeScript + Vite emulator app
-- Contributors interested in performance, rendering, and web-platform optimization
+- Users who want a polished browser emulator frontend they can self-host
+- Developers building on or extending a TypeScript + Vite emulator app
+- Contributors interested in web-platform performance, rendering, and emulation tooling
 
 ## Quick Start
 
 ```bash
+git clone https://github.com/awest813/WebPPSSPP.git
+cd WebPPSSPP
 npm install
 npm run dev
 ```
@@ -35,28 +41,45 @@ Open `http://localhost:5173`.
 
 ## Features
 
-- Multi-system emulation via EmulatorJS cores (PSP, N64, PS1, DS, GBA, SNES, NES, Sega systems, and more)
-- ROM library with drag-and-drop import, IndexedDB storage, and metadata tracking
-- Performance tier detection (Low/Medium/High/Ultra) with per-system tuning tables
-- Save-state manager with slots, thumbnails, auto-save, and export/import
-- BIOS management for systems that require firmware files (for example Saturn and Dreamcast)
-- Optional WebGPU post-processing effects (CRT, sharpen, LCD, bloom, FXAA)
-- Touch controls for mobile devices with layout customization and haptics
-- PWA install flow and static-host-friendly cross-origin isolation support
-- Experimental networking modules (netplay + cloud save sync)
+### Emulation
 
-## Screenshots / Demo
+- **50+ systems** via EmulatorJS cores — PSP (PPSSPP), N64, PS1, NDS, GBA, SNES, NES, Sega Genesis/Saturn/Dreamcast, MAME, Atari, Neo Geo, and more
+- **Archive support**: ZIP, 7z, and RAR files are transparently extracted before launch
+- **Soft-patch support**: Full IPS, BPS, and UPS patcher with CRC verification
+- **Multi-disc games**: `.m3u` support for PS1, Saturn, and Dreamcast with disc-picker UI
+- **CHD compression**: accepted for PS1, Saturn, and Dreamcast; cores decompress natively
 
-> TODO: Add current screenshots or a hosted demo URL.
+### Performance
 
-```md
-![Library view](docs/screenshot-library.png)
-![In-game HUD](docs/screenshot-gameplay.png)
-```
+- **Hardware tier detection**: GPU benchmark + CPU/RAM heuristics classify the device as Low / Medium / High / Ultra
+- **Per-system tier tables**: 50+ optimised core-option sets for PSP, N64, PS1, NDS, Saturn, Dreamcast, and others
+- **Adaptive quality**: sustained sub-25 FPS triggers an optional one-step tier downgrade with user confirmation
+- **Per-game profiles**: last stable tier saved per game ID in `localStorage`
+- **WebGPU post-processing**: CRT, sharpen, LCD, bloom, and FXAA effects with tier-aware intensity scaling
+- **Shader cache**: GLSL programs persisted to IndexedDB with LRU eviction and parallel pre-compilation
+- **Audio latency adapter**: auto-enlarges audio buffer for Bluetooth and USB DAC hardware
+
+### Library & Saves
+
+- **ROM library**: drag-and-drop import, IndexedDB blob storage, metadata cache
+- **BIOS management**: per-file status display, upload controls, and `EJS_biosUrl` wiring
+- **Save-state gallery**: 5-slot gallery with 160×120 JPEG thumbnails, timestamps, and export/import
+- **Auto-save on close**: saves to slot 0 on tab close/hide; offers crash-recovery restore on next launch
+- **Cloud save sync**: WebDAV adapter with conflict resolution; extensible provider interface
+
+### Platform & Mobile
+
+- **PWA**: combined COI + PWA service worker; app-shell caching; "Install RetroVault" button
+- **Touch controls**: 12 draggable virtual buttons with per-orientation layouts and haptic feedback
+- **Orientation lock**: `screen.orientation.lock("landscape-primary")` on game launch
+- **iOS Safari**: `credentialless` COEP for CDN compatibility on Safari 17+ / iOS 17+
+
+### Networking (experimental)
+
+- **Netplay**: WebRTC-based peer-to-peer multiplayer for supported systems (PSP, N64, NDS)
+- **ICE server management**: configurable STUN/TURN servers; lobby browser UI
 
 ## Project Architecture
-
-At a high level, RetroVault coordinates a browser UI, local data stores, and EmulatorJS core loading:
 
 ```text
 User
@@ -66,14 +89,16 @@ UI Layer (src/ui.ts, src/style.css)
   |
   +--> Library + Assets (src/library.ts, src/archive.ts, src/patcher.ts)
   |
-  +--> Saves/BIOS (src/saves.ts, src/bios.ts, src/autoRestore.ts)
+  +--> Saves / BIOS / Cloud (src/saves.ts, src/bios.ts, src/cloudSave.ts, src/autoRestore.ts)
   |
   v
 Emulator Orchestrator (src/main.ts, src/emulator.ts)
   |
-  +--> Performance/Tier Logic (src/performance.ts, src/systems.ts)
+  +--> Performance / Tier Logic (src/performance.ts, src/systems.ts)
   |
   +--> Optional Post-Process (src/webgpuPostProcess.ts, src/shaderCache.ts)
+  |
+  +--> Networking (src/multiplayer.ts)
   |
   v
 EmulatorJS CDN Cores (WASM + JS)
@@ -81,26 +106,31 @@ EmulatorJS CDN Cores (WASM + JS)
 
 ### Core subsystems
 
-- **Core engine/orchestration:** startup, settings, and game launch lifecycle
-- **Frontend UI:** library, settings, overlays, controls, and status prompts
-- **Persistence layer:** IndexedDB/localStorage for ROMs, saves, BIOS, and settings
-- **Performance layer:** capability detection and system-specific tier overrides
-- **Networking layer (optional/experimental):** WebRTC netplay + WebDAV cloud saves
+| Subsystem | Files |
+|-----------|-------|
+| Engine / orchestration | `src/main.ts`, `src/emulator.ts` |
+| UI / overlays | `src/ui.ts`, `src/style.css`, `src/touchControls.ts` |
+| Persistence | `src/saves.ts`, `src/bios.ts`, `src/library.ts` |
+| Performance / tier | `src/performance.ts`, `src/systems.ts` |
+| Rendering (post-process) | `src/webgpuPostProcess.ts`, `src/shaderCache.ts` |
+| ROM tools | `src/archive.ts`, `src/patcher.ts` |
+| Networking | `src/multiplayer.ts`, `src/cloudSave.ts` |
 
-For a deeper map, see [`docs/ARCHITECTURE_MAP.md`](docs/ARCHITECTURE_MAP.md).
+For a detailed map, see [`docs/ARCHITECTURE_MAP.md`](docs/ARCHITECTURE_MAP.md).
 
 ## Repository Structure
 
 ```text
-src/                  Main TypeScript application code
-public/               Static assets (service worker, manifest, worklet)
-docs/                 Project documentation and planning artifacts
-data/                 Legacy/vendor EmulatorJS-related assets and localization
-tools/                Utility scripts (aliases, parsers, generation)
+src/                  TypeScript application source and unit tests
+public/               Static assets (service worker, PWA manifest, audio worklet)
+docs/                 Project documentation (roadmap, architecture, guides)
+data/                 Vendor EmulatorJS assets and localisation files
+tools/                Utility scripts (aliases, parsers, doctor)
 minify/               Minification tooling
-index.html            App entry HTML
-vite.config.ts        Dev/build configuration
+index.html            App entry point
+vite.config.ts        Dev / build configuration
 vitest.config.ts      Test runner configuration
+guide.md              Static-host deployment guide
 ```
 
 ## Installation
@@ -109,18 +139,13 @@ vitest.config.ts      Test runner configuration
 
 - Node.js 18+ (Node 20+ recommended)
 - npm 9+
-- Modern browser (Chrome/Edge/Firefox recommended)
+- A modern browser: Chrome / Edge 113+, Firefox 116+, or Safari 17+ (desktop recommended for PSP)
 
-### Clone
+### Clone and install
 
 ```bash
-git clone https://github.com/nihalmostafaw/WebPPSSPP.git
+git clone https://github.com/awest813/WebPPSSPP.git
 cd WebPPSSPP
-```
-
-### Install dependencies
-
-```bash
 npm install
 ```
 
@@ -130,15 +155,17 @@ npm install
 npm run build
 ```
 
-Build output is generated in `dist/`.
+Output is generated in `dist/`. The build step runs a full TypeScript type-check before bundling.
 
 ## Running the Project
 
-### Development
+### Development server
 
 ```bash
 npm run dev
 ```
+
+Opens at `http://localhost:5173` with cross-origin isolation headers pre-configured.
 
 ### Preview production build locally
 
@@ -148,23 +175,31 @@ npm run preview
 
 ### Static hosting
 
-Deploy the contents of `dist/` to any static host. See [`guide.md`](guide.md) for host-specific setup guidance.
+Deploy the contents of `dist/` to any static host. See [`guide.md`](guide.md) for host-specific steps and cross-origin isolation requirements.
 
 ## Testing
+
+### Automated tests
 
 ```bash
 npm test
 ```
 
-## Environment health check (recommended for first-time setup)
+Runs the full Vitest suite (1050+ unit tests across all modules).
 
-Run the project doctor to quickly detect common setup blockers (unsupported Node version, missing dependencies, missing static-host files):
+### Manual / user testing
+
+See [`docs/USER_TESTING.md`](docs/USER_TESTING.md) for a structured checklist covering all major user-facing flows.
+
+### Environment health check
+
+Run the project doctor to detect common setup blockers (unsupported Node version, missing dependencies, missing static-host files):
 
 ```bash
 npm run doctor
 ```
 
-Optional quality checks:
+### Lint
 
 ```bash
 npm run lint
@@ -172,70 +207,86 @@ npm run lint
 
 ## CLI / Scripts
 
-Defined in `package.json`:
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server |
+| `npm run build` | Type-check + production build |
+| `npm run preview` | Preview the production build locally |
+| `npm test` | Run the Vitest unit test suite |
+| `npm run lint` | Lint `src/` with ESLint |
+| `npm run doctor` | First-time environment diagnostics |
 
-- `npm run dev` — start Vite dev server
-- `npm run build` — type-check + production build
-- `npm run preview` — preview the build locally
-- `npm test` — run Vitest test suite
-- `npm run lint` — lint `src/` with ESLint
-- `npm run doctor` — run first-time environment diagnostics
+## Cross-Origin Isolation
 
-## Cross-Origin Isolation (Important)
+The PSP core (PPSSPP) requires `SharedArrayBuffer`, which requires cross-origin isolation headers (`COOP: same-origin` + `COEP: require-corp`).
 
-The PSP core requires `SharedArrayBuffer`, which requires cross-origin isolation headers.
+RetroVault handles this automatically in two ways:
 
-RetroVault supports this in two ways:
+| Environment | Mechanism |
+|-------------|-----------|
+| Development | `vite.config.ts` injects the headers on every response |
+| Static production | `public/coi-serviceworker.js` intercepts requests and adds headers at runtime |
 
-- **Development:** headers are provided by `vite.config.ts`
-- **Static production:** `public/coi-serviceworker.js` injects headers at runtime
+If PSP fails to launch, open DevTools console and verify:
 
-If PSP fails to launch, verify isolation behavior first.
+```js
+self.crossOriginIsolated // should be true
+```
 
 ## Troubleshooting
 
-- **Game does not boot:** verify ROM extension support and required BIOS availability.
-- **PSP-specific failures:** check COOP/COEP isolation and browser compatibility.
-- **Poor performance:** force Performance mode in settings and disable heavy post-processing.
-- **No saves appearing:** confirm IndexedDB is available and storage is not blocked.
-- **Archive import issues:** test with uncompressed ROM files to isolate extraction issues.
-- **First-time setup confusion:** run `npm run doctor` to catch environment issues early.
+| Symptom | Suggested fix |
+|---------|---------------|
+| Game does not boot | Verify ROM extension and required BIOS availability |
+| PSP core fails | Check cross-origin isolation (`self.crossOriginIsolated === true`) |
+| Poor performance | Switch to Performance tier in Settings; disable heavy post-processing |
+| No saves appearing | Confirm IndexedDB is enabled and storage is not blocked by the browser |
+| Archive import fails | Test with an uncompressed ROM file to isolate extraction issues |
+| First-time setup issues | Run `npm run doctor` to check environment |
+| iOS Safari failures | PSP requires `SharedArrayBuffer`; iOS WebKit has limited support — use desktop Chrome/Firefox |
 
 ## FAQ
 
-### Does this project include ROMs or BIOS files?
-No. You must provide legally obtained game files and firmware.
+**Does this project include ROMs or BIOS files?**
+No. You must supply legally obtained game files and firmware.
 
-### Is a backend server required?
-No. The app is designed for static hosting and client-side execution.
+**Is a backend server required?**
+No. The app is designed for fully static hosting and client-side execution.
 
-### Which browser works best?
-Desktop Chrome/Edge/Firefox generally provide the best compatibility and performance.
+**Which browser works best?**
+Desktop Chrome / Edge provides the best compatibility and performance, especially for PSP. Firefox is a strong alternative. Safari 17+ works for most systems but PSP may require HTTPS and service worker activation.
 
-### Can I contribute new system support?
-Yes. Add system definitions and tuning in `src/systems.ts`, then include tests and docs updates.
+**Can I contribute new system support?**
+Yes. Add a system definition in `src/systems.ts` with a `tierSettings` table (Low / Medium / High / Ultra entries), then include tests and docs updates. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+**How do I report a bug?**
+Open a GitHub issue with the output of "Copy Debug Info" from the Settings → Debug panel.
 
 ## Roadmap
 
-High-level goals (see [`docs/ROADMAP.md`](docs/ROADMAP.md) for full detail):
+The project follows a phased roadmap. Current focus areas (Phases 8–10):
 
-- Improve launch latency and caching strategy
-- Expand compatibility tooling and diagnostics
-- Strengthen cloud save and multiplayer UX
-- Add richer accessibility and community-facing features
-- Continue rendering/audio performance optimizations
+- FSR / TAA upscaling shaders and dynamic resolution scaling
+- Intelligent performance optimization (thermal-aware throttling, startup profiler)
+- Accessibility improvements (screen reader, high contrast, reduced motion)
+- Community features (game ratings, share configurations, compatibility reports)
+- Platform expansion (Electron wrapper, full Gamepad API, cloud save backends)
+
+Full detail: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
 ## Contributing
 
-Contributions are welcome.
+Contributions are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) before opening a pull request.
+
+Quick summary:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feat/my-change`)
-3. Make changes with tests/docs updates
+3. Make changes with tests and docs updates
 4. Run `npm test` and `npm run build`
-5. Open a pull request
+5. Open a pull request with a clear description of what changed and why
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+Performance improvements must include an empirical measurement or benchmark result. New system support requires a `tierSettings` table covering all four tiers.
 
 ## License
 
@@ -243,11 +294,12 @@ This repository is licensed under the MIT License. See [`LICENSE`](LICENSE).
 
 ## Credits
 
-- [EmulatorJS](https://emulatorjs.org/) for browser emulator integration and core loading
-- [Vite](https://vitejs.dev/) for build tooling
-- [Vitest](https://vitest.dev/) for testing
-- The broader libretro/core emulator communities that power underlying emulation
+- [EmulatorJS](https://emulatorjs.org/) — browser emulator integration and core loading
+- [PPSSPP](https://www.ppsspp.org/) — PSP emulation core
+- [Vite](https://vitejs.dev/) — build tooling
+- [Vitest](https://vitest.dev/) — test runner
+- The libretro / RetroArch core communities that power the underlying emulation
 
 ---
 
-> Legal note: This project does not distribute copyrighted games or proprietary BIOS files.
+> **Legal note:** This project does not distribute copyrighted games, proprietary BIOS files, or compiled emulator cores. All emulator cores are loaded at runtime from the public EmulatorJS CDN.
