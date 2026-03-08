@@ -597,6 +597,18 @@ export async function extractFromZip(
       );
     }
 
+    // Detect ZIP64 extended-offset indicator. When `localHeaderOffset` reads
+    // as 0xFFFFFFFF the actual offset is stored in the ZIP64 extra field of
+    // the central-directory entry, which this parser does not yet decode.
+    // Silently returning null here would make the extraction appear to succeed
+    // but produce no output, so we throw a clear diagnostic instead.
+    if (entry.localHeaderOffset === 0xffffffff) {
+      throw new Error(
+        `ZIP64 extended local-header offsets are not supported for entry "${entry.name}". ` +
+        "Please extract the archive manually and import the ROM file directly."
+      );
+    }
+
     const lhBase = entry.localHeaderOffset;
     if (lhBase + 30 > bytes.length) return null;
     if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;

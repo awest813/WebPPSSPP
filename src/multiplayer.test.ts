@@ -349,8 +349,26 @@ describe('NetplayManager.validateIceServerUrl', () => {
     expect(err).toContain('stun:');
   });
 
+  it('returns an error for stun: with no hostname', () => {
+    const err = mgr.validateIceServerUrl('stun:');
+    expect(err).not.toBeNull();
+    expect(err).toContain('hostname');
+  });
+
+  it('returns an error for turn: with no hostname', () => {
+    const err = mgr.validateIceServerUrl('turn:');
+    expect(err).not.toBeNull();
+    expect(err).toContain('hostname');
+  });
+
+  it('returns an error for stun: followed by only whitespace', () => {
+    const err = mgr.validateIceServerUrl('stun:   ');
+    expect(err).not.toBeNull();
+    expect(err).toContain('hostname');
+  });
+
   it('produces the same result as the standalone validateIceServerUrl function', () => {
-    const inputs = ['stun:s.example.com', 'turn:t.example.com', '', 'http://bad.com', 'example.com'];
+    const inputs = ['stun:s.example.com', 'turn:t.example.com', '', 'http://bad.com', 'example.com', 'stun:', 'turn:'];
     for (const url of inputs) {
       expect(mgr.validateIceServerUrl(url)).toBe(validateIceServerUrl(url));
     }
@@ -486,26 +504,48 @@ describe('NetplayManager.fetchLobbyRooms', () => {
       { id: 'legacy-a', name: 'Legacy Room', players: 1, maxPlayers: 4, hasPassword: true },
     ]);
   });
-  it('returns empty when every endpoint fails or returns invalid payload', async () => {
+  it('returns empty when first 200 endpoint returns invalid/empty payload', async () => {
     mgr.setEnabled(true);
     mgr.setServerUrl('ws://localhost:3000');
 
+    // Endpoint 1 (/rooms) throws a network error → continue
+    // Endpoint 2 (/lobby/rooms) returns 200 with bad payload → stop here, return []
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(new Error('network'))
-      .mockResolvedValueOnce(new Response('{"rooms":"bad"}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      .mockResolvedValueOnce(new Response('{"rooms":"bad"}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
 
     globalThis.fetch = fetchMock as typeof fetch;
     const rooms = await mgr.fetchLobbyRooms();
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Stops at first HTTP 200 — only 2 calls, not 4
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      expect.stringContaining('http://localhost:3000/list?domain='),
+      2,
+      'http://localhost:3000/lobby/rooms',
       expect.objectContaining({ method: 'GET' })
     );
+    expect(rooms).toEqual([]);
+  });
+
+  it('stops at the first HTTP 200 endpoint even when its room list is empty', async () => {
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://netplay.example.com');
+
+    // First endpoint returns 200 with genuinely empty room list
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ rooms: [{ id: 'r1' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+
+    globalThis.fetch = fetchMock as typeof fetch;
+    const rooms = await mgr.fetchLobbyRooms();
+
+    // Must stop after the first 200 — do NOT fall through to the second endpoint
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(rooms).toEqual([]);
   });
 });

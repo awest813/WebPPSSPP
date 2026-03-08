@@ -569,6 +569,33 @@ describe("TouchControlsOverlay", () => {
     expect(keyEvents).toContain("up:ArrowUp");
   });
 
+  it("releases the key when mouseup fires on document (cursor moved off button before release)", () => {
+    // Regression test: previously, releasing the mouse outside the button
+    // element left the key stuck in the pressed state because no document-
+    // level mouseup listener was attached in play mode.
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const keyEvents: string[] = [];
+    document.addEventListener("keydown", (e) => keyEvents.push(`down:${e.key}`));
+    document.addEventListener("keyup",   (e) => keyEvents.push(`up:${e.key}`));
+
+    const aEl = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "a"
+    ) as HTMLElement | undefined;
+    expect(aEl).toBeDefined();
+
+    // Press on the button
+    aEl!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(keyEvents).toContain("down:z");
+
+    // Release mouse on the DOCUMENT (not on the element — simulates cursor drift)
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+    // The key must have been released via the document-level listener
+    expect(keyEvents).toContain("up:z");
+  });
+
   it("does NOT dispatch key events while in editing mode", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();

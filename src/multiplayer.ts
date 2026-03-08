@@ -511,18 +511,27 @@ export class NetplayMetricsCollector {
  * Validate a single ICE / STUN / TURN server URL string.
  *
  * Returns `null` when the URL is valid.  Returns a human-readable error
- * message when the URL is empty or does not start with a recognised scheme.
+ * message when the URL is empty, has an unrecognised scheme, or has no
+ * hostname after the scheme separator.
  *
  * Rules:
  *  - An empty / whitespace-only string is invalid — ICE URLs must be
  *    explicitly provided.
  *  - The URL must start with `stun:`, `turn:`, or `turns:` (case-insensitive).
+ *  - There must be a non-empty hostname immediately after the colon (e.g.
+ *    `stun:` alone is rejected — WebRTC ignores servers without a host).
  */
 export function validateIceServerUrl(url: string): string | null {
   const trimmed = url.trim();
   if (trimmed.length === 0) return "ICE server URL must not be empty";
   if (!/^(stun|turn|turns):/i.test(trimmed)) {
     return "URL must start with stun:, turn:, or turns:";
+  }
+  // Verify there is a non-empty hostname after the scheme colon.
+  const colonIdx = trimmed.indexOf(":");
+  const afterColon = trimmed.slice(colonIdx + 1).replace(/^\/\//, "").trim();
+  if (afterColon.length === 0) {
+    return "ICE server URL must include a hostname (e.g. stun:stun.example.com:3478)";
   }
   return null;
 }
@@ -666,6 +675,12 @@ export class NetplayManager {
    * Different netplay server implementations expose this data under different
    * routes, so we try a small list of common JSON endpoints and return the
    * first successful response.
+   *
+   * Once an endpoint responds with HTTP 200 we stop probing — even if the
+   * room list is empty — to avoid returning stale or mismatched data from a
+   * fallback endpoint that happens to have different rooms.  Non-2xx responses
+   * (e.g. 404) are treated as "this endpoint doesn't exist" and we continue
+   * to the next candidate.
    */
   async fetchLobbyRooms(signal?: AbortSignal): Promise<NetplayLobbyRoom[]> {
     const err = this.validateServerUrl(this._settings.serverUrl);
@@ -697,11 +712,13 @@ export class NetplayManager {
         });
         if (!res.ok) continue;
 
+        // HTTP 200: this endpoint is active. Parse rooms and return immediately
+        // regardless of room count — the server authoritatively said there are
+        // none, so there's no point querying an alternative endpoint.
         const body = await res.json() as unknown;
-        const rooms = this._coerceLobbyRooms(body);
-        if (rooms.length > 0) return rooms;
+        return this._coerceLobbyRooms(body);
       } catch {
-        // Keep trying alternative endpoints.
+        // Network error or non-JSON body — keep trying alternative endpoints.
       }
     }
     return [];

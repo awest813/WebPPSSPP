@@ -578,6 +578,61 @@ describe('extractFromZip', () => {
     await expect(extractFromZip(blob)).rejects.toThrow('Unsupported ZIP compression method');
   });
 
+  it('throws with a descriptive message when the local-header offset is the ZIP64 sentinel (0xFFFFFFFF)', async () => {
+    // Build a ZIP where the central-directory local-header offset is
+    // 0xFFFFFFFF — the ZIP64 extended-offset indicator.  The parser must
+    // throw a clear diagnostic instead of silently returning null.
+    const enc      = new TextEncoder();
+    const fileName = 'game.nes';
+    const data     = new Uint8Array([0x4e, 0x45, 0x53, 0x1a]);
+    const nameBytes = enc.encode(fileName);
+    const nameLen   = nameBytes.length;
+    const dataLen   = data.length;
+
+    const lhSize   = 30 + nameLen;
+    const cdSize   = 46 + nameLen;
+    const eocdSize = 22;
+    const buf      = new ArrayBuffer(lhSize + dataLen + cdSize + eocdSize);
+    const view     = new DataView(buf);
+    const bytes    = new Uint8Array(buf);
+
+    // Local file header at offset 0
+    view.setUint32(0,  0x04034b50, true);
+    view.setUint16(4,  20, true);
+    view.setUint16(6,  0, true);
+    view.setUint16(8,  0, true);  // stored
+    view.setUint32(18, dataLen, true); // compressed size
+    view.setUint32(22, dataLen, true); // uncompressed size
+    view.setUint16(26, nameLen, true);
+    view.setUint16(28, 0, true);
+    bytes.set(nameBytes, 30);
+    bytes.set(data, lhSize);
+
+    // Central directory entry — local header offset set to 0xFFFFFFFF (ZIP64 indicator)
+    const cdOffset = lhSize + dataLen;
+    let p = cdOffset;
+    view.setUint32(p,      0x02014b50, true);
+    view.setUint16(p + 4,  20, true);
+    view.setUint16(p + 6,  20, true);
+    view.setUint16(p + 8,  0, true);
+    view.setUint16(p + 10, 0, true);
+    view.setUint32(p + 20, dataLen, true); // compressed
+    view.setUint32(p + 24, dataLen, true); // uncompressed
+    view.setUint16(p + 28, nameLen, true);
+    view.setUint32(p + 42, 0xffffffff, true); // ← ZIP64 sentinel
+    bytes.set(nameBytes, p + 46);
+    p += cdSize;
+
+    // EOCD
+    view.setUint32(p,      0x06054b50, true);
+    view.setUint16(p + 8,  1, true); // entries on disk
+    view.setUint16(p + 10, 1, true); // total entries
+    view.setUint32(p + 12, cdSize, true);
+    view.setUint32(p + 16, cdOffset, true);
+
+    await expect(extractFromZip(new Blob([buf]))).rejects.toThrow('ZIP64');
+  });
+
   it('throws when DecompressionStream is absent and the entry is deflate-compressed', async () => {
     // Temporarily remove DecompressionStream from the global scope
     const original = globalThis.DecompressionStream;

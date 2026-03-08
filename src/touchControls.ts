@@ -473,9 +473,21 @@ export class TouchControlsOverlay {
     // Mouse events (fallback for desktop testing).
     // Attach mousemove/mouseup to document on drag start so the button keeps
     // tracking even when the cursor moves outside the element boundary.
+    //
+    // In play mode (not editing) we also attach a one-shot document-level
+    // mouseup listener so the key is released even when the user releases the
+    // mouse button outside the element (e.g. after accidentally drifting the
+    // cursor off the button while holding it down).  Without this, the key
+    // would remain stuck in the pressed state until the overlay is hidden or
+    // the game loses focus.
     el.addEventListener("mousedown", (e) => {
       if (!onDragStart(e.clientX, e.clientY)) {
         pressKey();
+        const onPlayUp = () => {
+          document.removeEventListener("mouseup", onPlayUp);
+          releaseKey();
+        };
+        document.addEventListener("mouseup", onPlayUp);
         return;
       }
       const onMove = (ev: MouseEvent) => onDragMove(ev.clientX, ev.clientY);
@@ -488,7 +500,9 @@ export class TouchControlsOverlay {
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     });
-    // Release the key on mouseup in play mode (non-drag path).
+    // Belt-and-suspenders: also release on mouseup fired directly on the
+    // element (covers the common case and acts as a safety net if the
+    // document-level listener is somehow missed).
     el.addEventListener("mouseup", () => {
       if (!dragActive) releaseKey();
     });
