@@ -114,7 +114,7 @@ vitest.config.ts      Test runner configuration
 ### Clone
 
 ```bash
-git clone https://github.com/<YOUR_ORG_OR_USER>/WebPPSSPP.git
+git clone https://github.com/nihalmostafaw/WebPPSSPP.git
 cd WebPPSSPP
 ```
 
@@ -156,6 +156,14 @@ Deploy the contents of `dist/` to any static host. See [`guide.md`](guide.md) fo
 npm test
 ```
 
+## Environment health check (recommended for first-time setup)
+
+Run the project doctor to quickly detect common setup blockers (unsupported Node version, missing dependencies, missing static-host files):
+
+```bash
+npm run doctor
+```
+
 Optional quality checks:
 
 ```bash
@@ -171,6 +179,7 @@ Defined in `package.json`:
 - `npm run preview` — preview the build locally
 - `npm test` — run Vitest test suite
 - `npm run lint` — lint `src/` with ESLint
+- `npm run doctor` — run first-time environment diagnostics
 
 ## Cross-Origin Isolation (Important)
 
@@ -190,6 +199,7 @@ If PSP fails to launch, verify isolation behavior first.
 - **Poor performance:** force Performance mode in settings and disable heavy post-processing.
 - **No saves appearing:** confirm IndexedDB is available and storage is not blocked.
 - **Archive import issues:** test with uncompressed ROM files to isolate extraction issues.
+- **First-time setup confusion:** run `npm run doctor` to catch environment issues early.
 
 ## FAQ
 

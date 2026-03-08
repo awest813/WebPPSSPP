@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173",
     "test": "vitest run",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "doctor": "node tools/doctor.js"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.56.1",
