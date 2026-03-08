@@ -319,11 +319,11 @@ export function buildDOM(app: HTMLElement): void {
       </div>
 
       <!-- System picker modal -->
-      <div id="system-picker" role="dialog" aria-modal="true" aria-label="Choose System" hidden>
+      <div id="system-picker" role="dialog" aria-modal="true" aria-labelledby="system-picker-title" hidden>
         <div class="modal-backdrop" id="system-picker-backdrop"></div>
         <div class="modal-box">
           <div class="modal-header">
-            <h3 class="modal-title">Choose System</h3>
+            <h3 class="modal-title" id="system-picker-title">Choose System</h3>
             <button class="modal-close" id="system-picker-close" aria-label="Cancel">✕</button>
           </div>
           <p class="modal-subtitle" id="system-picker-subtitle">
@@ -336,11 +336,11 @@ export function buildDOM(app: HTMLElement): void {
       </div>
 
       <!-- Settings panel -->
-      <div id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings" hidden>
+      <div id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-panel-title" hidden>
         <div class="modal-backdrop" id="settings-backdrop"></div>
         <div class="modal-box settings-modal-box">
           <div class="modal-header">
-            <h3 class="modal-title">Settings</h3>
+            <h3 class="modal-title" id="settings-panel-title">Settings</h3>
             <button class="modal-close" id="settings-close" aria-label="Close settings">✕</button>
           </div>
           <div id="settings-content">
@@ -2239,7 +2239,9 @@ async function openSaveGallery(
   // Footer
   const footer    = make("div", { class: "confirm-footer" });
   const btnClose  = make("button", { class: "btn", title: "Close (Esc)" }, "Close");
-  const shortcutHint = make("span", { class: "save-gallery-hint" }, "F5 Quick Save · F7 Quick Load");
+  const shortcutHint = make("span", { class: "save-gallery-hint" },
+    isTouchDevice() ? "Tap Save/Load to manage slots" : "F5 Quick Save · F7 Quick Load"
+  );
   footer.append(shortcutHint, btnClose);
   box.appendChild(footer);
 

@@ -424,6 +424,7 @@ body {
   user-select: none;
   contain: layout style paint;
   content-visibility: auto;
+  contain-intrinsic-size: 0 220px;
 }
 
 .game-card:hover,
@@ -1035,9 +1036,19 @@ body {
 
 /* ── Settings panel with tabs ─────────────────────────────── */
 #settings-content {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+
+/* Shell wraps tabs + scrollable panels — needs flex context */
+.settings-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .settings-quickbar {
@@ -1134,7 +1145,7 @@ body {
 }
 
 /* Tab panel */
-.settings-panels { overflow-y: auto; flex: 1; overscroll-behavior: contain; }
+.settings-panels { overflow-y: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
 
 .settings-panel-content {
   display: flex;
@@ -1148,6 +1159,14 @@ body {
 }
 
 .settings-section:last-child { border-bottom: none; }
+
+/* Subsection within a settings-section (no extra padding/border) */
+.settings-subsection { padding: 6px 0; }
+
+/* PWA install banner */
+.pwa-install-row { padding: 4px 0 6px; }
+
+.pwa-install-btn { margin-top: 4px; }
 
 .settings-panel-content {
   gap: 10px;
@@ -1618,6 +1637,7 @@ body {
   .library-controls { width: 100%; }
   .library-search { width: 100%; flex: 1; }
   .library-search:focus { width: 100%; }
+  .library-sort { flex: 1; min-width: 0; }
 
   .drop-zone--compact {
     padding: 14px;
@@ -2339,6 +2359,46 @@ body {
 
 .cloud-bar__auto-check { cursor: pointer; accent-color: var(--c-accent); }
 
+/* ── Cloud status dot ──────────────────────────────────────── */
+.cloud-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--c-text-faint);
+  transition: background var(--transition), box-shadow var(--transition);
+}
+
+.cloud-status-dot--on {
+  background: var(--c-success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--c-success) 50%, transparent);
+}
+
+.cloud-status-dot--off {
+  background: var(--c-text-faint);
+}
+
+/* ── WebDAV connect dialog fields ─────────────────────────── */
+.cloud-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.cloud-dialog-label {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--c-text-dim);
+}
+
+.cloud-dialog-status {
+  font-size: 0.82rem;
+  color: var(--c-danger);
+  min-height: 1.2em;
+  margin: 2px 0;
+}
+
 /* ── Slider input ──────────────────────────────────────────── */
 input[type="range"] {
   -webkit-appearance: none;
@@ -2606,7 +2666,8 @@ kbd {
   background: color-mix(in srgb, var(--c-success) 12%, var(--c-surface2));
   border: 1px solid color-mix(in srgb, var(--c-success) 28%, transparent);
   color: var(--c-success);
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   max-width: 200px;
   white-space: nowrap;
   overflow: hidden;
