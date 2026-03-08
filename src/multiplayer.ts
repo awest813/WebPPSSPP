@@ -55,6 +55,7 @@ export const ROOM_KEY_DISPLAY_NAMES: Record<string, string> = {
   pokemon_gen3_kanto: "Pokémon Gen3 Kanto Trading Room",
   pokemon_gen3_hoenn: "Pokémon Gen3 Hoenn Trading Room",
   pokemon_gen4_sinnoh: "Pokémon Gen4 Sinnoh Trading Room",
+  pokemon_gen4_johto: "Pokémon Gen4 Johto Trading Room",
   pokemon_gen5_unova: "Pokémon Gen5 Unova Trading Room",
 };
 

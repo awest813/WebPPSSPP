@@ -565,9 +565,13 @@ describe('resolveNetplayRoomKey', () => {
     const pearl = resolveNetplayRoomKey('Pokemon Pearl Version', 'nds');
     const black = resolveNetplayRoomKey('Pokemon Black Version', 'nds');
     const white2 = resolveNetplayRoomKey('Pokemon White 2 Version', 'nds');
+    const heartGold = resolveNetplayRoomKey('Pokemon HeartGold Version', 'nds');
+    const soulSilver = resolveNetplayRoomKey('Pokemon SoulSilver Version', 'nds');
     expect(pearl).toBe('pokemon_gen4_sinnoh');
     expect(black).toBe('pokemon_gen5_unova');
     expect(white2).toBe('pokemon_gen5_unova');
+    expect(heartGold).toBe('pokemon_gen4_johto');
+    expect(soulSilver).toBe('pokemon_gen4_johto');
   });
 
   it('maps Pokemon GBC titles into Gen 1 and Gen 2 compatibility keys', () => {
@@ -610,6 +614,7 @@ describe('resolveNetplayRoomKey', () => {
 
   it('has display names for known compatibility room keys', () => {
     expect(roomDisplayNameForKey('pokemon_gen3_kanto')).toBe('Pokémon Gen3 Kanto Trading Room');
+    expect(roomDisplayNameForKey('pokemon_gen4_johto')).toBe('Pokémon Gen4 Johto Trading Room');
     expect(roomDisplayNameForKey('custom_room_key')).toBe('custom_room_key');
   });
 
@@ -714,6 +719,17 @@ describe('resolveNetplayRoomKey — generation grouping', () => {
     expect(resolveNetplayRoomKey('Pokemon LeafGreen Version', 'gba')).toBe('pokemon_gen3_kanto');
   });
 
+  it('groups Gen 4 Johto titles under pokemon_gen4_johto', () => {
+    expect(resolveNetplayRoomKey('Pokemon HeartGold Version', 'nds')).toBe('pokemon_gen4_johto');
+    expect(resolveNetplayRoomKey('Pokemon SoulSilver Version', 'nds')).toBe('pokemon_gen4_johto');
+  });
+
+  it('groups Gen 4 Sinnoh titles under pokemon_gen4_sinnoh', () => {
+    expect(resolveNetplayRoomKey('Pokemon Diamond Version', 'nds')).toBe('pokemon_gen4_sinnoh');
+    expect(resolveNetplayRoomKey('Pokemon Pearl Version', 'nds')).toBe('pokemon_gen4_sinnoh');
+    expect(resolveNetplayRoomKey('Pokemon Platinum Version', 'nds')).toBe('pokemon_gen4_sinnoh');
+  });
+
   it('negative test: Red, Ruby, Diamond each produce different room keys', () => {
     const red = resolveNetplayRoomKey('Pokemon Red Version', 'gbc');
     const ruby = resolveNetplayRoomKey('Pokemon Ruby Version', 'gba');
@@ -813,6 +829,10 @@ describe('resolveNetplayRoomKey — stress test official vs unofficial ROM varia
     ['Pokemon Gold (USA)',             'gbc', 'pokemon_gen2'],
     ['Pokemon Silver (USA)',           'gbc', 'pokemon_gen2'],
     ['Pokemon Crystal (USA)',          'gbc', 'pokemon_gen2'],
+    ['Pokemon HeartGold Version (USA)', 'nds', 'pokemon_gen4_johto'],
+    ['Pokemon SoulSilver Version (USA)', 'nds', 'pokemon_gen4_johto'],
+    ['Pokemon HeartGold (Europe)',      'nds', 'pokemon_gen4_johto'],
+    ['Pokemon SoulSilver (Japan)',      'nds', 'pokemon_gen4_johto'],
   ] as const;
 
   for (const [title, system, expected] of officialVariants) {
@@ -822,13 +842,15 @@ describe('resolveNetplayRoomKey — stress test official vs unofficial ROM varia
   }
 
   const unofficialVariants = [
-    ['Pokemon FireRed (Hack)',       'gba'],
-    ['Pokemon FireRed Randomizer',   'gba'],
-    ['Pokemon FireRed 1.1',          'gba'],
-    ['Pokemon FireRed DX',           'gba'],
-    ['Pokemon Ruby Destiny',         'gba'],
-    ['Pokemon Emerald Kaizo',        'gba'],
-    ['Pokemon Red++ (Hack)',         'gbc'],
+    ['Pokemon FireRed (Hack)',          'gba'],
+    ['Pokemon FireRed Randomizer',      'gba'],
+    ['Pokemon FireRed 1.1',             'gba'],
+    ['Pokemon FireRed DX',              'gba'],
+    ['Pokemon Ruby Destiny',            'gba'],
+    ['Pokemon Emerald Kaizo',           'gba'],
+    ['Pokemon Red++ (Hack)',            'gbc'],
+    ['Pokemon HeartGold Randomizer',    'nds'],
+    ['Pokemon SoulSilver Plus',         'nds'],
   ] as const;
 
   for (const [title, system] of unofficialVariants) {

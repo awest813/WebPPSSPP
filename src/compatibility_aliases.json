@@ -14,6 +14,9 @@
   "pokemon_gen4_sinnoh": [
     "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:diamond|pearl|platinum)(?:_version)?$"
   ],
+  "pokemon_gen4_johto": [
+    "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:heart_?gold|soul_?silver)(?:_version)?$"
+  ],
   "pokemon_gen5_unova": [
     "^(?:pokemon|pok[eé]mon|pocket[_\\s]*monsters)_(?:black|white)(?:_version_2|_2_version|_version|_2)?$"
   ]
