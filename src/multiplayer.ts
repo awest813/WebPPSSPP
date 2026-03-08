@@ -718,7 +718,10 @@ export class NetplayManager {
         // none, so there's no point querying an alternative endpoint.
         const body = await res.json() as unknown;
         return this._coerceLobbyRooms(body);
-      } catch {
+      } catch (err) {
+        // Re-throw AbortErrors immediately — the signal was cancelled by the
+        // caller and we must not silently swallow it or probe further endpoints.
+        if (err instanceof Error && err.name === "AbortError") throw err;
         // Network error or non-JSON body — keep trying alternative endpoints.
       }
     }

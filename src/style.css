@@ -1879,7 +1879,27 @@ body {
   flex-shrink: 0;
 }
 
-.netplay-lobby-refresh { margin-top: 4px; }
+.netplay-lobby-latency {
+  font-size: 0.75rem;
+  color: var(--c-accent);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.netplay-lobby-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.netplay-lobby-timestamp {
+  font-size: 0.75rem;
+  color: var(--c-text-dim);
+  font-style: italic;
+  margin: 0;
+}
+
 
 /* ── Custom confirm dialog ─────────────────────────────────── */
 .confirm-overlay {
