@@ -1855,13 +1855,19 @@ body {
 
 .netplay-lobby-row {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 5px 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
   border-bottom: 1px solid var(--c-border);
+  margin: 0 -8px;
+  border-radius: 6px;
+  cursor: default;
+  transition: background var(--transition-fast);
 }
 
 .netplay-lobby-row:last-child { border-bottom: none; }
+
+.netplay-lobby-row:hover { background: var(--c-surface3); }
 
 .netplay-lobby-name {
   flex: 1;
@@ -1870,6 +1876,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .netplay-lobby-host,
@@ -1886,11 +1893,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Latency severity variants */
+.netplay-lobby-latency--good { color: var(--c-success); }
+.netplay-lobby-latency--warn { color: var(--c-warn); }
+.netplay-lobby-latency--bad  { color: var(--c-danger); }
+
 .netplay-lobby-footer {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .netplay-lobby-timestamp {
@@ -1898,6 +1910,144 @@ body {
   color: var(--c-text-dim);
   font-style: italic;
   margin: 0;
+}
+
+/* ── Room status chip ──────────────────────────────────────── */
+.netplay-room-status {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  border: 1px solid;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  line-height: 1.6;
+}
+
+.netplay-room-status--open {
+  color: var(--c-success);
+  border-color: color-mix(in srgb, var(--c-success) 40%, transparent);
+  background: color-mix(in srgb, var(--c-success) 10%, transparent);
+}
+
+.netplay-room-status--full {
+  color: var(--c-danger);
+  border-color: color-mix(in srgb, var(--c-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--c-danger) 10%, transparent);
+}
+
+.netplay-room-status--locked {
+  color: var(--c-warn);
+  border-color: color-mix(in srgb, var(--c-warn) 40%, transparent);
+  background: color-mix(in srgb, var(--c-warn) 10%, transparent);
+}
+
+/* ── Lobby skeleton loading ────────────────────────────────── */
+@keyframes lobby-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.netplay-lobby-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--c-border);
+  margin: 0 -8px;
+}
+
+.netplay-lobby-skeleton:last-child { border-bottom: none; }
+
+.netplay-lobby-skeleton__bar {
+  border-radius: var(--radius);
+  height: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--c-surface2) 25%,
+    var(--c-surface3) 50%,
+    var(--c-surface2) 75%
+  );
+  background-size: 200% 100%;
+  animation: lobby-shimmer 1.5s ease infinite;
+}
+
+/* ── Advanced ICE disclosure ───────────────────────────────── */
+details.netplay-advanced { margin-top: 10px; }
+
+details.netplay-advanced > summary {
+  font-size: 0.82rem;
+  color: var(--c-text-dim);
+  cursor: pointer;
+  user-select: none;
+  padding: 5px 2px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: color var(--transition-fast);
+}
+
+details.netplay-advanced > summary::-webkit-details-marker { display: none; }
+details.netplay-advanced > summary:hover { color: var(--c-text); }
+
+details.netplay-advanced > summary::before {
+  content: "▶";
+  font-size: 0.6rem;
+  line-height: 1;
+  transition: transform var(--transition-fast);
+}
+
+details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
+
+.netplay-advanced-content { padding-top: 6px; }
+
+/* ── Status badge pill ─────────────────────────────────────── */
+.netplay-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid;
+  margin: 4px 0 8px;
+}
+
+.netplay-status-pill--active {
+  color: var(--c-success);
+  border-color: color-mix(in srgb, var(--c-success) 40%, transparent);
+  background: color-mix(in srgb, var(--c-success) 8%, transparent);
+}
+
+.netplay-status-pill--active::before { content: "●"; font-size: 0.45rem; }
+
+.netplay-status-pill--inactive {
+  color: var(--c-text-dim);
+  border-color: var(--c-border);
+  background: transparent;
+}
+
+.netplay-status-pill--inactive::before { content: "○"; font-size: 0.45rem; }
+
+/* ── Lobby auto-refresh note ───────────────────────────────── */
+.netplay-auto-note {
+  font-size: 0.72rem;
+  color: var(--c-text-faint);
+  font-style: italic;
+  margin: 0;
+  flex: 1;
+  text-align: right;
+}
+
+/* ── Room actions row ──────────────────────────────────────── */
+.netplay-room-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
 
 
