@@ -81,6 +81,7 @@ import {
   SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayer.js";
 import { CloudSaveManager, WebDAVProvider, GoogleDriveProvider, DropboxProvider } from "./cloudSave.js";
+import { SaveGameService, type SaveOperationStatus } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
@@ -2308,8 +2309,9 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
 
   const footer   = make("div", { class: "confirm-footer" });
   const btnCancel  = make("button", { class: "btn" }, "Cancel");
+  const btnTest    = make("button", { class: "btn" }, "Test Connection");
   const btnConnect = make("button", { class: "btn btn--primary" }, "Connect");
-  footer.append(btnCancel, btnConnect);
+  footer.append(btnCancel, btnTest, btnConnect);
   box.appendChild(footer);
 
   overlay.appendChild(box);
@@ -2348,6 +2350,25 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   // Register in capture phase so this fires even when the global in-game Escape handler runs.
   document.addEventListener("keydown", onEsc, { capture: true });
 
+
+  btnTest.addEventListener("click", async () => {
+    statusEl.textContent = "Testing connection…";
+    btnTest.setAttribute("disabled", "true");
+    try {
+      const selectedProvider = providerSel.value;
+      const candidate = selectedProvider === "webdav"
+        ? new WebDAVProvider(urlInp.value.trim(), userInp.value.trim(), passInp.value)
+        : selectedProvider === "gdrive"
+          ? new GoogleDriveProvider(gdriveTokenInp.value.trim())
+          : new DropboxProvider(dropboxTokenInp.value.trim());
+      const ok = await candidate.isAvailable();
+      statusEl.textContent = ok ? "Connection test succeeded. You can connect now." : "Could not reach provider. Check token/network/CORS.";
+    } catch (err) {
+      statusEl.textContent = err instanceof Error ? err.message : String(err);
+    } finally {
+      btnTest.removeAttribute("disabled");
+    }
+  });
   // ── Connect handler ──────────────────────────────────────────────────────────
   btnConnect.addEventListener("click", async () => {
     statusEl.textContent = "";
@@ -2454,6 +2475,22 @@ async function openSaveGallery(
   const cloudBar = buildCloudBar(getCloudManager(), gameId, saveLibrary);
   box.appendChild(cloudBar);
 
+  const saveService = new SaveGameService({
+    saveLibrary,
+    cloudManager: getCloudManager(),
+    emulator,
+    getCurrentGameContext: () => ({ gameId, gameName, systemId }),
+  });
+
+  const statusBanner = make("div", { class: "save-gallery-status", role: "status", "aria-live": "polite" }, "Ready");
+  box.appendChild(statusBanner);
+
+  const statusToClass = (status: SaveOperationStatus): string => `save-gallery-status--${status}`;
+  saveService.onStatus((event) => {
+    statusBanner.className = `save-gallery-status ${statusToClass(event.status)}`;
+    statusBanner.textContent = event.message ?? event.status.replaceAll("-", " ");
+  });
+
   // Slots container
   const slotsContainer = make("div", { class: "save-gallery-grid" });
   box.appendChild(slotsContainer);
@@ -2484,13 +2521,14 @@ async function openSaveGallery(
   document.addEventListener("keydown", onKey, { capture: true });
   requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
 
-  await renderSaveSlots(slotsContainer, emulator, saveLibrary, gameId, gameName, systemId, slotCountBadge, close);
+  await renderSaveSlots(slotsContainer, emulator, saveLibrary, saveService, gameId, gameName, systemId, slotCountBadge, close);
 }
 
 async function renderSaveSlots(
   container:        HTMLElement,
   emulator:         PSPEmulator,
   saveLibrary:      SaveStateLibrary,
+  saveService:      SaveGameService,
   gameId:           string,
   gameName:         string,
   systemId:         string,
@@ -2515,7 +2553,7 @@ async function renderSaveSlots(
   // Auto-save slot
   const autoState = stateMap.get(AUTO_SAVE_SLOT);
   const autoCard  = await buildSaveSlotCard(
-    AUTO_SAVE_SLOT, autoState, true, container, emulator, saveLibrary, gameId, gameName, systemId, onCloseGallery
+    AUTO_SAVE_SLOT, autoState, true, container, emulator, saveLibrary, saveService, gameId, gameName, systemId, onCloseGallery
   );
   container.appendChild(autoCard);
 
@@ -2529,7 +2567,7 @@ async function renderSaveSlots(
     manualSlots.map((slot) => {
       const state = stateMap.get(slot);
       return buildSaveSlotCard(
-        slot, state, false, container, emulator, saveLibrary, gameId, gameName, systemId, onCloseGallery
+        slot, state, false, container, emulator, saveLibrary, saveService, gameId, gameName, systemId, onCloseGallery
       );
     })
   );
@@ -2545,6 +2583,7 @@ async function buildSaveSlotCard(
   container:        HTMLElement,
   emulator:         PSPEmulator,
   saveLibrary:      SaveStateLibrary,
+  saveService:      SaveGameService,
   gameId:           string,
   gameName:         string,
   systemId:         string,
@@ -2592,7 +2631,7 @@ async function buildSaveSlotCard(
       if (newLabel === null) return;
       await saveLibrary.updateStateLabel(gameId, slot, newLabel);
       // Re-render just this card
-      const newCard = await buildSaveSlotCard(slot, state ? { ...state, label: newLabel || defaultSlotLabel(slot) } : undefined, isAuto, container, emulator, saveLibrary, gameId, gameName, systemId, onCloseGallery);
+      const newCard = await buildSaveSlotCard(slot, state ? { ...state, label: newLabel || defaultSlotLabel(slot) } : undefined, isAuto, container, emulator, saveLibrary, saveService, gameId, gameName, systemId, onCloseGallery);
       card.replaceWith(newCard);
     });
     slotHeader.appendChild(btnEdit);
@@ -2614,7 +2653,7 @@ async function buildSaveSlotCard(
   const rerender = () => {
     const badge = container.closest<HTMLElement>(".save-gallery-box")
       ?.querySelector<HTMLElement>(".save-gallery-slot-count") ?? undefined;
-    return renderSaveSlots(container, emulator, saveLibrary, gameId, gameName, systemId, badge, onCloseGallery);
+    return renderSaveSlots(container, emulator, saveLibrary, saveService, gameId, gameName, systemId, badge, onCloseGallery);
   };
 
   // Actions
@@ -2627,20 +2666,10 @@ async function buildSaveSlotCard(
       if (btnSave.disabled) return;
       btnSave.disabled = true;
       try {
-        emulator.quickSave(slot);
-        await persistSaveMetadata(emulator, saveLibrary, gameId, gameName, systemId, slot);
+        const saved = await saveService.saveSlot(slot);
         await rerender();
-        showInfoToast(`Saved to ${currentLabel}`);
-        // Auto-push to cloud when auto-sync is enabled
-        const cm = getCloudManager();
-        if (cm.isConnected() && cm.autoSyncEnabled) {
-          const saved = await saveLibrary.getState(gameId, slot);
-          if (saved) {
-            cm.push(saved).catch((err: unknown) => {
-              showError(`Cloud sync failed: ${err instanceof Error ? err.message : String(err)}`);
-            });
-          }
-        }
+        if (saved) showInfoToast(`Saved to ${currentLabel}`);
+        else showError("Save failed — emulator is still warming up.");
       } finally {
         btnSave.disabled = false;
       }
@@ -2651,27 +2680,13 @@ async function buildSaveSlotCard(
   if (state) {
     const btnLoad = make("button", { class: "btn save-slot-card__btn", title: "Load this save state" });
     btnLoad.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Load`;
-    btnLoad.addEventListener("click", () => {
-      if (state.stateData) {
-        state.stateData.arrayBuffer().then(buf => {
-          const written = emulator.writeStateData(slot, new Uint8Array(buf));
-          if (written) {
-            emulator.quickLoad(slot);
-            onCloseGallery?.();
-            showInfoToast(`Loaded ${currentLabel}`);
-          } else {
-            showError("Could not restore save state — the emulator filesystem is not ready.");
-          }
-        }).catch(() => {
-          // Blob read failed — fall back to loading from emulator memory
-          emulator.quickLoad(slot);
-          onCloseGallery?.();
-          showInfoToast(`Loaded ${currentLabel}`);
-        });
-      } else {
-        emulator.quickLoad(slot);
+    btnLoad.addEventListener("click", async () => {
+      const loaded = await saveService.loadSlot(slot);
+      if (loaded) {
         onCloseGallery?.();
         showInfoToast(`Loaded ${currentLabel}`);
+      } else {
+        showError("Could not restore this save state.");
       }
     });
     actions.appendChild(btnLoad);

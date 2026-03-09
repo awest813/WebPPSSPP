@@ -21,9 +21,10 @@
 import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
 import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
+import { SaveGameService } from "./saveService.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
-import { SaveStateLibrary, saveStateKey, AUTO_SAVE_SLOT, createThumbnail, stateBytesToBlob } from "./saves.js";
+import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
 import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary, scheduleIdleTask } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
@@ -227,6 +228,13 @@ function main(): void {
   const library       = new GameLibrary();
   const biosLibrary   = new BiosLibrary();
   const saveLibrary   = new SaveStateLibrary();
+  const saveService   = new SaveGameService({
+    saveLibrary,
+    emulator,
+    getCurrentGameContext: () => (currentGameId && currentSystemId)
+      ? { gameId: currentGameId, gameName: settings.lastGameName ?? "Unknown", systemId: currentSystemId }
+      : null,
+  });
   const netplayManager = new NetplayManager();
 
   // Propagate verbose logging from settings into the emulator so debug
@@ -454,34 +462,12 @@ function main(): void {
   // 5c. Wire auto-save persistence
   emulator.onAutoSave = () => {
     if (!settings.autoSaveEnabled || !currentGameId || !currentSystemId) return;
-    // Capture IDs synchronously at the time the save is triggered — by the
-    // time the async work completes a new game may have been launched.
-    const gameIdAtSave   = currentGameId;
-    const systemIdAtSave = currentSystemId;
-    const gameName = settings.lastGameName ?? "Unknown";
-    void (async () => {
-      try {
-        const screenshot = await emulator.captureScreenshotAsync();
-        const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
-        const stateBytes = emulator.readStateData(AUTO_SAVE_SLOT);
-        const stateData  = stateBytesToBlob(stateBytes);
-
-        await saveLibrary.saveState({
-          id:         saveStateKey(gameIdAtSave, AUTO_SAVE_SLOT),
-          gameId:     gameIdAtSave,
-          gameName,
-          systemId:   systemIdAtSave,
-          slot:       AUTO_SAVE_SLOT,
-          label:      "Auto-Save",
-          timestamp:  Date.now(),
-          thumbnail,
-          stateData,
-          isAutoSave: true,
-        });
-      } catch {
-        // Auto-save persistence is best-effort
-      }
-    })();
+    // Auto-save persistence is best-effort.
+    void saveService.saveSlot(AUTO_SAVE_SLOT, {
+      gameId: currentGameId,
+      gameName: settings.lastGameName ?? "Unknown",
+      systemId: currentSystemId,
+    }).catch(() => {});
   };
 
   // 5d. Wire auto tier downgrade — triggered by onLowFPS

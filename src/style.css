@@ -2376,6 +2376,25 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   color: var(--c-text-dim);
 }
 
+
+.save-gallery-status {
+  margin: 8px 2px 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--c-surface2) 78%, transparent);
+  color: var(--c-text-dim);
+  font-size: 12px;
+  text-transform: capitalize;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.save-gallery-status--sync-success { color: var(--c-success); border-color: color-mix(in srgb, var(--c-success) 35%, var(--c-border)); }
+.save-gallery-status--syncing-cloud,
+.save-gallery-status--saving-local,
+.save-gallery-status--loading-local { color: var(--c-accent); border-color: color-mix(in srgb, var(--c-accent) 35%, var(--c-border)); }
+.save-gallery-status--emulator-not-ready,
+.save-gallery-status--sync-error,
+.save-gallery-status--integrity-warning { color: var(--c-danger); border-color: color-mix(in srgb, var(--c-danger) 40%, var(--c-border)); }
 .save-gallery-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
