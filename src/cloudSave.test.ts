@@ -1180,3 +1180,155 @@ describe("GoogleDriveProvider — listManifests (batch search)", () => {
     expect(results[0].gameId).toBe("game-1");
   });
 });
+
+// ── CloudSaveManager — sync badges ──────────────────────────────────────────
+
+describe("CloudSaveManager — sync badges", () => {
+  let manager: CloudSaveManager;
+
+  beforeEach(() => {
+    localStorage.clear();
+    manager = new CloudSaveManager();
+  });
+
+  it("defaults to 'local-only' for untracked slots", () => {
+    expect(manager.getSlotBadge("game-1", 1)).toBe("local-only");
+  });
+
+  it("setSlotBadge persists and fires onStatusChange", () => {
+    const spy = vi.fn();
+    manager.onStatusChange = spy;
+    manager.setSlotBadge("game-1", 1, "synced");
+    expect(manager.getSlotBadge("game-1", 1)).toBe("synced");
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("tracks badges independently per game+slot", () => {
+    manager.setSlotBadge("game-1", 1, "synced");
+    manager.setSlotBadge("game-1", 2, "error");
+    manager.setSlotBadge("game-2", 1, "syncing");
+    expect(manager.getSlotBadge("game-1", 1)).toBe("synced");
+    expect(manager.getSlotBadge("game-1", 2)).toBe("error");
+    expect(manager.getSlotBadge("game-2", 1)).toBe("syncing");
+  });
+});
+
+// ── CloudSaveManager — sync history ─────────────────────────────────────────
+
+describe("CloudSaveManager — sync history", () => {
+  let manager: CloudSaveManager;
+
+  beforeEach(() => {
+    localStorage.clear();
+    manager = new CloudSaveManager();
+  });
+
+  it("starts with an empty history", () => {
+    expect(manager.syncHistory).toHaveLength(0);
+  });
+
+  it("addHistoryEntry adds entries newest-first", () => {
+    manager.addHistoryEntry("Pushed slot 1", true);
+    manager.addHistoryEntry("Pull slot 2 failed", false);
+    expect(manager.syncHistory).toHaveLength(2);
+    expect(manager.syncHistory[0].action).toBe("Pull slot 2 failed");
+    expect(manager.syncHistory[0].ok).toBe(false);
+    expect(manager.syncHistory[1].action).toBe("Pushed slot 1");
+    expect(manager.syncHistory[1].ok).toBe(true);
+  });
+
+  it("caps history at MAX_HISTORY entries", () => {
+    for (let i = 0; i < CloudSaveManager.MAX_HISTORY + 5; i++) {
+      manager.addHistoryEntry(`Action ${i}`, true);
+    }
+    expect(manager.syncHistory).toHaveLength(CloudSaveManager.MAX_HISTORY);
+  });
+
+  it("fires onStatusChange when history is added", () => {
+    const spy = vi.fn();
+    manager.onStatusChange = spy;
+    manager.addHistoryEntry("test", true);
+    expect(spy).toHaveBeenCalled();
+  });
+});
+
+// ── CloudSaveManager — push/pull/sync track badges and history ──────────────
+
+describe("CloudSaveManager — push records badge + history", () => {
+  let manager: CloudSaveManager;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    manager = new CloudSaveManager();
+    const provider = makeMockProvider(true);
+    await manager.connect(provider);
+  });
+
+  it("push sets badge to synced and adds a history entry", async () => {
+    const entry = makeEntry({ gameId: "g1", slot: 2 });
+    await manager.push(entry);
+    expect(manager.getSlotBadge("g1", 2)).toBe("synced");
+    expect(manager.syncHistory.length).toBeGreaterThan(0);
+    expect(manager.syncHistory[0].action).toContain("Pushed slot 2");
+    expect(manager.syncHistory[0].ok).toBe(true);
+  });
+
+  it("push sets badge to error on failure", async () => {
+    const failing = makeMockProvider(true);
+    failing.upload.mockRejectedValueOnce(new Error("net down"));
+    await manager.connect(failing);
+    const entry = makeEntry({ gameId: "g1", slot: 3 });
+    await expect(manager.push(entry)).rejects.toThrow("net down");
+    expect(manager.getSlotBadge("g1", 3)).toBe("error");
+    expect(manager.syncHistory[0].ok).toBe(false);
+  });
+});
+
+// ── CloudSaveManager — onConflict callback ──────────────────────────────────
+
+describe("CloudSaveManager — onConflict callback", () => {
+  let manager: CloudSaveManager;
+  let provider: ReturnType<typeof makeMockProvider>;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    manager = new CloudSaveManager();
+    provider = makeMockProvider(true);
+    await manager.connect(provider);
+  });
+
+  it("invokes onConflict when both local and remote exist and callback is set", async () => {
+    const local  = makeEntry({ gameId: "g1", slot: 1, timestamp: 100 });
+    const remote = makeEntry({ gameId: "g1", slot: 1, timestamp: 200 });
+    provider.download.mockResolvedValueOnce(remote);
+    // Download is called again inside the temp CloudSaveSync created by syncSlot
+    provider.download.mockResolvedValueOnce(remote);
+
+    manager.onConflict = vi.fn().mockResolvedValue("local");
+
+    const result = await manager.syncSlot("g1", 1, local);
+    expect(manager.onConflict).toHaveBeenCalled();
+    // With "local" resolution + both sides present, local should be pushed
+    expect(result?.direction).toBe("pushed");
+  });
+
+  it("does NOT invoke onConflict when no remote exists", async () => {
+    const local = makeEntry({ gameId: "g1", slot: 1, timestamp: 100 });
+    provider.download.mockResolvedValueOnce(null);
+
+    manager.onConflict = vi.fn().mockResolvedValue("newest");
+
+    const result = await manager.syncSlot("g1", 1, local);
+    expect(manager.onConflict).not.toHaveBeenCalled();
+    expect(result?.direction).toBe("pushed");
+  });
+
+  it("syncGame adds a summary history entry", async () => {
+    const lib = {
+      getStatesForGame: vi.fn().mockResolvedValue([]),
+      saveState: vi.fn(),
+    };
+    await manager.syncGame("g1", lib);
+    expect(manager.syncHistory.some(e => e.action.includes("Sync game"))).toBe(true);
+  });
+});
