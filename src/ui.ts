@@ -80,7 +80,7 @@ import {
   NETPLAY_SUPPORTED_SYSTEM_IDS,
   SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayer.js";
-import { CloudSaveManager, WebDAVProvider } from "./cloudSave.js";
+import { CloudSaveManager, WebDAVProvider, GoogleDriveProvider, DropboxProvider } from "./cloudSave.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
@@ -2138,7 +2138,8 @@ function buildCloudBar(
 }
 
 /**
- * Show a modal dialog that lets the user configure and connect to WebDAV.
+ * Show a modal dialog that lets the user configure and connect to a cloud
+ * save provider (WebDAV, Google Drive, or Dropbox).
  * On successful connect, calls `onConnected()` so the cloud bar refreshes.
  */
 function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () => void): void {
@@ -2148,29 +2149,91 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
     role: "dialog",
     "aria-modal": "true",
     "aria-label": "Cloud Connection",
-    style: "min-width: min(94vw, 400px);",
+    style: "min-width: min(94vw, 420px);",
   });
 
   box.appendChild(make("h3", { class: "confirm-title" }, "☁ Cloud Connection"));
-  box.appendChild(make("p", { class: "confirm-body" }, "Connect to a WebDAV server. The server must allow CORS requests from this origin."));
 
-  // Provider is always WebDAV for now (only concrete provider)
-  const saved = cloudManager.loadWebDAVConfig();
+  // ── Provider selector ───────────────────────────────────────────────────────
+  const providerWrap = make("div", { class: "cloud-dialog-field" });
+  const providerLbl  = make("label", { class: "cloud-dialog-label" }, "Provider");
+  const providerSel  = make("select", { class: "confirm-input" }) as HTMLSelectElement;
+  [
+    ["webdav",  "WebDAV (self-hosted)"],
+    ["gdrive",  "Google Drive"],
+    ["dropbox", "Dropbox"],
+  ].forEach(([v, t]) => {
+    const opt = make("option", { value: v }, t);
+    // Pre-select provider that was previously connected (if any)
+    if (cloudManager.providerId !== "null" && cloudManager.providerId === v) {
+      opt.setAttribute("selected", "");
+    }
+    providerSel.appendChild(opt);
+  });
+  providerWrap.append(providerLbl, providerSel);
+  box.appendChild(providerWrap);
 
-  const makeTextField = (labelText: string, type: string, placeholder: string, autocomplete: string, value = ""): HTMLInputElement => {
+  // Description paragraph (updated when provider changes)
+  const descEl = make("p", { class: "confirm-body" }, "");
+  box.appendChild(descEl);
+
+  // ── WebDAV fields ────────────────────────────────────────────────────────────
+  const webdavSection = make("div", { class: "cloud-dialog-section" });
+  const savedDav      = cloudManager.loadWebDAVConfig();
+
+  const makeDavField = (labelText: string, type: string, placeholder: string, autocomplete: string, value = ""): HTMLInputElement => {
     const wrap = make("div", { class: "cloud-dialog-field" });
     const lbl  = make("label", { class: "cloud-dialog-label" }, labelText);
     const inp  = make("input", { class: "confirm-input", type, placeholder, value, autocomplete }) as HTMLInputElement;
     wrap.append(lbl, inp);
-    box.appendChild(wrap);
+    webdavSection.appendChild(wrap);
     return inp;
   };
 
-  const urlInp  = makeTextField("WebDAV URL", "url",      "https://dav.example.com/retrovault", "url",              saved?.url ?? "");
-  const userInp = makeTextField("Username",   "text",     "user",                                "username",         saved?.username ?? "");
-  const passInp = makeTextField("Password / Token", "password", "••••••••",                      "current-password", saved?.password ?? "");
+  const urlInp  = makeDavField("WebDAV URL", "url",      "https://dav.example.com/retrovault", "url",              savedDav?.url ?? "");
+  const userInp = makeDavField("Username",   "text",     "user",                                "username",         savedDav?.username ?? "");
+  const passInp = makeDavField("Password / Token", "password", "••••••••",                      "current-password", savedDav?.password ?? "");
+  box.appendChild(webdavSection);
 
-  // Conflict resolution
+  // ── Google Drive fields ──────────────────────────────────────────────────────
+  const gdriveSection = make("div", { class: "cloud-dialog-section" });
+  const savedGDrive   = cloudManager.loadGDriveConfig();
+
+  const gdriveTokenWrap = make("div", { class: "cloud-dialog-field" });
+  const gdriveTokenLbl  = make("label", { class: "cloud-dialog-label" }, "OAuth Access Token");
+  const gdriveTokenInp  = make("input", {
+    class:        "confirm-input",
+    type:         "password",
+    placeholder:  "ya29.…",
+    autocomplete: "off",
+    value:        savedGDrive?.accessToken ?? "",
+  }) as HTMLInputElement;
+  gdriveTokenWrap.append(gdriveTokenLbl, gdriveTokenInp);
+  gdriveSection.appendChild(gdriveTokenWrap);
+  gdriveSection.appendChild(make("p", { class: "cloud-dialog-hint" },
+    "Obtain a token from the Google OAuth 2.0 Playground (scope: drive.appdata) and paste it here."));
+  box.appendChild(gdriveSection);
+
+  // ── Dropbox fields ───────────────────────────────────────────────────────────
+  const dropboxSection = make("div", { class: "cloud-dialog-section" });
+  const savedDropbox   = cloudManager.loadDropboxConfig();
+
+  const dropboxTokenWrap = make("div", { class: "cloud-dialog-field" });
+  const dropboxTokenLbl  = make("label", { class: "cloud-dialog-label" }, "OAuth Access Token");
+  const dropboxTokenInp  = make("input", {
+    class:        "confirm-input",
+    type:         "password",
+    placeholder:  "sl.…",
+    autocomplete: "off",
+    value:        savedDropbox?.accessToken ?? "",
+  }) as HTMLInputElement;
+  dropboxTokenWrap.append(dropboxTokenLbl, dropboxTokenInp);
+  dropboxSection.appendChild(dropboxTokenWrap);
+  dropboxSection.appendChild(make("p", { class: "cloud-dialog-hint" },
+    "Generate a long-lived token in the Dropbox App Console (scopes: files.content.read, files.content.write) and paste it here."));
+  box.appendChild(dropboxSection);
+
+  // ── Conflict resolution (shared across all providers) ────────────────────────
   const cfgWrap = make("div", { class: "cloud-dialog-field" });
   const cfgLbl  = make("label", { class: "cloud-dialog-label" }, "Conflict resolution");
   const cfgSel  = make("select", { class: "confirm-input" }) as HTMLSelectElement;
@@ -2182,12 +2245,12 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   cfgWrap.append(cfgLbl, cfgSel);
   box.appendChild(cfgWrap);
 
-  // Status line
+  // ── Status line ──────────────────────────────────────────────────────────────
   const statusEl = make("p", { class: "cloud-dialog-status" }, "");
   box.appendChild(statusEl);
 
-  const footer = make("div", { class: "confirm-footer" });
-  const btnCancel = make("button", { class: "btn" }, "Cancel");
+  const footer   = make("div", { class: "confirm-footer" });
+  const btnCancel  = make("button", { class: "btn" }, "Cancel");
   const btnConnect = make("button", { class: "btn btn--primary" }, "Connect");
   footer.append(btnCancel, btnConnect);
   box.appendChild(footer);
@@ -2195,6 +2258,27 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
+  // ── Show/hide sections based on provider selection ───────────────────────────
+  const updateVisibility = () => {
+    const v = providerSel.value;
+    webdavSection.style.display  = v === "webdav"  ? "" : "none";
+    gdriveSection.style.display  = v === "gdrive"  ? "" : "none";
+    dropboxSection.style.display = v === "dropbox" ? "" : "none";
+    statusEl.textContent = "";
+
+    if (v === "webdav") {
+      descEl.textContent = "Connect to a WebDAV server. The server must allow CORS requests from this origin.";
+    } else if (v === "gdrive") {
+      descEl.textContent = "Saves are stored in the hidden appDataFolder on your Google Drive (not visible in regular Drive).";
+    } else {
+      descEl.textContent = "Saves are stored in /retrovault inside your Dropbox app folder.";
+    }
+  };
+
+  providerSel.addEventListener("change", updateVisibility);
+  updateVisibility();
+
+  // ── Close handler ────────────────────────────────────────────────────────────
   const close = () => {
     overlay.classList.remove("confirm-overlay--visible");
     setTimeout(() => overlay.remove(), 200);
@@ -2203,39 +2287,62 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   btnCancel.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 
+  // ── Connect handler ──────────────────────────────────────────────────────────
   btnConnect.addEventListener("click", async () => {
-    const url  = urlInp.value.trim();
-    const user = userInp.value.trim();
-    const pass = passInp.value;
-
-    if (!url) { statusEl.textContent = "Please enter a WebDAV URL."; return; }
-
-    btnConnect.disabled = true;
-    btnConnect.textContent = "Connecting…";
     statusEl.textContent = "";
+    btnConnect.disabled  = true;
+    btnConnect.textContent = "Connecting…";
 
     try {
-      // Apply conflict resolution setting first
       cloudManager.setConflictResolution(cfgSel.value as import("./cloudSave.js").ConflictResolution);
 
-      const provider = new WebDAVProvider(url, user, pass);
-      await cloudManager.connect(provider);
+      const selectedProvider = providerSel.value;
+      let provider;
 
-      // Persist credentials and settings after successful connect
-      cloudManager.saveWebDAVConfig(url, user, pass);
-
-      close();
-      onConnected();
-      showInfoToast(`Connected to WebDAV: ${url}`);
+      if (selectedProvider === "webdav") {
+        const url  = urlInp.value.trim();
+        const user = userInp.value.trim();
+        const pass = passInp.value;
+        if (!url) { statusEl.textContent = "Please enter a WebDAV URL."; btnConnect.disabled = false; btnConnect.textContent = "Connect"; return; }
+        provider = new WebDAVProvider(url, user, pass);
+        await cloudManager.connect(provider);
+        cloudManager.saveWebDAVConfig(url, user, pass);
+        close();
+        onConnected();
+        showInfoToast(`Connected to WebDAV: ${url}`);
+      } else if (selectedProvider === "gdrive") {
+        const token = gdriveTokenInp.value.trim();
+        if (!token) { statusEl.textContent = "Please enter a Google Drive access token."; btnConnect.disabled = false; btnConnect.textContent = "Connect"; return; }
+        provider = new GoogleDriveProvider(token);
+        await cloudManager.connect(provider);
+        cloudManager.saveGDriveConfig(token);
+        close();
+        onConnected();
+        showInfoToast("Connected to Google Drive.");
+      } else {
+        const token = dropboxTokenInp.value.trim();
+        if (!token) { statusEl.textContent = "Please enter a Dropbox access token."; btnConnect.disabled = false; btnConnect.textContent = "Connect"; return; }
+        provider = new DropboxProvider(token);
+        await cloudManager.connect(provider);
+        cloudManager.saveDropboxConfig(token);
+        close();
+        onConnected();
+        showInfoToast("Connected to Dropbox.");
+      }
     } catch (err) {
       statusEl.textContent = err instanceof Error ? err.message : String(err);
-      btnConnect.disabled = false;
+      btnConnect.disabled  = false;
       btnConnect.textContent = "Connect";
     }
   });
 
   requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
-  urlInp.focus();
+  // Focus the first visible input
+  setTimeout(() => {
+    if (providerSel.value === "webdav") urlInp.focus();
+    else if (providerSel.value === "gdrive") gdriveTokenInp.focus();
+    else dropboxTokenInp.focus();
+  }, 50);
 }
 
 // ── Save gallery dialog ───────────────────────────────────────────────────────

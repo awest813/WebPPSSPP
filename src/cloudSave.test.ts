@@ -3,6 +3,8 @@ import {
   NullCloudProvider,
   CloudSaveSync,
   WebDAVProvider,
+  GoogleDriveProvider,
+  DropboxProvider,
   CloudSaveManager,
   type CloudSaveProvider,
   type CloudSaveManifest,
@@ -676,5 +678,357 @@ describe("CloudSaveManager — settings persistence", () => {
     m.saveWebDAVConfig("https://dav.example.com", "alice", "pass");
     m.clearWebDAVConfig();
     expect(m.loadWebDAVConfig()).toBeNull();
+  });
+});
+
+// ── GoogleDriveProvider ───────────────────────────────────────────────────────
+
+describe("GoogleDriveProvider — construction", () => {
+  it("has providerId 'gdrive' and a non-empty displayName", () => {
+    const p = new GoogleDriveProvider("fake-token");
+    expect(p.providerId).toBe("gdrive");
+    expect(p.displayName.length).toBeGreaterThan(0);
+  });
+});
+
+describe("GoogleDriveProvider — isAvailable", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns true when /about responds with 200", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true }));
+    const p = new GoogleDriveProvider("tok");
+    expect(await p.isAvailable()).toBe(true);
+  });
+
+  it("returns false when the server returns a non-200 status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 401, ok: false }));
+    const p = new GoogleDriveProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when fetch throws (network error)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const p = new GoogleDriveProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+});
+
+describe("GoogleDriveProvider — upload", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("creates files via multipart POST when no existing file is found", async () => {
+    const mockFetch = vi.fn()
+      // _findFileId calls for state.bin, thumb.jpg, manifest.json
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [] }) }) // state.bin search
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // state.bin upload (POST multipart)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [] }) }) // thumb.jpg search
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // thumb.jpg upload
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [] }) }) // manifest.json search
+      .mockResolvedValueOnce({ ok: true, status: 200 }); // manifest.json upload
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ gameId: "g1", slot: 1, stateData: new Blob(["state"]), thumbnail: new Blob(["img"]) });
+    const p = new GoogleDriveProvider("tok");
+    await p.upload(entry);
+
+    const urls: string[] = mockFetch.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(urls.some(u => u.includes("?uploadType=multipart"))).toBe(true);
+    // The upload endpoint does NOT include the filename in the URL path (it's in the body)
+    expect(urls.filter(u => u.includes("?uploadType=multipart"))).toHaveLength(3);
+  });
+
+  it("updates existing files via PATCH when file already exists", async () => {
+    const mockFetch = vi.fn()
+      // _findFileId returns an existing id for each file
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "id-state" }] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // PATCH state.bin
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "id-thumb" }] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // PATCH thumb.jpg
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "id-manifest" }] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 }); // PATCH manifest.json
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ gameId: "g1", slot: 1, stateData: new Blob(["state"]), thumbnail: new Blob(["img"]) });
+    const p = new GoogleDriveProvider("tok");
+    await p.upload(entry);
+
+    const methods: string[] = mockFetch.mock.calls.map((c: unknown[]) => (c[1] as { method: string }).method);
+    expect(methods.filter(m => m === "PATCH")).toHaveLength(3);
+  });
+
+  it("throws when a file operation fails", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [] }) })
+      .mockResolvedValueOnce({ ok: false, status: 403 }), // upload fails
+    );
+    const entry = makeEntry({ stateData: new Blob(["x"]), thumbnail: null });
+    const p = new GoogleDriveProvider("tok");
+    await expect(p.upload(entry)).rejects.toThrow(/Google Drive upload failed/);
+  });
+});
+
+describe("GoogleDriveProvider — download", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns null when manifest file is not found", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ files: [] }),
+    }));
+    const p = new GoogleDriveProvider("tok");
+    expect(await p.download("game-1", 1)).toBeNull();
+  });
+
+  it("returns a SaveStateEntry when manifest and state exist", async () => {
+    const manifest: CloudSaveManifest = makeManifest({ gameId: "game-1", slot: 1 });
+    const mockFetch = vi.fn()
+      // _findFileId(manifest.json) → found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "manifest-id" }] }) })
+      // download manifest content
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => manifest })
+      // _findFileId(state.bin) → found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "state-id" }] }) })
+      // download state content
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob(["state"]) })
+      // _findFileId(thumb.jpg) → not found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [] }) });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new GoogleDriveProvider("tok");
+    const result = await p.download("game-1", 1);
+
+    expect(result).not.toBeNull();
+    expect(result!.gameId).toBe("game-1");
+    expect(result!.slot).toBe(1);
+    expect(result!.stateData).not.toBeNull();
+    expect(result!.thumbnail).toBeNull();
+  });
+});
+
+describe("GoogleDriveProvider — delete", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("sends DELETE for each file that exists", async () => {
+    const mockFetch = vi.fn()
+      // _findFileId for manifest, state, thumb
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "mid" }] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // DELETE manifest
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "sid" }] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 }) // DELETE state
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [] }) }); // thumb not found
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new GoogleDriveProvider("tok");
+    await p.delete("game-1", 1);
+
+    const methods: string[] = mockFetch.mock.calls.map((c: unknown[]) => (c[1] as { method?: string }).method ?? "GET");
+    expect(methods.filter(m => m === "DELETE")).toHaveLength(2);
+  });
+
+  it("resolves even when DELETE requests fail (allSettled semantics)", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ files: [{ id: "x" }] }) }),
+    );
+    // override to make actual DELETE fail
+    const inner = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ files: [{ id: "x" }] }) })
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ files: [] }) });
+    vi.stubGlobal("fetch", inner);
+
+    const p = new GoogleDriveProvider("tok");
+    await expect(p.delete("game-1", 1)).resolves.toBeUndefined();
+  });
+});
+
+// ── DropboxProvider ───────────────────────────────────────────────────────────
+
+describe("DropboxProvider — construction", () => {
+  it("has providerId 'dropbox' and a non-empty displayName", () => {
+    const p = new DropboxProvider("fake-token");
+    expect(p.providerId).toBe("dropbox");
+    expect(p.displayName.length).toBeGreaterThan(0);
+  });
+});
+
+describe("DropboxProvider — isAvailable", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns true when get_current_account responds with 200", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true }));
+    const p = new DropboxProvider("tok");
+    expect(await p.isAvailable()).toBe(true);
+  });
+
+  it("returns false when status is 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 401, ok: false }));
+    const p = new DropboxProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when fetch throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const p = new DropboxProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+});
+
+describe("DropboxProvider — upload", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("sends upload POST requests for state.bin, thumb.jpg, and manifest.json", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ gameId: "g1", slot: 1, stateData: new Blob(["state"]), thumbnail: new Blob(["img"]) });
+    const p = new DropboxProvider("tok");
+    await p.upload(entry);
+
+    const headers: Record<string, string>[] = mockFetch.mock.calls.map(
+      (c: unknown[]) => (c[1] as { headers: Record<string, string> }).headers,
+    );
+    const args = headers.map(h => h["Dropbox-API-Arg"] ?? "").filter(Boolean);
+    expect(args.some(a => a.includes("state.bin"))).toBe(true);
+    expect(args.some(a => a.includes("thumb.jpg"))).toBe(true);
+    expect(args.some(a => a.includes("manifest.json"))).toBe(true);
+  });
+
+  it("throws when an upload request fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    const entry = makeEntry({ stateData: new Blob(["x"]), thumbnail: null });
+    const p = new DropboxProvider("tok");
+    await expect(p.upload(entry)).rejects.toThrow(/Dropbox upload failed/);
+  });
+});
+
+describe("DropboxProvider — download", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns null when manifest download returns non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409 }));
+    const p = new DropboxProvider("tok");
+    expect(await p.download("game-1", 1)).toBeNull();
+  });
+
+  it("returns a SaveStateEntry when manifest and state download succeed", async () => {
+    const manifest: CloudSaveManifest = makeManifest({ gameId: "game-1", slot: 1 });
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob([JSON.stringify(manifest)]) }) // manifest
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob(["state"]) })  // state
+      .mockResolvedValueOnce({ ok: false, status: 409 }); // no thumbnail
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new DropboxProvider("tok");
+    const result = await p.download("game-1", 1);
+
+    expect(result).not.toBeNull();
+    expect(result!.gameId).toBe("game-1");
+    expect(result!.slot).toBe(1);
+    expect(result!.stateData).not.toBeNull();
+    expect(result!.thumbnail).toBeNull();
+  });
+});
+
+describe("DropboxProvider — delete", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("sends DELETE requests for all three files via allSettled", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new DropboxProvider("tok");
+    await p.delete("game-1", 1);
+
+    // 3 delete_v2 POST calls
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("resolves even when individual delete requests fail (allSettled semantics)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409 }));
+    const p = new DropboxProvider("tok");
+    await expect(p.delete("game-1", 1)).resolves.toBeUndefined();
+  });
+});
+
+// ── CloudSaveManager — new provider credential helpers ─────────────────────────
+
+describe("CloudSaveManager — Google Drive credential storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("saveGDriveConfig / loadGDriveConfig round-trip", () => {
+    const m = new CloudSaveManager();
+    m.saveGDriveConfig("ya29.test-token");
+    const cfg = m.loadGDriveConfig();
+    expect(cfg?.accessToken).toBe("ya29.test-token");
+  });
+
+  it("clearGDriveConfig removes stored token", () => {
+    const m = new CloudSaveManager();
+    m.saveGDriveConfig("ya29.test-token");
+    m.clearGDriveConfig();
+    expect(m.loadGDriveConfig()).toBeNull();
+  });
+});
+
+describe("CloudSaveManager — Dropbox credential storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("saveDropboxConfig / loadDropboxConfig round-trip", () => {
+    const m = new CloudSaveManager();
+    m.saveDropboxConfig("sl.test-token");
+    const cfg = m.loadDropboxConfig();
+    expect(cfg?.accessToken).toBe("sl.test-token");
+  });
+
+  it("clearDropboxConfig removes stored token", () => {
+    const m = new CloudSaveManager();
+    m.saveDropboxConfig("sl.test-token");
+    m.clearDropboxConfig();
+    expect(m.loadDropboxConfig()).toBeNull();
+  });
+});
+
+describe("CloudSaveManager — providerId includes gdrive and dropbox", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("persists 'gdrive' providerId after connecting a GoogleDriveProvider", async () => {
+    const mockProvider: CloudSaveProvider = {
+      providerId:   "gdrive",
+      displayName:  "Google Drive",
+      isAvailable:  vi.fn().mockResolvedValue(true),
+      upload:       vi.fn().mockResolvedValue(undefined),
+      download:     vi.fn().mockResolvedValue(null),
+      listManifests: vi.fn().mockResolvedValue([]),
+      delete:       vi.fn().mockResolvedValue(undefined),
+    };
+    const m = new CloudSaveManager();
+    await m.connect(mockProvider);
+    expect(m.providerId).toBe("gdrive");
+
+    // Persisted value should survive a fresh instance
+    const m2 = new CloudSaveManager();
+    expect(m2.providerId).toBe("gdrive");
+  });
+
+  it("persists 'dropbox' providerId after connecting a DropboxProvider", async () => {
+    const mockProvider: CloudSaveProvider = {
+      providerId:   "dropbox",
+      displayName:  "Dropbox",
+      isAvailable:  vi.fn().mockResolvedValue(true),
+      upload:       vi.fn().mockResolvedValue(undefined),
+      download:     vi.fn().mockResolvedValue(null),
+      listManifests: vi.fn().mockResolvedValue([]),
+      delete:       vi.fn().mockResolvedValue(undefined),
+    };
+    const m = new CloudSaveManager();
+    await m.connect(mockProvider);
+    expect(m.providerId).toBe("dropbox");
+
+    const m2 = new CloudSaveManager();
+    expect(m2.providerId).toBe("dropbox");
   });
 });

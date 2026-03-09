@@ -7,8 +7,10 @@
  *
  * Included providers
  * ------------------
- * - NullCloudProvider  : No-op provider used when cloud sync is not configured.
- * - WebDAVProvider     : User-provided WebDAV server (URL / username / password).
+ * - NullCloudProvider   : No-op provider used when cloud sync is not configured.
+ * - WebDAVProvider      : User-provided WebDAV server (URL / username / password).
+ * - GoogleDriveProvider : Google Drive REST API v3 (OAuth access token).
+ * - DropboxProvider     : Dropbox API v2 (OAuth access token).
  *
  * Manager
  * -------
@@ -464,11 +466,471 @@ export class WebDAVProvider implements CloudSaveProvider {
   }
 }
 
+// ── GoogleDriveProvider ───────────────────────────────────────────────────────
+
+/** Timeout (ms) for Google Drive availability check. */
+const GDRIVE_AVAILABILITY_TIMEOUT_MS = 8_000;
+/** Timeout (ms) for all other Google Drive operations. */
+const GDRIVE_OPERATION_TIMEOUT_MS    = 15_000;
+
+/**
+ * CloudSaveProvider backed by Google Drive REST API v3.
+ *
+ * Files are stored in the hidden `appDataFolder` space so they do not appear
+ * in the user's regular Drive view.  The access token must be obtained via
+ * OAuth 2.0 (implicit or PKCE flow) before constructing this provider.
+ *
+ * File naming convention (flat within appDataFolder):
+ * ```
+ * rv__{gameId}__{slot}__manifest.json
+ * rv__{gameId}__{slot}__state.bin
+ * rv__{gameId}__{slot}__thumb.jpg
+ * ```
+ *
+ * Required OAuth scope: https://www.googleapis.com/auth/drive.appdata
+ */
+export class GoogleDriveProvider implements CloudSaveProvider {
+  readonly providerId  = "gdrive";
+  readonly displayName = "Google Drive";
+
+  private static readonly API_BASE    = "https://www.googleapis.com/drive/v3";
+  private static readonly UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
+  private static readonly SPACE       = "appDataFolder";
+
+  constructor(private readonly accessToken: string) {}
+
+  // ── CloudSaveProvider implementation ───────────────────────────────────────
+
+  private _headers(): HeadersInit {
+    return { Authorization: `Bearer ${this.accessToken}` };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), GDRIVE_AVAILABILITY_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${GoogleDriveProvider.API_BASE}/about?fields=user`, {
+        headers: this._headers(),
+        signal:  ctl.signal,
+      });
+      return r.status === 200;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async upload(entry: SaveStateEntry): Promise<void> {
+    // Upload binary payloads first so the manifest only becomes visible after
+    // all data is in place (same ordering logic as WebDAVProvider).
+    if (entry.stateData) {
+      await this._upsertFile(
+        this._fileName(entry.gameId, entry.slot, "state.bin"),
+        entry.stateData,
+        "application/octet-stream",
+      );
+    }
+    if (entry.thumbnail) {
+      await this._upsertFile(
+        this._fileName(entry.gameId, entry.slot, "thumb.jpg"),
+        entry.thumbnail,
+        "image/jpeg",
+      );
+    }
+
+    const manifest: CloudSaveManifest = {
+      gameId:    entry.gameId,
+      slot:      entry.slot,
+      timestamp: entry.timestamp,
+      checksum:  entry.checksum ?? "",
+      label:     entry.label,
+      gameName:  entry.gameName,
+      systemId:  entry.systemId,
+      version:   entry.version ?? 1,
+    };
+    await this._upsertFile(
+      this._fileName(entry.gameId, entry.slot, "manifest.json"),
+      new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+      "application/json",
+    );
+  }
+
+  async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
+    const manifestId = await this._findFileId(this._fileName(gameId, slot, "manifest.json"));
+    if (!manifestId) return null;
+
+    let manifest: CloudSaveManifest;
+    try {
+      const r = await this._timedFetch(
+        `${GoogleDriveProvider.API_BASE}/files/${manifestId}?alt=media`,
+        { headers: this._headers() },
+      );
+      if (!r.ok) return null;
+      manifest = await r.json() as CloudSaveManifest;
+    } catch {
+      return null;
+    }
+
+    let stateData: Blob | null = null;
+    const stateId = await this._findFileId(this._fileName(gameId, slot, "state.bin"));
+    if (stateId) {
+      const r = await this._timedFetch(
+        `${GoogleDriveProvider.API_BASE}/files/${stateId}?alt=media`,
+        { headers: this._headers() },
+      );
+      if (r.ok) stateData = await r.blob();
+    }
+
+    let thumbnail: Blob | null = null;
+    const thumbId = await this._findFileId(this._fileName(gameId, slot, "thumb.jpg"));
+    if (thumbId) {
+      const r = await this._timedFetch(
+        `${GoogleDriveProvider.API_BASE}/files/${thumbId}?alt=media`,
+        { headers: this._headers() },
+      );
+      if (r.ok) thumbnail = await r.blob();
+    }
+
+    return {
+      id:         `${gameId}:${slot}`,
+      gameId,
+      gameName:   manifest.gameName,
+      systemId:   manifest.systemId,
+      slot:       manifest.slot,
+      label:      manifest.label,
+      timestamp:  manifest.timestamp,
+      thumbnail,
+      stateData,
+      isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    manifest.version,
+      checksum:   manifest.checksum,
+    };
+  }
+
+  async listManifests(gameId: string): Promise<CloudSaveManifest[]> {
+    const slots = [AUTO_SAVE_SLOT, ...Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1)];
+    const results = await Promise.allSettled(
+      slots.map(async slot => {
+        const fileId = await this._findFileId(this._fileName(gameId, slot, "manifest.json"));
+        if (!fileId) return null;
+        const r = await this._timedFetch(
+          `${GoogleDriveProvider.API_BASE}/files/${fileId}?alt=media`,
+          { headers: this._headers() },
+        );
+        if (!r.ok) return null;
+        try { return await r.json() as CloudSaveManifest; } catch { return null; }
+      }),
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<CloudSaveManifest | null> => r.status === "fulfilled")
+      .map(r => r.value)
+      .filter((m): m is CloudSaveManifest => m !== null);
+  }
+
+  async delete(gameId: string, slot: number): Promise<void> {
+    const suffixes = ["manifest.json", "state.bin", "thumb.jpg"];
+    await Promise.allSettled(
+      suffixes.map(async suffix => {
+        const id = await this._findFileId(this._fileName(gameId, slot, suffix));
+        if (!id) return;
+        await this._timedFetch(
+          `${GoogleDriveProvider.API_BASE}/files/${id}`,
+          { method: "DELETE", headers: this._headers() },
+        );
+      }),
+    );
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  /** Flat file name stored in appDataFolder. */
+  private _fileName(gameId: string, slot: number, suffix: string): string {
+    // Double-underscore separator is unlikely to appear in typical game IDs.
+    return `rv__${gameId}__${slot}__${suffix}`;
+  }
+
+  /**
+   * Find a file in appDataFolder by exact name.
+   * Returns the Drive file ID, or null if not found.
+   */
+  private async _findFileId(name: string): Promise<string | null> {
+    const q = encodeURIComponent(`name='${name}' and trashed=false`);
+    try {
+      const r = await this._timedFetch(
+        `${GoogleDriveProvider.API_BASE}/files?spaces=${GoogleDriveProvider.SPACE}&q=${q}&fields=files(id)`,
+        { headers: this._headers() },
+      );
+      if (!r.ok) return null;
+      const data = await r.json() as { files?: { id: string }[] };
+      return data.files?.[0]?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create or update (upsert) a file in appDataFolder.
+   * If a file with the given name already exists, its content is replaced;
+   * otherwise a new file is created via a multipart upload.
+   */
+  private async _upsertFile(name: string, content: Blob, contentType: string): Promise<void> {
+    const existingId = await this._findFileId(name);
+
+    if (existingId) {
+      // Update existing file content via media-only PATCH.
+      const r = await this._timedFetch(
+        `${GoogleDriveProvider.UPLOAD_BASE}/files/${existingId}?uploadType=media`,
+        {
+          method:  "PATCH",
+          headers: { ...this._headers(), "Content-Type": contentType },
+          body:    content,
+        },
+      );
+      if (!r.ok) throw new Error(`Google Drive update failed (${r.status}): ${name}`);
+    } else {
+      // Create new file via multipart upload (metadata + media in one request).
+      const metadata = JSON.stringify({ name, parents: [GoogleDriveProvider.SPACE] });
+      const boundary = `rv_boundary_${Math.random().toString(36).slice(2)}`;
+      const body = new Blob([
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+        metadata,
+        `\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
+        content,
+        `\r\n--${boundary}--`,
+      ]);
+      const r = await this._timedFetch(
+        `${GoogleDriveProvider.UPLOAD_BASE}/files?uploadType=multipart`,
+        {
+          method:  "POST",
+          headers: { ...this._headers(), "Content-Type": `multipart/related; boundary=${boundary}` },
+          body,
+        },
+      );
+      if (!r.ok) throw new Error(`Google Drive upload failed (${r.status}): ${name}`);
+    }
+  }
+
+  private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), GDRIVE_OPERATION_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+// ── DropboxProvider ───────────────────────────────────────────────────────────
+
+/** Timeout (ms) for Dropbox availability check. */
+const DROPBOX_AVAILABILITY_TIMEOUT_MS = 8_000;
+/** Timeout (ms) for all other Dropbox operations. */
+const DROPBOX_OPERATION_TIMEOUT_MS    = 15_000;
+
+/**
+ * CloudSaveProvider backed by the Dropbox API v2.
+ *
+ * Files are stored in the app's Dropbox folder under:
+ * ```
+ * /retrovault/{gameId}/{slot}/manifest.json
+ * /retrovault/{gameId}/{slot}/state.bin
+ * /retrovault/{gameId}/{slot}/thumb.jpg
+ * ```
+ *
+ * The access token is obtained via OAuth 2.0 and passed directly to the
+ * constructor.
+ *
+ * Required OAuth scopes: files.content.read, files.content.write
+ */
+export class DropboxProvider implements CloudSaveProvider {
+  readonly providerId  = "dropbox";
+  readonly displayName = "Dropbox";
+
+  private static readonly CONTENT_API = "https://content.dropboxapi.com/2";
+  private static readonly API_BASE    = "https://api.dropboxapi.com/2";
+  private static readonly ROOT_FOLDER = "/retrovault";
+
+  constructor(private readonly accessToken: string) {}
+
+  // ── CloudSaveProvider implementation ───────────────────────────────────────
+
+  async isAvailable(): Promise<boolean> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), DROPBOX_AVAILABILITY_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${DropboxProvider.API_BASE}/users/get_current_account`, {
+        method:  "POST",
+        headers: { ...this._headers(), "Content-Type": "application/json" },
+        body:    "null",
+        signal:  ctl.signal,
+      });
+      return r.status === 200;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async upload(entry: SaveStateEntry): Promise<void> {
+    const base = this._slotPath(entry.gameId, entry.slot);
+
+    // Upload binary payloads before the manifest (same atomicity logic as
+    // WebDAVProvider — manifest last so it signals a complete upload).
+    if (entry.stateData) {
+      await this._uploadFile(`${base}/state.bin`, entry.stateData, "application/octet-stream");
+    }
+    if (entry.thumbnail) {
+      await this._uploadFile(`${base}/thumb.jpg`, entry.thumbnail, "image/jpeg");
+    }
+
+    const manifest: CloudSaveManifest = {
+      gameId:    entry.gameId,
+      slot:      entry.slot,
+      timestamp: entry.timestamp,
+      checksum:  entry.checksum ?? "",
+      label:     entry.label,
+      gameName:  entry.gameName,
+      systemId:  entry.systemId,
+      version:   entry.version ?? 1,
+    };
+    await this._uploadFile(
+      `${base}/manifest.json`,
+      new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+      "application/json",
+    );
+  }
+
+  async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
+    const base = this._slotPath(gameId, slot);
+
+    const manifestBlob = await this._downloadFile(`${base}/manifest.json`);
+    if (!manifestBlob) return null;
+
+    let manifest: CloudSaveManifest;
+    try {
+      manifest = JSON.parse(await manifestBlob.text()) as CloudSaveManifest;
+    } catch {
+      return null;
+    }
+
+    const stateData = await this._downloadFile(`${base}/state.bin`);
+    const thumbnail  = await this._downloadFile(`${base}/thumb.jpg`);
+
+    return {
+      id:         `${gameId}:${slot}`,
+      gameId,
+      gameName:   manifest.gameName,
+      systemId:   manifest.systemId,
+      slot:       manifest.slot,
+      label:      manifest.label,
+      timestamp:  manifest.timestamp,
+      thumbnail,
+      stateData,
+      isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    manifest.version,
+      checksum:   manifest.checksum,
+    };
+  }
+
+  async listManifests(gameId: string): Promise<CloudSaveManifest[]> {
+    const slots = [AUTO_SAVE_SLOT, ...Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1)];
+    const results = await Promise.allSettled(
+      slots.map(async slot => {
+        const blob = await this._downloadFile(`${this._slotPath(gameId, slot)}/manifest.json`);
+        if (!blob) return null;
+        try {
+          return JSON.parse(await blob.text()) as CloudSaveManifest;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<CloudSaveManifest | null> => r.status === "fulfilled")
+      .map(r => r.value)
+      .filter((m): m is CloudSaveManifest => m !== null);
+  }
+
+  async delete(gameId: string, slot: number): Promise<void> {
+    const base = this._slotPath(gameId, slot);
+    await Promise.allSettled([
+      this._deleteFile(`${base}/manifest.json`),
+      this._deleteFile(`${base}/state.bin`),
+      this._deleteFile(`${base}/thumb.jpg`),
+    ]);
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  private _headers(): HeadersInit {
+    return { Authorization: `Bearer ${this.accessToken}` };
+  }
+
+  /** Dropbox path for a specific game + slot folder. */
+  private _slotPath(gameId: string, slot: number): string {
+    // Sanitise gameId for use as a path component (replace characters that may
+    // be problematic on some Dropbox back-ends with underscores).
+    const safeId = gameId.replace(/[^a-zA-Z0-9_\-.]/g, "_");
+    return `${DropboxProvider.ROOT_FOLDER}/${safeId}/${slot}`;
+  }
+
+  private async _uploadFile(path: string, content: Blob, _contentType: string): Promise<void> {
+    const r = await this._timedFetch(`${DropboxProvider.CONTENT_API}/files/upload`, {
+      method:  "POST",
+      headers: {
+        ...this._headers(),
+        "Content-Type":    "application/octet-stream",
+        "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false, mute: true }),
+      },
+      body: content,
+    });
+    if (!r.ok) throw new Error(`Dropbox upload failed (${r.status}): ${path}`);
+  }
+
+  private async _downloadFile(path: string): Promise<Blob | null> {
+    try {
+      const r = await this._timedFetch(`${DropboxProvider.CONTENT_API}/files/download`, {
+        method:  "POST",
+        headers: {
+          ...this._headers(),
+          "Dropbox-API-Arg": JSON.stringify({ path }),
+        },
+      });
+      if (!r.ok) return null;
+      return r.blob();
+    } catch {
+      return null;
+    }
+  }
+
+  private async _deleteFile(path: string): Promise<void> {
+    const r = await this._timedFetch(`${DropboxProvider.API_BASE}/files/delete_v2`, {
+      method:  "POST",
+      headers: { ...this._headers(), "Content-Type": "application/json" },
+      body:    JSON.stringify({ path }),
+    });
+    if (!r.ok) throw new Error(`Dropbox delete failed (${r.status}): ${path}`);
+  }
+
+  private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), DROPBOX_OPERATION_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 // ── CloudSaveManager ──────────────────────────────────────────────────────────
 
 /** Settings persisted in localStorage under "retrovault-cloud". */
 export interface CloudSaveSettings {
-  providerId:         "null" | "webdav";
+  providerId:         "null" | "webdav" | "gdrive" | "dropbox";
   autoSyncEnabled:    boolean;
   conflictResolution: ConflictResolution;
 }
@@ -505,7 +967,7 @@ export class CloudSaveManager {
   private _lastError:   string | null = null;
 
   /** Persisted settings */
-  providerId:         "null" | "webdav" = "null";
+  providerId:         "null" | "webdav" | "gdrive" | "dropbox" = "null";
   autoSyncEnabled:    boolean           = false;
   conflictResolution: ConflictResolution = "newest";
 
@@ -514,6 +976,8 @@ export class CloudSaveManager {
 
   private static readonly SETTINGS_KEY = "retrovault-cloud";
   private static readonly WEBDAV_KEY   = "retrovault-cloud-webdav";
+  private static readonly GDRIVE_KEY   = "retrovault-cloud-gdrive";
+  private static readonly DROPBOX_KEY  = "retrovault-cloud-dropbox";
 
   constructor() {
     this._sync = new CloudSaveSync(this._provider, this.conflictResolution);
@@ -547,7 +1011,7 @@ export class CloudSaveManager {
     this._provider      = provider;
     this._sync          = new CloudSaveSync(provider, this.conflictResolution);
     this._connected     = true;
-    this.providerId     = provider.providerId as "null" | "webdav";
+    this.providerId     = provider.providerId as "null" | "webdav" | "gdrive" | "dropbox";
     this._lastError     = null;
     this._saveSettings();
     this.onStatusChange?.();
@@ -705,6 +1169,62 @@ export class CloudSaveManager {
     try { localStorage.removeItem(CloudSaveManager.WEBDAV_KEY); } catch { /* ignore */ }
   }
 
+  // ── Google Drive credential storage ─────────────────────────────────────────
+
+  /** Persist Google Drive OAuth access token.
+   *
+   * ⚠️  Security note: the token is stored in plaintext in localStorage.
+   * OAuth access tokens are short-lived (typically 1 hour), which limits
+   * exposure, but users should be aware on shared devices.
+   */
+  saveGDriveConfig(accessToken: string): void {
+    try {
+      localStorage.setItem(CloudSaveManager.GDRIVE_KEY, JSON.stringify({ accessToken }));
+    } catch { /* quota exceeded or private-browsing restriction */ }
+  }
+
+  /** Load previously saved Google Drive access token, or null if none exist. */
+  loadGDriveConfig(): { accessToken: string } | null {
+    try {
+      const raw = localStorage.getItem(CloudSaveManager.GDRIVE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw) as { accessToken: string };
+    } catch { return null; }
+  }
+
+  /** Remove persisted Google Drive credentials from localStorage. */
+  clearGDriveConfig(): void {
+    try { localStorage.removeItem(CloudSaveManager.GDRIVE_KEY); } catch { /* ignore */ }
+  }
+
+  // ── Dropbox credential storage ───────────────────────────────────────────────
+
+  /** Persist Dropbox OAuth access token.
+   *
+   * ⚠️  Security note: the token is stored in plaintext in localStorage,
+   * which is accessible to any JavaScript running on the same origin.
+   * Users should be aware of this risk, particularly on shared devices.
+   */
+  saveDropboxConfig(accessToken: string): void {
+    try {
+      localStorage.setItem(CloudSaveManager.DROPBOX_KEY, JSON.stringify({ accessToken }));
+    } catch { /* quota exceeded or private-browsing restriction */ }
+  }
+
+  /** Load previously saved Dropbox access token, or null if none exist. */
+  loadDropboxConfig(): { accessToken: string } | null {
+    try {
+      const raw = localStorage.getItem(CloudSaveManager.DROPBOX_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw) as { accessToken: string };
+    } catch { return null; }
+  }
+
+  /** Remove persisted Dropbox credentials from localStorage. */
+  clearDropboxConfig(): void {
+    try { localStorage.removeItem(CloudSaveManager.DROPBOX_KEY); } catch { /* ignore */ }
+  }
+
   // ── Settings persistence ────────────────────────────────────────────────────
 
   private _loadSettings(): void {
@@ -714,7 +1234,8 @@ export class CloudSaveManager {
       const p = JSON.parse(raw) as Partial<CloudSaveSettings>;
       // providerId is stored as the literal string "null" (not JSON null) when
       // no provider is configured, matching the CloudSaveSettings type definition.
-      if (p.providerId === "null" || p.providerId === "webdav") {
+      if (p.providerId === "null" || p.providerId === "webdav" ||
+          p.providerId === "gdrive" || p.providerId === "dropbox") {
         this.providerId = p.providerId;
       }
       if (p.autoSyncEnabled === true) this.autoSyncEnabled = true;

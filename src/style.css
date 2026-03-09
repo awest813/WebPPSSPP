@@ -2606,6 +2606,15 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   margin: 2px 0;
 }
 
+.cloud-dialog-hint {
+  font-size: 0.78rem;
+  color: var(--c-text-dim);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.cloud-dialog-section { margin-bottom: 4px; }
+
 /* ── Slider input ──────────────────────────────────────────── */
 input[type="range"] {
   -webkit-appearance: none;
