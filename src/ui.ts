@@ -2706,8 +2706,10 @@ function buildSettingsContent(
 
   const settingsShell = make("div", { class: "settings-shell" });
   const quickBar = make("div", { class: "settings-quickbar" });
+  const perfModeLabels: Record<string, string> = { auto: "Auto", performance: "Performance", quality: "Quality" };
+  const perfModeLabel = perfModeLabels[settings.performanceMode] ?? settings.performanceMode;
   const quickInfo = make("p", { class: "settings-quickbar__summary" },
-    `Graphics: ${settings.performanceMode === "auto" ? "Auto" : settings.performanceMode === "performance" ? "Performance" : "Quality"} · Device: ${formatTierLabel(deviceCaps.tier)} · ` +
+    `Graphics: ${perfModeLabel} · Device: ${formatTierLabel(deviceCaps.tier)} · ` +
     `${deviceCaps.isLowSpec ? "Optimised for your device" : "All features available"}`
   );
   const searchInput = make("input", {
