@@ -28,9 +28,9 @@ class EJS_GameManager {
             setRewindGranularity: this.Module.cwrap("set_rewind_granularity", "null", ["number"]),
             toggleSlowMotion: this.Module.cwrap("toggle_slow_motion", "null", ["number"]),
             setSlowMotionRatio: this.Module.cwrap("set_sm_ratio", "null", ["number"]),
-            getFrameNum: this.Module.cwrap("get_current_frame_count", "number", [""]),
+            getFrameNum: this.Module.cwrap("get_current_frame_count", "number", []),
             setVSync: this.Module.cwrap("set_vsync", "null", ["number"]),
-            setVideoRoation: this.Module.cwrap("set_video_rotation", "null", ["number"]),
+            setVideoRotation: this.Module.cwrap("set_video_rotation", "null", ["number"]),
             getVideoDimensions: this.Module.cwrap("get_video_dimensions", "number", ["string"]),
             setKeyboardEnabled: this.Module.cwrap("ejs_set_keyboard_enabled", "null", ["number"])
         }
@@ -149,7 +149,7 @@ class EJS_GameManager {
         if (this.EJS.retroarchOpts && Array.isArray(this.EJS.retroarchOpts)) {
             this.EJS.retroarchOpts.forEach(option => {
                 let selected = this.EJS.preGetSetting(option.name);
-                console.log(selected);
+                if (this.EJS.debug) console.log(selected);
                 if (!selected) {
                     selected = option.default;
                 }
@@ -348,7 +348,7 @@ IF EXIST AUTORUN.BAT CALL AUTORUN.BAT
             try {
                 const cacheItem = await this.EJS.downloader.downloadFile("data/cores/ppsspp-assets.zip", this.EJS.downloadType.core.name, "GET", {}, null, null, null, 30000, "arraybuffer", false, this.EJS.downloadType.core.dontCache);
 
-                console.log(cacheItem);
+                if (this.EJS.debug) console.log(cacheItem);
                 
                 this.mkdir("/PPSSPP");
 
@@ -447,7 +447,7 @@ IF EXIST AUTORUN.BAT CALL AUTORUN.BAT
         return this.functions.getFrameNum();
     }
     setVideoRotation(rotation) {
-        this.functions.setVideoRoation(rotation);
+        this.functions.setVideoRotation(rotation);
     }
     getVideoDimensions(type) {
         try {
