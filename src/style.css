@@ -3011,3 +3011,104 @@ kbd {
     min-width: 120px;
   }
 }
+
+/* ── Welcome hero (first-time empty state) ─────────────────── */
+.welcome-hero {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.welcome-hero__title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--c-text);
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  margin-bottom: 8px;
+}
+
+.welcome-hero__tagline {
+  font-size: 0.84rem;
+  color: var(--c-text-dim);
+  line-height: 1.6;
+  margin-bottom: 18px;
+  max-width: 420px;
+  margin-inline: auto;
+}
+
+.welcome-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.welcome-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  background: var(--c-surface);
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  color: var(--c-text-dim);
+  white-space: nowrap;
+}
+
+.welcome-step__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: var(--c-accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.welcome-step__text {
+  font-size: 0.8rem;
+}
+
+/* ── Help tab — steps list ─────────────────────────────────── */
+.help-steps {
+  padding-left: 20px;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.help-step {
+  font-size: 0.88rem;
+  color: var(--c-text-dim);
+  line-height: 1.55;
+  padding-left: 4px;
+}
+
+/* ── Help tab — troubleshooting ───────────────────────────── */
+.trouble-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.trouble-item:last-child { border-bottom: none; }
+
+.trouble-item__q {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--c-text);
+  margin-bottom: 4px;
+}
+
+.trouble-item__a {
+  font-size: 0.84rem;
+  color: var(--c-text-dim);
+  line-height: 1.55;
+}

@@ -252,24 +252,40 @@ export function buildDOM(app: HTMLElement): void {
 
         <!-- Onboarding — only visible when library is empty -->
         <div class="onboarding" id="onboarding">
-          <h3 class="onboarding__title">20+ Systems Supported</h3>
-          <p class="onboarding__desc">PSP · N64 · PS1 · NDS · GBA · SNES · NES · Genesis · Game Boy · Arcade and more</p>
+          <div class="welcome-hero">
+            <h2 class="welcome-hero__title">Play retro games in your browser</h2>
+            <p class="welcome-hero__tagline">PSP · N64 · PS1 · GBA · SNES · NES and 20+ more systems — no installs, no account, nothing to sign up for</p>
+            <div class="welcome-steps">
+              <div class="welcome-step">
+                <span class="welcome-step__num" aria-hidden="true">1</span>
+                <span class="welcome-step__text">Drop or browse for a ROM file</span>
+              </div>
+              <div class="welcome-step">
+                <span class="welcome-step__num" aria-hidden="true">2</span>
+                <span class="welcome-step__text">Pick a system if asked</span>
+              </div>
+              <div class="welcome-step">
+                <span class="welcome-step__num" aria-hidden="true">3</span>
+                <span class="welcome-step__text">Start playing instantly</span>
+              </div>
+            </div>
+          </div>
           <div class="onboarding__features">
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">💾</span>
-              <span><strong>Save States</strong><br>Snapshot your progress with screenshots, load anytime</span>
+              <span><strong>Save States</strong><br>Snapshot progress, load anytime</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🎮</span>
-              <span><strong>Touch &amp; Gamepad</strong><br>Customisable on-screen controls and USB/Bluetooth gamepads</span>
+              <span><strong>Touch &amp; Gamepad</strong><br>On-screen controls &amp; USB/Bluetooth pads</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">⚡</span>
-              <span><strong>Auto Performance</strong><br>Detects your hardware and picks the best settings</span>
+              <span><strong>Auto Performance</strong><br>Detects hardware, picks best settings</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🔒</span>
-              <span><strong>Privacy First</strong><br>Everything stays in your browser — no account, no uploads</span>
+              <span><strong>Private by Design</strong><br>Everything stays in your browser</span>
             </div>
           </div>
         </div>
@@ -309,7 +325,7 @@ export function buildDOM(app: HTMLElement): void {
       <!-- Loading overlay -->
       <div id="loading-overlay" role="status" aria-live="polite">
         <div class="loading-spinner" aria-hidden="true"></div>
-        <p id="loading-message">Initialising…</p>
+        <p id="loading-message">Loading…</p>
       </div>
 
       <!-- Error banner -->
@@ -2691,8 +2707,8 @@ function buildSettingsContent(
   const settingsShell = make("div", { class: "settings-shell" });
   const quickBar = make("div", { class: "settings-quickbar" });
   const quickInfo = make("p", { class: "settings-quickbar__summary" },
-    `Mode: ${settings.performanceMode.toUpperCase()} · Detected tier: ${formatTierLabel(deviceCaps.tier)} · ` +
-    `${deviceCaps.isLowSpec ? "Low-spec profile" : "Standard profile"}`
+    `Graphics: ${settings.performanceMode === "auto" ? "Auto" : settings.performanceMode === "performance" ? "Performance" : "Quality"} · Device: ${formatTierLabel(deviceCaps.tier)} · ` +
+    `${deviceCaps.isLowSpec ? "Optimised for your device" : "All features available"}`
   );
   const searchInput = make("input", {
     class: "settings-search-input",
@@ -2706,11 +2722,11 @@ function buildSettingsContent(
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: "performance",  label: "⚡ Performance" },
     { id: "display",      label: "🖥 Display" },
-    { id: "library",      label: "📚 Library" },
-    { id: "bios",         label: "💾 BIOS" },
-    { id: "multiplayer",  label: "🌐 Multiplayer" },
-    { id: "debug",        label: "🔧 Debug" },
-    { id: "about",        label: "ℹ️ About" },
+    { id: "library",      label: "📚 My Games" },
+    { id: "bios",         label: "💾 System Files" },
+    { id: "multiplayer",  label: "🌐 Play Together" },
+    { id: "debug",        label: "🔧 Advanced" },
+    { id: "about",        label: "❓ Help" },
   ];
   const tabIndexById = new Map<SettingsTab, number>(tabs.map((t, i) => [t.id, i]));
 
@@ -2871,9 +2887,9 @@ function buildPerfTab(
   ));
 
   const modes: Array<{ value: PerformanceMode; label: string; desc: string }> = [
-    { value: "auto",        label: "Auto (recommended)", desc: `Detected tier: ${formatTierLabel(deviceCaps.tier)} → ${deviceCaps.isLowSpec || deviceCaps.tier === "medium" ? "Performance" : "Quality"} mode` },
-    { value: "performance", label: "Performance",        desc: "1× resolution, auto frameskip, lazy texture caching — best for low-spec devices" },
-    { value: "quality",     label: "Quality",            desc: "Higher resolution, texture upscaling, no frameskip" },
+    { value: "auto",        label: "Auto (Recommended)", desc: `Best for most devices — currently using ${deviceCaps.isLowSpec || deviceCaps.tier === "medium" ? "Performance" : "Quality"} mode based on your hardware` },
+    { value: "performance", label: "Performance — faster, lower quality", desc: "Best for slower or older devices. Runs at lower resolution but stays smooth." },
+    { value: "quality",     label: "Quality — sharper visuals",           desc: "Best for powerful devices. Higher resolution and sharper graphics." },
   ];
 
   for (const m of modes) {
@@ -2890,6 +2906,9 @@ function buildPerfTab(
   // Device info
   const deviceSection = make("div", { class: "settings-section" });
   deviceSection.appendChild(make("h4", { class: "settings-section__title" }, "Device Info"));
+  deviceSection.appendChild(make("p", { class: "settings-help" },
+    "Your device's performance determines which graphics settings work best."
+  ));
 
   const capText = formatCapabilitiesSummary(deviceCaps);
   deviceSection.appendChild(make("p", { class: "device-info" }, capText));
@@ -3161,9 +3180,9 @@ function buildLibraryTab(
 
 function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
   const biosSection = make("div", { class: "settings-section" });
-  biosSection.appendChild(make("h4", { class: "settings-section__title" }, "BIOS Files"));
+  biosSection.appendChild(make("h4", { class: "settings-section__title" }, "System Files (BIOS)"));
   biosSection.appendChild(make("p", { class: "settings-help" },
-    "Some systems (Saturn, Dreamcast, PS1) require BIOS files to run games. Upload your legally obtained BIOS files below."
+    "A few systems need a special startup file (called a BIOS) to run games. If a game won't start, check here — you may need to upload a BIOS file. These are small files you can obtain legally by extracting them from your own physical console."
   ));
 
   const biosGrid = make("div", { class: "bios-grid" });
@@ -4019,12 +4038,17 @@ function buildAboutTab(container: HTMLElement): void {
   // Quick start section
   const quickStartSection = make("div", { class: "settings-section" });
   quickStartSection.appendChild(make("h4", { class: "settings-section__title" }, "Quick Start"));
-  quickStartSection.appendChild(make("p", { class: "settings-help" },
-    "1. Drop or browse for a ROM file to add it to your library.\n" +
-    "2. Click a game card to launch it in the emulator.\n" +
-    "3. Use F5 to quick save and F7 to quick load.\n" +
-    "4. Press Esc to return to the library."
-  ));
+  const steps = [
+    "Drop a ROM file onto the page, or click the upload area to browse your files.",
+    "If asked, choose which system to use (this happens with some common file formats).",
+    "Your game launches automatically — enjoy playing!",
+    "Press F5 to quick-save, F7 to quick-load, and Esc to return to your library.",
+  ];
+  const stepList = make("ol", { class: "help-steps" });
+  for (const step of steps) {
+    stepList.appendChild(make("li", { class: "help-step" }, step));
+  }
+  quickStartSection.appendChild(stepList);
 
   // Keyboard shortcuts
   const shortcutsSection = make("div", { class: "settings-section" });
@@ -4072,7 +4096,26 @@ function buildAboutTab(container: HTMLElement): void {
   links.appendChild(ejsLink);
   aboutSection.appendChild(links);
 
-  container.append(quickStartSection, shortcutsSection, aboutSection);
+  const troubleSection = make("div", { class: "settings-section" });
+  troubleSection.appendChild(make("h4", { class: "settings-section__title" }, "Troubleshooting"));
+
+  const troubles: Array<[string, string]> = [
+    ["Game won't load", "Make sure the file is a valid ROM in a supported format. ZIP files are auto-extracted — try unzipping manually if it still fails."],
+    ["PSP game not starting", "PSP requires Cross-Origin Isolation (a browser security feature). If it's not working, try refreshing the page once — the service worker sets this up on first load."],
+    ["No sound", "Check your browser tab isn't muted. Some games take a moment to start audio."],
+    ["Poor performance", "Go to Performance settings and try switching to Performance mode. Closing other browser tabs can also help."],
+    ["Save not working", "Save States are stored in your browser's local storage. Clearing browser data will erase them — use the export option to back them up first."],
+    ["Controls not responding", "Click on the game area first to make sure it has focus. If using a gamepad, it may need to be connected before launching a game."],
+  ];
+
+  for (const [problem, solution] of troubles) {
+    const item = make("div", { class: "trouble-item" });
+    item.appendChild(make("p", { class: "trouble-item__q" }, problem));
+    item.appendChild(make("p", { class: "trouble-item__a" }, solution));
+    troubleSection.appendChild(item);
+  }
+
+  container.append(quickStartSection, shortcutsSection, troubleSection, aboutSection);
 }
 
 // ── Toggle row builder ────────────────────────────────────────────────────────
