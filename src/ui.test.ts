@@ -1003,6 +1003,33 @@ describe("buildDebugTab", () => {
   let settings: Settings;
   let onSettingsChange: ReturnType<typeof vi.fn>;
 
+  type MockDiagnosticEntry = {
+    timestamp: number;
+    category: "performance" | "audio" | "render" | "system" | "error";
+    message: string;
+  };
+
+  function makeDebugEmulator(
+    overrides: Partial<{
+      state: string;
+      activeTier: string | null;
+      currentSystem: { id: string; name: string } | null;
+      diagnosticLog: Array<MockDiagnosticEntry>;
+      activeCoreSettings: Record<string, string> | null;
+      webgpuAdapterInfo: null;
+    }> = {}
+  ) {
+    return {
+      state: "idle",
+      activeTier: null,
+      currentSystem: null,
+      diagnosticLog: [] as Array<MockDiagnosticEntry>,
+      activeCoreSettings: null,
+      webgpuAdapterInfo: null,
+      ...overrides,
+    } as unknown as import("./emulator.js").PSPEmulator;
+  }
+
   function openDebugTab(s?: Settings) {
     openSettingsPanel(
       s ?? settings,
@@ -1011,6 +1038,21 @@ describe("buildDebugTab", () => {
       { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
       onSettingsChange,
       undefined,
+      undefined,
+      undefined,
+      undefined,
+      "debug"
+    );
+  }
+
+  function openDebugTabWithEmulator(emulator: import("./emulator.js").PSPEmulator) {
+    openSettingsPanel(
+      settings,
+      caps,
+      { getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      onSettingsChange,
+      emulator,
       undefined,
       undefined,
       undefined,
@@ -1143,6 +1185,120 @@ describe("buildDebugTab", () => {
     expect(text).toContain("bios7.bin");
     expect(text).toContain("bios9.bin");
     expect(text).toContain("firmware.bin");
+  });
+
+  it("PS1 Status section is present in the Debug tab", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const headings = Array.from(panel.querySelectorAll("h4"));
+    const ps1Heading = headings.find(h => h.textContent === "PS1 Status");
+    expect(ps1Heading).toBeTruthy();
+  });
+
+  it("PS1 Status section shows BIOS display name rows for all four PS1 BIOS files", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const text = panel.textContent ?? "";
+    // Display names from BIOS_REQUIREMENTS["psx"] — the UI shows displayName, not fileName
+    expect(text).toContain("SCPH-5500");
+    expect(text).toContain("SCPH-5501");
+    expect(text).toContain("SCPH-1001");
+    expect(text).toContain("SCPH-5502");
+  });
+
+  it("GPU & Memory section is present in the Debug tab", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const headings = Array.from(panel.querySelectorAll("h4"));
+    const gpuHeading = headings.find(h => h.textContent === "GPU & Memory");
+    expect(gpuHeading).toBeTruthy();
+  });
+
+  it("GPU section displays the GPU renderer from deviceCaps", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    expect(panel.textContent).toContain(caps.gpuCaps.renderer);
+  });
+
+  it("Environment section is present in the Debug tab", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const headings = Array.from(panel.querySelectorAll("h4"));
+    const envHeading = headings.find(h => h.textContent === "Environment");
+    expect(envHeading).toBeTruthy();
+  });
+
+  it("Environment section displays User Agent info", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    expect(panel.textContent).toContain("User Agent:");
+  });
+
+  it("Actions section has a Copy Debug Info button", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const buttons = Array.from(panel.querySelectorAll("button"));
+    const copyBtn = buttons.find(b => b.textContent?.includes("Copy Debug Info"));
+    expect(copyBtn).toBeTruthy();
+  });
+
+  it("Diagnostic Timeline section is present in the Debug tab", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const headings = Array.from(panel.querySelectorAll("h4"));
+    const timelineHeading = headings.find(h => h.textContent === "Diagnostic Timeline");
+    expect(timelineHeading).toBeTruthy();
+  });
+
+  it("Diagnostic Timeline shows empty-state message when no emulatorRef is provided", () => {
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    expect(panel.textContent).toContain("No diagnostic events recorded yet");
+  });
+
+  it("Emulator State section shows state, system, and tier from emulatorRef", () => {
+    const mockEmulator = makeDebugEmulator({
+      state: "running",
+      activeTier: "high",
+      currentSystem: { id: "psp", name: "PlayStation Portable" },
+    });
+    openDebugTabWithEmulator(mockEmulator);
+    const panel = document.getElementById("tab-panel-debug")!;
+    const text = panel.textContent ?? "";
+    expect(text).toContain("running");
+    expect(text).toContain("psp");
+    expect(text).toContain("high");
+  });
+
+  it("Diagnostic Timeline shows events when emulatorRef has diagnostic log entries", () => {
+    const mockEmulator = makeDebugEmulator({
+      diagnosticLog: [
+        { timestamp: 1_700_000_000_000, category: "performance", message: "FPS dropped below threshold" },
+        { timestamp: 1_700_000_001_000, category: "error", message: "Shader compilation failed" },
+      ],
+    });
+    openDebugTabWithEmulator(mockEmulator);
+    const panel = document.getElementById("tab-panel-debug")!;
+    const text = panel.textContent ?? "";
+    expect(text).toContain("FPS dropped below threshold");
+    expect(text).toContain("Shader compilation failed");
+  });
+
+  it("Active Core Settings section appears when emulatorRef has activeCoreSettings", () => {
+    const mockEmulator = makeDebugEmulator({
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", name: "PlayStation Portable" },
+      activeCoreSettings: { "ppsspp_cpu_core": "jit", "ppsspp_frameskip": "0" },
+    });
+    openDebugTabWithEmulator(mockEmulator);
+    const panel = document.getElementById("tab-panel-debug")!;
+    const headings = Array.from(panel.querySelectorAll("h4"));
+    const coreHeading = headings.find(h => h.textContent === "Active Core Settings");
+    expect(coreHeading).toBeTruthy();
+    const text = panel.textContent ?? "";
+    expect(text).toContain("ppsspp_cpu_core");
+    expect(text).toContain("jit");
   });
 });
 
