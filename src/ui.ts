@@ -1111,6 +1111,9 @@ const IMPORT_ARCHIVE_FORMAT_BY_EXT: Partial<Record<string, ArchiveFormat>> = {
 };
 const EXTRACTABLE_ARCHIVE_FORMATS = new Set<ArchiveFormat>(["zip", "7z", "rar", "tar", "gzip"]);
 
+/** Extensions that are definitively unsupported archive formats (not ROM native packages). */
+const UNSUPPORTED_ARCHIVE_EXT_SET = new Set(["zst", "lz", "lzma", "cab"]);
+
 function fileExt(fileName: string): string {
   const dotIdx = fileName.lastIndexOf(".");
   if (dotIdx <= 0 || dotIdx >= fileName.length - 1) return "";
@@ -1204,6 +1207,24 @@ export async function resolveSystemAndAdd(
       emulatorRef,
       settings,
       `${archiveFormat.toUpperCase()} archive requires manual extraction`,
+    );
+    return;
+  }
+
+  // Handle extensions that are definitively unsupported archive formats.
+  // These have no magic-byte detection, so archiveFormat stays "unknown",
+  // but we can identify them by extension and show a clear error rather
+  // than a confusing "Unrecognised file type" message later.
+  if (archiveFormat === "unknown" && UNSUPPORTED_ARCHIVE_EXT_SET.has(ext)) {
+    const extLabel = ext.toUpperCase();
+    showError(
+      `${extLabel} archives cannot be extracted automatically in the browser.\n\n` +
+      "Please extract the archive manually and import the ROM file directly."
+    );
+    logImportWarn(
+      emulatorRef,
+      settings,
+      `${extLabel} archive is not supported for automatic extraction`,
     );
     return;
   }
@@ -1504,7 +1525,7 @@ function showArchiveEntryPickerDialog(
     const overlay = make("div", { class: "confirm-overlay" });
     const box = make(
       "div",
-      { class: "confirm-box", role: "dialog", "aria-modal": "true", "aria-label": "Choose archive entry" }
+      { class: "confirm-box archive-picker-box", role: "dialog", "aria-modal": "true", "aria-label": "Choose archive entry" }
     );
 
     const pretty = format === "gzip" ? "GZIP" : format.toUpperCase();

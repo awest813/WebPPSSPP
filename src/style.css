@@ -2268,12 +2268,15 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 
 .multidisc-label { font-size: 0.84rem; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── Archive entry picker (wider to accommodate long ROM filenames) ── */
+.archive-picker-box { width: min(92vw, 520px); }
+
 /* ── Game picker list ───────────────────────────────────────── */
 .game-picker-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 240px;
+  max-height: 320px;
   overflow-y: auto;
   border: 1.5px solid var(--c-border);
   border-radius: var(--radius-lg);
@@ -2294,6 +2297,8 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   text-align: left;
   cursor: pointer;
   transition: background var(--transition);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .game-picker-btn:hover,
