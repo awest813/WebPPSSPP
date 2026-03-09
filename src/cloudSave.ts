@@ -459,7 +459,8 @@ export class WebDAVProvider implements CloudSaveProvider {
   }
 
   private async _deleteFile(url: string): Promise<void> {
-    await this._timedFetch(url, { method: "DELETE", headers: this._headers() });
+    const r = await this._timedFetch(url, { method: "DELETE", headers: this._headers() });
+    if (!r.ok) throw new Error(`WebDAV DELETE failed (${r.status}): ${url}`);
   }
 }
 

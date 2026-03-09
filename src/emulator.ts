@@ -401,6 +401,7 @@ class FPSMonitor {
           this._stableCallbackCount++;
           if (this._stableCallbackCount >= FPSMonitor._STABLE_COUNT_REQUIRED) {
             this._callbackInterval = FPSMonitor._CALLBACK_INTERVAL_STABLE;
+            this._stableCallbackCount = 0;
           }
         } else {
           this._stableCallbackCount = 0;

@@ -846,7 +846,7 @@ export class MemoryMonitor {
         memory?: { usedJSHeapSize?: number };
       };
       const used = perf.memory?.usedJSHeapSize;
-      return used ? Math.round(used / (1024 * 1024)) : null;
+      return used != null ? Math.round(used / (1024 * 1024)) : null;
     } catch {
       return null;
     }
@@ -858,7 +858,7 @@ export class MemoryMonitor {
         memory?: { jsHeapSizeLimit?: number };
       };
       const limit = perf.memory?.jsHeapSizeLimit;
-      return limit ? Math.round(limit / (1024 * 1024)) : null;
+      return limit != null ? Math.round(limit / (1024 * 1024)) : null;
     } catch {
       return null;
     }
