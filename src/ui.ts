@@ -2706,8 +2706,9 @@ function buildSettingsContent(
 
   const settingsShell = make("div", { class: "settings-shell" });
   const quickBar = make("div", { class: "settings-quickbar" });
-  const perfModeLabels: Record<string, string> = { auto: "Auto", performance: "Performance", quality: "Quality" };
-  const perfModeLabel = perfModeLabels[settings.performanceMode] ?? settings.performanceMode;
+  const perfModeLabel = settings.performanceMode === "performance" ? "Performance"
+    : settings.performanceMode === "quality" ? "Quality"
+    : "Auto";
   const quickInfo = make("p", { class: "settings-quickbar__summary" },
     `Graphics: ${perfModeLabel} · Device: ${formatTierLabel(deviceCaps.tier)} · ` +
     `${deviceCaps.isLowSpec ? "Optimised for your device" : "All features available"}`
@@ -2888,8 +2889,9 @@ function buildPerfTab(
     "Changes take effect the next time you launch or restart a game."
   ));
 
+  const autoModeActive = deviceCaps.isLowSpec || deviceCaps.tier === "medium" ? "Performance" : "Quality";
   const modes: Array<{ value: PerformanceMode; label: string; desc: string }> = [
-    { value: "auto",        label: "Auto (Recommended)", desc: `Best for most devices — currently using ${deviceCaps.isLowSpec || deviceCaps.tier === "medium" ? "Performance" : "Quality"} mode based on your hardware` },
+    { value: "auto",        label: "Auto (Recommended)", desc: `Best for most devices — currently using ${autoModeActive} mode based on your hardware` },
     { value: "performance", label: "Performance — faster, lower quality", desc: "Best for slower or older devices. Runs at lower resolution but stays smooth." },
     { value: "quality",     label: "Quality — sharper visuals",           desc: "Best for powerful devices. Higher resolution and sharper graphics." },
   ];
@@ -3184,7 +3186,9 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
   const biosSection = make("div", { class: "settings-section" });
   biosSection.appendChild(make("h4", { class: "settings-section__title" }, "System Files (BIOS)"));
   biosSection.appendChild(make("p", { class: "settings-help" },
-    "A few systems need a special startup file (called a BIOS) to run games. If a game won't start, check here — you may need to upload a BIOS file. These are small files you can obtain legally by extracting them from your own physical console."
+    "A few systems need a special startup file (called a BIOS) to run games. " +
+    "If a game won't start, check here — you may need to upload one. " +
+    "These files can be obtained legally by extracting them from your own physical console."
   ));
 
   const biosGrid = make("div", { class: "bios-grid" });
@@ -4103,7 +4107,7 @@ function buildAboutTab(container: HTMLElement): void {
 
   const troubles: Array<[string, string]> = [
     ["Game won't load", "Make sure the file is a valid ROM in a supported format. ZIP files are auto-extracted — try unzipping manually if it still fails."],
-    ["PSP game not starting", "PSP requires Cross-Origin Isolation (a browser security feature). If it's not working, try refreshing the page once — the service worker sets this up on first load."],
+    ["PSP game not starting", "PSP games need special browser security settings to run. If it's not working, try refreshing the page once — this sets up the required settings automatically."],
     ["No sound", "Check your browser tab isn't muted. Some games take a moment to start audio."],
     ["Poor performance", "Go to Performance settings and try switching to Performance mode. Closing other browser tabs can also help."],
     ["Save not working", "Save States are stored in your browser's local storage. Clearing browser data will erase them — use the export option to back them up first."],
