@@ -1033,8 +1033,12 @@ export class WebGPUPostProcessor {
    */
   private _initTimestampQuery(): void {
     try {
-      const features = this._device.features as unknown as Set<string>;
-      if (!features.has("timestamp-query")) return;
+      // Use `as any` and compare against `true` strictly to avoid type-check
+      // inconsistencies across `@webgpu/types` versions that might falsely
+      // trigger `@typescript-eslint/no-misused-promises`.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any
+      const hasFeature = (this._device.features as any).has("timestamp-query") === true;
+      if (!hasFeature) return;
 
       // 2 query slots: index 0 = render pass begin, index 1 = render pass end
       this._querySet = this._device.createQuerySet({ type: "timestamp", count: 2 });
