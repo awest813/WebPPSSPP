@@ -166,11 +166,11 @@ describe('PSPEmulator', () => {
       expect(mon._callbackInterval).toBe(10);
       expect(mon._stableCallbackCount).toBe(2);
 
-      // Third stable callback — should widen now (3/3)
+      // Third stable callback — should widen now (3/3) and reset the counter
       mon._frameCount = 29;
       mon._tick(performance.now());
       expect(mon._callbackInterval).toBe(30);
-      expect(mon._stableCallbackCount).toBe(3);
+      expect(mon._stableCallbackCount).toBe(0);
 
       mon.stop();
     });

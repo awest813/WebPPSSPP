@@ -347,15 +347,19 @@ async function decompressWithStream(
   const chunks: Uint8Array[] = [];
   let total = 0;
 
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    chunks.push(value);
-    total += value.length;
-    if (total > MAX_EXTRACTED_ENTRY_BYTES) {
-      throw new Error("Archive entry is too large to extract in-browser.");
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks.push(value);
+      total += value.length;
+      if (total > MAX_EXTRACTED_ENTRY_BYTES) {
+        throw new Error("Archive entry is too large to extract in-browser.");
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
 
   const output = new Uint8Array(total);

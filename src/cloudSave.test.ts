@@ -484,6 +484,15 @@ describe("WebDAVProvider — delete", () => {
     const methods = mockFetch.mock.calls.map((c: unknown[]) => (c[1] as { method: string }).method);
     expect(methods.filter((m: string) => m === "DELETE")).toHaveLength(3);
   });
+
+  it("resolves even when individual DELETE requests fail (allSettled semantics)", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new WebDAVProvider("https://dav.example.com/saves", "u", "p");
+    // delete() uses Promise.allSettled so it should not throw even if _deleteFile throws
+    await expect(p.delete("game-1", 1)).resolves.toBeUndefined();
+  });
 });
 
 // ── CloudSaveManager ──────────────────────────────────────────────────────────

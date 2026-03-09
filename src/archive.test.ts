@@ -765,6 +765,7 @@ describe('extractFromZip', () => {
               done = true;
               return { value: originalContent, done: false };
             },
+            releaseLock: () => { /* no-op */ },
           };
         },
       };
@@ -839,6 +840,7 @@ describe('extractFromGzip', () => {
             done = true;
             return { value: tarBytes, done: false };
           },
+          releaseLock: () => { /* no-op */ },
         };
       },
     };

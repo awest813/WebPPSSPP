@@ -1034,8 +1034,11 @@ export class WebGPUPostProcessor {
    * an invalidated device on every animation frame.
    */
   private _watchDeviceLost(): void {
-    if (!this._device.lost) return;
-    this._device.lost.then((info) => {
+    // Guard against environments where the lost property may not be available
+    // (e.g. older WebGPU implementations or mock objects in tests).
+    const lost = this._device.lost as (Promise<GPUDeviceLostInfo> | undefined);
+    if (lost == null) return;
+    lost.then((info) => {
       if (!this._active) return;
       console.warn(
         `[RetroVault] WebGPU device lost (reason: ${info.reason}, message: "${info.message}"). ` +
