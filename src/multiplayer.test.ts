@@ -297,6 +297,70 @@ describe('NetplayManager.validateServerUrl', () => {
   });
 });
 
+// ── validateIceServerUrl ──────────────────────────────────────────────────────
+
+describe('validateIceServerUrl', () => {
+  it('returns null for a valid stun: URL', () => {
+    expect(validateIceServerUrl('stun:stun.l.google.com:19302')).toBeNull();
+  });
+
+  it('returns null for a valid turn: URL', () => {
+    expect(validateIceServerUrl('turn:turn.example.com:3478')).toBeNull();
+  });
+
+  it('returns null for a valid turns: URL', () => {
+    expect(validateIceServerUrl('turns:turn.example.com:5349')).toBeNull();
+  });
+
+  it('is case-insensitive — STUN: is accepted', () => {
+    expect(validateIceServerUrl('STUN:stun.example.com:3478')).toBeNull();
+  });
+
+  it('returns an error for an empty string', () => {
+    const err = validateIceServerUrl('');
+    expect(err).toBe('ICE server URL must not be empty');
+  });
+
+  it('returns an error for a whitespace-only string', () => {
+    const err = validateIceServerUrl('   ');
+    expect(err).toBe('ICE server URL must not be empty');
+  });
+
+  it('returns an error for an http:// URL', () => {
+    const err = validateIceServerUrl('http://example.com');
+    expect(err).toBe('URL must start with stun:, turn:, or turns:');
+  });
+
+  it('returns an error for a URL without a recognised ICE scheme', () => {
+    const err = validateIceServerUrl('example.com:3478');
+    expect(err).toBe('URL must start with stun:, turn:, or turns:');
+  });
+
+  it('returns an error for stun: with no hostname', () => {
+    const err = validateIceServerUrl('stun:');
+    expect(err).toBe('ICE server URL must include a hostname (e.g. stun:stun.example.com:3478)');
+  });
+
+  it('returns an error for turn: with no hostname', () => {
+    const err = validateIceServerUrl('turn:');
+    expect(err).toBe('ICE server URL must include a hostname (e.g. stun:stun.example.com:3478)');
+  });
+
+  it('returns an error for stun: followed by only whitespace', () => {
+    const err = validateIceServerUrl('stun:   ');
+    expect(err).toBe('ICE server URL must include a hostname (e.g. stun:stun.example.com:3478)');
+  });
+
+  it('handles // prefix after colon correctly', () => {
+    expect(validateIceServerUrl('stun://stun.example.com')).toBeNull();
+  });
+
+  it('returns an error if only slashes and whitespace after colon', () => {
+    const err = validateIceServerUrl('stun://   ');
+    expect(err).toBe('ICE server URL must include a hostname (e.g. stun:stun.example.com:3478)');
+  });
+});
+
 // ── NetplayManager.validateIceServerUrl ──────────────────────────────────────
 
 describe('NetplayManager.validateIceServerUrl', () => {
