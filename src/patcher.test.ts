@@ -214,6 +214,31 @@ describe('detectPatchFormat', () => {
     const buf = makeBuffer([0x50, 0x41]);
     expect(detectPatchFormat(buf)).toBeNull();
   });
+
+  it('detects BPS patches from exactly 4 bytes', () => {
+    const buf = makeBuffer([...ascii('BPS1')]);
+    expect(detectPatchFormat(buf)).toBe<PatchFormat>('bps');
+  });
+
+  it('detects UPS patches from exactly 4 bytes', () => {
+    const buf = makeBuffer([...ascii('UPS1')]);
+    expect(detectPatchFormat(buf)).toBe<PatchFormat>('ups');
+  });
+
+  it('returns null for exactly 4 bytes with unrecognised magic', () => {
+    const buf = makeBuffer([...ascii('ABCD')]);
+    expect(detectPatchFormat(buf)).toBeNull();
+  });
+
+  it('detects IPS patches from exactly 5 bytes', () => {
+    const buf = makeBuffer([...ascii('PATCH')]);
+    expect(detectPatchFormat(buf)).toBe<PatchFormat>('ips');
+  });
+
+  it('returns null for exactly 5 bytes with unrecognised magic', () => {
+    const buf = makeBuffer([...ascii('PATC ')]);
+    expect(detectPatchFormat(buf)).toBeNull();
+  });
 });
 
 // ── PATCH_EXTENSIONS ──────────────────────────────────────────────────────────
