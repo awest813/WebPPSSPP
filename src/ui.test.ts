@@ -1305,11 +1305,11 @@ describe("buildLibraryTab clear library closes panel properly", () => {
     const panel = document.getElementById("settings-panel")!;
     expect(panel.hidden).toBe(false);
 
-    // Locate the "Clear Library" danger button in the Library tab panel
+    // Locate the "Remove All Games" danger button in the Library tab panel
     const libPanel = document.getElementById("tab-panel-library")!;
     const clearBtn = libPanel.querySelector<HTMLButtonElement>(".btn--danger")!;
     expect(clearBtn).toBeTruthy();
-    expect(clearBtn.textContent).toContain("Clear Library");
+    expect(clearBtn.textContent).toContain("Remove All Games");
 
     // Simulate click → allow async handler to begin
     clearBtn.click();

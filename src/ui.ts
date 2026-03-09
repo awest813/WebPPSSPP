@@ -245,8 +245,8 @@ export function buildDOM(app: HTMLElement): void {
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </div>
-          <p class="drop-zone__label">${touchUI ? "Tap to add a ROM and start playing" : "Drop a ROM file here to start playing"}</p>
-          <p class="drop-zone__sub">${touchUI ? "Browse your device to select a file" : 'or <span class="drop-zone__browse">browse your device</span>'}</p>
+          <p class="drop-zone__label">${touchUI ? "Tap to choose a game and start playing" : "Drop a game file here to start playing"}</p>
+          <p class="drop-zone__sub">${touchUI ? "Browse your device to select a ROM file" : 'or <span class="drop-zone__browse">browse your device</span>'}</p>
           <p class="drop-zone__formats" title="Supported file formats">${formatHint}</p>
         </div>
 
@@ -258,34 +258,34 @@ export function buildDOM(app: HTMLElement): void {
             <div class="welcome-steps">
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">1</span>
-                <span class="welcome-step__text">Drop or browse for a ROM file</span>
+                <span class="welcome-step__text">Drop or choose a game file above</span>
               </div>
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">2</span>
-                <span class="welcome-step__text">Pick a system if asked</span>
+                <span class="welcome-step__text">Pick a system if needed</span>
               </div>
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">3</span>
-                <span class="welcome-step__text">Start playing instantly</span>
+                <span class="welcome-step__text">Start playing! 🎉</span>
               </div>
             </div>
           </div>
           <div class="onboarding__features">
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">💾</span>
-              <span><strong>Save States</strong><br>Snapshot progress, load anytime</span>
+              <span><strong>Save anytime</strong><br>Snapshot your progress and pick up later</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🎮</span>
-              <span><strong>Touch &amp; Gamepad</strong><br>On-screen controls &amp; USB/Bluetooth pads</span>
+              <span><strong>Any controller</strong><br>Touch screen, keyboard, USB or Bluetooth pad</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">⚡</span>
-              <span><strong>Auto Performance</strong><br>Detects hardware, picks best settings</span>
+              <span><strong>Auto-tuned</strong><br>Detects your device and picks the best settings</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🔒</span>
-              <span><strong>Private by Design</strong><br>Everything stays in your browser</span>
+              <span><strong>Private &amp; offline</strong><br>Your games stay in your browser, never uploaded</span>
             </div>
           </div>
         </div>
@@ -326,10 +326,12 @@ export function buildDOM(app: HTMLElement): void {
       <div id="loading-overlay" role="status" aria-live="polite">
         <div class="loading-spinner" aria-hidden="true"></div>
         <p id="loading-message">Loading…</p>
+        <p id="loading-subtitle"></p>
       </div>
 
       <!-- Error banner -->
       <div id="error-banner" role="alert" aria-live="assertive">
+        <span class="error-icon" aria-hidden="true">⚠️</span>
         <span id="error-message"></span>
         <button class="error-close" id="error-close" title="Dismiss" aria-label="Dismiss error">✕</button>
       </div>
@@ -371,19 +373,16 @@ export function buildDOM(app: HTMLElement): void {
     <footer class="app-footer">
       <div class="status-item">
         <div class="status-dot idle" id="status-dot"></div>
-        <span class="status-item__label">State:</span>
-        <span class="status-item__value" id="status-state">Idle</span>
+        <span class="status-item__value" id="status-state">Ready</span>
       </div>
-      <div class="status-item hide-mobile">
-        <span class="status-item__label">System:</span>
-        <span class="status-item__value" id="status-system">—</span>
-      </div>
-      <div class="status-item hide-mobile">
-        <span class="status-item__label">Game:</span>
+      <div class="status-item hide-mobile" id="status-system-item" style="display:none">
+        <span class="status-item__label">Playing:</span>
         <span class="status-item__value" id="status-game">—</span>
       </div>
-      <div class="status-item hide-mobile">
-        <span class="status-item__label">Tier:</span>
+      <div class="status-item hide-mobile" id="status-system-label" style="display:none">
+        <span class="status-item__value" id="status-system" style="opacity:0.55;font-size:0.72rem">—</span>
+      </div>
+      <div class="status-item hide-mobile" id="status-tier-item" style="display:none">
         <span class="status-item__value" id="status-tier">—</span>
       </div>
       <div class="status-item hide-mobile" style="margin-left:auto;gap:6px">
@@ -720,7 +719,7 @@ export async function renderLibrary(
 
   if (displayed.length === 0 && allGames.length > 0) {
     const empty = make("div", { class: "library-empty" });
-    empty.innerHTML = `<p>No games match "<em>${_escHtml(_librarySearchQuery)}</em>"</p>`;
+    empty.innerHTML = `<p>No games match "<em>${_escHtml(_librarySearchQuery)}</em>" — try a different search</p>`;
     grid.appendChild(empty);
     return;
   }
@@ -975,16 +974,21 @@ function buildGameCard(
 
   const launch = async () => {
     showLoadingOverlay();
-    setLoadingMessage(`Loading ${game.name}…`);
+    setLoadingMessage(`Starting ${game.name}…`);
+    setLoadingSubtitle("Getting ready to play");
     try {
       const blob = await library.getGameBlob(game.id);
-      if (!blob) { hideLoadingOverlay(); showError(`Game "${game.name}" not found in library.`); return; }
+      if (!blob) {
+        hideLoadingOverlay();
+        showError(`"${game.name}" could not be found in your library. Try adding it again.`);
+        return;
+      }
       const file = toLaunchFile(blob, game.fileName);
       await library.markPlayed(game.id);
       await onLaunchGame(file, game.systemId, game.id);
     } catch (err) {
       hideLoadingOverlay();
-      showError(`Failed to load game: ${err instanceof Error ? err.message : String(err)}`);
+      showError(`Failed to start game: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -1248,7 +1252,8 @@ export async function resolveSystemAndAdd(
   if (EXTRACTABLE_ARCHIVE_FORMATS.has(archiveFormat)) {
     const archiveModule = await getArchiveModule();
     showLoadingOverlay();
-    setLoadingMessage(`Extracting ${archiveFormat.toUpperCase()} archive…`);
+    setLoadingMessage(`Opening ${archiveFormat.toUpperCase()} archive…`);
+    setLoadingSubtitle("Extracting game files — this may take a moment");
     logImport(
       emulatorRef,
       settings,
@@ -1280,7 +1285,8 @@ export async function resolveSystemAndAdd(
           if (!picked) return;
           resolvedFile = new File([picked.blob], picked.name, { type: picked.blob.type });
           showLoadingOverlay();
-          setLoadingMessage("Archive entry selected. Detecting system…");
+          setLoadingMessage("File selected — detecting game system…");
+          setLoadingSubtitle("");
           logImport(
             emulatorRef,
             settings,
@@ -1289,7 +1295,8 @@ export async function resolveSystemAndAdd(
         } else {
           resolvedFile = new File([extracted.blob], extracted.name, { type: extracted.blob.type });
         }
-        setLoadingMessage("Archive extracted. Detecting system…");
+        setLoadingMessage("Detecting game system…");
+        setLoadingSubtitle("");
         logImport(
           emulatorRef,
           settings,
@@ -1416,7 +1423,8 @@ export async function resolveSystemAndAdd(
       );
       if (!playExisting) return;
       showLoadingOverlay();
-      setLoadingMessage(`Loading ${existing.name}…`);
+      setLoadingMessage(`Starting ${existing.name}…`);
+      setLoadingSubtitle("Getting ready to play");
       try {
         const existingFile = toLaunchFile(existing.blob, existing.fileName);
         await library.markPlayed(existing.id);
@@ -1435,7 +1443,8 @@ export async function resolveSystemAndAdd(
   } catch { /* fall through */ }
 
   showLoadingOverlay();
-  setLoadingMessage("Adding game to library…");
+  setLoadingMessage("Saving game to library…");
+  setLoadingSubtitle("This only takes a moment the first time");
 
   try {
     const entry = await library.addGame(resolvedFile, system.id);
@@ -1446,6 +1455,8 @@ export async function resolveSystemAndAdd(
       `Game added to library: "${entry.name}" (id: ${entry.id}, system: ${entry.systemId})`,
     );
     void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    setLoadingMessage(`Starting ${entry.name}…`);
+    setLoadingSubtitle("Getting ready to play");
     logImport(
       emulatorRef,
       settings,
@@ -2709,14 +2720,15 @@ function buildSettingsContent(
   const perfModeLabel = settings.performanceMode === "performance" ? "Performance"
     : settings.performanceMode === "quality" ? "Quality"
     : "Auto";
+  const tierFriendlyMap: Record<string, string> = { low: "entry-level", medium: "mid-range", high: "high-end" };
+  const tierFriendly = tierFriendlyMap[deviceCaps.tier] ?? "unknown";
   const quickInfo = make("p", { class: "settings-quickbar__summary" },
-    `Graphics: ${perfModeLabel} · Device: ${formatTierLabel(deviceCaps.tier)} · ` +
-    `${deviceCaps.isLowSpec ? "Optimised for your device" : "All features available"}`
+    `Graphics: ${perfModeLabel} · ${tierFriendly} device${deviceCaps.isLowSpec ? " · optimised mode active" : ""}`
   );
   const searchInput = make("input", {
     class: "settings-search-input",
     type: "search",
-    placeholder: "Search settings, features, and diagnostics…",
+    placeholder: "Search settings…",
     "aria-label": "Search settings",
   }) as HTMLInputElement;
   const searchStatus = make("p", { class: "settings-search-status", "aria-live": "polite" });
@@ -2874,6 +2886,20 @@ function buildSettingsContent(
 
 // ── Performance tab ───────────────────────────────────────────────────────────
 
+/** Format a WebGPU availability status string for the technical details panel. */
+function formatWebGPUStatus(
+  available: boolean,
+  adapterInfo?: { device?: string; vendor?: string; isFallbackAdapter?: boolean } | null
+): string {
+  if (!available) return "✗ Not available (Chrome 113+ required)";
+  if (adapterInfo?.device) {
+    const suffix = adapterInfo.isFallbackAdapter ? " (software fallback)" : "";
+    return `✓ ${adapterInfo.device}${suffix}`;
+  }
+  if (adapterInfo?.vendor) return `✓ ${adapterInfo.vendor}`;
+  return "✓ Available";
+}
+
 function buildPerfTab(
   container:        HTMLElement,
   settings:         Settings,
@@ -2883,17 +2909,17 @@ function buildPerfTab(
 ): void {
   // Performance mode
   const perfSection = make("div", { class: "settings-section" });
-  perfSection.appendChild(make("h4", { class: "settings-section__title" }, "Performance Mode"));
+  perfSection.appendChild(make("h4", { class: "settings-section__title" }, "Graphics Mode"));
   perfSection.appendChild(make("p", { class: "settings-help" },
-    "Controls rendering resolution, frameskip, and GPU settings for demanding systems (PSP, DS, N64, and similar 3D cores). " +
-    "Changes take effect the next time you launch or restart a game."
+    "Controls how detailed the graphics look and how smoothly games run. " +
+    "If games feel slow or choppy, try Performance mode. Changes apply when you start or restart a game."
   ));
 
   const autoModeActive = deviceCaps.isLowSpec || deviceCaps.tier === "medium" ? "Performance" : "Quality";
   const modes: Array<{ value: PerformanceMode; label: string; desc: string }> = [
-    { value: "auto",        label: "Auto (Recommended)", desc: `Best for most devices — currently using ${autoModeActive} mode based on your hardware` },
-    { value: "performance", label: "Performance — faster, lower quality", desc: "Best for slower or older devices. Runs at lower resolution but stays smooth." },
-    { value: "quality",     label: "Quality — sharper visuals",           desc: "Best for powerful devices. Higher resolution and sharper graphics." },
+    { value: "auto",        label: "Auto  (Recommended)", desc: `Let RetroVault choose — right now using ${autoModeActive} mode for your device` },
+    { value: "performance", label: "Performance — smoother gameplay",  desc: "Lower-resolution but faster. Great for older devices or when games feel sluggish." },
+    { value: "quality",     label: "Quality — sharper visuals",        desc: "Higher-resolution graphics for powerful devices. May slow down on older hardware." },
   ];
 
   for (const m of modes) {
@@ -2909,35 +2935,38 @@ function buildPerfTab(
 
   // Device info
   const deviceSection = make("div", { class: "settings-section" });
-  deviceSection.appendChild(make("h4", { class: "settings-section__title" }, "Device Info"));
+  deviceSection.appendChild(make("h4", { class: "settings-section__title" }, "Your Device"));
   deviceSection.appendChild(make("p", { class: "settings-help" },
-    "Your device's performance determines which graphics settings work best."
+    "RetroVault automatically picks the best settings for your device."
   ));
 
   const capText = formatCapabilitiesSummary(deviceCaps);
   deviceSection.appendChild(make("p", { class: "device-info" }, capText));
 
   const tierClass = deviceCaps.tier === "low" ? "tier-badge tier-badge--warn" : deviceCaps.tier === "medium" ? "tier-badge tier-badge--mid" : "tier-badge tier-badge--ok";
-  deviceSection.appendChild(make("span", { class: tierClass }, `${formatTierLabel(deviceCaps.tier)} tier (GPU score: ${deviceCaps.gpuBenchmarkScore}/100)`));
+  const tierLabel = deviceCaps.tier === "low"
+    ? "Entry-level graphics"
+    : deviceCaps.tier === "medium"
+    ? "Mid-range graphics"
+    : "High-performance graphics";
+  deviceSection.appendChild(make("span", { class: tierClass }, tierLabel));
 
-  const gpuDetails = make("div", { class: "device-info-details" });
-  gpuDetails.appendChild(make("p", { class: "device-info" }, `Max texture size: ${deviceCaps.gpuCaps.maxTextureSize}px`));
-  gpuDetails.appendChild(make("p", { class: "device-info" }, `Estimated VRAM: ${deviceCaps.estimatedVRAMMB} MB`));
+  // Technical GPU details behind a disclosure
+  const gpuDisclosure = make("details", { class: "settings-details" }) as HTMLDetailsElement;
+  gpuDisclosure.appendChild(make("summary", {}, "Technical details"));
+
+  const gpuDetails = make("div", { class: "settings-details__content" });
+  const adapterInfo = emulatorRef?.webgpuAdapterInfo;
+  const webgpuStatusText = formatWebGPUStatus(deviceCaps.webgpuAvailable, adapterInfo);
+  gpuDetails.appendChild(make("p", { class: "device-info" }, `GPU score: ${deviceCaps.gpuBenchmarkScore}/100`));
+  gpuDetails.appendChild(make("p", { class: "device-info" }, `Max texture size: ${deviceCaps.gpuCaps.maxTextureSize}px · VRAM: ~${deviceCaps.estimatedVRAMMB} MB`));
   if (deviceCaps.gpuCaps.anisotropicFiltering) {
     gpuDetails.appendChild(make("p", { class: "device-info" }, `Anisotropic filtering: ${deviceCaps.gpuCaps.maxAnisotropy}×`));
   }
-  gpuDetails.appendChild(make("p", { class: "device-info" }, `Float textures: ${deviceCaps.gpuCaps.floatTextures ? "Yes" : "No"}`));
-  gpuDetails.appendChild(make("p", { class: "device-info" }, `Instanced arrays: ${deviceCaps.gpuCaps.instancedArrays ? "Yes" : "No"}`));
-  deviceSection.appendChild(gpuDetails);
-  deviceSection.appendChild(make("p", { class: "device-info" }, `WebGL 2: ${deviceCaps.gpuCaps.webgl2 ? "✓ Available" : "✗ Not available"}`));
-  deviceSection.appendChild(make("p", { class: "device-info" }, `SharedArrayBuffer: ${typeof SharedArrayBuffer !== "undefined" ? "✓ Available (PSP supported)" : "✗ Not available"}`));
-
-  const adapterInfo = emulatorRef?.webgpuAdapterInfo;
-  const webgpuStatusText = deviceCaps.webgpuAvailable
-    ? adapterInfo?.device ? `✓ Available — ${adapterInfo.device}${adapterInfo.isFallbackAdapter ? " (software fallback)" : ""}` : adapterInfo?.vendor ? `✓ Available — ${adapterInfo.vendor}` : "✓ Available"
-    : "✗ Not available (Chrome 113+ required)";
-  deviceSection.appendChild(make("p", { class: "device-info" }, `WebGPU: ${webgpuStatusText}`));
-  deviceSection.appendChild(make("p", { class: "device-info" }, `AudioWorklet: ${typeof AudioWorkletNode !== "undefined" ? "✓ Available (low-latency audio active)" : "✗ Not available"}`));
+  gpuDetails.appendChild(make("p", { class: "device-info" }, `WebGL 2: ${deviceCaps.gpuCaps.webgl2 ? "✓" : "✗"} · WebGPU: ${webgpuStatusText}`));
+  gpuDetails.appendChild(make("p", { class: "device-info" }, `SharedArrayBuffer: ${typeof SharedArrayBuffer !== "undefined" ? "✓ (PSP supported)" : "✗"} · AudioWorklet: ${typeof AudioWorkletNode !== "undefined" ? "✓" : "✗"}`));
+  gpuDisclosure.appendChild(gpuDetails);
+  deviceSection.appendChild(gpuDisclosure);
 
   container.append(perfSection, deviceSection);
 }
@@ -2953,11 +2982,11 @@ function buildDisplayTab(
 ): void {
   // FPS & Audio section
   const overlaySection = make("div", { class: "settings-section" });
-  overlaySection.appendChild(make("h4", { class: "settings-section__title" }, "Overlays"));
+  overlaySection.appendChild(make("h4", { class: "settings-section__title" }, "In-Game Overlays"));
 
   overlaySection.appendChild(buildToggleRow(
-    "Show FPS overlay",
-    "Display real-time framerate and performance tier while playing",
+    "Show FPS counter",
+    "Shows a small frame-rate display while a game is running — useful for checking performance",
     settings.showFPS,
     (v) => {
       onSettingsChange({ showFPS: v });
@@ -2967,8 +2996,8 @@ function buildDisplayTab(
   ));
 
   overlaySection.appendChild(buildToggleRow(
-    "Audio visualiser",
-    "Show oscilloscope waveform in the FPS overlay (requires FPS overlay to be enabled)",
+    "Audio waveform",
+    "Shows a small oscilloscope waveform alongside the FPS counter (FPS counter must be enabled)",
     settings.showAudioVis,
     (v) => {
       onSettingsChange({ showAudioVis: v });
@@ -2978,18 +3007,21 @@ function buildDisplayTab(
 
   // Mobile & PWA section
   const mobileSection = make("div", { class: "settings-section" });
-  mobileSection.appendChild(make("h4", { class: "settings-section__title" }, "Mobile & PWA"));
+  mobileSection.appendChild(make("h4", { class: "settings-section__title" }, "Mobile & Touch"));
 
   const installRow = make("div", { class: "pwa-install-row" });
   const buildInstallBtn = () => {
     installRow.innerHTML = "";
     if (!_canInstallPWA?.()) {
       installRow.appendChild(make("p", { class: "settings-help" },
-        "To install RetroVault as an app, open this page in Chrome or Edge on Android, then tap the browser menu → \"Add to Home Screen\"."
+        "Install RetroVault as an app on your phone: open in Chrome or Edge on Android, then tap the browser menu → \"Add to Home Screen\"."
       ));
       return;
     }
-    const btnInstall = make("button", { class: "btn btn--primary pwa-install-btn" }, "📲 Install RetroVault App");
+    const btnInstall = make("button", { class: "btn btn--primary pwa-install-btn" });
+    const emojiSpan = make("span", { "aria-hidden": "true" }, "📲");
+    const labelSpan = document.createTextNode(" Install as App");
+    btnInstall.append(emojiSpan, labelSpan);
     btnInstall.addEventListener("click", async () => {
       if (!_onInstallPWA) return;
       const installed = await _onInstallPWA();
@@ -3002,22 +3034,22 @@ function buildDisplayTab(
   mobileSection.appendChild(installRow);
 
   mobileSection.appendChild(buildToggleRow(
-    "Virtual gamepad",
-    "Show on-screen touch buttons while a game is running (touch devices only). Tap \"🎮 Edit\" in the game header to rearrange button positions.",
+    "On-screen buttons",
+    "Show touch controls while playing — tap the \"🎮 Edit\" button in the game toolbar to reposition buttons",
     settings.touchControls,
     (v) => onSettingsChange({ touchControls: v })
   ));
 
   mobileSection.appendChild(buildToggleRow(
-    "Haptic feedback",
-    "Vibrate briefly on virtual button presses (Android Chrome only; iOS ignores this)",
+    "Vibration feedback",
+    "Vibrate briefly when pressing on-screen buttons (works on Android Chrome; not supported on iOS)",
     settings.hapticFeedback,
     (v) => onSettingsChange({ hapticFeedback: v })
   ));
 
   mobileSection.appendChild(buildToggleRow(
-    "Lock to landscape",
-    "Automatically rotate to landscape orientation when a game starts (Android Chrome; iOS Safari does not support orientation locking)",
+    "Auto-rotate to landscape",
+    "Automatically switches to landscape orientation when a game starts (Android Chrome; not supported on iOS Safari)",
     settings.orientationLock,
     (v) => onSettingsChange({ orientationLock: v })
   ));
@@ -3027,26 +3059,26 @@ function buildDisplayTab(
   // WebGPU section — appended last so Overlays and Mobile always appear first
   if (deviceCaps.webgpuAvailable) {
     const gpuSection = make("div", { class: "settings-section" });
-    gpuSection.appendChild(make("h4", { class: "settings-section__title" }, "GPU Post-Processing"));
+    gpuSection.appendChild(make("h4", { class: "settings-section__title" }, "Visual Effects"));
     gpuSection.appendChild(make("p", { class: "settings-help" },
-      "Apply real-time GPU post-processing to the emulator output via WebGPU compute shaders."
+      "Apply extra visual effects to your games using your GPU. These are purely cosmetic — they don't affect gameplay."
     ));
 
     gpuSection.appendChild(buildToggleRow(
-      "Use WebGPU (experimental)",
-      "Pre-initialises the WebGPU adapter and enables post-processing filters. Falls back silently to WebGL when unsupported.",
+      "Enable GPU effects",
+      "Unlock the visual effect options below (experimental — requires a modern GPU)",
       settings.useWebGPU,
       (v) => onSettingsChange({ useWebGPU: v })
     ));
 
     type FxOption = { value: string; label: string; desc: string };
     const fxOptions: FxOption[] = [
-      { value: "none",    label: "Off",     desc: "No post-processing — raw emulator output" },
-      { value: "crt",     label: "CRT",     desc: "Scanlines, barrel distortion, phosphor glow, and vignette" },
-      { value: "sharpen", label: "Sharpen", desc: "Edge-aware sharpening — crisper pixels for upscaled output" },
-      { value: "lcd",     label: "LCD",     desc: "RGB sub-pixel shadow-mask simulating a handheld LCD screen" },
-      { value: "bloom",   label: "Bloom",   desc: "Additive glow on bright areas — cinematic light bleed effect" },
-      { value: "fxaa",    label: "FXAA",    desc: "Fast approximate anti-aliasing — smooths 3D geometry edges" },
+      { value: "none",    label: "No effect",        desc: "Clean output — exactly as the game renders it" },
+      { value: "crt",     label: "CRT screen",       desc: "Scanlines and glow — like playing on a real CRT TV" },
+      { value: "sharpen", label: "Sharper image",    desc: "Crisper pixels — great for upscaled handheld games" },
+      { value: "lcd",     label: "LCD handheld",     desc: "Sub-pixel grid — simulates a handheld LCD screen" },
+      { value: "bloom",   label: "Soft glow",        desc: "Gentle glow on bright areas — warm, cinematic feel" },
+      { value: "fxaa",    label: "Smooth edges",     desc: "Reduces jagged edges on 3D game geometry" },
     ];
     for (const opt of fxOptions) {
       const row   = make("label", { class: "radio-row" });
@@ -3079,19 +3111,21 @@ function buildLibraryTab(
 ): void {
   // Library stats
   const libSection = make("div", { class: "settings-section" });
-  libSection.appendChild(make("h4", { class: "settings-section__title" }, "ROM Library"));
+  libSection.appendChild(make("h4", { class: "settings-section__title" }, "My Game Library"));
 
   const statsEl = make("p", { class: "device-info" }, "Calculating…");
   libSection.appendChild(statsEl);
   Promise.all([library.count(), library.totalSize()]).then(([count, total]) => {
-    statsEl.textContent = `${count} game${count !== 1 ? "s" : ""} · ${formatBytes(total)} stored locally`;
+    statsEl.textContent = count === 0
+      ? "No games added yet — drop a ROM file to get started!"
+      : `${count} game${count !== 1 ? "s" : ""} · ${formatBytes(total)} stored in your browser`;
   }).catch(() => { statsEl.textContent = "Could not load library stats."; });
 
-  const btnClear = make("button", { class: "btn btn--danger settings-clear-btn" }, "Clear Library");
+  const btnClear = make("button", { class: "btn btn--danger settings-clear-btn" }, "Remove All Games");
   btnClear.addEventListener("click", async () => {
     const confirmed = await showConfirmDialog(
-      "This will delete all stored ROM data and cannot be undone.",
-      { title: "Clear Library?", confirmLabel: "Clear All", isDanger: true }
+      "This will remove all games from your library. Your save states will not be deleted.",
+      { title: "Remove All Games?", confirmLabel: "Remove All", isDanger: true }
     );
     if (!confirmed) return;
     await library.clearAll();
@@ -3107,17 +3141,19 @@ function buildLibraryTab(
   // Save states
   if (saveLibrary) {
     const saveSection = make("div", { class: "settings-section" });
-    saveSection.appendChild(make("h4", { class: "settings-section__title" }, "Save States"));
+    saveSection.appendChild(make("h4", { class: "settings-section__title" }, "Saved Progress"));
 
     const saveStatsEl = make("p", { class: "device-info" }, "Calculating…");
     saveSection.appendChild(saveStatsEl);
     saveLibrary.count().then((count) => {
-      saveStatsEl.textContent = `${count} save state${count !== 1 ? "s" : ""} stored locally`;
+      saveStatsEl.textContent = count === 0
+        ? "No save states yet — use Save State in-game to snapshot your progress"
+        : `${count} save state${count !== 1 ? "s" : ""} stored in your browser`;
     }).catch(() => { saveStatsEl.textContent = "Could not load save stats."; });
 
     saveSection.appendChild(buildToggleRow(
-      "Auto-save on tab close",
-      "Automatically save progress when the tab is hidden or closed, preventing loss from accidental closure",
+      "Auto-save when leaving",
+      "Automatically save your progress when you close the tab or switch away — so you never lose unsaved work",
       settings.autoSaveEnabled,
       (v) => onSettingsChange({ autoSaveEnabled: v })
     ));
@@ -3184,11 +3220,11 @@ function buildLibraryTab(
 
 function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
   const biosSection = make("div", { class: "settings-section" });
-  biosSection.appendChild(make("h4", { class: "settings-section__title" }, "System Files (BIOS)"));
+  biosSection.appendChild(make("h4", { class: "settings-section__title" }, "System Startup Files"));
   biosSection.appendChild(make("p", { class: "settings-help" },
-    "A few systems need a special startup file (called a BIOS) to run games. " +
-    "If a game won't start, check here — you may need to upload one. " +
-    "These files can be obtained legally by extracting them from your own physical console."
+    "Some older consoles need a startup file to run games. " +
+    "If a game won't start, you may need to add one here. " +
+    "You can extract these files from a physical console you own — RetroVault cannot provide them."
   ));
 
   const biosGrid = make("div", { class: "bios-grid" });
@@ -3727,11 +3763,14 @@ function buildDebugTab(
 ): void {
   // Settings section
   const settingsSection = make("div", { class: "settings-section" });
-  settingsSection.appendChild(make("h4", { class: "settings-section__title" }, "Debug Settings"));
+  settingsSection.appendChild(make("h4", { class: "settings-section__title" }, "Advanced Settings"));
+  settingsSection.appendChild(make("p", { class: "settings-help" },
+    "These settings are for troubleshooting. You don't normally need to change them."
+  ));
 
   settingsSection.appendChild(buildToggleRow(
-    "Verbose logging",
-    "Write detailed diagnostic output to the browser console (DevTools → Console)",
+    "Detailed logging",
+    "Write extra diagnostic information to the browser console — helpful when reporting issues",
     settings.verboseLogging,
     (v) => onSettingsChange({ verboseLogging: v })
   ));
@@ -4043,12 +4082,12 @@ function buildDebugTab(
 function buildAboutTab(container: HTMLElement): void {
   // Quick start section
   const quickStartSection = make("div", { class: "settings-section" });
-  quickStartSection.appendChild(make("h4", { class: "settings-section__title" }, "Quick Start"));
+  quickStartSection.appendChild(make("h4", { class: "settings-section__title" }, "How to Get Started"));
   const steps = [
-    "Drop a ROM file onto the page, or click the upload area to browse your files.",
-    "If asked, choose which system to use (this happens with some common file formats).",
-    "Your game launches automatically — enjoy playing!",
-    "Press F5 to quick-save, F7 to quick-load, and Esc to return to your library.",
+    "Drop a game file onto the page, or click the upload area to browse for one.",
+    "If asked, choose which system to use — this happens with some common file formats.",
+    "Your game launches automatically — enjoy!",
+    "Save your progress with F5, load it back with F7, and press Esc to return to your game library.",
   ];
   const stepList = make("ol", { class: "help-steps" });
   for (const step of steps) {
@@ -4061,34 +4100,53 @@ function buildAboutTab(container: HTMLElement): void {
   shortcutsSection.appendChild(make("h4", { class: "settings-section__title" }, "Keyboard Shortcuts"));
 
   const shortcuts: Array<[string, string]> = [
-    ["F3", "Toggle developer debug overlay"],
-    ["F5", "Quick Save (slot 1)"],
-    ["F7", "Quick Load (slot 1)"],
+    ["F5", "Save progress (quick save)"],
+    ["F7", "Load saved progress (quick load)"],
     ["F1", "Reset game"],
-    ["F9", "Open Settings → Debug"],
-    ["Esc", "Return to library"],
+    ["F9", "Open Settings"],
+    ["Esc", "Return to game library"],
+    ["F3", "Developer debug info"],
   ];
 
   const shortcutList = make("div", { class: "device-info-details" });
   for (const [key, desc] of shortcuts) {
-    const row = make("div", { style: "display:flex;justify-content:space-between;align-items:center;padding:4px 0;gap:12px" });
-    const kbdEl = make("kbd", { style: "font-family:monospace;font-size:0.8rem;padding:2px 8px;background:var(--c-surface3);border:1px solid var(--c-border);border-radius:4px;color:var(--c-accent);font-weight:600;white-space:nowrap" }, key);
-    row.append(kbdEl, make("span", { class: "device-info", style: "margin:0" }, desc));
+    const row = make("div", { class: "shortcut-row" });
+    const kbdEl = make("kbd", { class: "shortcut-key" }, key);
+    row.append(kbdEl, make("span", { class: "shortcut-desc device-info" }, desc));
     shortcutList.appendChild(row);
   }
   shortcutsSection.appendChild(shortcutList);
+
+  // Troubleshooting section
+  const troubleSection = make("div", { class: "settings-section" });
+  troubleSection.appendChild(make("h4", { class: "settings-section__title" }, "Troubleshooting"));
+
+  const troubles: Array<[string, string]> = [
+    ["Game won't load", "Check that the file is a valid ROM. ZIP files are automatically extracted — if it still fails, try unzipping the file manually first."],
+    ["PSP game won't start", "PSP games need a special browser feature. Try refreshing the page once — this sets things up automatically."],
+    ["No sound", "Make sure the browser tab isn't muted. Some games take a few seconds to start audio."],
+    ["Game is slow or choppy", "Open ⚡ Settings → Performance and switch to Performance mode. Closing other browser tabs can also help."],
+    ["Saves aren't working", "Your saves are stored in your browser. Clearing browser data will erase them — export saves as a backup before doing that."],
+    ["Controls not responding", "Click on the game screen first to make sure it has focus. Gamepads should be connected before launching a game."],
+    ["Stuck on loading screen", "Try refreshing the page. If the issue persists, the game file may be corrupted or an unsupported format."],
+  ];
+
+  for (const [problem, solution] of troubles) {
+    const item = make("div", { class: "trouble-item" });
+    item.appendChild(make("p", { class: "trouble-item__q" }, `❓ ${problem}`));
+    item.appendChild(make("p", { class: "trouble-item__a" }, solution));
+    troubleSection.appendChild(item);
+  }
 
   // About section
   const aboutSection = make("div", { class: "settings-section" });
   aboutSection.appendChild(make("h4", { class: "settings-section__title" }, "About RetroVault"));
   aboutSection.appendChild(make("p", { class: "settings-help" },
-    "RetroVault is a browser-based multi-system retro game emulator supporting 20+ systems " +
-    "including PSP, N64, PS1, NDS, GBA, SNES, NES, and more. It runs entirely in your browser — " +
-    "no server, no account, no downloads required."
+    "RetroVault lets you play retro games from 20+ classic systems — PSP, N64, PS1, NDS, GBA, SNES, NES and more — " +
+    "right in your browser. No installs, no account, nothing to sign up for."
   ));
   aboutSection.appendChild(make("p", { class: "settings-help" },
-    "Your ROM files and save states are stored locally in IndexedDB. " +
-    "RetroVault never uploads your data anywhere."
+    "Your game files and saves are stored privately in your browser. RetroVault never uploads anything."
   ));
 
   const links = make("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
@@ -4101,25 +4159,6 @@ function buildAboutTab(container: HTMLElement): void {
   }, "Powered by EmulatorJS");
   links.appendChild(ejsLink);
   aboutSection.appendChild(links);
-
-  const troubleSection = make("div", { class: "settings-section" });
-  troubleSection.appendChild(make("h4", { class: "settings-section__title" }, "Troubleshooting"));
-
-  const troubles: Array<[string, string]> = [
-    ["Game won't load", "Make sure the file is a valid ROM in a supported format. ZIP files are auto-extracted — try unzipping manually if it still fails."],
-    ["PSP game not starting", "PSP games need special browser security settings to run. If it's not working, try refreshing the page once — this sets up the required settings automatically."],
-    ["No sound", "Check your browser tab isn't muted. Some games take a moment to start audio."],
-    ["Poor performance", "Go to Performance settings and try switching to Performance mode. Closing other browser tabs can also help."],
-    ["Save not working", "Save States are stored in your browser's local storage. Clearing browser data will erase them — use the export option to back them up first."],
-    ["Controls not responding", "Click on the game area first to make sure it has focus. If using a gamepad, it may need to be connected before launching a game."],
-  ];
-
-  for (const [problem, solution] of troubles) {
-    const item = make("div", { class: "trouble-item" });
-    item.appendChild(make("p", { class: "trouble-item__q" }, problem));
-    item.appendChild(make("p", { class: "trouble-item__a" }, solution));
-    troubleSection.appendChild(item);
-  }
 
   container.append(quickStartSection, shortcutsSection, troubleSection, aboutSection);
 }
@@ -4508,7 +4547,7 @@ function showPerfSuggestion(): void {
 
   const toast = make("div", { id: "perf-suggestion", class: "perf-suggestion", role: "status" });
   toast.innerHTML =
-    `<span class="perf-suggestion__msg">Low FPS detected — try <strong>Performance mode</strong> in Settings for a smoother experience.</span>` +
+    `<span class="perf-suggestion__msg">Game running slowly? Try <strong>Performance mode</strong> in ⚡ Settings for a smoother experience.</span>` +
     `<button class="perf-suggestion__close" aria-label="Dismiss">✕</button>`;
   document.body.appendChild(toast);
 
@@ -4540,10 +4579,26 @@ function updateStatusDot(state: EmulatorState): void {
   const dot   = document.getElementById("status-dot");
   const label = document.getElementById("status-state");
   if (!dot || !label) return;
-  const labels: Record<EmulatorState, string> = { idle: "Idle", loading: "Loading", running: "Running", paused: "Paused", error: "Error" };
+  const labels: Record<EmulatorState, string> = {
+    idle: "Ready",
+    loading: "Loading…",
+    running: "Playing",
+    paused: "Paused",
+    error: "Something went wrong"
+  };
   dot.className     = `status-dot ${state}`;
   label.textContent = labels[state];
   if (state === "loading") showLoadingOverlay();
+
+  // Show/hide the "Playing: …" items in footer
+  const isActive = state === "running" || state === "paused";
+  const sysItem  = document.getElementById("status-system-item");
+  const sysLabel = document.getElementById("status-system-label");
+  const tierItem = document.getElementById("status-tier-item");
+  if (sysItem)  sysItem.style.display  = isActive ? "" : "none";
+  if (sysLabel) sysLabel.style.display = isActive ? "" : "none";
+  if (tierItem) tierItem.style.display = isActive ? "" : "none";
+
   if (state === "idle" || state === "error") { setStatusGame("—"); setStatusSystem("—"); setStatusTier(null); }
 }
 
@@ -4552,30 +4607,65 @@ function updateStatusDot(state: EmulatorState): void {
 export function hideLanding(): void    { el("#landing").classList.add("hidden"); }
 export function showLanding(): void    { el("#landing").classList.remove("hidden"); }
 export function showLoadingOverlay(): void { document.getElementById("loading-overlay")?.classList.add("visible"); }
-export function hideLoadingOverlay(): void { document.getElementById("loading-overlay")?.classList.remove("visible"); }
+export function hideLoadingOverlay(): void {
+  document.getElementById("loading-overlay")?.classList.remove("visible");
+  // Clear subtitle when hiding
+  const sub = document.getElementById("loading-subtitle");
+  if (sub) sub.textContent = "";
+}
 export function showEjsContainer(): void  { document.getElementById("ejs-container")?.classList.add("visible"); }
 export function hideEjsContainer(): void  { document.getElementById("ejs-container")?.classList.remove("visible"); }
 export function setLoadingMessage(msg: string): void { const e = document.getElementById("loading-message"); if (e) e.textContent = msg; }
+/** Set a secondary hint shown under the loading message. Pass empty string to hide. */
+export function setLoadingSubtitle(msg: string): void { const e = document.getElementById("loading-subtitle"); if (e) e.textContent = msg; }
 export function setStatusGame(name: string): void    { const e = document.getElementById("status-game");    if (e) e.textContent = name; }
 export function setStatusSystem(name: string): void  { const e = document.getElementById("status-system");  if (e) e.textContent = name; }
 function setStatusTier(tier: PerformanceTier | null): void { const e = document.getElementById("status-tier"); if (e) e.textContent = tier ? formatTierLabel(tier) : "—"; }
 
 let _errorDismissTimer: ReturnType<typeof setTimeout> | null = null;
+const ERROR_DISMISS_TIMEOUT_MS = 12_000;
+
+/** Map common technical error patterns to more player-friendly messages. */
+function friendlyErrorMessage(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes("sharedarraybuffer") || m.includes("cross-origin isolated")) {
+    return "PSP games need a special browser feature (SharedArrayBuffer) that isn't available here.\n\nTry opening the page from the correct URL, or use a browser that supports HTTPS.";
+  }
+  if (m.includes("webassembly") || m.includes("wasm")) {
+    return "Your browser doesn't support WebAssembly, which is required to run games.\n\nTry Chrome 90+, Firefox 90+, or Safari 15+.";
+  }
+  if (m.includes("not found in library") || m.includes("game file not found")) {
+    return "Game file not found. The file may have been deleted from this browser.\n\nTry adding the game again from your device.";
+  }
+  if (m.includes("quota") || m.includes("storage") || m.includes("no space")) {
+    return "Not enough storage space to save this game. Try clearing some old games or saves in Settings → My Games.";
+  }
+  if (m.includes("network") || m.includes("fetch") || m.includes("failed to load")) {
+    return "Couldn't load a required file. Check your internet connection and try again.";
+  }
+  if (m.includes("bios") || m.includes("startup file")) {
+    return "This game needs a startup file (BIOS). Go to Settings → System Files to add one.";
+  }
+  return msg; // Return original if no friendly mapping found
+}
 
 export function showError(msg: string): void {
   const banner = document.getElementById("error-banner");
   const msgEl  = document.getElementById("error-message");
   if (!banner || !msgEl) return;
   msgEl.textContent = "";
+
+  const displayMsg = friendlyErrorMessage(msg);
+
   // Render newlines as <br> so multi-paragraph error messages display correctly
-  const lines = msg.split("\n");
+  const lines = displayMsg.split("\n");
   lines.forEach((line, i) => {
     if (i > 0) msgEl.appendChild(document.createElement("br"));
     msgEl.appendChild(document.createTextNode(line));
   });
   banner.classList.add("visible");
   if (_errorDismissTimer !== null) clearTimeout(_errorDismissTimer);
-  _errorDismissTimer = setTimeout(() => { hideError(); _errorDismissTimer = null; }, 10_000);
+  _errorDismissTimer = setTimeout(() => { hideError(); _errorDismissTimer = null; }, ERROR_DISMISS_TIMEOUT_MS);
 }
 
 export function hideError(): void {
