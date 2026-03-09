@@ -98,6 +98,20 @@ export interface SyncConflict {
   slot: number;
 }
 
+// ── Sync badges ───────────────────────────────────────────────────────────────
+
+/** Per-slot sync status badge for at-a-glance trust. */
+export type SyncBadge = "local-only" | "syncing" | "synced" | "error";
+
+// ── Sync history ──────────────────────────────────────────────────────────────
+
+/** A single entry in the lightweight sync history log. */
+export interface SyncHistoryEntry {
+  timestamp: number;
+  action: string;
+  ok: boolean;
+}
+
 // ── CloudSaveSync ─────────────────────────────────────────────────────────────
 
 /**
@@ -1043,6 +1057,48 @@ export class CloudSaveManager {
   /** Called whenever connection status or lastSyncAt / lastError change. */
   onStatusChange?: () => void;
 
+  /**
+   * Optional callback invoked when both local and remote saves exist for a
+   * slot.  If provided, the UI can present a conflict-resolution modal and
+   * return the user's choice.  When absent, the configured conflictResolution
+   * strategy is applied automatically.
+   */
+  onConflict?: (conflict: SyncConflict) => Promise<ConflictResolution>;
+
+  // ── Per-slot sync badges ──────────────────────────────────────────────────
+
+  private _slotBadges = new Map<string, SyncBadge>();
+
+  /** Return the sync badge for a game + slot, defaulting to "local-only". */
+  getSlotBadge(gameId: string, slot: number): SyncBadge {
+    return this._slotBadges.get(`${gameId}:${slot}`) ?? "local-only";
+  }
+
+  /** Update the sync badge for a game + slot and notify listeners. */
+  setSlotBadge(gameId: string, slot: number, badge: SyncBadge): void {
+    this._slotBadges.set(`${gameId}:${slot}`, badge);
+    this.onStatusChange?.();
+  }
+
+  // ── Sync history ──────────────────────────────────────────────────────────
+
+  /** Maximum number of history entries retained. */
+  static readonly MAX_HISTORY = 20;
+
+  private _syncHistory: SyncHistoryEntry[] = [];
+
+  /** Read-only copy of the recent sync history (newest first). */
+  get syncHistory(): readonly SyncHistoryEntry[] { return this._syncHistory; }
+
+  /** Append an entry to the sync history ring buffer. */
+  addHistoryEntry(action: string, ok: boolean): void {
+    this._syncHistory.unshift({ timestamp: Date.now(), action, ok });
+    if (this._syncHistory.length > CloudSaveManager.MAX_HISTORY) {
+      this._syncHistory.length = CloudSaveManager.MAX_HISTORY;
+    }
+    this.onStatusChange?.();
+  }
+
   private static readonly SETTINGS_KEY = "retrovault-cloud";
   private static readonly WEBDAV_KEY   = "retrovault-cloud-webdav";
   private static readonly GDRIVE_KEY   = "retrovault-cloud-gdrive";
@@ -1105,17 +1161,17 @@ export class CloudSaveManager {
    */
   async push(entry: SaveStateEntry): Promise<void> {
     try {
-      // Use cached connection state to avoid a redundant isAvailable() round-trip
-      // before every push.  If the network has gone away since connect() the
-      // underlying upload will throw and we record it via _lastError below.
       if (!this._connected) return;
+      this.setSlotBadge(entry.gameId, entry.slot, "syncing");
       await this._sync.push(entry);
       this._lastSyncAt = Date.now();
       this._lastError  = null;
-      this.onStatusChange?.();
+      this.setSlotBadge(entry.gameId, entry.slot, "synced");
+      this.addHistoryEntry(`Pushed slot ${entry.slot}`, true);
     } catch (err) {
       this._lastError = err instanceof Error ? err.message : String(err);
-      this.onStatusChange?.();
+      this.setSlotBadge(entry.gameId, entry.slot, "error");
+      this.addHistoryEntry(`Push slot ${entry.slot} failed: ${this._lastError}`, false);
       throw err;
     }
   }
@@ -1126,16 +1182,18 @@ export class CloudSaveManager {
    */
   async pull(gameId: string, slot: number): Promise<SaveStateEntry | null> {
     try {
-      // Use cached connection state (same rationale as push()).
       if (!this._connected) return null;
+      this.setSlotBadge(gameId, slot, "syncing");
       const result     = await this._sync.pull(gameId, slot);
       this._lastSyncAt = Date.now();
       this._lastError  = null;
-      this.onStatusChange?.();
+      this.setSlotBadge(gameId, slot, result ? "synced" : "local-only");
+      this.addHistoryEntry(result ? `Pulled slot ${slot}` : `Pull slot ${slot}: no remote`, true);
       return result;
     } catch (err) {
       this._lastError = err instanceof Error ? err.message : String(err);
-      this.onStatusChange?.();
+      this.setSlotBadge(gameId, slot, "error");
+      this.addHistoryEntry(`Pull slot ${slot} failed: ${this._lastError}`, false);
       throw err;
     }
   }
@@ -1154,16 +1212,40 @@ export class CloudSaveManager {
     localEntry: SaveStateEntry | null,
   ): Promise<{ entry: SaveStateEntry; direction: "pushed" | "pulled" } | null> {
     try {
+      this.setSlotBadge(gameId, slot, "syncing");
+
+      // When an interactive onConflict callback is registered, detect
+      // conflicts manually so the user can choose.
+      if (this.onConflict && this._connected && localEntry) {
+        const remoteEntry = await this._provider.download(gameId, slot);
+        if (remoteEntry) {
+          const resolution = await this.onConflict({ local: localEntry, remote: remoteEntry, gameId, slot });
+          const tempSync = new CloudSaveSync(this._provider, resolution);
+          const result = await tempSync.syncSlot(localEntry, gameId, slot);
+          if (result) {
+            this._lastSyncAt = Date.now();
+            this._lastError  = null;
+            this.setSlotBadge(gameId, slot, "synced");
+            this.addHistoryEntry(`Slot ${slot} ${result.direction} (user chose ${resolution})`, true);
+          }
+          return result;
+        }
+      }
+
       const result = await this._sync.syncSlot(localEntry, gameId, slot);
       if (result) {
         this._lastSyncAt = Date.now();
         this._lastError  = null;
-        this.onStatusChange?.();
+        this.setSlotBadge(gameId, slot, "synced");
+        this.addHistoryEntry(`Slot ${slot} ${result.direction}`, true);
+      } else {
+        this.setSlotBadge(gameId, slot, localEntry ? "local-only" : "local-only");
       }
       return result;
     } catch (err) {
       this._lastError = err instanceof Error ? err.message : String(err);
-      this.onStatusChange?.();
+      this.setSlotBadge(gameId, slot, "error");
+      this.addHistoryEntry(`Sync slot ${slot} failed: ${this._lastError}`, false);
       throw err;
     }
   }
@@ -1207,7 +1289,17 @@ export class CloudSaveManager {
       } catch { errors++; }
     }));
 
-    return { pushed, pulled, errors };
+    const result: GameSyncResult = { pushed, pulled, errors };
+    const parts: string[] = [];
+    if (pushed > 0) parts.push(`↑${pushed}`);
+    if (pulled > 0) parts.push(`↓${pulled}`);
+    if (errors > 0) parts.push(`${errors} err`);
+    this.addHistoryEntry(
+      parts.length > 0 ? `Sync game: ${parts.join(", ")}` : "Sync game: no changes",
+      errors === 0,
+    );
+
+    return result;
   }
 
   // ── WebDAV credential storage ───────────────────────────────────────────────

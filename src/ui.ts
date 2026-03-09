@@ -67,6 +67,7 @@ import {
   createThumbnail,
   stateBytesToBlob,
   downloadBlob,
+  verifySaveChecksum,
 } from "./saves.js";
 import type { Settings } from "./main.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
@@ -80,7 +81,7 @@ import {
   NETPLAY_SUPPORTED_SYSTEM_IDS,
   SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayer.js";
-import { CloudSaveManager, WebDAVProvider, GoogleDriveProvider, DropboxProvider } from "./cloudSave.js";
+import { CloudSaveManager, WebDAVProvider, GoogleDriveProvider, DropboxProvider, type ConflictResolution, type SyncConflict, type SyncBadge } from "./cloudSave.js";
 import { SaveGameService, type SaveOperationStatus } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 
@@ -1063,6 +1064,121 @@ function showConfirmDialog(
     overlay.addEventListener("click",    (e) => { if (e.target === overlay) close(false); });
     document.addEventListener("keydown", onKey);
     requestAnimationFrame(() => { overlay.classList.add("confirm-overlay--visible"); btnConfirm.focus(); });
+  });
+}
+
+// ── Conflict-resolution modal ─────────────────────────────────────────────────
+
+/**
+ * Show a modal dialog for explicit cloud-save conflict resolution.
+ * Returns the user's chosen ConflictResolution strategy for this slot.
+ */
+function showConflictResolutionDialog(
+  conflict: SyncConflict,
+): Promise<ConflictResolution> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box = make("div", {
+      class: "confirm-box conflict-resolution-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Resolve save conflict",
+    });
+
+    box.appendChild(make("h3", { class: "confirm-title" }, "Save Conflict Detected"));
+
+    const localDate  = new Date(conflict.local.timestamp).toLocaleString();
+    const remoteDate = new Date(conflict.remote.timestamp).toLocaleString();
+    const body = make("div", { class: "conflict-body" });
+    body.appendChild(make("p", {}, `Slot ${conflict.slot} has different saves locally and in the cloud.`));
+
+    const table = make("div", { class: "conflict-compare" });
+    table.appendChild(make("div", { class: "conflict-side" },
+      `📁 Local: ${localDate}`));
+    table.appendChild(make("div", { class: "conflict-side" },
+      `☁ Cloud: ${remoteDate}`));
+    body.appendChild(table);
+    box.appendChild(body);
+
+    const footer = make("div", { class: "confirm-footer conflict-footer" });
+    const btnLocal  = make("button", { class: "btn" }, "Keep Local");
+    const btnRemote = make("button", { class: "btn" }, "Keep Cloud");
+    const btnNewest = make("button", { class: "btn btn--primary" }, "Keep Newest");
+
+    const close = (result: ConflictResolution) => {
+      document.removeEventListener("keydown", onKey, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
+      resolve(result);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close("newest"); }
+    };
+
+    btnLocal.addEventListener("click",  () => close("local"));
+    btnRemote.addEventListener("click", () => close("remote"));
+    btnNewest.addEventListener("click", () => close("newest"));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close("newest"); });
+    document.addEventListener("keydown", onKey, { capture: true });
+
+    footer.append(btnLocal, btnRemote, btnNewest);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => { overlay.classList.add("confirm-overlay--visible"); btnNewest.focus(); });
+  });
+}
+
+// ── Import checksum validation dialog ─────────────────────────────────────────
+
+/**
+ * Show a recovery dialog when an imported save file fails checksum validation.
+ * Returns "keep" to keep the imported data, "reimport" to let the user try
+ * again, or "discard" to throw away the corrupted import.
+ */
+function showChecksumFailureDialog(): Promise<"keep" | "reimport" | "discard"> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box = make("div", {
+      class: "confirm-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Checksum mismatch",
+    });
+
+    box.appendChild(make("h3", { class: "confirm-title" }, "Possible Corrupt Import"));
+    box.appendChild(make("p", { class: "confirm-body" },
+      "The imported save file's checksum does not match its contents. " +
+      "This may indicate a corrupted or modified file."));
+
+    const footer = make("div", { class: "confirm-footer" });
+    const btnKeep     = make("button", { class: "btn" }, "Keep Anyway");
+    const btnReimport = make("button", { class: "btn btn--primary" }, "Re-Import");
+    const btnDiscard  = make("button", { class: "btn btn--danger-filled" }, "Discard");
+
+    const close = (result: "keep" | "reimport" | "discard") => {
+      document.removeEventListener("keydown", onKey, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
+      resolve(result);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close("discard"); }
+    };
+
+    btnKeep.addEventListener("click",     () => close("keep"));
+    btnReimport.addEventListener("click", () => close("reimport"));
+    btnDiscard.addEventListener("click",  () => close("discard"));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close("discard"); });
+    document.addEventListener("keydown", onKey, { capture: true });
+
+    footer.append(btnKeep, btnReimport, btnDiscard);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => { overlay.classList.add("confirm-overlay--visible"); btnReimport.focus(); });
   });
 }
 
@@ -2058,7 +2174,25 @@ function buildCloudBar(
   statusWrap.append(dot, statusBody);
 
   const actions = make("div", { class: "cloud-bar__actions" });
-  bar.append(statusWrap, actions);
+
+  // ── Sync history panel ──────────────────────────────────────────────────────
+  const historyPanel = make("div", { class: "sync-history-panel", "aria-label": "Sync history" });
+  const historyToggle = make("button", {
+    class: "btn sync-history-toggle",
+    title: "Toggle sync history",
+    "aria-expanded": "false",
+  }, "📋 History");
+  const historyList = make("ul", { class: "sync-history-list" });
+  historyPanel.append(historyToggle, historyList);
+  historyToggle.addEventListener("click", () => {
+    const expanded = historyPanel.classList.toggle("sync-history-panel--open");
+    historyToggle.setAttribute("aria-expanded", String(expanded));
+  });
+
+  bar.append(statusWrap, actions, historyPanel);
+
+  // Wire the interactive conflict-resolution modal into the manager.
+  cloudManager.onConflict = (conflict: SyncConflict) => showConflictResolutionDialog(conflict);
 
   // Tracks whether a sync is currently in progress so render() can reflect it.
   let isSyncing = false;
@@ -2104,6 +2238,19 @@ function buildCloudBar(
     }
 
     actions.innerHTML = "";
+
+    // Render sync history entries
+    historyList.innerHTML = "";
+    for (const entry of cloudManager.syncHistory) {
+      const li = make("li", { class: `sync-history-entry${entry.ok ? "" : " sync-history-entry--error"}` });
+      const time = make("span", { class: "sync-history-time" }, new Date(entry.timestamp).toLocaleTimeString());
+      const msg  = make("span", { class: "sync-history-msg" }, entry.action);
+      li.append(time, msg);
+      historyList.appendChild(li);
+    }
+    if (cloudManager.syncHistory.length === 0) {
+      historyList.appendChild(make("li", { class: "sync-history-entry sync-history-entry--empty" }, "No sync activity yet"));
+    }
 
     if (connected) {
       // Auto-sync toggle
@@ -2649,6 +2796,23 @@ async function buildSaveSlotCard(
     info.appendChild(make("span", { class: "save-slot-card__time save-slot-card__time--empty" }, "Empty"));
   }
 
+  // Sync badge — shows cloud sync status for this slot
+  const cloudMgr = getCloudManager();
+  if (cloudMgr.isConnected()) {
+    const badge: SyncBadge = cloudMgr.getSlotBadge(gameId, slot);
+    const badgeLabels: Record<SyncBadge, string> = {
+      "local-only": "Local only",
+      "syncing":    "Syncing…",
+      "synced":     "Synced",
+      "error":      "Sync error",
+    };
+    const badgeEl = make("span", {
+      class: `sync-badge sync-badge--${badge}`,
+      title: badgeLabels[badge],
+    }, badgeLabels[badge]);
+    info.appendChild(badgeEl);
+  }
+
   // Helper: re-render slots and update the badge in the gallery header (if present)
   const rerender = () => {
     const badge = container.closest<HTMLElement>(".save-gallery-box")
@@ -2734,14 +2898,35 @@ async function buildSaveSlotCard(
       importInput.value = "";
       try {
         await saveLibrary.importState(gameId, gameName, systemId, slot, file);
+
+        // Checksum validation — verify the imported data integrity
+        const imported = await saveLibrary.getState(gameId, slot);
+        if (imported) {
+          const checksumOk = await verifySaveChecksum(imported);
+          if (!checksumOk) {
+            const choice = await showChecksumFailureDialog();
+            if (choice === "discard") {
+              await saveLibrary.deleteState(gameId, slot);
+              await rerender();
+              showInfoToast("Discarded corrupt import.");
+              return;
+            }
+            if (choice === "reimport") {
+              await saveLibrary.deleteState(gameId, slot);
+              await rerender();
+              showInfoToast("Import discarded — please try again with a valid file.");
+              return;
+            }
+            // choice === "keep" — fall through to normal flow
+          }
+        }
+
         const buf = await file.arrayBuffer();
         const written = emulator.writeStateData(slot, new Uint8Array(buf));
         await rerender();
         if (written) {
           showInfoToast(`Imported save to ${currentLabel}`);
         } else {
-          // State was saved to the library but the emulator filesystem is not
-          // ready (e.g. no game running). It will be applied on the next load.
           showInfoToast(`Imported save to ${currentLabel} — load the game to apply it.`);
         }
       } catch (err) {
