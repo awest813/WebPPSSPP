@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   hashGameId,
   NetplayManager,
@@ -17,7 +17,7 @@ import {
   NetplayCompatibilityErrorCode,
   netplayErrorMessage,
   NetplayMetricsCollector,
-} from './multiplayer';
+} from "./multiplayer.js";
 
 // ── hashGameId ────────────────────────────────────────────────────────────────
 

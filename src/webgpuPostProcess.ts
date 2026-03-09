@@ -553,6 +553,7 @@ export class WebGPUPostProcessor {
     this._device = device;
     this._config = { ...DEFAULT_POST_PROCESS_CONFIG, ...config };
     this._initTimestampQuery();
+    this._watchDeviceLost();
   }
 
   get active(): boolean { return this._active; }
@@ -595,7 +596,7 @@ export class WebGPUPostProcessor {
       return;
     }
 
-    this._presentFormat = navigator.gpu.getPreferredCanvasFormat();
+    this._presentFormat = (navigator.gpu?.getPreferredCanvasFormat?.() as GPUTextureFormat | undefined) ?? "bgra8unorm";
     this._gpuContext.configure({
       device: this._device,
       format: this._presentFormat,
@@ -1025,6 +1026,26 @@ export class WebGPUPostProcessor {
   }
 
   // ── GPU timestamp query helpers ──────────────────────────────────────────
+
+  /**
+   * Subscribe to the device's lost promise so we can gracefully stop the
+   * render loop if the GPU context is lost (e.g. driver crash, tab hidden,
+   * or GPU reset). Without this the rAF loop would keep trying to call into
+   * an invalidated device on every animation frame.
+   */
+  private _watchDeviceLost(): void {
+    if (!this._device.lost) return;
+    this._device.lost.then((info) => {
+      if (!this._active) return;
+      console.warn(
+        `[RetroVault] WebGPU device lost (reason: ${info.reason}, message: "${info.message}"). ` +
+        "Post-processing render loop stopped."
+      );
+      this._stopLoop();
+      this._hideOverlay();
+      this._active = false;
+    }).catch(() => { /* ignore — device loss is not a recoverable error here */ });
+  }
 
   /**
    * Attempt to create timestamp query resources.

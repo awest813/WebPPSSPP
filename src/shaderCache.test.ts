@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import 'fake-indexeddb/auto';
-import { ShaderCache, shaderProgramKey, wgslModuleKey } from './shaderCache';
+import { describe, it, expect, beforeEach } from "vitest";
+import "fake-indexeddb/auto";
+import { ShaderCache, shaderProgramKey, wgslModuleKey } from "./shaderCache.js";
 
 // ── shaderProgramKey ──────────────────────────────────────────────────────────
 

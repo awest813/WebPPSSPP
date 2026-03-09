@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from "vitest";
 import {
   detectPatchFormat,
   applyIPS,
@@ -7,7 +7,7 @@ import {
   applyPatch,
   PATCH_EXTENSIONS,
   type PatchFormat,
-} from './patcher';
+} from "./patcher.js";
 
 // ── CRC32 (mirrors the implementation in patcher.ts) ─────────────────────────
 

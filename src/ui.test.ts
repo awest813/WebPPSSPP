@@ -331,6 +331,48 @@ describe("resolveSystemAndAdd mobile archive handling", () => {
     expect(library.addGame).toHaveBeenCalledTimes(1);
     expect(onLaunchGame).toHaveBeenCalledWith(expect.any(File), "nes", "game-rar-1");
   });
+
+  it("shows a clear error for .zst files (Zstandard, unsupported)", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([0x28, 0xb5, 0x2f, 0xfd])], "game.zst", { type: "application/octet-stream" });
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    const errorMessage = document.getElementById("error-message")?.textContent ?? "";
+    expect(errorMessage).toContain("ZST");
+    expect(errorMessage).toContain("cannot be extracted automatically");
+    expect(library.addGame).not.toHaveBeenCalled();
+    expect(onLaunchGame).not.toHaveBeenCalled();
+  });
+
+  it("shows a clear error for .cab files (Cabinet, unsupported)", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([0x4d, 0x53, 0x43, 0x46])], "game.cab", { type: "application/octet-stream" });
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    const errorMessage = document.getElementById("error-message")?.textContent ?? "";
+    expect(errorMessage).toContain("CAB");
+    expect(errorMessage).toContain("cannot be extracted automatically");
+    expect(library.addGame).not.toHaveBeenCalled();
+    expect(onLaunchGame).not.toHaveBeenCalled();
+  });
 });
 
 describe("library stale system filter recovery", () => {

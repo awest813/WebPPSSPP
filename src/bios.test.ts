@@ -18,13 +18,13 @@
  *   - BIOS_REQUIREMENTS structure validation
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   BiosLibrary,
   BIOS_REQUIREMENTS,
   type BiosRequirement,
-} from './bios';
-import 'fake-indexeddb/auto';
+} from "./bios.js";
+import "fake-indexeddb/auto";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

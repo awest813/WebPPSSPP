@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import {
   detectCapabilities,
   detectCapabilitiesCached,
@@ -28,7 +28,7 @@ import {
   DeltaTracker,
   DeviceCapabilities,
   GPUCapabilities,
-} from './performance';
+} from "./performance.js";
 
 describe('performance', () => {
   afterEach(() => {

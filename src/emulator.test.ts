@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { PSPEmulator, EJS_CDN_BASE } from './emulator';
-import { NetplayManager } from './multiplayer';
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { PSPEmulator, EJS_CDN_BASE } from "./emulator.js";
+import { NetplayManager } from "./multiplayer.js";
 
 describe('PSPEmulator', () => {
   let emulator: PSPEmulator;

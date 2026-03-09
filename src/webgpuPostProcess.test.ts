@@ -5,7 +5,7 @@ import {
   buildEffectPipeline,
   adjustConfigForTier,
   type PostProcessConfig,
-} from "./webgpuPostProcess";
+} from "./webgpuPostProcess.js";
 
 // ── Mock GPU device factory ───────────────────────────────────────────────────
 
@@ -207,6 +207,66 @@ describe("WebGPUPostProcessor", () => {
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       pp.dispose();
       expect(pp.active).toBe(false);
+    });
+  });
+
+  describe("device loss handling", () => {
+    it("stops the render loop and deactivates when the GPU device is lost", async () => {
+      // Create a deferred promise that simulates device loss
+      let signalLost!: (info: { reason: string; message: string }) => void;
+      const lostPromise = new Promise<{ reason: string; message: string }>(
+        (resolve) => { signalLost = resolve; }
+      );
+
+      const { device } = createMockGPUDevice();
+      // Wire the device's lost promise
+      (device as unknown as Record<string, unknown>).lost = lostPromise;
+
+      const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
+
+      const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+      const webgpuContext = {
+        configure: vi.fn(),
+        getCurrentTexture: vi.fn().mockReturnValue({ createView: vi.fn().mockReturnValue({}) }),
+      };
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, "getContext")
+        .mockImplementation((contextId: "webgpu") => {
+          if (contextId === "webgpu") return webgpuContext as unknown as GPUCanvasContext;
+          return null;
+        });
+      const originalGPU = navigator.gpu;
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        writable: true,
+        value: { getPreferredCanvasFormat: vi.fn().mockReturnValue("bgra8unorm") },
+      });
+
+      pp.attach(sourceCanvas, container);
+      expect(pp.active).toBe(true);
+
+      // Simulate device loss — the handler should deactivate the processor
+      signalLost({ reason: "destroyed", message: "GPU device was lost" });
+      // Flush microtasks to let the .then() callback run
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(pp.active).toBe(false);
+
+      pp.dispose();
+      rafSpy.mockRestore();
+      getContextSpy.mockRestore();
+      Object.defineProperty(navigator, "gpu", {
+        configurable: true,
+        writable: true,
+        value: originalGPU,
+      });
+    });
+
+    it("does not throw if device has no lost property", () => {
+      const { device } = createMockGPUDevice();
+      // Ensure lost is not set
+      expect(() => new WebGPUPostProcessor(device as unknown as GPUDevice)).not.toThrow();
     });
   });
 

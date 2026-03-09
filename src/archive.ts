@@ -30,10 +30,15 @@ const _romExtensions = new Set(
 const LOCAL_FILE_MAGIC   = 0x04034b50; // "PK\x03\x04"
 const CENTRAL_DIR_MAGIC  = 0x02014b50; // "PK\x01\x02"
 const EOCD_MAGIC         = 0x06054b50; // "PK\x05\x06"
-const ZIP64_EOCD_MAGIC   = 0x06064b50; // "PK\x06\x06" — handled but not full ZIP64
+const ZIP64_EOCD_MAGIC   = 0x06064b50; // "PK\x06\x06"
+const ZIP64_EXTRA_TAG    = 0x0001;     // ZIP64 extended information extra field tag
 
 const COMPRESS_STORED    = 0;
 const COMPRESS_DEFLATE   = 8;
+// Common compression methods not supported by DecompressionStream:
+const COMPRESS_DEFLATE64 = 9;  // Deflate64 — non-standard extension
+const COMPRESS_BZIP2     = 12; // BZip2
+const COMPRESS_LZMA      = 14; // LZMA
 
 // ── Safety limits ─────────────────────────────────────────────────────────────
 
@@ -204,6 +209,68 @@ function isTarBuffer(bytes: Uint8Array): boolean {
     bytes[261] === 0x72 && // r
     (bytes[262] === 0x00 || bytes[262] === 0x20)
   );
+}
+
+/**
+ * Parse the ZIP64 Extended Information extra field from a central-directory
+ * entry's extra-field block.
+ *
+ * When the standard 32-bit fields in a central directory entry contain
+ * 0xFFFFFFFF, the actual values are stored in this extra field. Only the
+ * fields that were 0xFFFFFFFF in the original record are written here, in
+ * the order: uncompressedSize, compressedSize, localHeaderOffset.
+ */
+function parseZip64ExtraField(
+  extraBytes: Uint8Array,
+  needsUncompressedSize: boolean,
+  needsCompressedSize: boolean,
+  needsLocalHeaderOffset: boolean,
+): {
+  uncompressedSize?: number;
+  compressedSize?: number;
+  localHeaderOffset?: number;
+} {
+  const result: {
+    uncompressedSize?: number;
+    compressedSize?: number;
+    localHeaderOffset?: number;
+  } = {};
+
+  if (extraBytes.length < 4) return result;
+
+  const view = new DataView(extraBytes.buffer, extraBytes.byteOffset, extraBytes.byteLength);
+  const readUint64 = (off: number): number =>
+    Number(
+      BigInt(view.getUint32(off, true)) |
+      (BigInt(view.getUint32(off + 4, true)) << 32n),
+    );
+
+  let pos = 0;
+  while (pos + 4 <= extraBytes.length) {
+    const tag  = view.getUint16(pos, true);
+    const size = view.getUint16(pos + 2, true);
+    pos += 4;
+
+    if (tag === ZIP64_EXTRA_TAG) {
+      let offset = pos;
+      if (needsUncompressedSize && offset + 8 <= pos + size) {
+        result.uncompressedSize = readUint64(offset);
+        offset += 8;
+      }
+      if (needsCompressedSize && offset + 8 <= pos + size) {
+        result.compressedSize = readUint64(offset);
+        offset += 8;
+      }
+      if (needsLocalHeaderOffset && offset + 8 <= pos + size) {
+        result.localHeaderOffset = readUint64(offset);
+        offset += 8;
+      }
+      break;
+    }
+
+    pos += size;
+  }
+  return result;
 }
 
 function scoreArchiveEntry(entryName: string, sizeBytes: number): number {
@@ -550,15 +617,30 @@ export async function extractFromZip(
     if (readUint32LE(view, pos) !== CENTRAL_DIR_MAGIC) break;
 
     const compressionMethod  = readUint16LE(view, pos + 10);
-    const compressedSize     = readUint32LE(view, pos + 20);
-    const uncompressedSize   = readUint32LE(view, pos + 24);
+    let compressedSize       = readUint32LE(view, pos + 20);
+    let uncompressedSize     = readUint32LE(view, pos + 24);
     const fileNameLength     = readUint16LE(view, pos + 28);
     const extraFieldLength   = readUint16LE(view, pos + 30);
     const commentLength      = readUint16LE(view, pos + 32);
-    const localHeaderOffset  = readUint32LE(view, pos + 42);
+    let localHeaderOffset    = readUint32LE(view, pos + 42);
 
     const nameSlice = bytes.slice(pos + 46, pos + 46 + fileNameLength);
     const name      = decodeName(nameSlice);
+
+    // ── ZIP64 extra field: resolve 0xFFFFFFFF sentinel values ────────────────
+    // When the 32-bit fields are 0xFFFFFFFF the actual values are stored in
+    // the ZIP64 Extended Information extra field immediately after the filename.
+    const needsUncompressed  = uncompressedSize  === 0xffffffff;
+    const needsCompressed    = compressedSize    === 0xffffffff;
+    const needsOffset        = localHeaderOffset === 0xffffffff;
+    if (needsUncompressed || needsCompressed || needsOffset) {
+      const extraStart = pos + 46 + fileNameLength;
+      const extraBytes = bytes.slice(extraStart, extraStart + extraFieldLength);
+      const zip64 = parseZip64ExtraField(extraBytes, needsUncompressed, needsCompressed, needsOffset);
+      if (zip64.uncompressedSize !== undefined) uncompressedSize  = zip64.uncompressedSize;
+      if (zip64.compressedSize   !== undefined) compressedSize    = zip64.compressedSize;
+      if (zip64.localHeaderOffset !== undefined) localHeaderOffset = zip64.localHeaderOffset;
+    }
 
     entries.push({
       name,
@@ -597,14 +679,11 @@ export async function extractFromZip(
       );
     }
 
-    // Detect ZIP64 extended-offset indicator. When `localHeaderOffset` reads
-    // as 0xFFFFFFFF the actual offset is stored in the ZIP64 extra field of
-    // the central-directory entry, which this parser does not yet decode.
-    // Silently returning null here would make the extraction appear to succeed
-    // but produce no output, so we throw a clear diagnostic instead.
+    // After ZIP64 extra-field parsing, a remaining 0xFFFFFFFF means the
+    // extra field was absent or truncated — the offset is genuinely unknown.
     if (entry.localHeaderOffset === 0xffffffff) {
       throw new Error(
-        `ZIP64 extended local-header offsets are not supported for entry "${entry.name}". ` +
+        `ZIP64 local-header offset could not be resolved for entry "${entry.name}". ` +
         "Please extract the archive manually and import the ROM file directly."
       );
     }
@@ -618,7 +697,7 @@ export async function extractFromZip(
     const dataStart     = lhBase + 30 + lhFileNameLen + lhExtraLen;
     const dataEnd2      = dataStart + entry.compressedSize;
 
-    if (dataEnd2 > bytes.length) return null;
+    if (dataStart > bytes.length || dataEnd2 > bytes.length) return null;
     const compressedSlice = bytes.slice(dataStart, dataEnd2);
 
     let output: Uint8Array;
@@ -637,10 +716,25 @@ export async function extractFromZip(
           `ZIP inflate size mismatch for "${entry.name}" (expected ${entry.uncompressedSize} bytes, got ${output.length}).`
         );
       }
+    } else if (entry.compressionMethod === COMPRESS_DEFLATE64) {
+      throw new Error(
+        `Entry "${entry.name}" uses Deflate64 compression (method 9), which is not supported in browsers. ` +
+        "Please re-compress the archive using standard Deflate or extract it manually."
+      );
+    } else if (entry.compressionMethod === COMPRESS_BZIP2) {
+      throw new Error(
+        `Entry "${entry.name}" uses BZip2 compression (method 12), which is not supported in browsers. ` +
+        "Please extract the archive manually and import the ROM file directly."
+      );
+    } else if (entry.compressionMethod === COMPRESS_LZMA) {
+      throw new Error(
+        `Entry "${entry.name}" uses LZMA compression (method 14), which is not supported in browsers. ` +
+        "Please extract the archive manually and import the ROM file directly."
+      );
     } else {
       throw new Error(
-        `Unsupported ZIP compression method ${entry.compressionMethod}. ` +
-        "Only Stored (0) and Deflate (8) are supported."
+        `Entry "${entry.name}" uses unsupported ZIP compression method ${entry.compressionMethod}. ` +
+        "Only Stored (0) and Deflate (8) are supported. Please extract the archive manually."
       );
     }
 
@@ -873,6 +967,8 @@ export function isArchiveExtension(ext: string): boolean {
  * User-friendly description of supported archive extraction.
  */
 export const ARCHIVE_SUPPORT_NOTE =
-  "ZIP, 7-Zip (.7z), RAR, TAR, and GZIP archives are extracted in-browser when possible. " +
-  "BZIP2, XZ, and similar formats must be extracted manually before importing.";
+  "ZIP, 7-Zip (.7z), RAR, TAR, and GZIP archives are extracted automatically in-browser. " +
+  "BZIP2 (.bz2), XZ (.xz), Zstandard (.zst), and Cabinet (.cab) files must be extracted " +
+  "manually before importing. Inside ZIP archives, only Stored and Deflate compression are " +
+  "supported; Deflate64, BZip2, and LZMA methods require manual extraction.";
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier, type SystemInfo } from './systems';
+import { describe, expect, it } from "vitest";
+import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier, type SystemInfo } from "./systems.js";
 
 describe('systems performance profiles', () => {
   describe('detectSystem', () => {

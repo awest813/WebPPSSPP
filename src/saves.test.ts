@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import 'fake-indexeddb/auto';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import "fake-indexeddb/auto";
 import {
   SaveStateLibrary,
   saveStateKey,
@@ -12,7 +12,7 @@ import {
   saveEvents,
   SAVE_FORMAT_VERSION,
   type SaveStateEntry,
-} from './saves';
+} from "./saves.js";
 
 // ── saveStateKey ──────────────────────────────────────────────────────────────
 

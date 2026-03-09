@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { formatBytes, formatRelativeTime, GameLibrary, getGameTierProfile, saveGameTierProfile, clearGameTierProfile } from './library';
-import 'fake-indexeddb/auto';
+import { describe, it, expect, beforeEach } from "vitest";
+import { formatBytes, formatRelativeTime, GameLibrary, getGameTierProfile, saveGameTierProfile, clearGameTierProfile } from "./library.js";
+import "fake-indexeddb/auto";
 
 describe('formatBytes', () => {
   it('formats 0 bytes correctly', () => {

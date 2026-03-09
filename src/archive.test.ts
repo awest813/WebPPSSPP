@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   detectArchiveFormat,
   extractFromArchive,
@@ -8,7 +8,7 @@ import {
   isArchiveExtension,
   ARCHIVE_SUPPORT_NOTE,
   type ArchiveFormat,
-} from './archive';
+} from "./archive.js";
 
 // ── ZIP binary builder ────────────────────────────────────────────────────────
 
@@ -575,7 +575,7 @@ describe('extractFromZip', () => {
     const zipBuf = buildZip('game.nes', content, 1);
     const blob   = new Blob([zipBuf]);
 
-    await expect(extractFromZip(blob)).rejects.toThrow('Unsupported ZIP compression method');
+    await expect(extractFromZip(blob)).rejects.toThrow(/unsupported ZIP compression method/i);
   });
 
   it('throws with a descriptive message when the local-header offset is the ZIP64 sentinel (0xFFFFFFFF)', async () => {
@@ -631,6 +631,97 @@ describe('extractFromZip', () => {
     view.setUint32(p + 16, cdOffset, true);
 
     await expect(extractFromZip(new Blob([buf]))).rejects.toThrow('ZIP64');
+  });
+
+  it('throws with a Deflate64 message for compression method 9', async () => {
+    const content = new Uint8Array([1, 2, 3]);
+    const zipBuf  = buildZip('game.nes', content, 9); // method 9 = Deflate64
+    await expect(extractFromZip(new Blob([zipBuf]))).rejects.toThrow(/Deflate64/i);
+  });
+
+  it('throws with a BZip2 message for compression method 12', async () => {
+    const content = new Uint8Array([1, 2, 3]);
+    const zipBuf  = buildZip('game.nes', content, 12); // method 12 = BZip2
+    await expect(extractFromZip(new Blob([zipBuf]))).rejects.toThrow(/bzip2/i);
+  });
+
+  it('throws with an LZMA message for compression method 14', async () => {
+    const content = new Uint8Array([1, 2, 3]);
+    const zipBuf  = buildZip('game.nes', content, 14); // method 14 = LZMA
+    await expect(extractFromZip(new Blob([zipBuf]))).rejects.toThrow(/lzma/i);
+  });
+
+  it('resolves ZIP64 extra field sizes in central directory entries', async () => {
+    // Build a ZIP where central-directory compressed/uncompressed sizes are
+    // 0xFFFFFFFF (ZIP64 sentinels) and real values are in the extra field.
+    // We use small actual sizes so the entry is well within safety limits.
+    const enc       = new TextEncoder();
+    const fileName  = 'game.nes';
+    const data      = new Uint8Array([0x4e, 0x45, 0x53, 0x1a]); // NES magic
+    const nameBytes = enc.encode(fileName);
+    const nameLen   = nameBytes.length;
+    const dataLen   = data.length;
+
+    // ZIP64 extra field: tag 0x0001, size 16, two 8-byte values
+    // (uncompressed size + compressed size — both 0xFFFFFFFF sentinels)
+    const zip64Extra = new Uint8Array(20);
+    const exView = new DataView(zip64Extra.buffer);
+    exView.setUint16(0, 0x0001, true); // ZIP64 tag
+    exView.setUint16(2, 16, true);      // 2 × 8-byte values
+    // uncompressed size (real)
+    exView.setUint32(4, dataLen, true);
+    exView.setUint32(8, 0, true);
+    // compressed size (real)
+    exView.setUint32(12, dataLen, true);
+    exView.setUint32(16, 0, true);
+
+    const extraLen = zip64Extra.length;
+
+    const lhSize   = 30 + nameLen;
+    const cdSize   = 46 + nameLen + extraLen;
+    const eocdSize = 22;
+    const totalSize = lhSize + dataLen + cdSize + eocdSize;
+
+    const buf   = new ArrayBuffer(totalSize);
+    const view  = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+
+    // Local file header
+    view.setUint32(0,  0x04034b50, true);
+    view.setUint16(4,  20, true);
+    view.setUint32(18, dataLen, true); // compressed size
+    view.setUint32(22, dataLen, true); // uncompressed size
+    view.setUint16(26, nameLen, true);
+    view.setUint16(28, 0, true);
+    bytes.set(nameBytes, 30);
+    bytes.set(data, lhSize);
+
+    // Central directory entry with 0xFFFFFFFF sentinels + ZIP64 extra field
+    const cdOffset = lhSize + dataLen;
+    let p = cdOffset;
+    view.setUint32(p,      0x02014b50, true);
+    view.setUint16(p + 4,  20, true);
+    view.setUint16(p + 6,  20, true);
+    view.setUint32(p + 20, 0xffffffff, true); // compressed size sentinel
+    view.setUint32(p + 24, 0xffffffff, true); // uncompressed size sentinel
+    view.setUint16(p + 28, nameLen, true);
+    view.setUint16(p + 30, extraLen, true);
+    view.setUint32(p + 42, 0, true); // local header offset
+    bytes.set(nameBytes, p + 46);
+    bytes.set(zip64Extra, p + 46 + nameLen);
+    p += cdSize;
+
+    // EOCD
+    view.setUint32(p,      0x06054b50, true);
+    view.setUint16(p + 8,  1, true);
+    view.setUint16(p + 10, 1, true);
+    view.setUint32(p + 12, cdSize, true);
+    view.setUint32(p + 16, cdOffset, true);
+
+    const result = await extractFromZip(new Blob([buf]));
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('game.nes');
+    expect(new Uint8Array(await result!.blob.arrayBuffer())).toEqual(data);
   });
 
   it('throws when DecompressionStream is absent and the entry is deflate-compressed', async () => {
