@@ -1620,12 +1620,14 @@ async function handleM3UFile(
   if (discFileNames.length === 0) { showError("The .m3u file is empty or contains no disc entries."); return; }
 
   const storedDiscs = new Map<string, { id: string; blob: Blob }>();
-  for (const fn of discFileNames) {
-    try {
-      const entry = await library.findByFileName(fn, system.id);
-      if (entry) storedDiscs.set(fn, { id: entry.id, blob: entry.blob });
-    } catch { /* ignore */ }
-  }
+  await Promise.all(
+    discFileNames.map(async (fn) => {
+      try {
+        const entry = await library.findByFileName(fn, system.id);
+        if (entry) storedDiscs.set(fn, { id: entry.id, blob: entry.blob });
+      } catch { /* ignore */ }
+    })
+  );
 
   let discFiles: Map<string, Blob>;
   const missingDiscs = discFileNames.filter(fn => !storedDiscs.has(fn));
