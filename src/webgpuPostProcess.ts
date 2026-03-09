@@ -1033,8 +1033,10 @@ export class WebGPUPostProcessor {
    */
   private _initTimestampQuery(): void {
     try {
-      const features = this._device.features as unknown as { has: (feature: string) => boolean | Promise<boolean> };
-      if (features.has("timestamp-query") !== true) return;
+      // Explicitly type `has` to return only `boolean` so `@typescript-eslint/no-misused-promises`
+      // does not mistakenly flag it as a Promise, which occurs in some DOM typing versions.
+      const features = this._device.features as unknown as { has: (feature: string) => boolean };
+      if (!features.has("timestamp-query")) return;
 
       // 2 query slots: index 0 = render pass begin, index 1 = render pass end
       this._querySet = this._device.createQuerySet({ type: "timestamp", count: 2 });
