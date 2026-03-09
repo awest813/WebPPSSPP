@@ -2349,7 +2349,7 @@ describe("save gallery cloud bar UX", () => {
     }
   });
 
-  it("cloud connect dialog has a provider selector with WebDAV, Google Drive, and Dropbox options", async () => {
+  it("cloud connect dialog has a provider selector with Google Drive (first), WebDAV, and Dropbox options", async () => {
     const emulator = makeRunningEmulator();
     const saveLib  = makeBasicSaveLibrary();
 
@@ -2382,9 +2382,11 @@ describe("save gallery cloud bar UX", () => {
     expect(optionValues).toContain("webdav");
     expect(optionValues).toContain("gdrive");
     expect(optionValues).toContain("dropbox");
+    // Google Drive must be the first option
+    expect(optionValues[0]).toBe("gdrive");
   });
 
-  it("cloud bar shows 'Not yet synced' in the last-sync element when connected but sync has not occurred", async () => {
+  it("cloud bar shows a new-user hint in the last-sync element when not connected", async () => {
     const emulator = makeRunningEmulator();
     const saveLib  = makeBasicSaveLibrary();
 
@@ -2411,8 +2413,9 @@ describe("save gallery cloud bar UX", () => {
     expect(statusText).toBeTruthy();
     expect(lastSyncEl).toBeTruthy();
 
-    // When disconnected, lastSyncEl should be empty
-    expect(lastSyncEl!.textContent).toBe("");
+    // When disconnected, lastSyncEl shows an onboarding hint to guide new users
+    expect(lastSyncEl!.textContent).toBe("Connect to sync saves across devices");
+    expect(lastSyncEl!.className).toContain("cloud-bar__last-sync--hint");
 
     // The status text should say "Not connected" with no modifier class
     expect(statusText!.textContent).toBe("Not connected");

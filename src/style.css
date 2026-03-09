@@ -2559,6 +2559,12 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   text-overflow: ellipsis;
 }
 
+/* Hint line shown inside last-sync area when disconnected */
+.cloud-bar__last-sync--hint {
+  color: var(--c-accent);
+  opacity: 0.8;
+}
+
 .cloud-bar__status-text--ok     { color: var(--c-success); }
 .cloud-bar__status-text--error  { color: var(--c-danger); }
 .cloud-bar__status-text--syncing { color: var(--c-accent); animation: pulse 1.2s infinite; }
@@ -2688,6 +2694,60 @@ input[type="range"]::-moz-range-thumb {
   flex-wrap: wrap;
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
 }
+
+/* ── CSS Tooltip system ([data-tooltip] attribute) ─────────── */
+/* Renders a styled floating tooltip above the element on hover. */
+[data-tooltip] { position: relative; }
+
+[data-tooltip]::before,
+[data-tooltip]::after {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  position: absolute;
+  left: 50%;
+  z-index: 1200;
+}
+
+/* Arrow */
+[data-tooltip]::before {
+  content: "";
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%) translateY(4px);
+  border: 5px solid transparent;
+  border-top-color: var(--c-surface3);
+}
+
+/* Bubble */
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  bottom: calc(100% + 14px);
+  transform: translateX(-50%) translateY(4px);
+  background: var(--c-surface3);
+  border: 1px solid var(--c-border-lt);
+  color: var(--c-text);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  white-space: normal;
+  max-width: 220px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-tooltip]:hover::before,
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::before,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Don't show tooltip on disabled elements */
+[data-tooltip][disabled]::before,
+[data-tooltip][disabled]::after { display: none; }
 
 /* ── Scrollbar styling (Webkit) ────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

@@ -2079,6 +2079,7 @@ function buildCloudBar(
       statusText.className = "cloud-bar__status-text cloud-bar__status-text--ok";
       statusText.textContent = `Connected to ${cloudManager.activeProvider.displayName}`;
       statusText.title = "";
+      lastSyncEl.className = "cloud-bar__last-sync";
       if (cloudManager.lastSyncAt) {
         const rel = formatRelativeTime(cloudManager.lastSyncAt);
         lastSyncEl.textContent = `Last sync: ${rel}`;
@@ -2091,19 +2092,25 @@ function buildCloudBar(
       statusText.className = "cloud-bar__status-text cloud-bar__status-text--error";
       statusText.textContent = "Connection error";
       statusText.title = cloudManager.lastError;
+      lastSyncEl.className = "cloud-bar__last-sync";
       lastSyncEl.textContent = "";
     } else {
       statusText.className = "cloud-bar__status-text";
       statusText.textContent = "Not connected";
       statusText.title = "";
-      lastSyncEl.textContent = "";
+      lastSyncEl.className = "cloud-bar__last-sync cloud-bar__last-sync--hint";
+      lastSyncEl.textContent = "Connect to sync saves across devices";
     }
 
     actions.innerHTML = "";
 
     if (connected) {
       // Auto-sync toggle
-      const autoLabel = make("label", { class: "cloud-bar__auto-label", title: "Automatically sync saves to cloud after saving" });
+      const autoLabel = make("label", {
+        class: "cloud-bar__auto-label",
+        title: "Automatically sync saves to cloud after saving",
+        "data-tooltip": "Auto-sync after every save",
+      });
       const autoCheck = make("input", { type: "checkbox", class: "cloud-bar__auto-check" }) as HTMLInputElement;
       autoCheck.checked = cloudManager.autoSyncEnabled;
       autoCheck.addEventListener("change", () => {
@@ -2113,7 +2120,11 @@ function buildCloudBar(
       actions.appendChild(autoLabel);
 
       // Sync Now button
-      const btnSync = make("button", { class: "btn", title: "Sync all save slots for this game with the cloud" }, "☁ Sync Now");
+      const btnSync = make("button", {
+        class: "btn",
+        title: "Sync all save slots for this game with the cloud",
+        "data-tooltip": "Upload & download saves now",
+      }, "☁ Sync Now");
       btnSync.addEventListener("click", async () => {
         btnSync.disabled = true;
         isSyncing = true;
@@ -2136,21 +2147,34 @@ function buildCloudBar(
       actions.appendChild(btnSync);
 
       // Configure button
-      const btnCfg = make("button", { class: "btn", title: "Edit cloud connection settings" });
+      const btnCfg = make("button", {
+        class: "btn",
+        title: "Edit cloud connection settings",
+        "aria-label": "Cloud settings",
+        "data-tooltip": "Change provider or settings",
+      });
       btnCfg.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
       btnCfg.addEventListener("click", () => openCloudConnectDialog(cloudManager, render));
       actions.appendChild(btnCfg);
 
       // Disconnect button
-      const btnDisc = make("button", { class: "btn btn--danger", title: "Disconnect from cloud" }, "Disconnect");
+      const btnDisc = make("button", {
+        class: "btn btn--danger",
+        title: "Disconnect from cloud",
+        "data-tooltip": "Remove cloud connection",
+      }, "Disconnect");
       btnDisc.addEventListener("click", () => {
         cloudManager.disconnect();
         showInfoToast("Disconnected from cloud.");
       });
       actions.appendChild(btnDisc);
     } else {
-      // Connect button
-      const btnConn = make("button", { class: "btn btn--primary", title: "Connect to a cloud save provider" }, "☁ Connect");
+      // Connect button — tooltip guides new users to Google Drive
+      const btnConn = make("button", {
+        class: "btn btn--primary",
+        title: "Connect to a cloud save provider",
+        "data-tooltip": "Free with Google Drive — keeps saves safe across devices",
+      }, "☁ Connect");
       btnConn.addEventListener("click", () => openCloudConnectDialog(cloudManager, render));
       actions.appendChild(btnConn);
     }
@@ -2187,8 +2211,8 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   const providerLbl  = make("label", { class: "cloud-dialog-label" }, "Provider");
   const providerSel  = make("select", { class: "confirm-input" }) as HTMLSelectElement;
   [
-    ["webdav",  "WebDAV (self-hosted)"],
     ["gdrive",  "Google Drive"],
+    ["webdav",  "WebDAV (self-hosted)"],
     ["dropbox", "Dropbox"],
   ].forEach(([v, t]) => {
     const opt = make("option", { value: v }, t);
@@ -2238,8 +2262,13 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   }) as HTMLInputElement;
   gdriveTokenWrap.append(gdriveTokenLbl, gdriveTokenInp);
   gdriveSection.appendChild(gdriveTokenWrap);
-  gdriveSection.appendChild(make("p", { class: "cloud-dialog-hint" },
-    "Obtain a token from the Google OAuth 2.0 Playground (scope: drive.appdata) and paste it here."));
+  {
+    const step1 = make("p", { class: "cloud-dialog-hint" },
+      "Step 1: Visit developers.google.com/oauthplayground, authorize the drive.appdata scope, and copy the access token.");
+    const step2 = make("p", { class: "cloud-dialog-hint" },
+      "Step 2: Paste the token above. Saves are stored in a private app folder — invisible in regular Google Drive.");
+    gdriveSection.append(step1, step2);
+  }
   box.appendChild(gdriveSection);
 
   // ── Dropbox fields ───────────────────────────────────────────────────────────
@@ -2373,10 +2402,10 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   });
 
   requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
-  // Focus the first visible input
+  // Focus the first visible input (Google Drive is first when no previous provider)
   setTimeout(() => {
-    if (providerSel.value === "webdav") urlInp.focus();
-    else if (providerSel.value === "gdrive") gdriveTokenInp.focus();
+    if (providerSel.value === "gdrive") gdriveTokenInp.focus();
+    else if (providerSel.value === "webdav") urlInp.focus();
     else dropboxTokenInp.focus();
   }, 50);
 }
