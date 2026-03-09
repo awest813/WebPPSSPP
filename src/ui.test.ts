@@ -1003,12 +1003,18 @@ describe("buildDebugTab", () => {
   let settings: Settings;
   let onSettingsChange: ReturnType<typeof vi.fn>;
 
+  type MockDiagnosticEntry = {
+    timestamp: number;
+    category: "performance" | "audio" | "render" | "system" | "error";
+    message: string;
+  };
+
   function makeDebugEmulator(
     overrides: Partial<{
       state: string;
       activeTier: string | null;
       currentSystem: { id: string; name: string } | null;
-      diagnosticLog: Array<{ timestamp: number; category: "performance" | "audio" | "render" | "system" | "error"; message: string }>;
+      diagnosticLog: Array<MockDiagnosticEntry>;
       activeCoreSettings: Record<string, string> | null;
       webgpuAdapterInfo: null;
     }> = {}
@@ -1017,7 +1023,7 @@ describe("buildDebugTab", () => {
       state: "idle",
       activeTier: null,
       currentSystem: null,
-      diagnosticLog: [] as Array<{ timestamp: number; category: "performance" | "audio" | "render" | "system" | "error"; message: string }>,
+      diagnosticLog: [] as Array<MockDiagnosticEntry>,
       activeCoreSettings: null,
       webgpuAdapterInfo: null,
       ...overrides,
@@ -1267,8 +1273,8 @@ describe("buildDebugTab", () => {
   it("Diagnostic Timeline shows events when emulatorRef has diagnostic log entries", () => {
     const mockEmulator = makeDebugEmulator({
       diagnosticLog: [
-        { timestamp: Date.now(), category: "performance", message: "FPS dropped below threshold" },
-        { timestamp: Date.now(), category: "error", message: "Shader compilation failed" },
+        { timestamp: 1_700_000_000_000, category: "performance", message: "FPS dropped below threshold" },
+        { timestamp: 1_700_000_001_000, category: "error", message: "Shader compilation failed" },
       ],
     });
     openDebugTabWithEmulator(mockEmulator);
