@@ -369,6 +369,15 @@ export function buildDOM(app: HTMLElement): void {
         </div>
       </div>
 
+      <!-- Mobile floating action button — touch devices only (CSS hides on pointer:fine) -->
+      <button class="mobile-fab mobile-fab--hidden" id="mobile-fab"
+              aria-label="Add a game" title="Add a game file">＋</button>
+
+      <!-- Portrait rotation hint — visible when playing in portrait orientation -->
+      <div class="rotate-hint" id="rotate-hint" aria-live="polite" aria-atomic="true">
+        <span aria-hidden="true">📱</span>Rotate for best experience
+      </div>
+
     </main>
 
     <!-- ── Footer ── -->
@@ -516,6 +525,26 @@ export function initUI(opts: UIOptions): void {
   // ── Error banner ──────────────────────────────────────────────────────────
   bindEvent(el("#error-close"), "click", hideError);
 
+  // ── Mobile FAB — "Add Game" button (touch devices) ───────────────────────
+  // The FAB is visible on the library page; hidden during gameplay.
+  // It is rendered in the DOM for all builds and hidden via CSS (pointer: fine).
+  const mobileFab = document.getElementById("mobile-fab");
+  if (mobileFab) {
+    bindEvent(mobileFab, "click", () => fileInput.click());
+  }
+
+  // ── Portrait rotation hint ────────────────────────────────────────────────
+  // Shown on touch devices when a game is running in portrait orientation.
+  const rotateHintEl = document.getElementById("rotate-hint");
+  const updateRotateHint = () => {
+    if (!rotateHintEl) return;
+    const playing  = emulator.state === "running";
+    const portrait = isPortrait();
+    rotateHintEl.classList.toggle("rotate-hint--visible", playing && portrait);
+  };
+  bindEvent(window, "orientationchange", updateRotateHint);
+  bindEvent(window, "resize", updateRotateHint);
+
   // ── FPS overlay wiring ────────────────────────────────────────────────────
   emulator.setFPSMonitorEnabled(settings.showFPS);
   emulator.onFPSUpdate = (snapshot) => {
@@ -524,13 +553,19 @@ export function initUI(opts: UIOptions): void {
   };
 
   // ── Emulator lifecycle → DOM ──────────────────────────────────────────────
-  emulator.onStateChange = (state) => updateStatusDot(state);
+  emulator.onStateChange = (state) => {
+    updateStatusDot(state);
+    updateRotateHint();
+  };
   emulator.onProgress    = (msg)   => setLoadingMessage(msg);
   emulator.onError       = (msg)   => { hideLoadingOverlay(); showError(msg); };
   emulator.onGameStart = () => {
     hideLoadingOverlay();
     showEjsContainer();
     hideLanding();
+    // Hide FAB and show rotate-hint when appropriate
+    mobileFab?.classList.add("mobile-fab--hidden");
+    updateRotateHint();
     resetPerfSuggestion();
     const sys  = emulator.currentSystem;
     const name = settings.lastGameName ?? "Unknown";
@@ -556,6 +591,9 @@ export function initUI(opts: UIOptions): void {
   const onResumeGameEvent = () => {
     showEjsContainer();
     hideLanding();
+    // Hide FAB and show rotate-hint when appropriate
+    mobileFab?.classList.add("mobile-fab--hidden");
+    updateRotateHint();
     const sys  = emulator.currentSystem;
     const name = settings.lastGameName ?? "Unknown";
     document.title = `${name} — RetroVault`;
@@ -579,6 +617,9 @@ export function initUI(opts: UIOptions): void {
   // Ensure overlay work is paused while browsing the library.
   const onReturnToLibraryEvent = () => {
     showFPSOverlay(false);
+    // Reveal the FAB and hide the rotate hint when back on the library page.
+    mobileFab?.classList.remove("mobile-fab--hidden");
+    updateRotateHint();
   };
   bindEvent(document, "retrovault:returnToLibrary", onReturnToLibraryEvent);
 
