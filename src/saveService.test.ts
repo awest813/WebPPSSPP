@@ -107,4 +107,39 @@ describe("SaveGameService", () => {
     expect(emulator.writeStateData).toHaveBeenCalled();
     expect(emulator.quickLoad).toHaveBeenCalledWith(1);
   });
+
+  it("preserves user-defined slot label when resaving an occupied slot", async () => {
+    const existingEntry = makeEntry(2);
+    existingEntry.label = "Before Final Boss";
+
+    const saveState = vi.fn().mockResolvedValue(undefined);
+    const getState = vi.fn().mockImplementation(async (_gameId: string, slot: number) => {
+      // First call (readback to get existing label) returns the entry with custom label.
+      // Second call (readback after save) also returns it.
+      return { ...existingEntry, slot };
+    });
+    const saveLibrary = { saveState, getState } as any;
+
+    const emulator = {
+      state: "running" as const,
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      readStateData: vi.fn(() => new Uint8Array([4, 5, 6])),
+      writeStateData: vi.fn(() => true),
+      captureScreenshotAsync: vi.fn(async () => null),
+    };
+
+    const service = new SaveGameService({
+      saveLibrary,
+      emulator,
+      getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "psp" }),
+    });
+
+    await service.saveSlot(2);
+
+    // The entry passed to saveState must carry the preserved label.
+    expect(saveState).toHaveBeenCalledTimes(1);
+    const savedEntry = saveState.mock.calls[0][0] as { label: string };
+    expect(savedEntry.label).toBe("Before Final Boss");
+  });
 });

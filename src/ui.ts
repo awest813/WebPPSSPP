@@ -4045,6 +4045,16 @@ function buildMultiplayerTab(
 
   const doLobbyRefresh = async () => {
     if (!netplayManager) return;
+    // If the lobby section has been removed from the DOM (e.g. settings panel was
+    // rebuilt), clear the stale interval and bail out so we don't mutate detached
+    // elements or keep making unnecessary network requests.
+    if (!lobbySection.isConnected) {
+      if (lobbyAutoRefreshTimer) {
+        clearInterval(lobbyAutoRefreshTimer);
+        lobbyAutoRefreshTimer = null;
+      }
+      return;
+    }
     if (lobbyAbort) lobbyAbort.abort();
     lobbyAbort = new AbortController();
     refreshBtn.disabled = true;

@@ -141,13 +141,15 @@ export class SaveGameService {
           : (this.emulator.playerId ? await captureScreenshot(this.emulator.playerId) : null);
         const thumbnail = screenshot ? await createThumbnail(screenshot) : null;
 
+        // Preserve the user-defined label if one already exists for this slot.
+        const existing = await this.saveLibrary.getState(context.gameId, slot);
         const entry: SaveStateEntry = {
           id: saveStateKey(context.gameId, slot),
           gameId: context.gameId,
           gameName: context.gameName,
           systemId: context.systemId,
           slot,
-          label: defaultSlotLabel(slot),
+          label: existing?.label || defaultSlotLabel(slot),
           timestamp: Date.now(),
           thumbnail,
           stateData,
