@@ -3796,3 +3796,442 @@ kbd {
   }
 }
 
+
+/* ╔══════════════════════════════════════════════════════════════╗
+   ║  Easy Netplay Modal                                         ║
+   ╚══════════════════════════════════════════════════════════════╝ */
+
+/* ── Overlay shell (reuses confirm-overlay animation) ────────── */
+.easy-netplay-overlay { z-index: 300; }
+
+.easy-netplay-dialog {
+  width:      min(540px, 96vw);
+  max-height: min(88dvh, 88vh);
+  display:    flex;
+  flex-direction: column;
+  overflow:   hidden;
+  padding:    0;
+}
+
+/* ── Dialog header ───────────────────────────────────────────── */
+.enp-header {
+  display:     flex;
+  align-items: center;
+  gap:         8px;
+  padding:     16px 18px 12px;
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+
+.enp-title {
+  font-size:   1.05rem;
+  font-weight: 600;
+  color:       var(--c-text);
+  flex:        1;
+}
+
+.enp-close {
+  background:  none;
+  border:      none;
+  color:       var(--c-text-dim);
+  font-size:   1.1rem;
+  cursor:      pointer;
+  line-height: 1;
+  padding:     4px 6px;
+  border-radius: var(--radius);
+  transition:  background var(--transition-fast), color var(--transition-fast);
+}
+.enp-close:hover { background: var(--c-surface3); color: var(--c-text); }
+
+/* ── Current game badge ──────────────────────────────────────── */
+.enp-game-badge {
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+  padding:     8px 18px;
+  background:  var(--c-surface2);
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+
+.enp-game-badge__label {
+  font-size:  0.72rem;
+  color:      var(--c-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.enp-game-badge__name {
+  font-size:   0.85rem;
+  font-weight: 500;
+  color:       var(--c-text);
+  flex:        1;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enp-compat-warn {
+  font-size: 0.72rem;
+  color:     var(--c-warn);
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────── */
+.enp-tabs {
+  display:     flex;
+  gap:         2px;
+  padding:     10px 18px 0;
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+
+.enp-tab {
+  background:  none;
+  border:      none;
+  border-bottom: 2px solid transparent;
+  color:       var(--c-text-dim);
+  font-size:   0.85rem;
+  font-weight: 500;
+  padding:     6px 12px 8px;
+  cursor:      pointer;
+  transition:  color var(--transition-fast), border-color var(--transition-fast);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.enp-tab:hover { color: var(--c-text); }
+.enp-tab--active {
+  color:        var(--c-accent);
+  border-color: var(--c-accent);
+}
+
+/* ── Tab panels ──────────────────────────────────────────────── */
+.enp-panels {
+  flex:     1;
+  overflow: hidden auto;
+  padding:  18px;
+}
+
+.enp-panel { outline: none; }
+
+.enp-panel-desc {
+  font-size: 0.85rem;
+  color:     var(--c-text-dim);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+/* ── Fields & inputs ─────────────────────────────────────────── */
+.enp-field {
+  margin-bottom: 12px;
+}
+
+.enp-label {
+  display:    block;
+  font-size:  0.78rem;
+  color:      var(--c-text-dim);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.enp-select,
+.enp-code-input {
+  width:      100%;
+  padding:    8px 12px;
+  background: var(--c-surface2);
+  border:     1px solid var(--c-border);
+  border-radius: var(--radius);
+  color:      var(--c-text);
+  font-size:  0.9rem;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline:    none;
+}
+.enp-select:focus,
+.enp-code-input:focus {
+  border-color: var(--c-accent);
+  box-shadow:   0 0 0 2px var(--c-accent-dim);
+}
+.enp-select { appearance: none; cursor: pointer; }
+
+/* Invite code input — larger text for easy entry */
+.enp-code-input {
+  font-size:   1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-align:  center;
+  text-transform: uppercase;
+}
+
+.enp-help {
+  font-size: 0.78rem;
+  color:     var(--c-text-dim);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.enp-help--warn { color: var(--c-warn); }
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.enp-btn-create,
+.enp-btn-join {
+  width:      100%;
+  margin-top: 12px;
+  padding:    10px 16px;
+  font-size:  0.9rem;
+  font-weight: 600;
+}
+
+/* ── Server warning ──────────────────────────────────────────── */
+.enp-server-warn {
+  font-size:   0.8rem;
+  color:       var(--c-warn);
+  background:  rgba(255, 159, 10, 0.08);
+  border:      1px solid rgba(255, 159, 10, 0.25);
+  border-radius: var(--radius);
+  padding:     8px 12px;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+/* ── Status area & diagnostics ───────────────────────────────── */
+.enp-status-area {
+  margin-top: 14px;
+  padding:    12px;
+  background: var(--c-surface2);
+  border:     1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.enp-diag {
+  font-size:   0.82rem;
+  line-height: 1.5;
+  padding:     3px 0;
+}
+.enp-diag--info  { color: var(--c-text-dim); }
+.enp-diag--warn  { color: var(--c-warn); }
+.enp-diag--error { color: var(--c-danger); }
+
+/* ── Active room card ────────────────────────────────────────── */
+.enp-active-room {
+  background:    var(--c-surface2);
+  border:        1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding:       14px;
+}
+
+.enp-active-room__code-wrap {
+  display:     flex;
+  align-items: center;
+  gap:         10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.enp-active-room__code-label {
+  font-size:  0.72rem;
+  color:      var(--c-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.enp-active-room__code {
+  font-size:   1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color:       var(--c-accent);
+  cursor:      pointer;
+  flex:        1;
+  text-align:  center;
+  transition:  opacity var(--transition-fast);
+}
+.enp-active-room__code:hover { opacity: 0.75; }
+
+.enp-copy-btn {
+  padding:   6px 10px;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.enp-active-room__info {
+  display:        flex;
+  flex-direction: column;
+  gap:            4px;
+  margin-bottom:  10px;
+}
+
+.enp-active-room__name {
+  font-size:   0.9rem;
+  font-weight: 600;
+  color:       var(--c-text);
+}
+
+.enp-active-room__detail {
+  font-size: 0.78rem;
+  color:     var(--c-text-dim);
+}
+
+.enp-active-room__waiting {
+  font-size:   0.85rem;
+  color:       var(--c-text-dim);
+  text-align:  center;
+  padding:     10px 0 4px;
+  animation:   pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+
+.enp-leave-btn {
+  margin-top: 10px;
+  width:      100%;
+  font-size:  0.82rem;
+}
+
+/* ── Browse panel: filter row ────────────────────────────────── */
+.enp-filter-row {
+  display:  flex;
+  gap:      6px;
+  margin-bottom: 12px;
+}
+
+.enp-filter-btn {
+  font-size: 0.8rem;
+  padding:   5px 12px;
+  border:    1px solid var(--c-border);
+  color:     var(--c-text-dim);
+}
+.enp-filter-btn--active {
+  color:        var(--c-accent);
+  border-color: var(--c-accent);
+  background:   var(--c-accent-dim);
+}
+
+/* ── Browse panel: room list ─────────────────────────────────── */
+.enp-room-list {
+  display:        flex;
+  flex-direction: column;
+  gap:            8px;
+  max-height:     240px;
+  overflow-y:     auto;
+  margin-bottom:  12px;
+}
+
+.enp-room-empty,
+.enp-room-error {
+  font-size: 0.85rem;
+  color:     var(--c-text-dim);
+  text-align: center;
+  padding:   24px 0;
+}
+.enp-room-error { color: var(--c-danger); }
+
+/* Room card */
+.enp-room-card {
+  background:    var(--c-surface2);
+  border:        1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding:       10px 12px;
+  transition:    border-color var(--transition-fast);
+}
+.enp-room-card:hover { border-color: var(--c-border-lt); }
+
+.enp-room-card__top {
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+  margin-bottom: 4px;
+}
+
+.enp-room-card__name {
+  font-size:   0.88rem;
+  font-weight: 600;
+  color:       var(--c-text);
+  flex:        1;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enp-room-card__badge {
+  font-size:     0.68rem;
+  font-weight:   600;
+  padding:       2px 7px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  flex-shrink:   0;
+}
+.enp-room-card__badge--local  { background: rgba(48, 209, 88, 0.15);  color: var(--c-success); }
+.enp-room-card__badge--open   { background: rgba(0, 180, 230, 0.12);  color: var(--c-accent);  }
+.enp-room-card__badge--full   { background: rgba(232, 64, 64, 0.12);  color: var(--c-danger);  }
+.enp-room-card__badge--locked { background: rgba(255, 159, 10, 0.12); color: var(--c-warn);    }
+
+.enp-room-card__meta {
+  display:     flex;
+  flex-wrap:   wrap;
+  gap:         6px 12px;
+  font-size:   0.75rem;
+  color:       var(--c-text-dim);
+  margin-bottom: 8px;
+}
+
+.enp-room-card__ping--good { color: var(--c-success); }
+.enp-room-card__ping--warn { color: var(--c-warn);    }
+.enp-room-card__ping--bad  { color: var(--c-danger);  }
+
+.enp-room-join-btn {
+  font-size: 0.8rem;
+  padding:   5px 12px;
+}
+
+/* Skeleton loader */
+.enp-room-skeleton {
+  height:        56px;
+  background:    linear-gradient(90deg, var(--c-surface2) 25%, var(--c-surface3) 50%, var(--c-surface2) 75%);
+  background-size: 200% 100%;
+  border-radius: var(--radius);
+  animation:     shimmer 1.5s infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Browse footer ───────────────────────────────────────────── */
+.enp-browse-footer {
+  display:    flex;
+  gap:        8px;
+  margin-top: 4px;
+}
+
+.enp-refresh-btn {
+  font-size: 0.8rem;
+  padding:   5px 12px;
+  display:   flex;
+  align-items: center;
+  gap:         5px;
+}
+
+/* ── Mobile tweaks ───────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .easy-netplay-dialog {
+    width:  100%;
+    max-width: 100%;
+    max-height: min(92dvh, 92vh);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .confirm-overlay--visible .easy-netplay-dialog {
+    transform: translateY(0);
+  }
+
+  .enp-active-room__code {
+    font-size: 1.3rem;
+    letter-spacing: 0.2em;
+  }
+}

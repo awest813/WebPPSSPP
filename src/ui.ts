@@ -81,6 +81,10 @@ import {
   NETPLAY_SUPPORTED_SYSTEM_IDS,
   SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayer.js";
+import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
+import type { EasyNetplayRoom } from "./netplay/netplayTypes.js";
+import { normaliseInviteCode } from "./netplay/signalingClient.js";
+import { checkSystemSupport } from "./netplay/compatibility.js";
 import { CloudSaveManager, WebDAVProvider, GoogleDriveProvider, DropboxProvider, type ConflictResolution, type SyncConflict, type SyncBadge } from "./cloudSave.js";
 import { SaveGameService, type SaveOperationStatus } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
@@ -1920,11 +1924,17 @@ export function buildLandingControls(
 
   const btnMultiplayer = make("button", {
     class: "btn",
-    title: "Open Multiplayer Settings",
-    "aria-label": "Open multiplayer settings",
-  }, "🌐 Multiplayer") as HTMLButtonElement;
+    title: "Open Multiplayer — Host or join a game with friends",
+    "aria-label": "Open multiplayer",
+  }) as HTMLButtonElement;
+  btnMultiplayer.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Multiplayer`;
   btnMultiplayer.addEventListener("click", () => {
-    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager, "multiplayer");
+    openEasyNetplayModal({
+      netplayManager,
+      currentGameName:  null,
+      currentGameId:    null,
+      currentSystemId:  emulatorRef?.currentSystem?.id ?? null,
+    });
   });
 
   container.appendChild(btnSettings);
@@ -2167,7 +2177,12 @@ function buildInGameControls(
     }
 
     btnNetplay.addEventListener("click", () => {
-      onOpenSettings("multiplayer");
+      openEasyNetplayModal({
+        netplayManager,
+        currentGameName:  getCurrentGameName?.() ?? null,
+        currentGameId:    getCurrentGameId?.()   ?? null,
+        currentSystemId:  getCurrentSystemId?.() ?? null,
+      });
     });
   }
 
@@ -3785,6 +3800,620 @@ function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary): void {
   }
 
   container.appendChild(biosSection);
+}
+
+// ── Easy Netplay modal ────────────────────────────────────────────────────────
+
+/**
+ * Module-level EasyNetplayManager singleton.
+ * Created lazily so it doesn't interfere with test environments.
+ */
+let _easyNetplayManager: EasyNetplayManager | null = null;
+
+function getEasyNetplayManager(serverUrl?: string): EasyNetplayManager {
+  if (!_easyNetplayManager) {
+    _easyNetplayManager = new EasyNetplayManager(serverUrl);
+  } else if (serverUrl !== undefined) {
+    _easyNetplayManager.setServerUrl(serverUrl);
+  }
+  return _easyNetplayManager;
+}
+
+/**
+ * Open the Easy Netplay modal.
+ *
+ * Shows a three-tab interface: Host / Join / Browse.
+ * The modal is self-contained and destroys itself when closed.
+ */
+export function openEasyNetplayModal(opts: {
+  netplayManager?: NetplayManager;
+  currentGameName?: string | null;
+  currentGameId?:   string | null;
+  currentSystemId?: string | null;
+}): void {
+  const { netplayManager, currentGameName, currentGameId, currentSystemId } = opts;
+  const serverUrl = netplayManager?.serverUrl ?? "";
+  const username  = netplayManager?.username  ?? "";
+
+  const easyMgr = getEasyNetplayManager(serverUrl);
+
+  // ── Overlay / container ──────────────────────────────────────────────────
+  const overlay = make("div", { class: "confirm-overlay easy-netplay-overlay" });
+  const dialog  = make("div", {
+    class:      "confirm-box easy-netplay-dialog",
+    role:       "dialog",
+    "aria-modal": "true",
+    "aria-label": "Multiplayer",
+  });
+
+  // ── Header ───────────────────────────────────────────────────────────────
+  const header = make("div", { class: "enp-header" });
+  header.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+  header.appendChild(make("span", { class: "enp-title" }, "Multiplayer"));
+
+  // Close button
+  const btnClose = make("button", {
+    class:       "enp-close",
+    "aria-label": "Close multiplayer",
+  }, "✕") as HTMLButtonElement;
+  header.appendChild(btnClose);
+  dialog.appendChild(header);
+
+  // ── Current game badge ───────────────────────────────────────────────────
+  if (currentGameName) {
+    const gameBadge = make("div", { class: "enp-game-badge" });
+    gameBadge.appendChild(make("span", { class: "enp-game-badge__label" }, "Playing:"));
+    gameBadge.appendChild(make("span", { class: "enp-game-badge__name" }, currentGameName));
+    const sysSupport = currentSystemId ? checkSystemSupport(currentSystemId) : null;
+    if (sysSupport && !sysSupport.compatible) {
+      gameBadge.appendChild(make("span", {
+        class: "enp-compat-warn",
+        title: sysSupport.errors[0] ?? "",
+      }, "⚠ No multiplayer support"));
+    }
+    dialog.appendChild(gameBadge);
+  }
+
+  // ── Tab bar ──────────────────────────────────────────────────────────────
+  const tabs: Array<{ id: string; label: string }> = [
+    { id: "host",   label: "🎮 Host"   },
+    { id: "join",   label: "🔗 Join"   },
+    { id: "browse", label: "📋 Browse" },
+  ];
+  const tabBar     = make("div", { class: "enp-tabs",  role: "tablist" });
+  const panelWrap  = make("div", { class: "enp-panels" });
+  let activeTabId  = "host";
+
+  const tabBtns: HTMLButtonElement[] = [];
+  const panels:  HTMLElement[]       = [];
+
+  const switchTab = (id: string) => {
+    activeTabId = id;
+    tabBtns.forEach((b, i) => {
+      const isActive = tabs[i].id === id;
+      b.setAttribute("aria-selected", String(isActive));
+      b.classList.toggle("enp-tab--active", isActive);
+    });
+    panels.forEach((p, i) => {
+      p.hidden = tabs[i].id !== id;
+    });
+  };
+
+  for (const tab of tabs) {
+    const btn = make("button", {
+      class: "enp-tab",
+      role:  "tab",
+      "aria-selected": tab.id === activeTabId ? "true" : "false",
+    }, tab.label) as HTMLButtonElement;
+    btn.addEventListener("click", () => switchTab(tab.id));
+    tabBar.appendChild(btn);
+    tabBtns.push(btn);
+
+    const panel = make("div", { class: "enp-panel", role: "tabpanel" });
+    panel.hidden = tab.id !== activeTabId;
+    panelWrap.appendChild(panel);
+    panels.push(panel);
+  }
+
+  dialog.appendChild(tabBar);
+  dialog.appendChild(panelWrap);
+
+  // ── Host panel ───────────────────────────────────────────────────────────
+  _buildHostPanel(panels[0], {
+    easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
+    onRoomCreated: () => {/* panel updates itself via onEvent */},
+  });
+
+  // ── Join panel ───────────────────────────────────────────────────────────
+  _buildJoinPanel(panels[1], {
+    easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
+  });
+
+  // ── Browse panel ─────────────────────────────────────────────────────────
+  _buildBrowsePanel(panels[2], {
+    easyMgr, currentGameName, currentSystemId,
+  });
+
+  // ── Append + animate ─────────────────────────────────────────────────────
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    document.removeEventListener("keydown", onKey, { capture: true });
+    overlay.classList.remove("confirm-overlay--visible");
+    setTimeout(() => overlay.remove(), 200);
+  };
+
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && _isTopmostOverlay(overlay)) {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  };
+
+  btnClose.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey, { capture: true });
+  requestAnimationFrame(() => {
+    overlay.classList.add("confirm-overlay--visible");
+    tabBtns[0]?.focus();
+  });
+}
+
+// ── Easy Netplay — Host panel ─────────────────────────────────────────────────
+
+function _buildHostPanel(
+  container: HTMLElement,
+  opts: {
+    easyMgr:         EasyNetplayManager;
+    username:        string;
+    currentGameId?:  string | null;
+    currentGameName?: string | null;
+    currentSystemId?: string | null;
+    serverUrl:       string;
+    onRoomCreated?:  () => void;
+  }
+): void {
+  const { easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl } = opts;
+
+  container.appendChild(make("p", { class: "enp-panel-desc" },
+    "Host a room so friends can join your game."
+  ));
+
+  // Room type selector
+  const typeWrap = make("div", { class: "enp-field" });
+  typeWrap.appendChild(make("label", { class: "enp-label", for: "enp-room-type" }, "Room type"));
+  const typeSelect = make("select", {
+    id:    "enp-room-type",
+    class: "enp-select",
+  }) as HTMLSelectElement;
+  const typeOptions: Array<{ value: string; label: string; desc: string }> = [
+    { value: "local",   label: "Local Network",  desc: "Friends on the same Wi-Fi" },
+    { value: "private", label: "Private Room",    desc: "Share a code to invite" },
+    { value: "public",  label: "Public Room",     desc: "Anyone can browse and join" },
+  ];
+  for (const opt of typeOptions) {
+    typeSelect.appendChild(make("option", { value: opt.value }, opt.label));
+  }
+  typeWrap.appendChild(typeSelect);
+
+  // Dynamic description beneath the selector
+  const typeDesc = make("p", { class: "enp-help" }, typeOptions[0].desc);
+  typeSelect.addEventListener("change", () => {
+    const found = typeOptions.find(o => o.value === typeSelect.value);
+    typeDesc.textContent = found?.desc ?? "";
+  });
+  typeWrap.appendChild(typeDesc);
+  container.appendChild(typeWrap);
+
+  // No-server warning
+  if (!serverUrl) {
+    const warn = make("p", { class: "enp-server-warn" },
+      "⚠ No server URL configured. Local-only rooms can't be discovered by others. Add a server in Settings → Play Together."
+    );
+    container.appendChild(warn);
+  }
+
+  // Status area (shows after Create is clicked)
+  const statusArea = make("div", { class: "enp-status-area" });
+  statusArea.hidden = true;
+  container.appendChild(statusArea);
+
+  // Create button
+  const btnCreate = make("button", {
+    class: "btn btn--primary enp-btn-create",
+  }) as HTMLButtonElement;
+  btnCreate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Host Game`;
+
+  const hasGame = !!(currentGameId || currentGameName);
+  if (!hasGame) {
+    btnCreate.disabled = true;
+    btnCreate.title    = "Open a game first, then come back to host";
+    container.appendChild(make("p", { class: "enp-help enp-help--warn" },
+      "Open a game first, then click Multiplayer to host."
+    ));
+  }
+
+  btnCreate.addEventListener("click", async () => {
+    btnCreate.disabled = true;
+    btnCreate.textContent = "Creating room…";
+    statusArea.hidden = false;
+    statusArea.innerHTML = "";
+    statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "Connecting…"));
+
+    // Subscribe to events once
+    const unsub = easyMgr.onEvent(ev => {
+      if (ev.type === "diagnostic") {
+        const cls = `enp-diag enp-diag--${ev.diagnostic.level === "error" ? "error" : ev.diagnostic.level === "warning" ? "warn" : "info"}`;
+        const item = make("p", { class: cls }, ev.diagnostic.message);
+        // Clear "Connecting…" placeholder on first real message
+        if (statusArea.children.length === 1 && statusArea.children[0].textContent === "Connecting…") {
+          statusArea.innerHTML = "";
+        }
+        statusArea.appendChild(item);
+      }
+      if (ev.type === "room_created") {
+        unsub();
+        const room = ev.room;
+        statusArea.innerHTML = "";
+        _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr });
+        btnCreate.textContent = "Hosting ✓";
+        btnCreate.disabled    = true;
+      }
+      if (ev.type === "error") {
+        unsub();
+        statusArea.innerHTML = "";
+        statusArea.appendChild(make("p", { class: "enp-diag enp-diag--error" }, ev.message));
+        btnCreate.disabled = false;
+        btnCreate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Try Again`;
+      }
+    });
+
+    await easyMgr.hostRoom({
+      hostName:    username || "Anonymous",
+      gameId:      currentGameId  ?? currentGameName ?? "unknown",
+      gameName:    currentGameName ?? currentGameId  ?? "Unknown Game",
+      systemId:    currentSystemId ?? "psp",
+      privacy:     (typeSelect.value as import("./netplay/netplayTypes.js").RoomPrivacy),
+      maxPlayers:  2,
+    });
+  });
+
+  container.appendChild(btnCreate);
+}
+
+// ── Easy Netplay — Join panel ─────────────────────────────────────────────────
+
+function _buildJoinPanel(
+  container: HTMLElement,
+  opts: {
+    easyMgr:          EasyNetplayManager;
+    username:         string;
+    currentGameId?:   string | null;
+    currentGameName?: string | null;
+    currentSystemId?: string | null;
+    serverUrl:        string;
+  }
+): void {
+  const { easyMgr, username, serverUrl } = opts;
+
+  container.appendChild(make("p", { class: "enp-panel-desc" },
+    "Enter the invite code your friend shared to join their room."
+  ));
+
+  // Code input
+  const codeField = make("div", { class: "enp-field" });
+  codeField.appendChild(make("label", { class: "enp-label", for: "enp-join-code" }, "Invite code"));
+  const codeInput = make("input", {
+    type:         "text",
+    id:           "enp-join-code",
+    class:        "enp-code-input",
+    placeholder:  "AB12CD",
+    maxlength:    "10",
+    autocomplete: "off",
+    autocapitalize: "characters",
+    spellcheck:   "false",
+  }) as HTMLInputElement;
+
+  // Auto-format and uppercase as the user types
+  codeInput.addEventListener("input", () => {
+    const norm = normaliseInviteCode(codeInput.value);
+    if (norm !== codeInput.value.toUpperCase()) codeInput.value = norm;
+    codeError.hidden = true;
+    btnJoin.disabled = norm.length < 4;
+  });
+  codeField.appendChild(codeInput);
+  container.appendChild(codeField);
+
+  // Error display
+  const codeError = make("p", { class: "enp-diag enp-diag--error" });
+  codeError.hidden = true;
+  container.appendChild(codeError);
+
+  // No-server warning
+  if (!serverUrl) {
+    container.appendChild(make("p", { class: "enp-server-warn" },
+      "⚠ No server URL configured. Join by code requires a server. Add one in Settings → Play Together."
+    ));
+  }
+
+  // Status area
+  const statusArea = make("div", { class: "enp-status-area" });
+  statusArea.hidden = true;
+  container.appendChild(statusArea);
+
+  // Join button
+  const btnJoin = make("button", {
+    class:    "btn btn--primary enp-btn-join",
+    disabled: "",
+  }) as HTMLButtonElement;
+  btnJoin.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join Room`;
+
+  btnJoin.addEventListener("click", async () => {
+    const code = normaliseInviteCode(codeInput.value);
+    if (code.length < 4) {
+      codeError.textContent = "Please enter a valid invite code (at least 4 characters).";
+      codeError.hidden = false;
+      return;
+    }
+
+    btnJoin.disabled = true;
+    btnJoin.textContent = "Joining…";
+    statusArea.hidden  = false;
+    statusArea.innerHTML = "";
+    statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "Connecting…"));
+
+    const unsub = easyMgr.onEvent(ev => {
+      if (ev.type === "diagnostic") {
+        const cls = `enp-diag enp-diag--${ev.diagnostic.level === "error" ? "error" : ev.diagnostic.level === "warning" ? "warn" : "info"}`;
+        if (statusArea.children.length === 1 && statusArea.children[0].textContent === "Connecting…") {
+          statusArea.innerHTML = "";
+        }
+        statusArea.appendChild(make("p", { class: cls }, ev.diagnostic.message));
+      }
+      if (ev.type === "room_joined") {
+        unsub();
+        const room = ev.room;
+        statusArea.innerHTML = "";
+        _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr });
+        btnJoin.textContent = "Joined ✓";
+        btnJoin.disabled    = true;
+      }
+      if (ev.type === "error") {
+        unsub();
+        statusArea.innerHTML = "";
+        codeError.textContent = ev.message;
+        codeError.hidden = false;
+        statusArea.hidden = true;
+        btnJoin.disabled = false;
+        btnJoin.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Try Again`;
+      }
+    });
+
+    await easyMgr.joinRoom({ code, playerName: username || "Anonymous" });
+  });
+
+  container.appendChild(btnJoin);
+}
+
+// ── Easy Netplay — Browse panel ───────────────────────────────────────────────
+
+function _buildBrowsePanel(
+  container: HTMLElement,
+  opts: {
+    easyMgr:          EasyNetplayManager;
+    currentGameName?: string | null;
+    currentSystemId?: string | null;
+  }
+): void {
+  const { easyMgr, currentGameName } = opts;
+
+  container.appendChild(make("p", { class: "enp-panel-desc" },
+    currentGameName
+      ? `Open rooms for: ${currentGameName}`
+      : "Browse available rooms. Open a game to filter by title."
+  ));
+
+  // Local / All filter toggle
+  const filterWrap = make("div", { class: "enp-filter-row" });
+  const filterBtns: HTMLButtonElement[] = [];
+  const filters = [
+    { id: "nearby", label: "📶 Nearby" },
+    { id: "all",    label: "🌐 All Rooms" },
+  ];
+  let activeFilter = "nearby";
+
+  const applyFilter = (id: string, rooms: EasyNetplayRoom[]) => {
+    activeFilter = id;
+    filterBtns.forEach((b, i) => {
+      b.classList.toggle("enp-filter-btn--active", filters[i].id === id);
+    });
+    if (id === "nearby") {
+      renderRooms(rooms.filter(r => r.isLocal));
+    } else {
+      renderRooms(rooms);
+    }
+  };
+
+  for (const filter of filters) {
+    const btn = make("button", {
+      class: filter.id === activeFilter ? "btn enp-filter-btn enp-filter-btn--active" : "btn enp-filter-btn",
+    }, filter.label) as HTMLButtonElement;
+    btn.addEventListener("click", () => applyFilter(filter.id, latestRooms));
+    filterWrap.appendChild(btn);
+    filterBtns.push(btn);
+  }
+  container.appendChild(filterWrap);
+
+  // Room list container
+  const listEl = make("div", { class: "enp-room-list" });
+  container.appendChild(listEl);
+
+  let latestRooms: EasyNetplayRoom[] = [];
+  let loadAbort: AbortController | null = null;
+
+  const renderRooms = (rooms: EasyNetplayRoom[]) => {
+    listEl.innerHTML = "";
+    if (rooms.length === 0) {
+      const emptyMsg = activeFilter === "nearby"
+        ? "No nearby rooms found. Try \"All Rooms\" or host one yourself."
+        : "No open rooms right now — be the first to create one!";
+      listEl.appendChild(make("p", { class: "enp-room-empty" }, emptyMsg));
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const room of rooms) {
+      const card = make("div", { class: "enp-room-card" });
+
+      const cardTop = make("div", { class: "enp-room-card__top" });
+      cardTop.appendChild(make("span", { class: "enp-room-card__name" }, room.name));
+      if (room.isLocal) {
+        cardTop.appendChild(make("span", { class: "enp-room-card__badge enp-room-card__badge--local" }, "Nearby"));
+      }
+      const isFull = room.playerCount >= room.maxPlayers;
+      const statusLabel = isFull ? "Full" : room.hasPassword ? "🔒 Private" : "Open";
+      const statusCls   = isFull ? "enp-room-card__badge--full" : room.hasPassword ? "enp-room-card__badge--locked" : "enp-room-card__badge--open";
+      cardTop.appendChild(make("span", { class: `enp-room-card__badge ${statusCls}` }, statusLabel));
+      card.appendChild(cardTop);
+
+      const cardMeta = make("div", { class: "enp-room-card__meta" });
+      cardMeta.appendChild(make("span", { class: "enp-room-card__game" }, room.gameName || room.gameId));
+      cardMeta.appendChild(make("span", { class: "enp-room-card__host" }, `Host: ${room.hostName}`));
+      cardMeta.appendChild(make("span", { class: "enp-room-card__players" }, `${room.playerCount}/${room.maxPlayers} players`));
+      if (room.latencyMs !== undefined) {
+        const ping = Math.round(room.latencyMs);
+        const pingCls = ping <= 80 ? "good" : ping <= 200 ? "warn" : "bad";
+        cardMeta.appendChild(make("span", { class: `enp-room-card__ping enp-room-card__ping--${pingCls}` }, `${ping} ms`));
+      }
+      card.appendChild(cardMeta);
+
+      if (!isFull) {
+        const btnJoinRoom = make("button", {
+          class: "btn btn--primary enp-room-join-btn",
+        }) as HTMLButtonElement;
+        btnJoinRoom.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join`;
+        btnJoinRoom.addEventListener("click", () => {
+          showInfoToast(`To join "${room.name}", switch to the Join tab and enter code: ${room.code}`);
+        });
+        card.appendChild(btnJoinRoom);
+      }
+
+      frag.appendChild(card);
+    }
+    listEl.appendChild(frag);
+  };
+
+  // Refresh function
+  const doRefresh = async () => {
+    if (loadAbort) loadAbort.abort();
+    loadAbort = new AbortController();
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+
+    listEl.innerHTML = "";
+    // Skeleton placeholder
+    for (let i = 0; i < 2; i++) {
+      const skel = make("div", { class: "enp-room-skeleton" });
+      listEl.appendChild(skel);
+    }
+
+    try {
+      const rooms = await easyMgr.listRooms(loadAbort.signal);
+      latestRooms = rooms;
+      applyFilter(activeFilter, rooms);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      listEl.innerHTML = "";
+      listEl.appendChild(make("p", { class: "enp-room-error" },
+        "Couldn't reach the server. Check your connection and server URL."
+      ));
+    } finally {
+      refreshBtn.disabled  = false;
+      refreshBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refresh`;
+    }
+  };
+
+  // Footer with Refresh button
+  const footer = make("div", { class: "enp-browse-footer" });
+  const refreshBtn = make("button", { class: "btn enp-refresh-btn" }) as HTMLButtonElement;
+  refreshBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refresh`;
+  refreshBtn.addEventListener("click", doRefresh);
+  footer.appendChild(refreshBtn);
+  container.appendChild(footer);
+
+  // Auto-load on panel reveal
+  renderRooms([]);
+  void doRefresh();
+}
+
+// ── Easy Netplay — Room card ──────────────────────────────────────────────────
+
+function _renderRoomCard(
+  container: HTMLElement,
+  room: EasyNetplayRoom,
+  opts: { showLeaveBtn?: boolean; easyMgr?: EasyNetplayManager }
+): void {
+  const card = make("div", { class: "enp-active-room" });
+
+  // Invite code — prominent display
+  const codeWrap = make("div", { class: "enp-active-room__code-wrap" });
+  codeWrap.appendChild(make("span", { class: "enp-active-room__code-label" }, "Invite Code"));
+  const codeEl = make("span", {
+    class: "enp-active-room__code",
+    title: "Click to copy",
+  }, room.code);
+  codeEl.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(room.code).then(() => {
+      showInfoToast("Invite code copied!");
+    }).catch(() => {
+      showInfoToast(`Code: ${room.code}`);
+    });
+  });
+  codeWrap.appendChild(codeEl);
+  const copyBtn = make("button", {
+    class:       "btn enp-copy-btn",
+    "aria-label": "Copy invite code",
+  }, "📋 Copy") as HTMLButtonElement;
+  copyBtn.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(room.code).then(() => {
+      showInfoToast("Invite code copied!");
+    }).catch(() => {
+      showInfoToast(`Code: ${room.code}`);
+    });
+  });
+  codeWrap.appendChild(copyBtn);
+  card.appendChild(codeWrap);
+
+  // Room info
+  const info = make("div", { class: "enp-active-room__info" });
+  info.appendChild(make("span", { class: "enp-active-room__name" }, room.name));
+  info.appendChild(make("span", { class: "enp-active-room__detail" },
+    `${room.isLocal ? "📶 Local Network" : "🌐 Online"} · ${room.playerCount}/${room.maxPlayers} players`
+  ));
+  if (room.gameName) {
+    info.appendChild(make("span", { class: "enp-active-room__detail" }, `Game: ${room.gameName}`));
+  }
+  card.appendChild(info);
+
+  // "Waiting for player" status
+  card.appendChild(make("p", {
+    class: "enp-active-room__waiting",
+  }, "⏳ Waiting for Player 2…"));
+
+  // Leave button
+  if (opts.showLeaveBtn && opts.easyMgr) {
+    const easyMgr = opts.easyMgr;
+    const btnLeave = make("button", { class: "btn btn--danger enp-leave-btn" }, "Leave Room") as HTMLButtonElement;
+    btnLeave.addEventListener("click", async () => {
+      await easyMgr.leaveRoom();
+      container.innerHTML = "";
+      container.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "You left the room."));
+    });
+    card.appendChild(btnLeave);
+  }
+
+  container.appendChild(card);
 }
 
 // ── Multiplayer tab ───────────────────────────────────────────────────────────

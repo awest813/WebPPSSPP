@@ -1922,7 +1922,7 @@ describe("buildLandingControls multiplayer button", () => {
     expect(btn!.title).toContain("Multiplayer");
   });
 
-  it("clicking the Multiplayer button opens settings on the Multiplayer tab", () => {
+  it("clicking the Multiplayer button opens the Easy Netplay modal", () => {
     const settings = makeSettings();
     const mgr = new NetplayManager();
     buildLandingControls(
@@ -1937,17 +1937,13 @@ describe("buildLandingControls multiplayer button", () => {
       .find(b => b.textContent?.includes("Multiplayer"))!;
     btn.click();
 
+    // The Easy Netplay modal should be in the DOM (not the settings panel)
+    const modal = document.querySelector(".easy-netplay-overlay");
+    expect(modal).toBeTruthy();
+
+    // The settings panel should NOT have been opened
     const panel = document.getElementById("settings-panel")!;
-    expect(panel.hidden).toBe(false);
-
-    // The Multiplayer tab panel should be visible
-    const multiplayerPanel = document.getElementById("tab-panel-multiplayer");
-    expect(multiplayerPanel).toBeTruthy();
-    expect(multiplayerPanel!.hidden).toBe(false);
-
-    // Other tab panels should be hidden
-    const perfPanel = document.getElementById("tab-panel-performance");
-    expect(perfPanel!.hidden).toBe(true);
+    expect(panel.hidden).toBe(true);
   });
 
   it("clicking the Settings button opens settings on the Performance tab (default)", () => {
