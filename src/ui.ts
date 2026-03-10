@@ -3925,13 +3925,20 @@ export function openEasyNetplayModal(opts: {
   });
 
   // ── Join panel ───────────────────────────────────────────────────────────
+  // Capture a ref so the Browse panel can pre-fill the code and switch tabs.
+  let _fillJoinCode: ((code: string) => void) | null = null;
   _buildJoinPanel(panels[1], {
     easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
+    onCodeSetterReady: (setter) => { _fillJoinCode = setter; },
   });
 
   // ── Browse panel ─────────────────────────────────────────────────────────
   _buildBrowsePanel(panels[2], {
-    easyMgr, currentGameName, currentSystemId,
+    easyMgr, currentGameName, currentSystemId, serverUrl,
+    onJoinByCode: (code) => {
+      switchTab("join");
+      _fillJoinCode?.(code);
+    },
   });
 
   // ── Append + animate ─────────────────────────────────────────────────────
@@ -4057,7 +4064,7 @@ function _buildHostPanel(
         unsub();
         const room = ev.room;
         statusArea.innerHTML = "";
-        _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr });
+        _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr, isHost: true });
         btnCreate.textContent = "Hosting ✓";
         btnCreate.disabled    = true;
       }
@@ -4094,6 +4101,8 @@ function _buildJoinPanel(
     currentGameName?: string | null;
     currentSystemId?: string | null;
     serverUrl:        string;
+    /** Called once the code-input setter is ready; lets the Browse panel pre-fill it. */
+    onCodeSetterReady?: (setter: (code: string) => void) => void;
   }
 ): void {
   const { easyMgr, username, serverUrl } = opts;
@@ -4116,15 +4125,26 @@ function _buildJoinPanel(
     spellcheck:   "false",
   }) as HTMLInputElement;
 
-  // Auto-format and uppercase as the user types
-  codeInput.addEventListener("input", () => {
+  // Auto-format, uppercase, and sync button state whenever the value changes.
+  // Extracted into a named function so the Browse-panel pre-fill setter can
+  // call the same logic directly without dispatching a synthetic DOM event.
+  const syncCodeInput = () => {
     const norm = normaliseInviteCode(codeInput.value);
-    if (norm !== codeInput.value.toUpperCase()) codeInput.value = norm;
+    if (norm !== codeInput.value) codeInput.value = norm;
     codeError.hidden = true;
     btnJoin.disabled = norm.length < 4;
-  });
+  };
+  codeInput.addEventListener("input", syncCodeInput);
   codeField.appendChild(codeInput);
   container.appendChild(codeField);
+
+  // Expose a setter so other panels (e.g. Browse) can pre-fill the code and
+  // immediately enable the Join button without dispatching a synthetic event.
+  opts.onCodeSetterReady?.((code: string) => {
+    codeInput.value = normaliseInviteCode(code);
+    syncCodeInput();
+    codeInput.focus();
+  });
 
   // Error display
   const codeError = make("p", { class: "enp-diag enp-diag--error" });
@@ -4176,7 +4196,7 @@ function _buildJoinPanel(
         unsub();
         const room = ev.room;
         statusArea.innerHTML = "";
-        _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr });
+        _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr, isHost: false });
         btnJoin.textContent = "Joined ✓";
         btnJoin.disabled    = true;
       }
@@ -4210,15 +4230,25 @@ function _buildBrowsePanel(
     easyMgr:          EasyNetplayManager;
     currentGameName?: string | null;
     currentSystemId?: string | null;
+    serverUrl?:       string;
+    /** Called when the user clicks "Join" on a room card; receives the invite code. */
+    onJoinByCode?:    (code: string) => void;
   }
 ): void {
-  const { easyMgr, currentGameName } = opts;
+  const { easyMgr, currentGameName, serverUrl } = opts;
 
   container.appendChild(make("p", { class: "enp-panel-desc" },
     currentGameName
       ? `Open rooms for: ${currentGameName}`
       : "Browse available rooms. Open a game to filter by title."
   ));
+
+  // When no server is configured, show a helpful message instead of loading skeletons.
+  if (!serverUrl) {
+    container.appendChild(make("p", { class: "enp-server-warn" },
+      "⚠ No server URL configured. Add one in Settings → Play Together to browse online rooms."
+    ));
+  }
 
   // Local / All filter toggle
   const filterWrap = make("div", { class: "enp-filter-row" });
@@ -4299,7 +4329,11 @@ function _buildBrowsePanel(
         }) as HTMLButtonElement;
         btnJoinRoom.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join`;
         btnJoinRoom.addEventListener("click", () => {
-          showInfoToast(`To join "${room.name}", switch to the Join tab and enter code: ${room.code}`);
+          if (opts.onJoinByCode) {
+            opts.onJoinByCode(room.code);
+          } else {
+            showInfoToast(`Code: ${room.code} — switch to the Join tab to connect`);
+          }
         });
         card.appendChild(btnJoinRoom);
       }
@@ -4309,8 +4343,12 @@ function _buildBrowsePanel(
     listEl.appendChild(frag);
   };
 
-  // Refresh function
+  // Refresh function — skips network call when no server is configured.
   const doRefresh = async () => {
+    if (!serverUrl) {
+      renderRooms([]);
+      return;
+    }
     if (loadAbort) loadAbort.abort();
     loadAbort = new AbortController();
     refreshBtn.disabled = true;
@@ -4357,11 +4395,12 @@ function _buildBrowsePanel(
 function _renderRoomCard(
   container: HTMLElement,
   room: EasyNetplayRoom,
-  opts: { showLeaveBtn?: boolean; easyMgr?: EasyNetplayManager }
+  opts: { showLeaveBtn?: boolean; easyMgr?: EasyNetplayManager; isHost?: boolean }
 ): void {
   const card = make("div", { class: "enp-active-room" });
 
-  // Invite code — prominent display
+  // Invite code — prominent display (shown on host side so the code can be shared;
+  // on the join side the user already has the code, but keep it visible for reference)
   const codeWrap = make("div", { class: "enp-active-room__code-wrap" });
   codeWrap.appendChild(make("span", { class: "enp-active-room__code-label" }, "Invite Code"));
   const codeEl = make("span", {
@@ -4401,10 +4440,13 @@ function _renderRoomCard(
   }
   card.appendChild(info);
 
-  // "Waiting for player" status
+  // Status line — differs for host vs. joiner.
+  // All current call sites pass isHost explicitly; default to true so future
+  // callers that omit it see the host-side "waiting" message.
+  const isHost = opts.isHost ?? true;
   card.appendChild(make("p", {
     class: "enp-active-room__waiting",
-  }, "⏳ Waiting for Player 2…"));
+  }, isHost ? "⏳ Waiting for Player 2…" : "✓ Joined room — waiting for the host to start…"));
 
   // Leave button
   if (opts.showLeaveBtn && opts.easyMgr) {
