@@ -86,7 +86,9 @@ export function generateInviteCode(roomId: string): string {
   let h = hash;
   for (let i = 0; i < INVITE_CODE_LEN; i++) {
     code += INVITE_ALPHABET[h % INVITE_ALPHABET.length];
-    h = (h >>> 5) | (h << (32 - 5)); // rotate right 5
+    // Rotate right by 5 bits to mix different parts of the hash into each
+    // character position, avoiding repeated characters for low-entropy IDs.
+    h = (h >>> 5) | (h << (32 - 5));
     h >>>= 0;
   }
   return code;

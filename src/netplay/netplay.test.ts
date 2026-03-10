@@ -408,4 +408,31 @@ describe("EasyNetplayManager", () => {
     await manager.hostRoom(hostOpts);
     expect(count).toBe(0);
   });
+
+  it("joinRoom with localSystemId mismatch emits incompatible_rom error", async () => {
+    // Stub a server that returns a PSP room
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "room-1", code: "ABCDEF", name: "Test Room",
+        gameId: "gran_turismo", gameName: "Gran Turismo", systemId: "psp",
+        host: "Alice", privacy: "public", players: 1, maxPlayers: 2,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    const errors: string[] = [];
+    manager.onEvent(ev => { if (ev.type === "error") errors.push(ev.code); });
+
+    await manager.joinRoom({
+      code:          "ABCDEF",
+      playerName:    "Bob",
+      localGameId:   "gran_turismo",
+      localSystemId: "gba",  // ← mismatched system
+    });
+
+    expect(errors).toContain("incompatible_rom");
+    vi.unstubAllGlobals();
+  });
 });

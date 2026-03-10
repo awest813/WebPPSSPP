@@ -215,20 +215,25 @@ export class EasyNetplayManager {
 
       const room = signalingRoomToEasyRoom(sigRoom);
 
-      // Run compatibility check against the remote room's reported metadata.
-      const compatResult = checkGameCompatibility(
-        room.gameId,   room.systemId,
-        room.gameId,   room.systemId,
-      );
-      for (const w of compatResult.warnings) {
-        this._diagnostics.warn(w);
-      }
-      if (!compatResult.compatible) {
-        const msg = compatResult.errors[0] ?? MSG.gameMismatch;
-        this._diagnostics.error(msg);
-        this._emit({ type: "error", code: "incompatible_rom", message: msg });
-        this._setState("failed");
-        return;
+      // Run compatibility check: compare local game/system against the remote room.
+      // Only performed when the caller provides local game metadata.
+      if (options.localGameId || options.localSystemId) {
+        const compatResult = checkGameCompatibility(
+          options.localGameId  ?? room.gameId,
+          options.localSystemId ?? room.systemId,
+          room.gameId,
+          room.systemId,
+        );
+        for (const w of compatResult.warnings) {
+          this._diagnostics.warn(w);
+        }
+        if (!compatResult.compatible) {
+          const msg = compatResult.errors[0] ?? MSG.gameMismatch;
+          this._diagnostics.error(msg);
+          this._emit({ type: "error", code: "incompatible_rom", message: msg });
+          this._setState("failed");
+          return;
+        }
       }
 
       this._room = room;

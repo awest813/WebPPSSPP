@@ -146,4 +146,11 @@ export interface JoinRoomOptions {
   playerName: string;
   /** Optional password for password-protected rooms. */
   password?:  string;
+  /**
+   * Local game identifier — used for pre-join compatibility checks.
+   * If provided, it will be compared against the room's reported game ID.
+   */
+  localGameId?:    string;
+  /** Local system identifier — used for pre-join compatibility checks. */
+  localSystemId?:  string;
 }

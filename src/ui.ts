@@ -4010,7 +4010,7 @@ function _buildHostPanel(
   // No-server warning
   if (!serverUrl) {
     const warn = make("p", { class: "enp-server-warn" },
-      "⚠ No server URL configured. Local-only rooms can't be discovered by others. Add a server in Settings → Play Together."
+      "⚠ No server URL configured. Local-only rooms cannot be discovered by others. Add a server in Settings → Play Together."
     );
     container.appendChild(warn);
   }
@@ -4134,7 +4134,7 @@ function _buildJoinPanel(
   // No-server warning
   if (!serverUrl) {
     container.appendChild(make("p", { class: "enp-server-warn" },
-      "⚠ No server URL configured. Join by code requires a server. Add one in Settings → Play Together."
+      "⚠ No server URL configured. Joining by code requires a server. Add one in Settings → Play Together."
     ));
   }
 
@@ -4191,7 +4191,12 @@ function _buildJoinPanel(
       }
     });
 
-    await easyMgr.joinRoom({ code, playerName: username || "Anonymous" });
+    await easyMgr.joinRoom({
+        code,
+        playerName:    username || "Anonymous",
+        localGameId:   opts.currentGameId   ?? undefined,
+        localSystemId: opts.currentSystemId ?? undefined,
+      });
   });
 
   container.appendChild(btnJoin);
