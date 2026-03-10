@@ -1073,6 +1073,17 @@ function toLaunchFile(blob: Blob, fileName: string): File {
 
 // ── Custom confirm dialog ─────────────────────────────────────────────────────
 
+/**
+ * Returns true when `overlay` is the most recently appended `.confirm-overlay`
+ * in the document.  Used by all modal Escape handlers so only the *topmost*
+ * dialog closes when the user presses Escape — an outer gallery does not
+ * collapse while an inner confirm dialog is still open.
+ */
+function _isTopmostOverlay(overlay: HTMLElement): boolean {
+  const all = document.querySelectorAll<HTMLElement>(".confirm-overlay");
+  return all.length > 0 && all[all.length - 1] === overlay;
+}
+
 function showConfirmDialog(
   message: string,
   opts: { title?: string; confirmLabel?: string; isDanger?: boolean } = {}
@@ -1094,16 +1105,22 @@ function showConfirmDialog(
     document.body.appendChild(overlay);
 
     const close = (result: boolean) => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, { capture: true });
       overlay.classList.remove("confirm-overlay--visible");
       setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); close(false); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && _isTopmostOverlay(overlay)) {
+        e.preventDefault();
+        e.stopPropagation();
+        close(false);
+      }
+    };
     btnCancel.addEventListener("click",  () => close(false));
     btnConfirm.addEventListener("click", () => close(true));
     overlay.addEventListener("click",    (e) => { if (e.target === overlay) close(false); });
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, { capture: true });
     requestAnimationFrame(() => { overlay.classList.add("confirm-overlay--visible"); btnConfirm.focus(); });
   });
 }
@@ -1154,7 +1171,7 @@ function showConflictResolutionDialog(
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close("newest"); }
+      if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close("newest"); }
     };
 
     btnLocal.addEventListener("click",  () => close("local"));
@@ -1206,7 +1223,7 @@ function showChecksumFailureDialog(): Promise<"keep" | "reimport" | "discard"> {
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close("discard"); }
+      if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close("discard"); }
     };
 
     btnKeep.addEventListener("click",     () => close("keep"));
@@ -1694,14 +1711,16 @@ function showGamePickerDialog(title: string, message: string, games: GameMetadat
     document.body.appendChild(overlay);
 
     const close = (result: GameMetadata | null) => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, { capture: true });
       overlay.classList.remove("confirm-overlay--visible");
       setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); close(null); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close(null); }
+    };
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, { capture: true });
     requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
   });
 }
@@ -1750,15 +1769,17 @@ function showArchiveEntryPickerDialog(
     const close = (picked: { name: string; blob: Blob; size: number } | null) => {
       if (closed) return;
       closed = true;
-      document.removeEventListener("keydown", onEsc);
+      document.removeEventListener("keydown", onEsc, { capture: true });
       overlay.classList.remove("confirm-overlay--visible");
       setTimeout(() => overlay.remove(), 180);
       resolve(picked);
     };
-    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") close(null); };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close(null); }
+    };
     btnCancel.addEventListener("click", () => close(null));
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
-    document.addEventListener("keydown", onEsc);
+    document.addEventListener("keydown", onEsc, { capture: true });
 
     overlay.appendChild(box);
     document.body.appendChild(overlay);
@@ -1946,8 +1967,12 @@ function buildInGameControls(
   });
   btnSave.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save`;
   btnSave.addEventListener("click", async () => {
-    await quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1);
-    showInfoToast("Saved to Slot 1");
+    try {
+      await quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1);
+      showInfoToast("Saved to Slot 1");
+    } catch {
+      showError("Quick save failed.");
+    }
   });
 
   const btnLoad = make("button", {
@@ -1956,7 +1981,7 @@ function buildInGameControls(
     "data-tooltip": "Quick Load — Slot 1 (F7)",
   });
   btnLoad.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Load`;
-  btnLoad.addEventListener("click", () => emulator.quickLoad(1));
+  btnLoad.addEventListener("click", () => { emulator.quickLoad(1); showInfoToast("Loaded Slot 1"); });
 
   const btnSavesGallery = make("button", {
     class: "btn btn-group__btn btn-group__btn--icon",
@@ -2552,7 +2577,9 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
     overlay.classList.remove("confirm-overlay--visible");
     setTimeout(() => overlay.remove(), 200);
   };
-  const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } };
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close(); }
+  };
 
   btnCancel.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -2721,7 +2748,9 @@ async function openSaveGallery(
     overlay.classList.remove("confirm-overlay--visible");
     setTimeout(() => overlay.remove(), 200);
   };
-  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close(); }
+  };
   btnClose.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   // Register in capture phase so Esc works even when the emulator is running
@@ -3056,19 +3085,20 @@ function showInputDialog(title: string, message: string, defaultValue = ""): Pro
     document.body.appendChild(overlay);
 
     const close = (result: string | null) => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, { capture: true });
       overlay.classList.remove("confirm-overlay--visible");
       setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(null); }
-      if (e.key === "Enter")  { e.preventDefault(); close(input.value); }
+      if (!_isTopmostOverlay(overlay)) return;
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(null); }
+      if (e.key === "Enter")  { e.preventDefault(); e.stopPropagation(); close(input.value); }
     };
     btnCancel.addEventListener("click",  () => close(null));
     btnConfirm.addEventListener("click", () => close(input.value));
     overlay.addEventListener("click",    (e) => { if (e.target === overlay) close(null); });
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, { capture: true });
     requestAnimationFrame(() => {
       overlay.classList.add("confirm-overlay--visible");
       input.focus();
@@ -4753,16 +4783,18 @@ export function showMultiDiscPicker(discFileNames: string[]): Promise<Map<string
     };
 
     const close = (result: Map<string, File> | null) => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, { capture: true });
       overlay.classList.remove("confirm-overlay--visible");
       setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); close(null); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && _isTopmostOverlay(overlay)) { e.preventDefault(); e.stopPropagation(); close(null); }
+    };
     btnCancel.addEventListener("click",  () => close(null));
     btnConfirm.addEventListener("click", () => close(fileMap));
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, { capture: true });
     requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
   });
 }

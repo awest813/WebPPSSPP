@@ -2578,3 +2578,277 @@ describe("save gallery cloud bar UX", () => {
     expect(statusText!.className).toBe("cloud-bar__status-text");
   });
 });
+
+// ── Dialog Escape handling — capture-phase correctness ───────────────────────
+
+describe("dialog Escape handling when emulator is running", () => {
+  function makeRunningEmuMock(): PSPEmulator {
+    return {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      readStateData: vi.fn().mockReturnValue(new Uint8Array(0)),
+      captureScreenshot: vi.fn().mockResolvedValue(null),
+      captureScreenshotAsync: vi.fn().mockResolvedValue(null),
+      writeStateData: vi.fn().mockReturnValue(false),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+      webgpuAdapterInfo: null,
+      activeCoreSettings: {},
+      diagnosticLog: [],
+    } as unknown as PSPEmulator;
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+    document.querySelectorAll(".confirm-overlay").forEach((el) => el.remove());
+  });
+
+  it("pressing Escape closes a confirm dialog even when the emulator is running", async () => {
+    // When the emulator is running the global capture-phase Escape handler fires
+    // and calls stopPropagation(). Before the fix, showConfirmDialog used bubble
+    // phase for its Escape handler, so it was silently swallowed — the dialog
+    // could not be dismissed with the keyboard. This test verifies the fix.
+    const emulator = makeRunningEmuMock();
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    // Trigger game-start so buildInGameControls renders the Reset button.
+    if (typeof (emulator as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulator as unknown as { onGameStart: () => void }).onGameStart();
+    }
+
+    // Click Reset — this opens a showConfirmDialog overlay.
+    const headerActions = document.getElementById("header-actions")!;
+    const btnReset = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.includes("Reset"));
+    expect(btnReset).toBeTruthy();
+    btnReset!.click();
+
+    // Allow the async event handler to schedule the dialog.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay");
+    expect(overlay).toBeTruthy();
+
+    // Dispatch Escape. The global capture-phase handler sees .confirm-overlay and
+    // skips onReturnToLibrary(). The dialog's own capture-phase handler (fixed)
+    // must still receive and act on the event.
+    vi.useFakeTimers();
+    try {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      );
+      // Advance past the 200 ms CSS fade-out timeout.
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // The dialog should have been removed from the DOM.
+    expect(document.querySelector(".confirm-overlay")).toBeFalsy();
+  });
+
+  it("Escape only closes the topmost overlay when two are stacked", async () => {
+    // Stacking scenario: an outer .confirm-overlay (e.g. save gallery) is open,
+    // and then a nested confirm dialog appears on top. Pressing Escape must
+    // dismiss only the innermost dialog, leaving the outer overlay intact.
+    const emulator = makeRunningEmuMock();
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator,
+    });
+
+    // ── Outer overlay (simulates an open save gallery) ──────────────────────
+    const outerOverlay = document.createElement("div");
+    outerOverlay.className = "confirm-overlay confirm-overlay--visible";
+    document.body.appendChild(outerOverlay);
+
+    // ── Inner overlay — trigger via Clear Library confirm dialog ──────────
+    // Open settings, switch to Library tab, click "Remove All Games".
+    const fullCaps = { isLowSpec: false, isChromOS: false,
+      tier: "medium", gpuBenchmarkScore: 50, estimatedVRAMMB: 768,
+      deviceMemoryGB: 4, cpuCores: 4, prefersReducedMotion: false,
+      webgpuAvailable: false, connectionQuality: "unknown",
+      jsHeapLimitMB: null, isSoftwareGPU: false, gpuRenderer: "unknown",
+      recommendedMode: "quality",
+      gpuCaps: { renderer: "unknown", vendor: "unknown", maxTextureSize: 4096,
+        maxVertexAttribs: 16, maxVaryingVectors: 30, maxRenderbufferSize: 4096,
+        anisotropicFiltering: false, maxAnisotropy: 0, floatTextures: false,
+        halfFloatTextures: false, instancedArrays: true, webgl2: true,
+        vertexArrayObject: true, compressedTextures: false, etc2Textures: false,
+        astcTextures: false, maxColorAttachments: 4, multiDraw: false,
+      },
+    } as unknown as import("./performance.js").DeviceCapabilities;
+
+    const library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      totalSize: vi.fn().mockResolvedValue(0),
+      clearAll: vi.fn().mockResolvedValue(undefined),
+    } as unknown as GameLibrary;
+
+    const saveLib = {
+      count: vi.fn().mockResolvedValue(0),
+    } as unknown as SaveStateLibrary;
+
+    openSettingsPanel(
+      makeSettings(), fullCaps, library,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      vi.fn(), undefined, undefined, saveLib, undefined, "library"
+    );
+
+    const libPanel = document.getElementById("tab-panel-library")!;
+    const clearBtn = libPanel.querySelector<HTMLButtonElement>(".btn--danger")!;
+    expect(clearBtn).toBeTruthy();
+    clearBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // There should now be two .confirm-overlay elements: outerOverlay + the inner
+    // confirm dialog created by showConfirmDialog.
+    const allOverlays = document.querySelectorAll(".confirm-overlay");
+    expect(allOverlays.length).toBe(2);
+
+    vi.useFakeTimers();
+    try {
+      // Pressing Escape should close only the topmost (inner) confirm dialog.
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      );
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Only one overlay should remain: the outer one is untouched.
+    expect(document.querySelectorAll(".confirm-overlay").length).toBe(1);
+    expect(document.body.contains(outerOverlay)).toBe(true);
+  });
+});
+
+// ── buildInGameControls — Save/Load button UX ────────────────────────────────
+
+describe("buildInGameControls Save and Load button UX", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+    document.getElementById("info-toast")?.remove();
+  });
+
+  it("clicking Load button shows 'Loaded Slot 1' toast", () => {
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    }
+
+    const headerActions = document.getElementById("header-actions")!;
+    const btnLoad = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.trim().startsWith("Load") && !b.getAttribute("aria-label"));
+    expect(btnLoad).toBeTruthy();
+
+    btnLoad!.click();
+
+    expect(emulatorMock.quickLoad).toHaveBeenCalledWith(1);
+    const toast = document.getElementById("info-toast");
+    expect(toast?.textContent).toContain("Loaded Slot 1");
+  });
+
+  it("Save button shows error toast when quickSaveWithPersist rejects", async () => {
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn().mockImplementation(() => { throw new Error("disk full"); }),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      readStateData: vi.fn().mockReturnValue(null),    // null causes quickSaveWithPersist to fail
+      captureScreenshot: vi.fn().mockResolvedValue(null),
+      captureScreenshotAsync: vi.fn().mockResolvedValue(null),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    }
+
+    const headerActions = document.getElementById("header-actions")!;
+    const btnSave = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.trim().startsWith("Save") && !b.getAttribute("aria-label"));
+    expect(btnSave).toBeTruthy();
+
+    btnSave!.click();
+    // Let the async handler settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The error banner should be visible when the save fails.
+    const errorBanner = document.getElementById("error-banner");
+    expect(errorBanner?.classList.contains("visible")).toBe(true);
+  });
+});
