@@ -4046,12 +4046,17 @@ function buildMultiplayerTab(
   const doLobbyRefresh = async () => {
     if (!netplayManager) return;
     // If the lobby section has been removed from the DOM (e.g. settings panel was
-    // rebuilt), clear the stale interval and bail out so we don't mutate detached
+    // rebuilt) or is inside a hidden ancestor (e.g. settings panel was closed),
+    // clear the stale interval and bail out so we don't mutate detached/hidden
     // elements or keep making unnecessary network requests.
-    if (!lobbySection.isConnected) {
+    if (!lobbySection.isConnected || !!lobbySection.closest("[hidden]")) {
       if (lobbyAutoRefreshTimer) {
         clearInterval(lobbyAutoRefreshTimer);
         lobbyAutoRefreshTimer = null;
+      }
+      if (lobbyAbort) {
+        lobbyAbort.abort();
+        lobbyAbort = null;
       }
       return;
     }

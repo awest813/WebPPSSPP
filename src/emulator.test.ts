@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { PSPEmulator, EJS_CDN_BASE } from "./emulator.js";
+import { PSPEmulator, EJS_CDN_BASE, clearWebGL2SupportCache } from "./emulator.js";
 import { NetplayManager } from "./multiplayer.js";
 
 describe('PSPEmulator', () => {
@@ -695,6 +695,67 @@ describe('PSPEmulator', () => {
   });
 
   // ── PSP pipeline warm-up ──────────────────────────────────────────────────
+
+  // ── WebGL2 support check ──────────────────────────────────────────────────
+
+  describe('_checkWebGL2', () => {
+    afterEach(() => {
+      clearWebGL2SupportCache();
+      vi.restoreAllMocks();
+    });
+
+    it('returns false and emits an error when getContext throws', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      const originalCreateElement = document.createElement.bind(document);
+      vi.spyOn(document, 'createElement').mockImplementation((tag: string, opts?: ElementCreationOptions) => {
+        if (tag === 'canvas') {
+          return {
+            getContext: () => { throw new Error('WebGL context creation failed'); },
+            width: 0, height: 0,
+          } as unknown as HTMLCanvasElement;
+        }
+        return originalCreateElement(tag, opts);
+      });
+
+      // Clear the cache so the mock is actually called, then attempt to launch
+      // a PSP game (the only system that requires WebGL2). The pre-flight check
+      // should catch the exception, treat WebGL2 as unavailable, and emit an
+      // error instead of propagating the exception to the caller.
+      clearWebGL2SupportCache();
+
+      const fakeCaps = {
+        deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+        isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+        recommendedMode: 'quality' as const, tier: 'medium' as const,
+        gpuCaps: {
+          renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+          maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+          anisotropicFiltering: false, maxAnisotropy: 0,
+          floatTextures: false, halfFloatTextures: false,
+          instancedArrays: false, webgl2: false,
+          vertexArrayObject: false, compressedTextures: false,
+          etc2Textures: false, astcTextures: false,
+          maxColorAttachments: 1, multiDraw: false,
+        },
+        gpuBenchmarkScore: 30, prefersReducedMotion: false,
+        webgpuAvailable: false, connectionQuality: 'unknown' as const,
+        jsHeapLimitMB: null, estimatedVRAMMB: 768,
+      };
+
+      await expect(emulator.launch({
+        file: new File(['data'], 'game.iso'),
+        volume: 0.7,
+        systemId: 'psp',
+        performanceMode: 'auto',
+        deviceCaps: fakeCaps,
+      })).resolves.not.toThrow();
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('WebGL 2');
+    });
+  });
 
   describe('warmUpPSPPipeline', () => {
     it('does not throw when called', () => {

@@ -119,6 +119,14 @@ const AQ_COOLDOWN_MS  = 60_000;    // minimum gap between successive alerts
 let cachedWebGL2Support: boolean | null = null;
 
 /**
+ * Reset the cached WebGL2 support flag. Exposed for unit tests only.
+ * @internal
+ */
+export function clearWebGL2SupportCache(): void {
+  cachedWebGL2Support = null;
+}
+
+/**
  * Maps EJS core ids to their CDN core filenames for prefetching.
  *
  * Each 3D core entry includes both the JS glue module and the .wasm binary.
@@ -2045,8 +2053,12 @@ export class PSPEmulator {
 
   private _checkWebGL2(): boolean {
     if (cachedWebGL2Support === null) {
-      const canvas = document.createElement("canvas");
-      cachedWebGL2Support = !!canvas.getContext("webgl2");
+      try {
+        const canvas = document.createElement("canvas");
+        cachedWebGL2Support = !!canvas.getContext("webgl2");
+      } catch {
+        cachedWebGL2Support = false;
+      }
     }
 
     if (cachedWebGL2Support) return true;

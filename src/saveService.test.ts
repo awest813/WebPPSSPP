@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SaveGameService } from "./saveService.js";
-import type { SaveStateEntry } from "./saves.js";
+import type { SaveStateLibrary, SaveStateEntry } from "./saves.js";
 
 function makeEntry(slot: number): SaveStateEntry {
   return {
@@ -21,12 +21,12 @@ function makeEntry(slot: number): SaveStateEntry {
 
 describe("SaveGameService", () => {
   it("queues duplicate saves for same slot", async () => {
-    const saveState = vi.fn().mockResolvedValue(undefined);
+    const saveState = vi.fn<[SaveStateEntry], Promise<void>>().mockResolvedValue(undefined);
     const getState = vi.fn().mockImplementation(async (_gameId: string, slot: number) => makeEntry(slot));
     const saveLibrary = {
       saveState,
       getState,
-    } as any;
+    } as unknown as SaveStateLibrary;
 
     const emulator = {
       state: "running" as const,
@@ -61,7 +61,7 @@ describe("SaveGameService", () => {
       captureScreenshotAsync: vi.fn(async () => null),
     };
 
-    const saveLibrary = { saveState: vi.fn(), getState: vi.fn() } as any;
+    const saveLibrary = { saveState: vi.fn(), getState: vi.fn() } as unknown as SaveStateLibrary;
 
     const service = new SaveGameService({
       saveLibrary,
@@ -94,7 +94,7 @@ describe("SaveGameService", () => {
 
     const saveLibrary = {
       getState: vi.fn(async () => entry),
-    } as any;
+    } as unknown as SaveStateLibrary;
 
     const service = new SaveGameService({
       saveLibrary,
@@ -112,13 +112,13 @@ describe("SaveGameService", () => {
     const existingEntry = makeEntry(2);
     existingEntry.label = "Before Final Boss";
 
-    const saveState = vi.fn().mockResolvedValue(undefined);
+    const saveState = vi.fn<[SaveStateEntry], Promise<void>>().mockResolvedValue(undefined);
     const getState = vi.fn().mockImplementation(async (_gameId: string, slot: number) => {
       // First call (readback to get existing label) returns the entry with custom label.
       // Second call (readback after save) also returns it.
       return { ...existingEntry, slot };
     });
-    const saveLibrary = { saveState, getState } as any;
+    const saveLibrary = { saveState, getState } as unknown as SaveStateLibrary;
 
     const emulator = {
       state: "running" as const,
@@ -139,7 +139,7 @@ describe("SaveGameService", () => {
 
     // The entry passed to saveState must carry the preserved label.
     expect(saveState).toHaveBeenCalledTimes(1);
-    const savedEntry = saveState.mock.calls[0][0] as { label: string };
+    const savedEntry = saveState.mock.calls[0][0];
     expect(savedEntry.label).toBe("Before Final Boss");
   });
 });
