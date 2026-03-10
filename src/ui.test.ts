@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import * as archive from "./archive.js";
 import type { PSPEmulator } from "./emulator.js";
@@ -609,6 +609,104 @@ describe("FPS toggle button aria-pressed", () => {
     if (fpsBtn) {
       expect(fpsBtn.getAttribute("aria-pressed")).toBe("false");
     }
+  });
+});
+
+describe("ui in-game touch controls toolbar", () => {
+  let originalMaxTouchPoints: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+    Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true });
+  });
+
+  afterEach(() => {
+    if (originalMaxTouchPoints) {
+      Object.defineProperty(navigator, "maxTouchPoints", originalMaxTouchPoints);
+    } else {
+      Object.defineProperty(navigator, "maxTouchPoints", { value: 0, configurable: true });
+    }
+  });
+
+  it("refreshes touch edit controls when touch controls are toggled mid-game", () => {
+    type OverlayStub = {
+      editing: boolean;
+      setEditing: (editing: boolean) => void;
+      resetToDefaults: () => void;
+    };
+
+    let overlay: OverlayStub | null = null;
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { shortName: "PSP", name: "PSP", id: "psp", color: "#00f" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+    const settings = makeSettings({ touchControls: false });
+
+    initUI({
+      ...makeOpts(settings),
+      emulator: emulatorMock,
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+      getTouchOverlay: () => overlay as never,
+    });
+
+    emulatorMock.onGameStart?.();
+
+    const findButton = (label: string) => Array.from(
+      document.getElementById("header-actions")!.querySelectorAll<HTMLButtonElement>("button")
+    ).find((button) => button.getAttribute("aria-label") === label);
+
+    const editBefore = findButton("Edit touch control layout");
+    const resetBefore = findButton("Reset touch control layout");
+    expect(editBefore).toBeTruthy();
+    expect(editBefore?.disabled).toBe(true);
+    expect(resetBefore).toBeTruthy();
+    expect(resetBefore?.style.display).toBe("none");
+
+    const setEditing = vi.fn((editing: boolean) => {
+      if (overlay) overlay.editing = editing;
+    });
+    overlay = {
+      editing: false,
+      setEditing,
+      resetToDefaults: vi.fn(),
+    };
+    settings.touchControls = true;
+
+    document.dispatchEvent(new CustomEvent(TOUCH_CONTROLS_CHANGED_EVENT));
+
+    const editAfterEnable = findButton("Edit touch control layout");
+    expect(editAfterEnable?.disabled).toBe(false);
+    editAfterEnable?.click();
+    expect(setEditing).toHaveBeenCalledWith(true);
+
+    const resetWhileEditing = findButton("Reset touch control layout");
+    expect(resetWhileEditing?.style.display).toBe("");
+
+    settings.touchControls = false;
+    overlay = null;
+    document.dispatchEvent(new CustomEvent(TOUCH_CONTROLS_CHANGED_EVENT));
+
+    const editAfterDisable = findButton("Edit touch control layout");
+    const resetAfterDisable = findButton("Reset touch control layout");
+    expect(editAfterDisable?.disabled).toBe(true);
+    expect(editAfterDisable?.textContent).toBe("🎮 Edit");
+    expect(resetAfterDisable?.style.display).toBe("none");
   });
 });
 

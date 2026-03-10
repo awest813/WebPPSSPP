@@ -31,7 +31,8 @@ import { buildDOM, initUI, showLanding,
          buildLandingControls, showTierDowngradePrompt,
          promptAutoSaveRestore,
          resolveSystemAndAdd,
-         showError } from "./ui.js";
+         showError,
+         TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
 import { isTouchDevice } from "./touchControls.js";
 import { NetplayManager } from "./multiplayer.js";
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
@@ -578,6 +579,7 @@ function main(): void {
         } else {
           touchOverlay?.hide();
         }
+        document.dispatchEvent(new CustomEvent(TOUCH_CONTROLS_CHANGED_EVENT));
       })();
     }
     // Sync verbose logging flag so debug output can be toggled without reload.

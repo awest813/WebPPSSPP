@@ -96,6 +96,7 @@ let _onInstallPWA:  (() => Promise<boolean>) | undefined;
 // ── Cloud save manager (module-level singleton) ────────────────────────────────
 let _cloudManager: CloudSaveManager | null = null;
 let _initUICleanup: (() => void) | null = null;
+export const TOUCH_CONTROLS_CHANGED_EVENT = "retrovault:touchControlsChanged";
 
 function getCloudManager(): CloudSaveManager {
   if (!_cloudManager) _cloudManager = new CloudSaveManager();
@@ -617,6 +618,18 @@ export function initUI(opts: UIOptions): void {
     }
   };
   bindEvent(document, "retrovault:resumeGame", onResumeGameEvent);
+
+  const rebuildInGameControls = () => {
+    if (emulator.state !== "running" && emulator.state !== "paused") return;
+    const openSettingsWith = (tab?: SettingsTab) =>
+      openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab);
+    buildInGameControls(
+      emulator, settings, onSettingsChange, onReturnToLibrary,
+      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+      getTouchOverlay, openSettingsWith, netplayManager
+    );
+  };
+  bindEvent(document, TOUCH_CONTROLS_CHANGED_EVENT, rebuildInGameControls);
 
   // Ensure overlay work is paused while browsing the library.
   const onReturnToLibraryEvent = () => {
@@ -2045,61 +2058,98 @@ function buildInGameControls(
   let btnTouchReset: HTMLButtonElement | null = null;
 
   if (isTouchDevice()) {
+    const getOverlay = (): TouchControlsOverlay | null => getTouchOverlay?.() ?? null;
+    const syncTouchButtons = (): void => {
+      const overlay   = getOverlay();
+      const canEdit   = settings.touchControls && !!overlay;
+      const isEditing = !!overlay?.editing;
+
+      if (btnTouchToggle) {
+        btnTouchToggle.className = settings.touchControls ? "btn btn--active" : "btn";
+        btnTouchToggle.setAttribute("aria-pressed", String(settings.touchControls));
+        btnTouchToggle.title = settings.touchControls
+          ? "Hide on-screen touch controls"
+          : "Show on-screen touch controls";
+        btnTouchToggle.setAttribute("data-tooltip", settings.touchControls ? "Hide Touch Controls" : "Show Touch Controls");
+      }
+
+      if (btnTouch) {
+        btnTouch.disabled = !canEdit;
+        btnTouch.className = isEditing ? "btn btn--active" : "btn";
+        btnTouch.textContent = isEditing ? "✓ Done" : "🎮 Edit";
+        btnTouch.title = canEdit
+          ? (isEditing ? "Finish editing touch control layout" : "Edit touch control layout")
+          : "Enable touch controls to edit the on-screen layout";
+        btnTouch.setAttribute("data-tooltip", canEdit ? "Edit Touch Layout" : "Enable Touch Controls First");
+        btnTouch.setAttribute("aria-pressed", String(isEditing));
+      }
+
+      if (btnTouchReset) {
+        btnTouchReset.disabled = !canEdit;
+        btnTouchReset.style.display = isEditing ? "" : "none";
+      }
+    };
+
     // 🕹 quick show/hide toggle — visible even when the overlay doesn't exist yet
     // (e.g. the user disabled touch controls in settings then re-enabled mid-game)
     btnTouchToggle = make("button", {
       class: settings.touchControls ? "btn btn--active" : "btn",
-      title: "Toggle on-screen touch controls",
+      title: settings.touchControls ? "Hide on-screen touch controls" : "Show on-screen touch controls",
+      "aria-label": "Toggle on-screen touch controls",
       "aria-pressed": settings.touchControls ? "true" : "false",
+      "data-tooltip": settings.touchControls ? "Hide Touch Controls" : "Show Touch Controls",
     }, "🕹") as HTMLButtonElement;
     btnTouchToggle.addEventListener("click", () => {
-      const next = !settings.touchControls;
-      onSettingsChange({ touchControls: next });
-      btnTouchToggle!.className = next ? "btn btn--active" : "btn";
-      btnTouchToggle!.setAttribute("aria-pressed", String(next));
+      onSettingsChange({ touchControls: !settings.touchControls });
+      syncTouchButtons();
     });
 
-    const overlay = getTouchOverlay?.();
-    if (overlay) {
-      // 🎮 Edit — enter drag-to-reposition mode
-      btnTouch = make("button", {
-        class: "btn",
-        title: "Edit touch control layout",
-      }, "🎮 Edit") as HTMLButtonElement;
+    // 🎮 Edit — enter drag-to-reposition mode
+    btnTouch = make("button", {
+      class: "btn",
+      title: "Enable touch controls to edit the on-screen layout",
+      "aria-label": "Edit touch control layout",
+      "data-tooltip": "Enable Touch Controls First",
+    }, "🎮 Edit") as HTMLButtonElement;
 
-      // ↺ Reset — visible only while editing; resets to defaults for this orientation
-      btnTouchReset = make("button", {
-        class: "btn",
-        title: "Reset touch layout to defaults",
-        style: "display:none",
-      }, "↺ Reset") as HTMLButtonElement;
+    // ↺ Reset — visible only while editing; resets to defaults for this orientation
+    btnTouchReset = make("button", {
+      class: "btn",
+      title: "Reset touch layout to defaults",
+      "aria-label": "Reset touch control layout",
+      "data-tooltip": "Reset Touch Layout",
+      style: "display:none",
+    }, "↺ Reset") as HTMLButtonElement;
 
-      let editMode = false;
+    btnTouch.addEventListener("click", () => {
+      const overlay = getOverlay();
+      if (!settings.touchControls || !overlay) {
+        syncTouchButtons();
+        return;
+      }
+      overlay.setEditing(!overlay.editing);
+      syncTouchButtons();
+    });
 
-      btnTouch.addEventListener("click", () => {
-        editMode = !editMode;
-        overlay.setEditing(editMode);
-        btnTouch!.className   = editMode ? "btn btn--active" : "btn";
-        btnTouch!.textContent = editMode ? "✓ Done" : "🎮 Edit";
-        btnTouchReset!.style.display = editMode ? "" : "none";
-      });
+    btnTouchReset.addEventListener("click", async () => {
+      const overlay = getOverlay();
+      if (!overlay) {
+        syncTouchButtons();
+        return;
+      }
+      const orientationLabel = isPortrait() ? "portrait" : "landscape";
+      const confirmed = await showConfirmDialog(
+        `Button positions will be reset to their defaults for ${orientationLabel} orientation.`,
+        { title: "Reset Layout?", confirmLabel: "Reset" }
+      );
+      if (!confirmed) return;
+      overlay.resetToDefaults();
+      // Exit edit mode after reset so the user can play straight away
+      overlay.setEditing(false);
+      syncTouchButtons();
+    });
 
-      btnTouchReset.addEventListener("click", async () => {
-        const orientationLabel = isPortrait() ? "portrait" : "landscape";
-        const confirmed = await showConfirmDialog(
-          `Button positions will be reset to their defaults for ${orientationLabel} orientation.`,
-          { title: "Reset Layout?", confirmLabel: "Reset" }
-        );
-        if (!confirmed) return;
-        overlay.resetToDefaults();
-        // Exit edit mode after reset so the user can play straight away
-        editMode = false;
-        overlay.setEditing(false);
-        btnTouch!.className   = "btn";
-        btnTouch!.textContent = "🎮 Edit";
-        btnTouchReset!.style.display = "none";
-      });
-    }
+    syncTouchButtons();
   }
 
   // Volume control
