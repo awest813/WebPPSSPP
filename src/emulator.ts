@@ -2040,14 +2040,33 @@ export class PSPEmulator {
 
   private _checkSharedArrayBuffer(): boolean {
     if (typeof SharedArrayBuffer !== "undefined") return true;
-    this._emitError(
-      "SharedArrayBuffer is not available.\n\n" +
-      "This system requires worker threads, which need Cross-Origin Isolation " +
-      "(COOP + COEP headers).\n\n" +
-      "• In dev: make sure you are running `npm run dev`.\n" +
-      "• In production: coi-serviceworker.js should activate automatically.\n" +
-      "• Try reloading the page once the service worker is registered."
-    );
+
+    // Provide targeted guidance for iOS/iPadOS (Safari and Chrome, which both
+    // use WebKit on iOS). WebKit does not yet support the `credentialless` COEP
+    // value needed to load CDN assets without CORP headers in an isolated context,
+    // so SharedArrayBuffer is unavailable for PSP on iOS regardless of headers.
+    const isIOS =
+      typeof navigator !== "undefined" &&
+      /iP(hone|ad|od)/.test(navigator.userAgent);
+
+    if (isIOS) {
+      this._emitError(
+        "PSP emulation is not supported on iPhone/iPad.\n\n" +
+        "iOS Safari and Chrome (both WebKit-based) do not yet support the " +
+        "cross-origin isolation required for PSP's multi-threading.\n\n" +
+        "• Many other systems work great on iPhone/iPad: try NES, SNES, GBA, N64, and more.\n" +
+        "• For PSP: use a desktop browser such as Chrome or Firefox on a Mac or PC."
+      );
+    } else {
+      this._emitError(
+        "SharedArrayBuffer is not available.\n\n" +
+        "This system requires worker threads, which need Cross-Origin Isolation " +
+        "(COOP + COEP headers).\n\n" +
+        "• In dev: make sure you are running `npm run dev`.\n" +
+        "• In production: coi-serviceworker.js should activate automatically.\n" +
+        "• Try reloading the page once the service worker is registered."
+      );
+    }
     return false;
   }
 

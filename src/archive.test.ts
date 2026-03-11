@@ -742,6 +742,46 @@ describe('extractFromZip', () => {
     }
   });
 
+  it('includes iOS update hint in DecompressionStream error on iPhone', async () => {
+    const original = globalThis.DecompressionStream;
+    const originalUA = navigator.userAgent;
+
+    // @ts-expect-error intentionally removing global for test
+    delete globalThis.DecompressionStream;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
+      configurable: true,
+    });
+
+    const content = new Uint8Array([1, 2, 3]);
+    const zipBuf  = buildZip('game.nes', content, 8);
+    const blob    = new Blob([zipBuf]);
+
+    try {
+      await expect(extractFromZip(blob)).rejects.toThrow(/iOS 16\.4/);
+    } finally {
+      globalThis.DecompressionStream = original;
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
+    }
+  });
+
+  it('throws early for oversized archives on iOS', async () => {
+    const originalUA = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      configurable: true,
+    });
+
+    try {
+      // Create a blob that reports a size above the iOS warning threshold
+      // (IOS_LARGE_ARCHIVE_WARNING_BYTES = 800 MB) but passes the 2 GB hard limit.
+      const oversizedBlob = { size: 900 * 1024 * 1024 } as Blob;
+      await expect(extractFromZip(oversizedBlob)).rejects.toThrow(/too large.*iPhone/i);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
+    }
+  });
+
   it('returns null for a blob smaller than a valid ZIP', async () => {
     const blob = new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])]);
     expect(await extractFromZip(blob)).toBeNull();

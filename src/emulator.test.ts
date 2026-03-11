@@ -757,6 +757,91 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── SharedArrayBuffer check (iOS-specific messaging) ─────────────────────
+
+  describe('_checkSharedArrayBuffer', () => {
+    const fakeCaps = {
+      deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      recommendedMode: 'quality' as const, tier: 'medium' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      },
+      gpuBenchmarkScore: 30, prefersReducedMotion: false,
+      webgpuAvailable: false, connectionQuality: 'unknown' as const,
+      jsHeapLimitMB: null, estimatedVRAMMB: 768,
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('emits an iOS-specific error when SharedArrayBuffer is missing on iPhone', async () => {
+      // Remove SharedArrayBuffer to simulate an environment without cross-origin isolation.
+      const originalSAB = (globalThis as Record<string, unknown>).SharedArrayBuffer;
+      const originalUA  = navigator.userAgent;
+
+      delete (globalThis as Record<string, unknown>).SharedArrayBuffer;
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+        configurable: true,
+      });
+
+      const errors: string[] = [];
+      const freshEmulator = new PSPEmulator('test-player');
+      freshEmulator.onError = (msg) => errors.push(msg);
+
+      try {
+        await freshEmulator.launch({
+          file: new File(['data'], 'game.iso'),
+          volume: 0.7,
+          systemId: 'psp',
+          performanceMode: 'auto',
+          deviceCaps: fakeCaps,
+        });
+      } finally {
+        (globalThis as Record<string, unknown>).SharedArrayBuffer = originalSAB;
+        Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
+      }
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toMatch(/iPhone|iPad|iOS/i);
+      // Should NOT suggest reloading or running npm run dev on iOS
+      expect(errors[0]).not.toContain('npm run dev');
+    });
+
+    it('emits the generic error when SharedArrayBuffer is missing on non-iOS', async () => {
+      const originalSAB = (globalThis as Record<string, unknown>).SharedArrayBuffer;
+      delete (globalThis as Record<string, unknown>).SharedArrayBuffer;
+
+      const errors: string[] = [];
+      const freshEmulator = new PSPEmulator('test-player');
+      freshEmulator.onError = (msg) => errors.push(msg);
+
+      try {
+        await freshEmulator.launch({
+          file: new File(['data'], 'game.iso'),
+          volume: 0.7,
+          systemId: 'psp',
+          performanceMode: 'auto',
+          deviceCaps: fakeCaps,
+        });
+      } finally {
+        (globalThis as Record<string, unknown>).SharedArrayBuffer = originalSAB;
+      }
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('npm run dev');
+    });
+  });
+
   describe('warmUpPSPPipeline', () => {
     it('does not throw when called', () => {
       expect(() => emulator.warmUpPSPPipeline()).not.toThrow();

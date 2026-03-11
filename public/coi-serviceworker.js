@@ -77,10 +77,15 @@ if (typeof window === "undefined") {
     // when WebKit adds support the CDN assets (which lack CORP) do not block
     // isolation on iOS/iPadOS. Until then, Safari users may still lack SAB for
     // PSP but all other systems (NES/SNES/GBA/…) work fine.
+    //
+    // Chrome on iOS uses "CriOS" in the user-agent (not "Chrome") because Apple
+    // requires all iOS browsers to use the WebKit engine. Both Safari and Chrome
+    // on iOS share the same WebKit limitation, so we treat them identically.
     const ua = req.headers.get("user-agent") ?? "";
-    const isSafari =
-      /Safari\//.test(ua) && !/Chrome\//.test(ua) && !/Chromium\//.test(ua);
-    const coepValue = isSafari ? "credentialless" : "require-corp";
+    const isWebKit =
+      (/Safari\//.test(ua) && !/Chrome\//.test(ua) && !/Chromium\//.test(ua)) ||
+      /CriOS\//.test(ua);
+    const coepValue = isWebKit ? "credentialless" : "require-corp";
 
     // ── Caching strategy ──────────────────────────────────────────────────────
     // Navigation requests (HTML): network-first with cache fallback.

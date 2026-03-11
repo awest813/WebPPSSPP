@@ -46,6 +46,12 @@ const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const MAX_EXTRACTED_ENTRY_BYTES = 512 * 1024 * 1024; // 512 MB
 const MAX_EXTRACTED_ENTRY_COUNT = 4096;
 
+// iOS Safari enforces a much stricter per-page memory budget (typically 1–2 GB).
+// Warn before attempting to load archives that are likely to trigger an OOM
+// crash on iOS. 800 MB is a conservative threshold that leaves headroom for
+// the browser tab's baseline memory usage and the decompressed output.
+const IOS_LARGE_ARCHIVE_WARNING_BYTES = 800 * 1024 * 1024;
+
 // ── Internal types ────────────────────────────────────────────────────────────
 
 interface CentralDirEntry {
@@ -175,12 +181,33 @@ function toUint8Array(value: unknown): Uint8Array | null {
   return null;
 }
 
+/** Returns true when running inside Mobile Safari or Chrome-on-iOS (both WebKit). */
+function isIOSBrowser(): boolean {
+  return typeof navigator !== "undefined" && /iP(hone|ad|od)/.test(navigator.userAgent);
+}
+
 function assertArchiveSize(blob: Blob, formatLabel: string): void {
   if (blob.size > MAX_ARCHIVE_BYTES) {
     throw new Error(
       `${formatLabel} file is too large to extract in-browser ` +
       `(${(blob.size / 1073741824).toFixed(1)} GB). ` +
       "Please extract it manually and import the ROM directly."
+    );
+  }
+
+  // On iOS, the browser process has a strict memory ceiling.  Extracting a
+  // large archive requires holding both the compressed and decompressed data
+  // in memory at the same time, which can exceed the OS-imposed limit and
+  // cause the tab to crash.  Throw early with a descriptive message instead
+  // of silently hanging or crashing.
+  if (
+    blob.size > IOS_LARGE_ARCHIVE_WARNING_BYTES &&
+    isIOSBrowser()
+  ) {
+    throw new Error(
+      `This ${formatLabel} archive (${(blob.size / 1048576).toFixed(0)} MB) may be too large to extract on iPhone/iPad. ` +
+      "iOS limits available memory per browser tab, which can cause large archives to crash mid-extraction. " +
+      "Please extract the archive on a desktop computer and import the ROM file directly."
     );
   }
 }
@@ -331,9 +358,13 @@ async function decompressWithStream(
   bytes: Uint8Array
 ): Promise<Uint8Array> {
   if (typeof DecompressionStream === "undefined") {
+    // Provide a targeted hint for iOS/iPadOS users who need to update.
+    const hint = isIOSBrowser()
+      ? " On iPhone/iPad: update to iOS 16.4 or later in Settings → General → Software Update."
+      : " Please extract the archive manually or use a modern browser.";
     throw new Error(
-      "Your browser does not support DecompressionStream. " +
-      "Please extract the archive manually or use a modern browser."
+      "Your browser does not support DecompressionStream — ZIP archive decompression is unavailable." +
+      hint
     );
   }
 
@@ -341,8 +372,13 @@ async function decompressWithStream(
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
 
-  await writer.write(new Uint8Array(bytes));
-  await writer.close();
+  // Write and read concurrently to avoid backpressure deadlock on Safari/iOS.
+  // On some WebKit versions, awaiting writer.close() before any reader.read()
+  // can hang indefinitely once the transform's output buffer fills up.
+  // Cast required because WritableStreamDefaultWriter<Uint8Array> is typed to
+  // accept ArrayBuffer-backed views; blob.arrayBuffer() always produces a plain
+  // ArrayBuffer so the runtime type is always correct.
+  const writePromise = writer.write(bytes as unknown as Uint8Array<ArrayBuffer>).then(() => writer.close());
 
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -361,6 +397,9 @@ async function decompressWithStream(
   } finally {
     reader.releaseLock();
   }
+
+  // Propagate any write-side error (e.g. malformed compressed data).
+  await writePromise;
 
   const output = new Uint8Array(total);
   let offset = 0;
