@@ -100,7 +100,7 @@ export function checkGameCompatibility(
  * - Returns an error string when the session cannot proceed.
  */
 export function compatibilitySummary(result: CompatibilityResult): string | null {
-  if (result.errors.length > 0)   return result.errors[0] ?? null;
-  if (result.warnings.length > 0) return result.warnings[0] ?? null;
+  if (result.errors.length > 0)   return result.errors[0]!;
+  if (result.warnings.length > 0) return result.warnings[0]!;
   return null;
 }
