@@ -18,10 +18,10 @@ Items within each phase are roughly ordered by expected impact.
 | 5 | Mobile & PWA | ✅ Complete |
 | 5.1 | Polish & Performance | ✅ Complete |
 | 5.2 | Core Correctness & Keyboard Controls | ✅ Complete |
-| 6 | Multiplayer & Social | 🔄 In Progress |
+| 6 | Multiplayer & Social | ✅ Complete |
 | 7 | WebGPU Native Path | ✅ Complete |
 | 7.1 | 3D Emulator Overhaul | ✅ Complete |
-| 8 | Advanced 3D Rendering & Quality | 📋 Planned |
+| 8 | Advanced 3D Rendering & Quality | 🔜 Next |
 | 9 | Intelligent Performance Optimization | 📋 Planned |
 | 10 | Community, Accessibility & Ecosystem | 📋 Planned |
 
@@ -145,7 +145,7 @@ Fixes for silent bugs where the wrong PS1 core was used and keyboard shortcuts l
 
 ---
 
-## Phase 6 — Multiplayer & Social (In Progress)
+## Phase 6 — Multiplayer & Social (Complete)
 
 Networked features for real-time multiplayer gaming.
 
@@ -155,9 +155,9 @@ Networked features for real-time multiplayer gaming.
 - [x] **Lobby browser foundation**: `fetchLobbyRooms()` probes `/rooms`, `/lobby/rooms`, `/netplay/rooms`; normalises payload shapes; resilient to network failures
 - [x] **ICE server management**: Custom STUN/TURN entry UI (`#netplay-ice-add`); ICE list persisted in Settings
 - [x] **NetplayMetricsCollector**: Incremental running sums (O(1) snapshot); `NetplaySessionMetrics` and `netplayErrorMessage()` exported
-- [ ] **WebRTC peer-to-peer data channels**: Game state synchronisation over WebRTC without a dedicated game server
-- [ ] **Lobby browser UI**: WebSocket-based matchmaking room list with live player count and join/create flow
-- [ ] **Spectator mode**: Read-only WebRTC stream of a running session for watch parties
+- [x] **WebRTC peer-to-peer data channels**: `PeerDataChannel` class in `src/netplay/peerChannel.ts`; bidirectional typed messages (ping/pong, state, input, chat); `SpectatorChannel` for read-only receive; graceful `RTCPeerConnection` negotiation (offer/answer/ICE) with auto-reconnect
+- [x] **Lobby browser UI**: Host / Join / Browse / Watch four-tab modal; Browse panel has room cards with Quick Join and Watch buttons, filter by Nearby / This Game / All Rooms, and auto-refresh every 30 s with live countdown
+- [x] **Spectator mode**: `watchRoom()` on `EasyNetplayManager` joins as read-only spectator; `"spectating"` → `"watching"` state machine; `spectator_joined` event; Watch tab in the multiplayer modal with leave/stop-watching button
 - [ ] **Rollback netcode**: Frame-delay + rollback for low-latency gameplay on lossy connections (long-term)
 
 ---
@@ -213,9 +213,18 @@ Comprehensive overhaul of all 3D system emulators with improved tier tuning, GPU
 
 ---
 
-## Phase 8 — Advanced 3D Rendering & Quality (Planned)
+## Phase 8 — Advanced 3D Rendering & Quality (Next)
 
 Next-generation rendering improvements for the primary 3D systems.
+Phase 8 is the immediate successor to Phase 6 and builds directly on the
+WebGPU rendering pipeline completed in Phase 7/7.1.
+
+**Recommended start order:**
+1. Dynamic resolution scaling (DRS) — highest impact for low-end devices
+2. FSR 1.0 upscaling — quality improvement on all tiers
+3. Per-game graphics profiles — enables granular user control
+4. Texture replacement packs — community content
+5. TAA / audio filters — optional polish
 
 ### Rendering Pipeline
 

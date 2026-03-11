@@ -3059,7 +3059,7 @@ describe("openEasyNetplayModal", () => {
     const overlay = document.querySelector(".easy-netplay-overlay");
     expect(overlay).toBeTruthy();
     const panels = document.querySelectorAll<HTMLElement>(".enp-panel");
-    expect(panels).toHaveLength(3);
+    expect(panels).toHaveLength(4);
     void calledWith; // suppress unused warning
   });
 

@@ -4523,6 +4523,35 @@ kbd {
   gap:         5px;
 }
 
+/* Auto-refresh countdown label */
+.enp-refresh-countdown {
+  font-size:   0.75rem;
+  color:       var(--c-text-muted, #888);
+  align-self:  center;
+  white-space: nowrap;
+}
+
+/* Watch (spectator) button on room cards */
+.enp-room-watch-btn {
+  font-size: 0.8rem;
+  padding:   5px 12px;
+  opacity:   0.82;
+}
+
+.enp-room-watch-btn:hover { opacity: 1; }
+
+/* Watch panel main action button */
+.enp-btn-watch {
+  width:     100%;
+  margin-top: 6px;
+}
+
+/* Spectating room card variant */
+.enp-active-room--spectating .enp-active-room__waiting {
+  color:       var(--c-text-muted, #888);
+  font-style:  italic;
+}
+
 /* ── Mobile tweaks ───────────────────────────────────────────── */
 @media (max-width: 600px) {
   .easy-netplay-dialog {
@@ -4575,7 +4604,9 @@ kbd {
 
   .enp-btn-create,
   .enp-btn-join,
+  .enp-btn-watch,
   .enp-room-join-btn,
+  .enp-room-watch-btn,
   .enp-refresh-btn {
     min-height: 44px;
   }

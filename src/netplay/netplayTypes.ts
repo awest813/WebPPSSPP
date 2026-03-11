@@ -12,10 +12,12 @@
  * All possible states for a netplay session.
  *
  * Transitions:
- *   idle → hosting | joining
+ *   idle → hosting | joining | spectating
  *   hosting → connected | failed
  *   joining → connected | failed
+ *   spectating → watching | idle | failed
  *   connected → in_game | disconnected
+ *   watching → disconnected | idle
  *   in_game → disconnected
  *   disconnected → reconnecting | idle
  *   reconnecting → connected | failed
@@ -25,7 +27,9 @@ export type NetplaySessionState =
   | "idle"
   | "hosting"
   | "joining"
+  | "spectating"
   | "connected"
+  | "watching"
   | "in_game"
   | "disconnected"
   | "reconnecting"
@@ -105,18 +109,35 @@ export interface NetplayDiagnosticEntry {
   timestamp: number;
 }
 
+// ── Spectator ─────────────────────────────────────────────────────────────────
+
+/**
+ * A spectator session — a read-only view of a running game room.
+ *
+ * Spectators receive room events and player-count updates but cannot
+ * participate in the game.
+ */
+export interface SpectatorSession {
+  /** The room being watched. */
+  room:        EasyNetplayRoom;
+  /** Current spectator count in the room, if reported by the server. */
+  spectatorCount: number;
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 /** Union of all events emitted by EasyNetplayManager. */
 export type NetplayEvent =
-  | { type: "state_changed";  state:      NetplaySessionState }
-  | { type: "room_created";   room:       EasyNetplayRoom }
-  | { type: "room_joined";    room:       EasyNetplayRoom }
-  | { type: "player_joined";  player:     NetplayPlayer }
-  | { type: "player_left";    player:     NetplayPlayer }
-  | { type: "diagnostic";     diagnostic: NetplayDiagnosticEntry }
-  | { type: "error";          code:       string; message: string }
-  | { type: "disconnected";   reason?:    string };
+  | { type: "state_changed";     state:      NetplaySessionState }
+  | { type: "room_created";      room:       EasyNetplayRoom }
+  | { type: "room_joined";       room:       EasyNetplayRoom }
+  | { type: "spectator_joined";  session:    SpectatorSession }
+  | { type: "player_joined";     player:     NetplayPlayer }
+  | { type: "player_left";       player:     NetplayPlayer }
+  | { type: "player_count";      roomId:     string; count: number }
+  | { type: "diagnostic";        diagnostic: NetplayDiagnosticEntry }
+  | { type: "error";             code:       string; message: string }
+  | { type: "disconnected";      reason?:    string };
 
 // ── Host / Join options ───────────────────────────────────────────────────────
 
@@ -153,4 +174,12 @@ export interface JoinRoomOptions {
   localGameId?:    string;
   /** Local system identifier — used for pre-join compatibility checks. */
   localSystemId?:  string;
+}
+
+/** Options supplied when joining a room as a spectator. */
+export interface WatchRoomOptions {
+  /** Short invite code shared by the host. */
+  code: string;
+  /** Display name shown in the spectator list. Empty means anonymous. */
+  spectatorName?: string;
 }

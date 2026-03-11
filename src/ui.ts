@@ -4196,9 +4196,10 @@ export function openEasyNetplayModal(opts: {
 
   // ── Tab bar ──────────────────────────────────────────────────────────────
   const tabs: Array<{ id: string; label: string }> = [
-    { id: "host",   label: "🎮 Host"   },
-    { id: "join",   label: "🔗 Join"   },
-    { id: "browse", label: "📋 Browse" },
+    { id: "host",    label: "🎮 Host"    },
+    { id: "join",    label: "🔗 Join"    },
+    { id: "browse",  label: "📋 Browse"  },
+    { id: "watch",   label: "👁 Watch"   },
   ];
   const tabBar     = make("div", { class: "enp-tabs",  role: "tablist" });
   const panelWrap  = make("div", { class: "enp-panels" });
@@ -4256,6 +4257,9 @@ export function openEasyNetplayModal(opts: {
   }));
 
   // ── Browse panel ─────────────────────────────────────────────────────────
+  // Watch-tab pre-fill refs
+  let _fillWatchCode: ((code: string) => void) | null = null;
+  let _quickWatchCode: ((code: string) => void) | null = null;
   panelCleanups.push(_buildBrowsePanel(panels[2]!, {
     easyMgr, currentGameName, currentSystemId, serverUrl,
     onJoinByCode: (code) => {
@@ -4263,6 +4267,20 @@ export function openEasyNetplayModal(opts: {
       _fillJoinCode?.(code);
       _quickJoinCode?.(code);
     },
+    onWatchByCode: (code) => {
+      // _fillWatchCode pre-fills the code input and enables the button.
+      // _quickWatchCode immediately triggers the watch attempt for one-tap flow.
+      switchTab("watch");
+      _fillWatchCode?.(code);
+      _quickWatchCode?.(code);
+    },
+  }));
+
+  // ── Watch panel ───────────────────────────────────────────────────────────
+  panelCleanups.push(_buildWatchPanel(panels[3]!, {
+    easyMgr, username: username || "Anonymous", serverUrl,
+    onCodeSetterReady: (setter) => { _fillWatchCode = setter; },
+    onWatchActionReady: (watchNow) => { _quickWatchCode = watchNow; },
   }));
 
   // ── Append + animate ─────────────────────────────────────────────────────
@@ -4576,6 +4594,9 @@ function _buildJoinPanel(
 
 // ── Easy Netplay — Browse panel ───────────────────────────────────────────────
 
+/** Interval (ms) between automatic room list refreshes in the Browse panel. */
+const _BROWSE_AUTO_REFRESH_MS = 30_000;
+
 function _buildBrowsePanel(
   container: HTMLElement,
   opts: {
@@ -4585,6 +4606,8 @@ function _buildBrowsePanel(
     serverUrl?:       string;
     /** Called when the user clicks "Join" on a room card; receives the invite code. */
     onJoinByCode?:    (code: string) => void;
+    /** Called when the user clicks "Watch" on a room card; receives the invite code. */
+    onWatchByCode?:   (code: string) => void;
   }
 ): () => void {
   const { easyMgr, currentGameName, serverUrl, currentSystemId } = opts;
@@ -4730,9 +4753,57 @@ function _buildBrowsePanel(
         card.appendChild(btnJoinRoom);
       }
 
+      // Spectate button — shown on all open rooms regardless of fullness.
+      if (!incompatibleSystem) {
+        const btnWatch = make("button", {
+          class: "btn enp-room-watch-btn",
+          title: "Watch this game as a spectator",
+        }) as HTMLButtonElement;
+        btnWatch.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watch`;
+        btnWatch.addEventListener("click", () => {
+          if (opts.onWatchByCode) {
+            opts.onWatchByCode(room.code);
+          } else {
+            showInfoToast(`Code: ${room.code} — open Watch tab or switch to Join tab`);
+          }
+        });
+        card.appendChild(btnWatch);
+      }
+
       frag.appendChild(card);
     }
     listEl.appendChild(frag);
+  };
+
+  // ── Auto-refresh countdown ──────────────────────────────────────────────────
+  // Polls every _BROWSE_AUTO_REFRESH_MS ms and shows a live countdown so
+  // users know the list is staying fresh without manual intervention.
+
+  let autoRefreshTimerId: ReturnType<typeof setTimeout> | null = null;
+  let countdownTimerId:   ReturnType<typeof setInterval> | null = null;
+  let nextRefreshAt = 0;
+  let lastShownSecs = -1;
+
+  const stopAutoRefresh = () => {
+    if (autoRefreshTimerId !== null) { clearTimeout(autoRefreshTimerId);  autoRefreshTimerId  = null; }
+    if (countdownTimerId   !== null) { clearInterval(countdownTimerId);   countdownTimerId    = null; }
+  };
+
+  const startAutoRefresh = () => {
+    stopAutoRefresh();
+    if (!serverUrl) return;
+    nextRefreshAt = Date.now() + _BROWSE_AUTO_REFRESH_MS;
+    lastShownSecs = -1;
+    autoRefreshTimerId = setTimeout(() => {
+      // Restart cycle after refresh, whether it succeeds or fails.
+      void doRefresh().then(startAutoRefresh).catch(startAutoRefresh);
+    }, _BROWSE_AUTO_REFRESH_MS);
+    countdownTimerId = setInterval(() => {
+      const secsLeft = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
+      if (secsLeft === lastShownSecs) return; // skip DOM write when unchanged
+      lastShownSecs = secsLeft;
+      countdownEl.textContent = secsLeft > 0 ? `Auto-refresh in ${secsLeft}s` : "";
+    }, 1_000);
   };
 
   // Refresh function — skips network call when no server is configured.
@@ -4745,6 +4816,7 @@ function _buildBrowsePanel(
     loadAbort = new AbortController();
     refreshBtn.disabled = true;
     refreshBtn.textContent = "Refreshing…";
+    countdownEl.textContent = "";
 
     listEl.innerHTML = "";
     // Skeleton placeholder
@@ -4769,20 +4841,183 @@ function _buildBrowsePanel(
     }
   };
 
-  // Footer with Refresh button
+  // Footer with Refresh button and auto-refresh countdown
   const footer = make("div", { class: "enp-browse-footer" });
   const refreshBtn = make("button", { class: "btn enp-refresh-btn" }) as HTMLButtonElement;
   refreshBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refresh`;
-  refreshBtn.addEventListener("click", doRefresh);
+  refreshBtn.addEventListener("click", () => {
+    stopAutoRefresh();
+    void doRefresh().then(startAutoRefresh).catch(startAutoRefresh);
+  });
   footer.appendChild(refreshBtn);
+  const countdownEl = make("span", { class: "enp-refresh-countdown" });
+  footer.appendChild(countdownEl);
   container.appendChild(footer);
 
-  // Auto-load on panel reveal
+  // Auto-load on panel reveal and start auto-refresh cycle.
   renderRooms([]);
-  void doRefresh();
+  void doRefresh().then(startAutoRefresh).catch(startAutoRefresh);
   return () => {
+    stopAutoRefresh();
     loadAbort?.abort();
     loadAbort = null;
+  };
+}
+
+// ── Easy Netplay — Watch (Spectator) panel ────────────────────────────────────
+
+function _buildWatchPanel(
+  container: HTMLElement,
+  opts: {
+    easyMgr:             EasyNetplayManager;
+    username:            string;
+    serverUrl?:          string;
+    /** Called once the code-input setter is ready; lets the Browse panel pre-fill it. */
+    onCodeSetterReady?:  (setter: (code: string) => void) => void;
+    /** Called once watch action is ready; enables one-tap watch from Browse. */
+    onWatchActionReady?: (watchNow: (code: string) => void) => void;
+  }
+): () => void {
+  const { easyMgr, serverUrl } = opts;
+
+  container.appendChild(make("p", { class: "enp-panel-desc" },
+    "Enter an invite code to watch a game as a spectator. You'll see the session but won't be able to play."
+  ));
+
+  // Code input
+  const codeField = make("div", { class: "enp-field" });
+  codeField.appendChild(make("label", { class: "enp-label", for: "enp-watch-code" }, "Invite code"));
+  const codeInput = make("input", {
+    type:          "text",
+    id:            "enp-watch-code",
+    class:         "enp-code-input",
+    placeholder:   "AB12CD",
+    maxlength:     "10",
+    autocomplete:  "off",
+    autocapitalize: "characters",
+    spellcheck:    "false",
+  }) as HTMLInputElement;
+
+  const syncCodeInput = () => {
+    const norm = normaliseInviteCode(codeInput.value);
+    if (norm !== codeInput.value) codeInput.value = norm;
+    codeError.hidden = true;
+    btnWatch.disabled = norm.length < 4;
+  };
+  codeInput.addEventListener("input", syncCodeInput);
+  codeField.appendChild(codeInput);
+  container.appendChild(codeField);
+
+  opts.onCodeSetterReady?.((code: string) => {
+    codeInput.value = normaliseInviteCode(code);
+    syncCodeInput();
+    codeInput.focus();
+  });
+
+  // Error display
+  const codeError = make("p", { class: "enp-diag enp-diag--error" });
+  codeError.hidden = true;
+  container.appendChild(codeError);
+
+  // No-server warning
+  if (!serverUrl) {
+    container.appendChild(make("p", { class: "enp-server-warn" },
+      "⚠ No server URL configured. Spectating requires a server. Add one in Settings → Play Together."
+    ));
+  }
+
+  // Status area
+  const statusArea = make("div", { class: "enp-status-area" });
+  statusArea.hidden = true;
+  container.appendChild(statusArea);
+
+  // Watch button
+  const btnWatch = make("button", {
+    class:    "btn btn--secondary enp-btn-watch",
+    disabled: "",
+  }) as HTMLButtonElement;
+  btnWatch.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watch Game`;
+
+  let activeUnsub: (() => void) | null = null;
+  const attemptWatch = async (prefilledCode?: string) => {
+    const code = normaliseInviteCode(prefilledCode ?? codeInput.value);
+    codeInput.value = code;
+    syncCodeInput();
+    if (code.length < 4) {
+      codeError.textContent = "Please enter a valid invite code (at least 4 characters).";
+      codeError.hidden = false;
+      return;
+    }
+
+    btnWatch.disabled = true;
+    btnWatch.textContent = "Connecting…";
+    statusArea.hidden   = false;
+    statusArea.innerHTML = "";
+    statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "Connecting…"));
+
+    activeUnsub?.();
+    activeUnsub = easyMgr.onEvent(ev => {
+      if (ev.type === "diagnostic") {
+        if (statusArea.children.length === 1 && statusArea.children[0]!.textContent === "Connecting…") {
+          statusArea.innerHTML = "";
+        }
+        statusArea.appendChild(_renderEasyDiagnosticEntry(ev.diagnostic.level, ev.diagnostic.message, ev.diagnostic.detail));
+      }
+      if (ev.type === "spectator_joined") {
+        activeUnsub?.();
+        activeUnsub = null;
+        const { room, spectatorCount } = ev.session;
+        statusArea.innerHTML = "";
+        // Spectator room card
+        const card = make("div", { class: "enp-active-room enp-active-room--spectating" });
+        const codeWrap = make("div", { class: "enp-active-room__code-wrap" });
+        codeWrap.appendChild(make("span", { class: "enp-active-room__code-label" }, "Room"));
+        codeWrap.appendChild(make("span", { class: "enp-active-room__code" }, room.name));
+        card.appendChild(codeWrap);
+        const info = make("div", { class: "enp-active-room__info" });
+        info.appendChild(make("span", { class: "enp-active-room__name" }, `${room.isLocal ? "📶 Local" : "🌐 Online"} · ${room.playerCount}/${room.maxPlayers} players`));
+        if (room.gameName) {
+          info.appendChild(make("span", { class: "enp-active-room__detail" }, `Game: ${room.gameName}`));
+        }
+        if (spectatorCount > 0) {
+          info.appendChild(make("span", { class: "enp-active-room__detail" }, `👁 ${spectatorCount} spectator${spectatorCount !== 1 ? "s" : ""}`));
+        }
+        card.appendChild(info);
+        card.appendChild(make("p", { class: "enp-active-room__waiting" }, "👁 Spectating — watching the game…"));
+        const btnLeave = make("button", { class: "btn btn--danger enp-leave-btn" }, "Stop Watching") as HTMLButtonElement;
+        btnLeave.addEventListener("click", async () => {
+          await easyMgr.leaveRoom();
+          statusArea.innerHTML = "";
+          statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "You stopped watching."));
+          btnWatch.disabled    = false;
+          btnWatch.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watch Game`;
+        });
+        card.appendChild(btnLeave);
+        statusArea.appendChild(card);
+        btnWatch.textContent = "Watching ✓";
+        btnWatch.disabled    = true;
+      }
+      if (ev.type === "error") {
+        activeUnsub?.();
+        activeUnsub = null;
+        statusArea.innerHTML = "";
+        codeError.textContent = ev.message;
+        codeError.hidden  = false;
+        statusArea.hidden = true;
+        btnWatch.disabled = false;
+        btnWatch.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Try Again`;
+      }
+    });
+
+    await easyMgr.watchRoom({ code });
+  };
+  btnWatch.addEventListener("click", () => { void attemptWatch(); });
+  opts.onWatchActionReady?.((code) => { void attemptWatch(code); });
+
+  container.appendChild(btnWatch);
+  return () => {
+    activeUnsub?.();
+    activeUnsub = null;
   };
 }
 

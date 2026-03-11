@@ -523,4 +523,266 @@ describe("EasyNetplayManager", () => {
     expect(manager.state).toBe("idle");
     vi.unstubAllGlobals();
   });
+
+  // ── watchRoom / spectator ──────────────────────────────────────────────────
+
+  it("watchRoom without server emits server_unavailable error", async () => {
+    const errors: string[] = [];
+    manager.onEvent(ev => { if (ev.type === "error") errors.push(ev.code); });
+    await manager.watchRoom({ code: "ABCDEF" });
+    expect(errors).toContain("server_unavailable");
+  });
+
+  it("watchRoom with invalid code emits invalid_code error", async () => {
+    manager.setServerUrl("wss://example.com");
+    const errors: string[] = [];
+    manager.onEvent(ev => { if (ev.type === "error") errors.push(ev.code); });
+    await manager.watchRoom({ code: "X" });
+    expect(errors).toContain("invalid_code");
+  });
+
+  it("watchRoom transitions through spectating then watching", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "room-1", code: "ABCDEF", name: "Test Room",
+        gameId: "gran_turismo", gameName: "Gran Turismo", systemId: "psp",
+        host: "Alice", privacy: "public", players: 1, maxPlayers: 2,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    const states: string[] = [];
+    manager.onEvent(ev => { if (ev.type === "state_changed") states.push(ev.state); });
+    await manager.watchRoom({ code: "ABCDEF" });
+
+    expect(states).toContain("spectating");
+    expect(states).toContain("watching");
+    expect(manager.isSpectating).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("watchRoom emits spectator_joined event with room metadata", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "room-1", code: "ABCDEF", name: "Spectate Me",
+        gameId: "some_game", gameName: "Some Game", systemId: "psp",
+        host: "Host", privacy: "public", players: 2, maxPlayers: 2,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    let session: import("./netplayTypes.js").SpectatorSession | null = null;
+    manager.onEvent(ev => { if (ev.type === "spectator_joined") session = ev.session; });
+    await manager.watchRoom({ code: "ABCDEF" });
+
+    expect(session).not.toBeNull();
+    expect(session!.room.name).toBe("Spectate Me");
+    expect(session!.room.gameName).toBe("Some Game");
+    vi.unstubAllGlobals();
+  });
+
+  it("isSpectating is false when idle", () => {
+    expect(manager.isSpectating).toBe(false);
+  });
+
+  it("spectatorSession is null until watchRoom succeeds", async () => {
+    expect(manager.spectatorSession).toBeNull();
+  });
+
+  it("leaveRoom clears spectator session and returns to idle", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "room-1", code: "ABCDEF", name: "Room", gameId: "g", gameName: "G",
+        systemId: "psp", host: "H", privacy: "public", players: 1, maxPlayers: 2,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    await manager.watchRoom({ code: "ABCDEF" });
+    expect(manager.isSpectating).toBe(true);
+
+    await manager.leaveRoom();
+    expect(manager.isSpectating).toBe(false);
+    expect(manager.spectatorSession).toBeNull();
+    expect(manager.state).toBe("idle");
+    vi.unstubAllGlobals();
+  });
+
+  it("updatePlayerCount emits player_count event", () => {
+    let received: { roomId: string; count: number } | null = null;
+    manager.onEvent(ev => {
+      if (ev.type === "player_count") received = { roomId: ev.roomId, count: ev.count };
+    });
+    manager.updatePlayerCount("room-99", 3);
+    expect(received).toEqual({ roomId: "room-99", count: 3 });
+  });
+});
+
+// ── PeerDataChannel ───────────────────────────────────────────────────────────
+
+import { PeerDataChannel, SpectatorChannel } from "./peerChannel.js";
+import type { PeerMessage } from "./peerChannel.js";
+
+describe("PeerDataChannel", () => {
+  it("starts in 'new' state", () => {
+    const ch = new PeerDataChannel();
+    expect(ch.state).toBe("new");
+    expect(ch.isOpen).toBe(false);
+  });
+
+  it("createOffer() throws when RTCPeerConnection is unavailable", async () => {
+    // JSDOM does not provide RTCPeerConnection.
+    const ch = new PeerDataChannel();
+    await expect(ch.createOffer()).rejects.toThrow(/WebRTC is not available/);
+  });
+
+  it("createAnswer() throws when RTCPeerConnection is unavailable", async () => {
+    const ch = new PeerDataChannel();
+    await expect(ch.createAnswer({ type: "offer", sdp: "" })).rejects.toThrow(/WebRTC is not available/);
+  });
+
+  it("send() throws when channel is not open", () => {
+    const ch = new PeerDataChannel();
+    expect(() => ch.send("hello")).toThrow(/not open/);
+  });
+
+  it("sendMessage() throws when channel is not open", () => {
+    const ch = new PeerDataChannel();
+    expect(() => ch.sendMessage({ type: "chat", text: "hi", senderName: "Bob" })).toThrow(/not open/);
+  });
+
+  it("close() transitions to 'closed' without throwing", () => {
+    const ch = new PeerDataChannel();
+    expect(() => ch.close()).not.toThrow();
+    expect(ch.state).toBe("closed");
+  });
+
+  it("onStateChange is called on close()", () => {
+    const ch = new PeerDataChannel();
+    const states: string[] = [];
+    ch.onStateChange = (s) => states.push(s);
+    ch.close();
+    expect(states).toContain("closed");
+  });
+
+  it("onClose callback fires on close()", () => {
+    const ch = new PeerDataChannel();
+    let closed = false;
+    ch.onClose = () => { closed = true; };
+    ch.close();
+    expect(closed).toBe(true);
+  });
+
+  it("close() is idempotent — no double callbacks", () => {
+    const ch = new PeerDataChannel();
+    let count = 0;
+    ch.onClose = () => { count++; };
+    ch.close();
+    ch.close();
+    expect(count).toBe(1);
+  });
+
+  it("applyAnswer() throws when no peer connection exists", async () => {
+    const ch = new PeerDataChannel();
+    await expect(ch.applyAnswer({ type: "answer", sdp: "" })).rejects.toThrow();
+  });
+
+  it("addIceCandidate() is a no-op when no peer connection exists", async () => {
+    const ch = new PeerDataChannel();
+    await expect(ch.addIceCandidate({ candidate: "" })).resolves.toBeUndefined();
+  });
+
+  it("accepts custom ICE servers and label in constructor", () => {
+    const ch = new PeerDataChannel({
+      label: "test-channel",
+      iceServers: [{ urls: "stun:example.com:3478" }],
+      maxReconnectAttempts: 5,
+    });
+    // No error thrown; state is still new.
+    expect(ch.state).toBe("new");
+  });
+});
+
+// ── SpectatorChannel ──────────────────────────────────────────────────────────
+
+describe("SpectatorChannel", () => {
+  it("starts in 'new' state", () => {
+    const ch = new SpectatorChannel();
+    expect(ch.state).toBe("new");
+    expect(ch.isWatching).toBe(false);
+  });
+
+  it("acceptOffer() throws when RTCPeerConnection is unavailable", async () => {
+    const ch = new SpectatorChannel();
+    await expect(ch.acceptOffer({ type: "offer", sdp: "" })).rejects.toThrow(/WebRTC is not available/);
+  });
+
+  it("addIceCandidate() is a no-op with no peer connection", async () => {
+    const ch = new SpectatorChannel();
+    await expect(ch.addIceCandidate({ candidate: "" })).resolves.toBeUndefined();
+  });
+
+  it("close() transitions to 'closed'", () => {
+    const ch = new SpectatorChannel();
+    ch.close();
+    expect(ch.state).toBe("closed");
+    expect(ch.isWatching).toBe(false);
+  });
+
+  it("close() calls onClose callback", () => {
+    const ch = new SpectatorChannel();
+    let closed = false;
+    ch.onClose = () => { closed = true; };
+    ch.close();
+    expect(closed).toBe(true);
+  });
+
+  it("SpectatorChannel has no send() method (read-only contract)", () => {
+    const ch = new SpectatorChannel();
+    expect((ch as unknown as Record<string, unknown>)["send"]).toBeUndefined();
+  });
+
+  it("onStateChange fires on close()", () => {
+    const ch = new SpectatorChannel();
+    const states: string[] = [];
+    ch.onStateChange = (s) => states.push(s);
+    ch.close();
+    expect(states).toContain("closed");
+  });
+});
+
+// ── PeerMessage types ─────────────────────────────────────────────────────────
+
+describe("PeerMessage type system", () => {
+  it("ping message has correct shape", () => {
+    const msg: PeerMessage = { type: "ping", timestamp: 1000 };
+    expect(msg.type).toBe("ping");
+  });
+
+  it("pong message has correct shape", () => {
+    const msg: PeerMessage = { type: "pong", timestamp: 1001, echoTimestamp: 1000 };
+    expect(msg.type).toBe("pong");
+    expect(msg.echoTimestamp).toBe(1000);
+  });
+
+  it("state message has seq and payload", () => {
+    const msg: PeerMessage = { type: "state", seq: 42, payload: "abc" };
+    expect(msg.seq).toBe(42);
+  });
+
+  it("chat message has text and senderName", () => {
+    const msg: PeerMessage = { type: "chat", text: "hello", senderName: "Alice" };
+    expect(msg.text).toBe("hello");
+  });
+
+  it("spectator_count message has count", () => {
+    const msg: PeerMessage = { type: "spectator_count", count: 5 };
+    expect(msg.count).toBe(5);
+  });
 });
