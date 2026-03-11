@@ -77,6 +77,12 @@ export interface DeviceCapabilities {
   isLowSpec: boolean;
   /** True when the device appears to be running Chrome OS (Chromebook). */
   isChromOS: boolean;
+  /** True when the device appears to be an iPhone or iPad (iOS/iPadOS). */
+  isIOS: boolean;
+  /** True when the device appears to be running Android. */
+  isAndroid: boolean;
+  /** True when the device appears to be a mobile device (iOS or Android). */
+  isMobile: boolean;
   /**
    * Recommended mode based on hardware alone.
    * Does NOT reflect the user's manual override.
@@ -161,6 +167,41 @@ function isSoftwareRenderer(renderer: string): boolean {
  */
 export function isLikelyChromeOS(): boolean {
   return /CrOS/.test(navigator.userAgent);
+}
+
+// ── iOS / Android detection ───────────────────────────────────────────────────
+
+/**
+ * Detect if the user is on iOS (iPhone, iPad, or iPod Touch).
+ *
+ * Handles both classic iOS user-agents (iP(hone|ad|od)) and the iPadOS 13+
+ * case where Safari reports itself as "Macintosh" but exposes touch points.
+ * Both Safari and all iOS-native browsers (Chrome, Firefox) use WebKit and
+ * share the same performance and API constraints.
+ */
+export function isLikelyIOS(): boolean {
+  try {
+    if (/iP(hone|ad|od)/.test(navigator.userAgent)) return true;
+    // iPadOS 13+ identifies as "Macintosh" but has touch hardware
+    if (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints >= 1) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if the user is on Android.
+ *
+ * Android always includes "Android" in the user-agent string regardless of
+ * the browser (Chrome, Firefox, Samsung Internet, etc.).
+ */
+export function isLikelyAndroid(): boolean {
+  try {
+    return /Android/.test(navigator.userAgent);
+  } catch {
+    return false;
+  }
 }
 
 // ── Reduced motion preference ─────────────────────────────────────────────────
@@ -570,7 +611,8 @@ function classifyTier(
   isSoftware: boolean,
   gpuScore: number,
   gpuCaps: GPUCapabilities,
-  chromeos: boolean
+  chromeos: boolean,
+  isMobile: boolean
 ): PerformanceTier {
   // Software GPU → always low
   if (isSoftware) return "low";
@@ -623,10 +665,20 @@ function classifyTier(
   if (chromeos) points = Math.round(points * 0.75);
 
   // Classify
-  if (points >= 75) return "ultra";
-  if (points >= 50) return "high";
-  if (points >= 25) return "medium";
-  return "low";
+  let tier: PerformanceTier;
+  if (points >= 75) tier = "ultra";
+  else if (points >= 50) tier = "high";
+  else if (points >= 25) tier = "medium";
+  else tier = "low";
+
+  // Mobile cap: even high-end phones run inside a browser with restricted heap
+  // memory (iOS Safari caps at ~1.5 GB; Android Chrome has tighter limits than
+  // desktop). Sustained WebGL workloads also throttle more aggressively on
+  // mobile SoCs due to thermal constraints. Cap mobile devices at "high" to
+  // prevent over-estimating real-world emulation performance.
+  if (isMobile && tier === "ultra") tier = "high";
+
+  return tier;
 }
 
 // ── VRAM estimation ───────────────────────────────────────────────────────────
@@ -688,12 +740,15 @@ export function detectCapabilities(): DeviceCapabilities {
   const isSoftwareGPU = isSoftwareRenderer(gpuCaps.renderer);
   const gpuBenchmarkScore = benchmarkGPU();
   const chromeos = isLikelyChromeOS();
+  const ios = isLikelyIOS();
+  const android = isLikelyAndroid();
+  const mobile = ios || android;
   const reducedMotion = prefersReducedMotion();
   const webgpuAvailable = isWebGPUAvailable();
   const connectionQuality = estimateConnectionQuality();
   const jsHeapLimitMB = getJSHeapLimitMB();
 
-  const tier = classifyTier(cpuCores, deviceMemoryGB, isSoftwareGPU, gpuBenchmarkScore, gpuCaps, chromeos);
+  const tier = classifyTier(cpuCores, deviceMemoryGB, isSoftwareGPU, gpuBenchmarkScore, gpuCaps, chromeos, mobile);
 
   const estimatedVRAM = estimateVRAM(gpuCaps);
 
@@ -706,6 +761,9 @@ export function detectCapabilities(): DeviceCapabilities {
     isSoftwareGPU,
     isLowSpec,
     isChromOS: chromeos,
+    isIOS: ios,
+    isAndroid: android,
+    isMobile: mobile,
     recommendedMode: isLowSpec || tier === "medium" ? "performance" : "quality",
     tier,
     gpuCaps,
@@ -726,7 +784,7 @@ export function detectCapabilities(): DeviceCapabilities {
  * so that cached entries without the new fields are automatically discarded,
  * even if the sessionStorage key name is not also bumped.
  */
-const CAPS_SCHEMA_VERSION = 1;
+const CAPS_SCHEMA_VERSION = 2;
 
 /**
  * sessionStorage key for the cached DeviceCapabilities result.
@@ -1046,9 +1104,10 @@ export function __classifyTierForTests(
   isSoftware: boolean,
   gpuScore: number,
   gpuCaps: GPUCapabilities,
-  chromeos: boolean
+  chromeos: boolean,
+  isMobile = false
 ): PerformanceTier {
-  return classifyTier(cpuCores, memoryGB, isSoftware, gpuScore, gpuCaps, chromeos);
+  return classifyTier(cpuCores, memoryGB, isSoftware, gpuScore, gpuCaps, chromeos, isMobile);
 }
 
 // ── Effective mode resolution ─────────────────────────────────────────────────
@@ -1107,7 +1166,8 @@ export function formatCapabilitiesSummary(caps: DeviceCapabilities): string {
       ? caps.gpuRenderer.replace(/\(.*?\)/g, "").trim()
       : "GPU info unavailable";
   const chromeosSuffix = caps.isChromOS ? " · Chromebook" : "";
-  return `${ram} · ${cores} · ${gpu}${chromeosSuffix}`;
+  const mobileSuffix = caps.isIOS ? " · iPhone/iPad" : caps.isAndroid ? " · Android" : "";
+  return `${ram} · ${cores} · ${gpu}${chromeosSuffix}${mobileSuffix}`;
 }
 
 export function formatDetailedSummary(caps: DeviceCapabilities): string {
@@ -1126,6 +1186,11 @@ export function formatDetailedSummary(caps: DeviceCapabilities): string {
   if (caps.connectionQuality !== "unknown") lines.push(`Network: ${caps.connectionQuality}`);
   if (caps.isChromOS) {
     lines.push("Device: Chromebook (conservative tier applied)");
+  }
+  if (caps.isIOS) {
+    lines.push("Device: iPhone/iPad (iOS) — memory-constrained browser; tier capped at High");
+  } else if (caps.isAndroid) {
+    lines.push("Device: Android — WebGL performance varies by device; tier capped at High");
   }
   return lines.join("\n");
 }

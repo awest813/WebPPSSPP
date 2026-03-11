@@ -50,6 +50,8 @@ import {
   type PerformanceTier,
   formatCapabilitiesSummary,
   formatTierLabel,
+  isLikelyIOS,
+  isLikelyAndroid,
   UIDirtyFlags,
   UIDirtyTracker,
 } from "./performance.js";
@@ -5818,9 +5820,12 @@ function showPerfSuggestion(): void {
   const existing = document.getElementById("perf-suggestion");
   if (existing) return;
 
+  const isMobile = isLikelyIOS() || isLikelyAndroid();
+  const mobileTip = isMobile ? " Closing background apps may also help on mobile." : "";
+
   const toast = make("div", { id: "perf-suggestion", class: "perf-suggestion", role: "status" });
   toast.innerHTML =
-    `<span class="perf-suggestion__msg">Game running slowly? Try <strong>Performance mode</strong> in ⚡ Settings for a smoother experience.</span>` +
+    `<span class="perf-suggestion__msg">Game running slowly? Try <strong>Performance mode</strong> in ⚡ Settings for a smoother experience.${mobileTip}</span>` +
     `<button class="perf-suggestion__close" aria-label="Dismiss">✕</button>`;
   document.body.appendChild(toast);
 
