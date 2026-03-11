@@ -1480,6 +1480,18 @@ describe("CloudSaveManager — sync history", () => {
     manager.addHistoryEntry("test", true);
     expect(spy).toHaveBeenCalled();
   });
+
+  it("addStatusListener notifies listeners and supports unsubscribe", () => {
+    const listener = vi.fn();
+    const unsubscribe = manager.addStatusListener(listener);
+
+    manager.setAutoSync(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    manager.setAutoSync(false);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── CloudSaveManager — push/pull/sync track badges and history ──────────────

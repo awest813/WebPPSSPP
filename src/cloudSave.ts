@@ -1315,6 +1315,7 @@ export class CloudSaveManager {
 
   /** Called whenever connection status or lastSyncAt / lastError change. */
   onStatusChange?: () => void;
+  private readonly _statusListeners = new Set<() => void>();
 
   /**
    * Optional callback invoked when both local and remote saves exist for a
@@ -1336,7 +1337,7 @@ export class CloudSaveManager {
   /** Update the sync badge for a game + slot and notify listeners. */
   setSlotBadge(gameId: string, slot: number, badge: SyncBadge): void {
     this._slotBadges.set(`${gameId}:${slot}`, badge);
-    this.onStatusChange?.();
+    this._emitStatusChange();
   }
 
   // ── Sync history ──────────────────────────────────────────────────────────
@@ -1355,7 +1356,20 @@ export class CloudSaveManager {
     if (this._syncHistory.length > CloudSaveManager.MAX_HISTORY) {
       this._syncHistory.length = CloudSaveManager.MAX_HISTORY;
     }
+    this._emitStatusChange();
+  }
+
+  /** Register a status-change listener. Returns an unsubscribe function. */
+  addStatusListener(listener: () => void): () => void {
+    this._statusListeners.add(listener);
+    return () => {
+      this._statusListeners.delete(listener);
+    };
+  }
+
+  private _emitStatusChange(): void {
     this.onStatusChange?.();
+    for (const listener of this._statusListeners) listener();
   }
 
   private static readonly SETTINGS_KEY = "retrovault-cloud";
@@ -1397,7 +1411,7 @@ export class CloudSaveManager {
     this.providerId     = provider.providerId as "null" | "webdav" | "gdrive" | "dropbox" | "pcloud";
     this._lastError     = null;
     this._saveSettings();
-    this.onStatusChange?.();
+    this._emitStatusChange();
   }
 
   /** Disconnect from the current provider (does not erase WebDAV credentials). */
@@ -1407,7 +1421,7 @@ export class CloudSaveManager {
     this._provider    = new NullCloudProvider();
     this._lastError   = null;
     this._saveSettings();
-    this.onStatusChange?.();
+    this._emitStatusChange();
   }
 
   // ── Sync operations ─────────────────────────────────────────────────────────
@@ -1737,7 +1751,7 @@ export class CloudSaveManager {
   setAutoSync(enabled: boolean): void {
     this.autoSyncEnabled = enabled;
     this._saveSettings();
-    this.onStatusChange?.();
+    this._emitStatusChange();
   }
 
   /** Update conflictResolution and persist to localStorage. */
