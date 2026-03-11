@@ -40,15 +40,26 @@ The easiest way to use netplay is through the built-in lobby inside the RetroVau
 1. Open **Settings → Netplay** and make sure netplay is **enabled**.
 2. Enter a netplay server URL (`wss://your-server`).
 3. Load a game that supports netplay (see the table above).
-4. Open the **Netplay** panel and press **Refresh** to load the room list.
-5. Select a room from the list and press **Join**.
+4. Open the **Multiplayer** panel and press **Refresh** to load the room list.
+5. Use **Quick Join** on a room card, or open the **Join** tab and enter an invite code.
 
 ### Hosting a room
 
 1. Load the game you want to play.
-2. Open the **Netplay** panel and press **Start Netplay Host**.
+2. Open the **Multiplayer** panel and press **Host Game**.
 3. A room is created and announced in the lobby — your partner can now find and join it.
 4. Share your display name or the room name with your partner so they can identify your room.
+5. If connection setup fails, use **📋 Logs** in the multiplayer header to copy diagnostics for troubleshooting.
+
+### Quick Join from Browse
+
+When browsing open rooms, the **Quick Join** button now:
+
+1. Switches to the **Join** tab automatically.
+2. Prefills the invite code.
+3. Immediately starts the join attempt.
+
+This removes the extra manual copy/paste step for most sessions.
 
 ---
 
@@ -149,6 +160,7 @@ Set a display name in **Settings → Netplay → Display Name** so other players
 | Netplay panel not visible | Enable netplay in **Settings → Netplay** and enter a server URL |
 | Room list empty | Check the server URL is correct and the server is running; press Refresh |
 | Cannot connect to partner | Both players must use the same ROM and the same server |
+| Need better error details | In the Multiplayer modal click **📋 Logs** to copy the full connection diagnostics |
 | High latency | Add a TURN server in ICE settings; ensure both players are on fast connections |
 | PSP netplay fails | Verify `self.crossOriginIsolated === true` in DevTools console |
 | Local play not working | Confirm both devices are on the same Wi-Fi network and use the LAN IP, not `localhost` |

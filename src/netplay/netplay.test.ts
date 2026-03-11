@@ -303,6 +303,67 @@ describe("HttpSignalingClient", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("falls back to legacy /list?domain endpoint and parses dictionary payloads", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          "legacy-room": {
+            room_name: "Legacy Room",
+            host: "Alice",
+            players: 1,
+            max: 2,
+            system_id: "gba",
+          },
+        }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const client = new HttpSignalingClient("wss://example.com");
+    const rooms = await client.listRooms();
+
+    const calledUrl = String((fetchSpy.mock.calls[3] as [string])[0]);
+    expect(calledUrl).toContain("/list?domain=");
+    expect(rooms[0]!.id).toBe("legacy-room");
+    expect(rooms[0]!.name).toBe("Legacy Room");
+    expect(rooms[0]!.systemId).toBe("gba");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("returns network_timeout when join request exceeds timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchSpy = vi.fn((_url: string, init?: RequestInit) => (
+        new Promise((_resolve, reject) => {
+          const abortErr = Object.assign(new Error("AbortError"), { name: "AbortError" });
+          const sig = init?.signal;
+          if (!sig) return;
+          if (sig.aborted) {
+            reject(abortErr);
+            return;
+          }
+          sig.addEventListener("abort", () => reject(abortErr), { once: true });
+        })
+      ));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const client = new HttpSignalingClient("wss://example.com");
+      const pending = expect(client.joinRoom("ABCDEF")).rejects.toMatchObject({
+        code: "network_timeout",
+      });
+      await vi.advanceTimersByTimeAsync(10_100);
+      await pending;
+      vi.unstubAllGlobals();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ── EasyNetplayManager ────────────────────────────────────────────────────────
@@ -434,6 +495,32 @@ describe("EasyNetplayManager", () => {
     });
 
     expect(errors).toContain("incompatible_rom");
+    vi.unstubAllGlobals();
+  });
+
+  it("cancelPendingOperations aborts an in-flight join and returns to idle", async () => {
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => (
+      new Promise((_resolve, reject) => {
+        const abortErr = Object.assign(new Error("AbortError"), { name: "AbortError" });
+        const sig = init?.signal;
+        if (!sig) return;
+        if (sig.aborted) {
+          reject(abortErr);
+          return;
+        }
+        sig.addEventListener("abort", () => reject(abortErr), { once: true });
+      })
+    ));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    const join = manager.joinRoom({ code: "ABCDEF", playerName: "Bob" });
+    expect(manager.state).toBe("joining");
+
+    manager.cancelPendingOperations();
+    await join;
+
+    expect(manager.state).toBe("idle");
     vi.unstubAllGlobals();
   });
 });

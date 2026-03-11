@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
+import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
 import * as archive from "./archive.js";
 import type { PSPEmulator } from "./emulator.js";
 import type { GameLibrary, GameMetadata } from "./library.js";
@@ -2957,6 +2958,7 @@ describe("openEasyNetplayModal", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
   });
 
   it("renders all three tabs: Host, Join, Browse", () => {
@@ -2966,6 +2968,13 @@ describe("openEasyNetplayModal", () => {
     expect(labels.some(l => l.includes("Host"))).toBe(true);
     expect(labels.some(l => l.includes("Join"))).toBe(true);
     expect(labels.some(l => l.includes("Browse"))).toBe(true);
+  });
+
+  it("renders a diagnostics copy button in the modal header", () => {
+    openEasyNetplayModal({});
+    const btn = document.querySelector<HTMLButtonElement>(".enp-copy-diag");
+    expect(btn).toBeTruthy();
+    expect(btn?.textContent).toContain("Logs");
   });
 
   it("shows the no-server warning in both Host and Browse panels when no server is configured", () => {
@@ -3052,6 +3061,71 @@ describe("openEasyNetplayModal", () => {
     const panels = document.querySelectorAll<HTMLElement>(".enp-panel");
     expect(panels).toHaveLength(3);
     void calledWith; // suppress unused warning
+  });
+
+  it("shows a 'This Game' filter in Browse when game + system context is available", async () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl("wss://netplay.example.com");
+    vi.spyOn(EasyNetplayManager.prototype, "listRooms").mockResolvedValue([]);
+
+    openEasyNetplayModal({
+      netplayManager: mgr,
+      currentGameName: "Pokemon Fire Red (USA)",
+      currentSystemId: "gba",
+    });
+
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
+    const browseTab = Array.from(tabs).find(t => t.textContent?.includes("Browse"))!;
+    browseTab.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const filterLabels = Array.from(document.querySelectorAll<HTMLButtonElement>(".enp-filter-btn"))
+      .map((btn) => btn.textContent ?? "");
+    expect(filterLabels.some((txt) => txt.includes("This Game"))).toBe(true);
+  });
+
+  it("Browse quick-join switches to Join tab and starts join immediately", async () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl("wss://netplay.example.com");
+    vi.spyOn(EasyNetplayManager.prototype, "listRooms").mockResolvedValue([{
+      id: "room-1",
+      code: "ABCDEF",
+      name: "Alice Room",
+      privacy: "public",
+      gameId: "pokemon_firered",
+      gameName: "Pokemon Fire Red",
+      systemId: "gba",
+      hostName: "Alice",
+      playerCount: 1,
+      maxPlayers: 2,
+      hasPassword: false,
+      isLocal: true,
+      createdAt: Date.now(),
+    }]);
+    const joinSpy = vi.spyOn(EasyNetplayManager.prototype, "joinRoom").mockResolvedValue();
+
+    openEasyNetplayModal({
+      netplayManager: mgr,
+      currentGameName: "Pokemon Fire Red (USA)",
+      currentSystemId: "gba",
+    });
+
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
+    const browseTab = Array.from(tabs).find(t => t.textContent?.includes("Browse"))!;
+    const joinTab   = Array.from(tabs).find(t => t.textContent?.includes("Join"))!;
+    browseTab.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const quickJoinBtn = document.querySelector<HTMLButtonElement>(".enp-room-join-btn");
+    expect(quickJoinBtn).toBeTruthy();
+    expect(quickJoinBtn?.textContent).toContain("Quick Join");
+    quickJoinBtn!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(joinTab.getAttribute("aria-selected")).toBe("true");
+    expect(joinSpy).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF" }));
   });
 
   it("pressing Escape closes the modal", () => {

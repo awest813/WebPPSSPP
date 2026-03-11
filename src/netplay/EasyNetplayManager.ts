@@ -50,6 +50,7 @@ export class EasyNetplayManager {
   private _serverUrl:  string = "";
   private _listeners:  Array<(ev: NetplayEvent) => void> = [];
   private _hostAbort:  AbortController | null = null;
+  private _joinAbort:  AbortController | null = null;
   private _diagnostics = new DiagnosticsLog();
 
   constructor(serverUrl?: string) {
@@ -64,6 +65,7 @@ export class EasyNetplayManager {
 
   /** Update the signaling server URL. */
   setServerUrl(url: string): void {
+    this.cancelPendingOperations();
     this._serverUrl = url.trim();
     this._sigClient = this._serverUrl.length > 0
       ? new HttpSignalingClient(this._serverUrl)
@@ -88,6 +90,19 @@ export class EasyNetplayManager {
     return () => {
       this._listeners = this._listeners.filter(l => l !== fn);
     };
+  }
+
+  /**
+   * Abort in-flight host/join requests without changing room/session state.
+   *
+   * Useful when the UI that initiated a request is dismissed (e.g. a modal is
+   * closed) and we want to avoid stale completion callbacks.
+   */
+  cancelPendingOperations(): void {
+    this._cancelPendingRequests();
+    if ((this._state === "hosting" || this._state === "joining" || this._state === "reconnecting") && !this._room) {
+      this._setState("idle");
+    }
   }
 
   /**
@@ -208,9 +223,10 @@ export class EasyNetplayManager {
     }
 
     this._diagnostics.info(MSG.signalingConnecting);
+    this._joinAbort = new AbortController();
 
     try {
-      const sigRoom = await this._sigClient.joinRoom(normCode);
+      const sigRoom = await this._sigClient.joinRoom(normCode, this._joinAbort.signal);
       this._diagnostics.info(MSG.signalingConnected);
 
       const room = signalingRoomToEasyRoom(sigRoom);
@@ -249,6 +265,8 @@ export class EasyNetplayManager {
       this._diagnostics.error(msg, err instanceof Error ? err.stack : undefined);
       this._emit({ type: "error", code, message: msg });
       this._setState("failed");
+    } finally {
+      this._joinAbort = null;
     }
   }
 
@@ -271,8 +289,7 @@ export class EasyNetplayManager {
   /** Leave the current room and return to idle. */
   async leaveRoom(): Promise<void> {
     // Cancel any in-flight host/join request.
-    this._hostAbort?.abort();
-    this._hostAbort = null;
+    this._cancelPendingRequests();
 
     if (this._room && this._sigClient) {
       await this._sigClient.leaveRoom(this._room.id);
@@ -304,6 +321,13 @@ export class EasyNetplayManager {
     for (const fn of this._listeners) {
       try { fn(ev); } catch { /* ignore listener errors */ }
     }
+  }
+
+  private _cancelPendingRequests(): void {
+    this._hostAbort?.abort();
+    this._hostAbort = null;
+    this._joinAbort?.abort();
+    this._joinAbort = null;
   }
 
   /**

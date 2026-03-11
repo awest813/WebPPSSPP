@@ -796,6 +796,79 @@ body {
 #ejs-container.visible { opacity: 1; visibility: visible; }
 #ejs-player { width: 100%; height: 100%; }
 
+/* ── Touch controls overlay (runtime) ─────────────────────── */
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.tc-btn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.38), inset 0 0 14px rgba(255, 255, 255, 0.04);
+  color: #f7f9ff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.01em;
+  pointer-events: auto;
+  touch-action: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: transform 0.08s ease, filter 0.12s ease, border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.tc-btn::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tc-btn--pressed {
+  transform: scale(0.92);
+  filter: brightness(1.18);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), inset 0 0 16px rgba(255, 255, 255, 0.18);
+}
+
+.touch-controls--editing .tc-btn {
+  border-color: color-mix(in srgb, var(--c-accent) 70%, white 10%);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45), 0 0 0 2px color-mix(in srgb, var(--c-accent) 28%, transparent);
+}
+
+.tc-edit-hint {
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  color: #001428;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 800;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 480px) {
+  .tc-btn {
+    font-size: 0.78rem;
+  }
+}
+
 /* ── Loading overlay ──────────────────────────────────────── */
 #loading-overlay {
   position: absolute;
@@ -4006,6 +4079,24 @@ kbd {
   flex:        1;
 }
 
+.enp-copy-diag {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-pill);
+  background: var(--c-surface2);
+  color: var(--c-text-dim);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+
+.enp-copy-diag:hover {
+  color: var(--c-text);
+  border-color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 8%, var(--c-surface2));
+}
+
 .enp-close {
   background:  none;
   border:      none;
@@ -4186,6 +4277,34 @@ kbd {
 .enp-diag--warn  { color: var(--c-warn); }
 .enp-diag--error { color: var(--c-danger); }
 
+.enp-diag-wrap + .enp-diag-wrap {
+  margin-top: 6px;
+}
+
+.enp-diag-detail {
+  margin: 4px 0 2px;
+}
+
+.enp-diag-detail > summary {
+  color: var(--c-text-faint);
+  font-size: 0.73rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.enp-diag-detail__text {
+  margin: 6px 0 0;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--c-surface3);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-dim);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── Active room card ────────────────────────────────────────── */
 .enp-active-room {
   background:    var(--c-surface2);
@@ -4344,6 +4463,11 @@ kbd {
 .enp-room-card__badge--open   { background: rgba(0, 180, 230, 0.12);  color: var(--c-accent);  }
 .enp-room-card__badge--full   { background: rgba(232, 64, 64, 0.12);  color: var(--c-danger);  }
 .enp-room-card__badge--locked { background: rgba(255, 159, 10, 0.12); color: var(--c-warn);    }
+.enp-room-card__badge--incompat {
+  background: rgba(232, 64, 64, 0.12);
+  color: var(--c-danger);
+  border: 1px solid color-mix(in srgb, var(--c-danger) 40%, transparent);
+}
 
 .enp-room-card__meta {
   display:     flex;
@@ -4381,6 +4505,14 @@ kbd {
   display:    flex;
   gap:        8px;
   margin-top: 4px;
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--c-surface) 96%, transparent) 55%,
+    transparent
+  );
+  padding-top: 8px;
 }
 
 .enp-refresh-btn {
@@ -4409,5 +4541,42 @@ kbd {
   .enp-active-room__code {
     font-size: 1.3rem;
     letter-spacing: 0.2em;
+  }
+
+  .enp-header {
+    gap: 6px;
+  }
+
+  .enp-copy-diag {
+    padding: 4px 8px;
+    font-size: 0.68rem;
+  }
+
+  .enp-tab {
+    padding-inline: 8px;
+    font-size: 0.8rem;
+  }
+
+  .enp-filter-row {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--c-surface) 95%, transparent) 75%,
+      transparent
+    );
+    padding-bottom: 6px;
+  }
+
+  .enp-room-list {
+    max-height: min(42dvh, 340px);
+  }
+
+  .enp-btn-create,
+  .enp-btn-join,
+  .enp-room-join-btn,
+  .enp-refresh-btn {
+    min-height: 44px;
   }
 }

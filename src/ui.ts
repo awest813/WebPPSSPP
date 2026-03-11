@@ -4130,6 +4130,7 @@ export function openEasyNetplayModal(opts: {
   const username  = netplayManager?.username  ?? "";
 
   const easyMgr = getEasyNetplayManager(serverUrl);
+  const panelCleanups: Array<() => void> = [];
 
   // ── Overlay / container ──────────────────────────────────────────────────
   const overlay = make("div", { class: "confirm-overlay easy-netplay-overlay" });
@@ -4144,6 +4145,31 @@ export function openEasyNetplayModal(opts: {
   const header = make("div", { class: "enp-header" });
   header.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
   header.appendChild(make("span", { class: "enp-title" }, "Multiplayer"));
+  const btnCopyDiagnostics = make("button", {
+    class: "enp-copy-diag",
+    "aria-label": "Copy multiplayer diagnostics",
+    title: "Copy connection diagnostics",
+  }, "📋 Logs") as HTMLButtonElement;
+  btnCopyDiagnostics.addEventListener("click", () => {
+    const entries = easyMgr.diagnostics.entries;
+    if (entries.length === 0) {
+      showInfoToast("No diagnostics yet.");
+      return;
+    }
+    const titleLine = `RetroVault Multiplayer Diagnostics (${new Date().toISOString()})`;
+    const body = entries.map((entry) => {
+      const ts = new Date(entry.timestamp).toISOString();
+      const detail = entry.detail ? ` — ${entry.detail}` : "";
+      return `[${ts}] [${entry.level.toUpperCase()}] ${entry.message}${detail}`;
+    }).join("\n");
+    const text = `${titleLine}\n${body}`;
+    void navigator.clipboard?.writeText(text).then(() => {
+      showInfoToast("Diagnostics copied.");
+    }).catch(() => {
+      showInfoToast("Couldn't copy logs. Please allow clipboard access.");
+    });
+  });
+  header.appendChild(btnCopyDiagnostics);
 
   // Close button
   const btnClose = make("button", {
@@ -4213,34 +4239,45 @@ export function openEasyNetplayModal(opts: {
   dialog.appendChild(panelWrap);
 
   // ── Host panel ───────────────────────────────────────────────────────────
-  _buildHostPanel(panels[0]!, {
+  panelCleanups.push(_buildHostPanel(panels[0]!, {
     easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
     onRoomCreated: () => {/* panel updates itself via onEvent */},
-  });
+  }));
 
   // ── Join panel ───────────────────────────────────────────────────────────
-  // Capture a ref so the Browse panel can pre-fill the code and switch tabs.
+  // Capture refs so the Browse panel can pre-fill and quick-join without
+  // forcing extra taps.
   let _fillJoinCode: ((code: string) => void) | null = null;
-  _buildJoinPanel(panels[1]!, {
+  let _quickJoinCode: ((code: string) => void) | null = null;
+  panelCleanups.push(_buildJoinPanel(panels[1]!, {
     easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
     onCodeSetterReady: (setter) => { _fillJoinCode = setter; },
-  });
+    onJoinActionReady: (joinNow) => { _quickJoinCode = joinNow; },
+  }));
 
   // ── Browse panel ─────────────────────────────────────────────────────────
-  _buildBrowsePanel(panels[2]!, {
+  panelCleanups.push(_buildBrowsePanel(panels[2]!, {
     easyMgr, currentGameName, currentSystemId, serverUrl,
     onJoinByCode: (code) => {
       switchTab("join");
       _fillJoinCode?.(code);
+      _quickJoinCode?.(code);
     },
-  });
+  }));
 
   // ── Append + animate ─────────────────────────────────────────────────────
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     document.removeEventListener("keydown", onKey, { capture: true });
+    panelCleanups.forEach((fn) => {
+      try { fn(); } catch { /* ignore cleanup errors */ }
+    });
+    easyMgr.cancelPendingOperations();
     overlay.classList.remove("confirm-overlay--visible");
     setTimeout(() => overlay.remove(), 200);
   };
@@ -4275,7 +4312,7 @@ function _buildHostPanel(
     serverUrl:       string;
     onRoomCreated?:  () => void;
   }
-): void {
+): () => void {
   const { easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl } = opts;
 
   container.appendChild(make("p", { class: "enp-panel-desc" },
@@ -4336,6 +4373,8 @@ function _buildHostPanel(
     ));
   }
 
+  let activeUnsub: (() => void) | null = null;
+
   btnCreate.addEventListener("click", async () => {
     btnCreate.disabled = true;
     btnCreate.textContent = "Creating room…";
@@ -4344,10 +4383,10 @@ function _buildHostPanel(
     statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "Connecting…"));
 
     // Subscribe to events once
-    const unsub = easyMgr.onEvent(ev => {
+    activeUnsub?.();
+    activeUnsub = easyMgr.onEvent(ev => {
       if (ev.type === "diagnostic") {
-        const cls = `enp-diag enp-diag--${ev.diagnostic.level === "error" ? "error" : ev.diagnostic.level === "warning" ? "warn" : "info"}`;
-        const item = make("p", { class: cls }, ev.diagnostic.message);
+        const item = _renderEasyDiagnosticEntry(ev.diagnostic.level, ev.diagnostic.message, ev.diagnostic.detail);
         // Clear "Connecting…" placeholder on first real message
         if (statusArea.children.length === 1 && statusArea.children[0]!.textContent === "Connecting…") {
           statusArea.innerHTML = "";
@@ -4355,7 +4394,8 @@ function _buildHostPanel(
         statusArea.appendChild(item);
       }
       if (ev.type === "room_created") {
-        unsub();
+        activeUnsub?.();
+        activeUnsub = null;
         const room = ev.room;
         statusArea.innerHTML = "";
         _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr, isHost: true });
@@ -4363,7 +4403,8 @@ function _buildHostPanel(
         btnCreate.disabled    = true;
       }
       if (ev.type === "error") {
-        unsub();
+        activeUnsub?.();
+        activeUnsub = null;
         statusArea.innerHTML = "";
         statusArea.appendChild(make("p", { class: "enp-diag enp-diag--error" }, ev.message));
         btnCreate.disabled = false;
@@ -4382,6 +4423,10 @@ function _buildHostPanel(
   });
 
   container.appendChild(btnCreate);
+  return () => {
+    activeUnsub?.();
+    activeUnsub = null;
+  };
 }
 
 // ── Easy Netplay — Join panel ─────────────────────────────────────────────────
@@ -4397,8 +4442,10 @@ function _buildJoinPanel(
     serverUrl:        string;
     /** Called once the code-input setter is ready; lets the Browse panel pre-fill it. */
     onCodeSetterReady?: (setter: (code: string) => void) => void;
+    /** Called once join action is ready; enables one-tap join from Browse. */
+    onJoinActionReady?: (joinNow: (code: string) => void) => void;
   }
-): void {
+): () => void {
   const { easyMgr, username, serverUrl } = opts;
 
   container.appendChild(make("p", { class: "enp-panel-desc" },
@@ -4464,8 +4511,11 @@ function _buildJoinPanel(
   }) as HTMLButtonElement;
   btnJoin.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join Room`;
 
-  btnJoin.addEventListener("click", async () => {
-    const code = normaliseInviteCode(codeInput.value);
+  let activeUnsub: (() => void) | null = null;
+  const attemptJoin = async (prefilledCode?: string) => {
+    const code = normaliseInviteCode(prefilledCode ?? codeInput.value);
+    codeInput.value = code;
+    syncCodeInput();
     if (code.length < 4) {
       codeError.textContent = "Please enter a valid invite code (at least 4 characters).";
       codeError.hidden = false;
@@ -4478,16 +4528,17 @@ function _buildJoinPanel(
     statusArea.innerHTML = "";
     statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "Connecting…"));
 
-    const unsub = easyMgr.onEvent(ev => {
+    activeUnsub?.();
+    activeUnsub = easyMgr.onEvent(ev => {
       if (ev.type === "diagnostic") {
-        const cls = `enp-diag enp-diag--${ev.diagnostic.level === "error" ? "error" : ev.diagnostic.level === "warning" ? "warn" : "info"}`;
         if (statusArea.children.length === 1 && statusArea.children[0]!.textContent === "Connecting…") {
           statusArea.innerHTML = "";
         }
-        statusArea.appendChild(make("p", { class: cls }, ev.diagnostic.message));
+        statusArea.appendChild(_renderEasyDiagnosticEntry(ev.diagnostic.level, ev.diagnostic.message, ev.diagnostic.detail));
       }
       if (ev.type === "room_joined") {
-        unsub();
+        activeUnsub?.();
+        activeUnsub = null;
         const room = ev.room;
         statusArea.innerHTML = "";
         _renderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr, isHost: false });
@@ -4495,7 +4546,8 @@ function _buildJoinPanel(
         btnJoin.disabled    = true;
       }
       if (ev.type === "error") {
-        unsub();
+        activeUnsub?.();
+        activeUnsub = null;
         statusArea.innerHTML = "";
         codeError.textContent = ev.message;
         codeError.hidden = false;
@@ -4511,9 +4563,15 @@ function _buildJoinPanel(
         localGameId:   opts.currentGameId   ?? undefined,
         localSystemId: opts.currentSystemId ?? undefined,
       });
-  });
+  };
+  btnJoin.addEventListener("click", () => { void attemptJoin(); });
+  opts.onJoinActionReady?.((code) => { void attemptJoin(code); });
 
   container.appendChild(btnJoin);
+  return () => {
+    activeUnsub?.();
+    activeUnsub = null;
+  };
 }
 
 // ── Easy Netplay — Browse panel ───────────────────────────────────────────────
@@ -4528,8 +4586,11 @@ function _buildBrowsePanel(
     /** Called when the user clicks "Join" on a room card; receives the invite code. */
     onJoinByCode?:    (code: string) => void;
   }
-): void {
-  const { easyMgr, currentGameName, serverUrl } = opts;
+): () => void {
+  const { easyMgr, currentGameName, serverUrl, currentSystemId } = opts;
+  const gameRoomKey = currentGameName && currentSystemId
+    ? resolveNetplayRoomKey(currentGameName, currentSystemId)
+    : null;
 
   container.appendChild(make("p", { class: "enp-panel-desc" },
     currentGameName
@@ -4551,6 +4612,9 @@ function _buildBrowsePanel(
     { id: "nearby", label: "📶 Nearby" },
     { id: "all",    label: "🌐 All Rooms" },
   ];
+  if (gameRoomKey) {
+    filters.splice(1, 0, { id: "this_game", label: "🎯 This Game" });
+  }
   let activeFilter = "nearby";
 
   const applyFilter = (id: string, rooms: EasyNetplayRoom[]) => {
@@ -4560,6 +4624,15 @@ function _buildBrowsePanel(
     });
     if (id === "nearby") {
       renderRooms(rooms.filter(r => r.isLocal));
+    } else if (id === "this_game") {
+      if (!gameRoomKey) {
+        renderRooms(rooms);
+        return;
+      }
+      renderRooms(rooms.filter((room) => {
+        const roomKey = resolveNetplayRoomKey(room.gameName || room.gameId, room.systemId);
+        return roomKey === gameRoomKey;
+      }));
     } else {
       renderRooms(rooms);
     }
@@ -4584,15 +4657,27 @@ function _buildBrowsePanel(
 
   const renderRooms = (rooms: EasyNetplayRoom[]) => {
     listEl.innerHTML = "";
-    if (rooms.length === 0) {
+    const orderedRooms = [...rooms].sort((a, b) => {
+      const aFull = a.playerCount >= a.maxPlayers;
+      const bFull = b.playerCount >= b.maxPlayers;
+      if (aFull !== bFull) return aFull ? 1 : -1;
+      if (a.isLocal !== b.isLocal) return a.isLocal ? -1 : 1;
+      const aLatency = a.latencyMs ?? Number.POSITIVE_INFINITY;
+      const bLatency = b.latencyMs ?? Number.POSITIVE_INFINITY;
+      if (aLatency !== bLatency) return aLatency - bLatency;
+      return b.createdAt - a.createdAt;
+    });
+    if (orderedRooms.length === 0) {
       const emptyMsg = activeFilter === "nearby"
         ? "No nearby rooms found. Try \"All Rooms\" or host one yourself."
+        : activeFilter === "this_game"
+          ? "No compatible rooms for this game yet. Host one to get started."
         : "No open rooms right now — be the first to create one!";
       listEl.appendChild(make("p", { class: "enp-room-empty" }, emptyMsg));
       return;
     }
     const frag = document.createDocumentFragment();
-    for (const room of rooms) {
+    for (const room of orderedRooms) {
       const card = make("div", { class: "enp-room-card" });
 
       const cardTop = make("div", { class: "enp-room-card__top" });
@@ -4600,9 +4685,22 @@ function _buildBrowsePanel(
       if (room.isLocal) {
         cardTop.appendChild(make("span", { class: "enp-room-card__badge enp-room-card__badge--local" }, "Nearby"));
       }
+      const incompatibleSystem = Boolean(currentSystemId && room.systemId && room.systemId !== currentSystemId);
       const isFull = room.playerCount >= room.maxPlayers;
-      const statusLabel = isFull ? "Full" : room.hasPassword ? "🔒 Private" : "Open";
-      const statusCls   = isFull ? "enp-room-card__badge--full" : room.hasPassword ? "enp-room-card__badge--locked" : "enp-room-card__badge--open";
+      const statusLabel = incompatibleSystem
+        ? "Wrong System"
+        : isFull
+          ? "Full"
+          : room.hasPassword
+            ? "🔒 Private"
+            : "Open";
+      const statusCls = incompatibleSystem
+        ? "enp-room-card__badge--incompat"
+        : isFull
+          ? "enp-room-card__badge--full"
+          : room.hasPassword
+            ? "enp-room-card__badge--locked"
+            : "enp-room-card__badge--open";
       cardTop.appendChild(make("span", { class: `enp-room-card__badge ${statusCls}` }, statusLabel));
       card.appendChild(cardTop);
 
@@ -4617,11 +4715,11 @@ function _buildBrowsePanel(
       }
       card.appendChild(cardMeta);
 
-      if (!isFull) {
+      if (!isFull && !incompatibleSystem) {
         const btnJoinRoom = make("button", {
           class: "btn btn--primary enp-room-join-btn",
         }) as HTMLButtonElement;
-        btnJoinRoom.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join`;
+        btnJoinRoom.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Quick Join`;
         btnJoinRoom.addEventListener("click", () => {
           if (opts.onJoinByCode) {
             opts.onJoinByCode(room.code);
@@ -4682,6 +4780,27 @@ function _buildBrowsePanel(
   // Auto-load on panel reveal
   renderRooms([]);
   void doRefresh();
+  return () => {
+    loadAbort?.abort();
+    loadAbort = null;
+  };
+}
+
+function _renderEasyDiagnosticEntry(
+  level: "info" | "warning" | "error",
+  message: string,
+  detail?: string,
+): HTMLElement {
+  const cls = `enp-diag enp-diag--${level === "error" ? "error" : level === "warning" ? "warn" : "info"}`;
+  if (!detail) return make("p", { class: cls }, message);
+
+  const wrap = make("div", { class: "enp-diag-wrap" });
+  wrap.appendChild(make("p", { class: cls }, message));
+  const info = make("details", { class: "enp-diag-detail" }) as HTMLDetailsElement;
+  info.appendChild(make("summary", {}, "Technical details"));
+  info.appendChild(make("pre", { class: "enp-diag-detail__text" }, detail));
+  wrap.appendChild(info);
+  return wrap;
 }
 
 // ── Easy Netplay — Room card ──────────────────────────────────────────────────

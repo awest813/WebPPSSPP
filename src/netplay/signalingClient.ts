@@ -112,6 +112,7 @@ export function normaliseInviteCode(raw: string): string {
  */
 export class HttpSignalingClient implements SignalingClient {
   private readonly _httpBase: string;
+  private static readonly _REQUEST_TIMEOUT_MS = 10_000;
 
   constructor(wsUrl: string) {
     this._httpBase = wsUrl
@@ -121,7 +122,7 @@ export class HttpSignalingClient implements SignalingClient {
   }
 
   async createRoom(options: CreateRoomOptions, signal?: AbortSignal): Promise<SignalingRoom> {
-    const res = await fetch(`${this._httpBase}/rooms`, {
+    const res = await this._fetchWithTimeout(`${this._httpBase}/rooms`, {
       method:  "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
@@ -134,8 +135,7 @@ export class HttpSignalingClient implements SignalingClient {
         maxPlayers: options.maxPlayers ?? 2,
         password:   options.password,
       }),
-      signal,
-    });
+    }, signal);
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -151,9 +151,10 @@ export class HttpSignalingClient implements SignalingClient {
 
   async joinRoom(code: string, signal?: AbortSignal): Promise<SignalingRoom> {
     const normalised = normaliseInviteCode(code);
-    const res = await fetch(
+    const res = await this._fetchWithTimeout(
       `${this._httpBase}/rooms/${encodeURIComponent(normalised)}`,
-      { headers: { Accept: "application/json" }, signal }
+      { headers: { Accept: "application/json" } },
+      signal
     );
 
     if (res.status === 404) {
@@ -175,14 +176,19 @@ export class HttpSignalingClient implements SignalingClient {
 
   async listRooms(signal?: AbortSignal): Promise<SignalingRoom[]> {
     // Try multiple common endpoint paths used by different server implementations.
-    const candidates = ["/rooms", "/lobby/rooms", "/netplay/rooms"];
+    const candidates: Array<{ path: string; includeLegacyDomain?: boolean }> = [
+      { path: "/rooms" },
+      { path: "/lobby/rooms" },
+      { path: "/netplay/rooms" },
+      { path: "/list", includeLegacyDomain: true },
+    ];
 
-    for (const path of candidates) {
+    for (const candidate of candidates) {
       try {
-        const res = await fetch(`${this._httpBase}${path}`, {
+        const url = this._buildLobbyUrl(candidate.path, candidate.includeLegacyDomain);
+        const res = await this._fetchWithTimeout(url, {
           headers: { Accept: "application/json" },
-          signal,
-        });
+        }, signal);
         if (!res.ok) continue;
         const body = await res.json() as unknown;
         return this._coerceList(body);
@@ -211,8 +217,13 @@ export class HttpSignalingClient implements SignalingClient {
     if (Array.isArray(body)) {
       arr = body;
     } else if (body && typeof body === "object") {
-      const wrapped = (body as Record<string, unknown>).rooms;
-      if (Array.isArray(wrapped)) arr = wrapped;
+      const dict = body as Record<string, unknown>;
+      const wrapped = dict.rooms;
+      if (Array.isArray(wrapped)) {
+        arr = wrapped;
+      } else {
+        arr = this._mapLegacyRoomDictionary(dict);
+      }
     }
     return arr
       .filter(item => item && typeof item === "object")
@@ -223,7 +234,7 @@ export class HttpSignalingClient implements SignalingClient {
     const rawId = row.id ?? row.roomId ?? row.room_id ?? "";
     const id    = String(rawId);
     const code  = String(
-      row.code ?? row.invite_code ?? row.inviteCode ?? generateInviteCode(id)
+      row.code ?? row.invite_code ?? row.inviteCode ?? row.joinCode ?? generateInviteCode(id)
     );
 
     const privacyRaw = String(row.privacy ?? "public");
@@ -242,15 +253,73 @@ export class HttpSignalingClient implements SignalingClient {
       systemId:    String(row.systemId ?? row.system_id ?? ""),
       hostName:    String(row.host ?? row.hostName ?? row.host_name ?? "Host"),
       privacy,
-      playerCount: Number(row.players ?? row.playerCount ?? row.player_count ?? 1),
-      maxPlayers:  Number(row.maxPlayers ?? row.max_players ?? row.max ?? 2),
+      playerCount: this._toFiniteNumber(row.players ?? row.playerCount ?? row.player_count, 1),
+      maxPlayers:  this._toFiniteNumber(row.maxPlayers ?? row.max_players ?? row.max, 2),
       hasPassword: Boolean(row.hasPassword ?? row.has_password ?? false),
       latencyMs:   typeof row.latencyMs === "number" ? row.latencyMs
                  : typeof row.latency   === "number" ? row.latency
                  : typeof row.ping      === "number" ? row.ping
                  : undefined,
-      createdAt:   Number(row.createdAt ?? row.created_at ?? Date.now()),
+      createdAt:   this._toFiniteNumber(row.createdAt ?? row.created_at, Date.now()),
     };
+  }
+
+  private _buildLobbyUrl(path: string, includeLegacyDomain?: boolean): string {
+    const url = new URL(`${this._httpBase}${path}`);
+    if (includeLegacyDomain) {
+      const host = typeof window !== "undefined" ? window.location.host : "";
+      if (host) url.searchParams.set("domain", host);
+    }
+    return url.toString();
+  }
+
+  private _mapLegacyRoomDictionary(body: Record<string, unknown>): unknown[] {
+    const rows: unknown[] = [];
+    for (const [id, value] of Object.entries(body)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      rows.push({ id, ...(value as Record<string, unknown>) });
+    }
+    return rows;
+  }
+
+  private _toFiniteNumber(value: unknown, fallback: number): number {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return fallback;
+  }
+
+  private async _fetchWithTimeout(
+    input: RequestInfo | URL,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, HttpSignalingClient._REQUEST_TIMEOUT_MS);
+
+    const onAbort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } catch (err) {
+      if (timedOut && !(signal?.aborted) && err instanceof Error && err.name === "AbortError") {
+        throw Object.assign(new Error("Request timed out"), { code: "network_timeout" });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 }
 

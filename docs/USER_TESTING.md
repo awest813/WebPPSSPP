@@ -151,7 +151,7 @@ Before running any tests:
 | 9.2 | Enable Touch Controls in Settings | 12 virtual buttons render over the game canvas |
 | 9.3 | Drag a button to a new position | Button snaps to new position; layout persists after page reload |
 | 9.4 | Rotate device or switch DevTools orientation | Layout rebuilds for the new orientation; portrait and landscape use separate stored positions |
-| 9.5 | Tap D-pad and face buttons during gameplay | Inputs register in-game |
+| 9.5 | Tap and hold D-pad/face buttons during gameplay | Inputs register in-game with visible pressed-state feedback |
 | 9.6 | Disable Touch Controls in Settings | Overlay buttons disappear; game canvas returns to full screen |
 
 ---
@@ -192,6 +192,8 @@ Before running any tests:
 | 12.4 | Enter a name exceeding 32 characters | Validation error shown; name not saved |
 | 12.5 | Enter a server URL and click "Add ICE Server" | ICE server added to list and persisted |
 | 12.6 | Launch a supported game (PSP, N64, NDS) with Netplay enabled | Netplay button appears in emulator toolbar |
+| 12.7 | Open Multiplayer → Browse and click "Quick Join" on an available room | App switches to Join tab, pre-fills invite code, and starts joining automatically |
+| 12.8 | Trigger a failed join (invalid/closed room), then click **📋 Logs** in modal header | Diagnostics are copied to clipboard with timestamped entries |
 
 ---
 
