@@ -318,7 +318,7 @@ describe('PSPEmulator', () => {
         gpuRenderer: 'unknown',
         isSoftwareGPU: false,
         isLowSpec: false,
-        isChromOS: false,
+        isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
         recommendedMode: 'quality' as const,
         tier: 'medium' as const,
         gpuCaps: {
@@ -378,7 +378,7 @@ describe('PSPEmulator', () => {
           gpuRenderer: 'unknown',
           isSoftwareGPU: false,
           isLowSpec: false,
-          isChromOS: false,
+          isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
           recommendedMode: 'quality' as const,
           tier: 'medium' as const,
           gpuCaps: {
@@ -423,7 +423,7 @@ describe('PSPEmulator', () => {
           gpuRenderer: 'unknown',
           isSoftwareGPU: false,
           isLowSpec: false,
-          isChromOS: false,
+          isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
           recommendedMode: 'quality' as const,
           tier: 'medium' as const,
           gpuCaps: {
@@ -464,7 +464,7 @@ describe('PSPEmulator', () => {
       gpuRenderer: 'unknown',
       isSoftwareGPU: false,
       isLowSpec: false,
-      isChromOS: false,
+      isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const,
       tier: 'medium' as const,
       gpuCaps: {
@@ -648,7 +648,7 @@ describe('PSPEmulator', () => {
           gpuRenderer: 'unknown',
           isSoftwareGPU: false,
           isLowSpec: false,
-          isChromOS: false,
+          isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
           recommendedMode: 'quality' as const,
           tier: 'medium' as const,
           gpuCaps: {
@@ -727,7 +727,7 @@ describe('PSPEmulator', () => {
 
       const fakeCaps = {
         deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-        isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+        isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
         recommendedMode: 'quality' as const, tier: 'medium' as const,
         gpuCaps: {
           renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -762,7 +762,7 @@ describe('PSPEmulator', () => {
   describe('_checkSharedArrayBuffer', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -1332,7 +1332,7 @@ describe('PSPEmulator', () => {
   describe('activeCoreSettings', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -1489,7 +1489,7 @@ describe('PSPEmulator', () => {
   describe('audio latency adaptation', () => {
     const baseCaps = {
       deviceMemoryGB: 8, cpuCores: 8, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'high' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 4096,
@@ -2077,7 +2077,7 @@ describe('PSPEmulator', () => {
         tierOverride:    'low',
         deviceCaps: {
           deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-          isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+          isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
           recommendedMode: 'quality', tier: 'medium',
           gpuCaps: {
             renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2105,7 +2105,7 @@ describe('PSPEmulator', () => {
   describe('launch with skipExtensionCheck', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2178,7 +2178,7 @@ describe('PSPEmulator', () => {
   describe('launch — netplay EJS globals', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2359,7 +2359,7 @@ describe('PSPEmulator', () => {
   describe('launch — biosUrl EJS global', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2430,7 +2430,7 @@ describe('PSPEmulator', () => {
   describe('launch — large ROM warning', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2510,7 +2510,7 @@ describe('PSPEmulator', () => {
   describe('launch — fileName override', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2590,7 +2590,7 @@ describe('PSPEmulator', () => {
   describe('launch — ISO and PBP extension validation', () => {
     const fakeCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'medium' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
@@ -2938,7 +2938,7 @@ describe('PSPEmulator', () => {
   describe('performance marks', () => {
     const markTestCaps = {
       deviceMemoryGB: 4, cpuCores: 4, gpuRenderer: 'unknown',
-      isSoftwareGPU: false, isLowSpec: false, isChromOS: false,
+      isSoftwareGPU: false, isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
       recommendedMode: 'quality' as const, tier: 'high' as const,
       gpuCaps: {
         renderer: 'unknown', vendor: 'unknown', maxTextureSize: 4096,

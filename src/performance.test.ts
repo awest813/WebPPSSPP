@@ -4,6 +4,8 @@ import {
   detectCapabilitiesCached,
   clearCapabilitiesCache,
   isLikelyChromeOS,
+  isLikelyIOS,
+  isLikelyAndroid,
   isWebGPUAvailable,
   prefersReducedMotion,
   checkBatteryStatus,
@@ -261,6 +263,94 @@ describe('performance', () => {
     });
   });
 
+  // ── iOS detection ───────────────────────────────────────────────────────
+
+  describe('isLikelyIOS', () => {
+    it('returns true for an iPhone user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
+      );
+      expect(isLikelyIOS()).toBe(true);
+    });
+
+    it('returns true for an iPad user-agent (classic)', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
+      );
+      expect(isLikelyIOS()).toBe(true);
+    });
+
+    it('returns true for iPadOS 13+ which reports as Macintosh with touch points', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/604.1'
+      );
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+      expect(isLikelyIOS()).toBe(true);
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+    });
+
+    it('returns false for a macOS desktop with no touch points', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/604.1'
+      );
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+      expect(isLikelyIOS()).toBe(false);
+    });
+
+    it('returns false for a Windows desktop user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+      );
+      expect(isLikelyIOS()).toBe(false);
+    });
+
+    it('returns false for an Android user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+      );
+      expect(isLikelyIOS()).toBe(false);
+    });
+  });
+
+  // ── Android detection ───────────────────────────────────────────────────
+
+  describe('isLikelyAndroid', () => {
+    it('returns true for an Android Chrome user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+      );
+      expect(isLikelyAndroid()).toBe(true);
+    });
+
+    it('returns true for an Android Samsung Internet user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 SamsungBrowser/21.0 Mobile Safari/537.36'
+      );
+      expect(isLikelyAndroid()).toBe(true);
+    });
+
+    it('returns false for an iPhone user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
+      );
+      expect(isLikelyAndroid()).toBe(false);
+    });
+
+    it('returns false for a Windows desktop user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+      );
+      expect(isLikelyAndroid()).toBe(false);
+    });
+
+    it('returns false for a Chrome OS user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (X11; CrOS x86_64 15236.80.0) AppleWebKit/537.36 Chrome/109.0.0.0 Safari/537.36'
+      );
+      expect(isLikelyAndroid()).toBe(false);
+    });
+  });
+
   // ── Reduced motion preference ───────────────────────────────────────────
 
   describe('prefersReducedMotion', () => {
@@ -492,6 +582,87 @@ describe('performance', () => {
     });
   });
 
+  // ── Mobile platform detection ───────────────────────────────────────────
+
+  describe('mobile platform detection in detectCapabilities', () => {
+    it('sets isIOS=true and isMobile=true for iPhone user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'
+      );
+      const caps = detectCapabilities();
+      expect(caps.isIOS).toBe(true);
+      expect(caps.isAndroid).toBe(false);
+      expect(caps.isMobile).toBe(true);
+    });
+
+    it('sets isAndroid=true and isMobile=true for Android user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+      );
+      const caps = detectCapabilities();
+      expect(caps.isIOS).toBe(false);
+      expect(caps.isAndroid).toBe(true);
+      expect(caps.isMobile).toBe(true);
+    });
+
+    it('sets all mobile flags to false for desktop user-agent', () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+      );
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+      const caps = detectCapabilities();
+      expect(caps.isIOS).toBe(false);
+      expect(caps.isAndroid).toBe(false);
+      expect(caps.isMobile).toBe(false);
+    });
+  });
+
+  // ── Mobile tier cap ──────────────────────────────────────────────────────
+
+  describe('classifyTier — mobile tier cap', () => {
+    function makeHighEndGPUCaps(): GPUCapabilities {
+      return {
+        renderer: 'Apple GPU', vendor: 'Apple',
+        maxTextureSize: 16384,
+        maxVertexAttribs: 16, maxVaryingVectors: 15, maxRenderbufferSize: 16384,
+        anisotropicFiltering: true, maxAnisotropy: 16,
+        floatTextures: true, halfFloatTextures: true,
+        instancedArrays: true, webgl2: true,
+        vertexArrayObject: true, compressedTextures: true,
+        etc2Textures: true, astcTextures: true,
+        maxColorAttachments: 8, multiDraw: false,
+      };
+    }
+
+    it('caps mobile tier at "high" even when score would be "ultra"', () => {
+      // High-end spec that would normally be "ultra" on desktop
+      const tier = __classifyTierForTests(8, 8, false, 80, makeHighEndGPUCaps(), false, true);
+      expect(tier).toBe('high');
+    });
+
+    it('allows "ultra" tier for desktop with the same score', () => {
+      const tier = __classifyTierForTests(8, 8, false, 80, makeHighEndGPUCaps(), false, false);
+      expect(tier).toBe('ultra');
+    });
+
+    it('does not raise a mobile device above its actual tier (medium stays medium)', () => {
+      // Low-spec mobile that scores "medium"
+      const basicCaps: GPUCapabilities = {
+        renderer: 'PowerVR', vendor: 'Imagination',
+        maxTextureSize: 4096,
+        maxVertexAttribs: 8, maxVaryingVectors: 8, maxRenderbufferSize: 4096,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      };
+      const tier = __classifyTierForTests(4, 4, false, 0, basicCaps, false, true);
+      expect(tier).toBe('medium');
+    });
+  });
+
   // ── Formatting helpers ──────────────────────────────────────────────────
 
   describe('formatCapabilitiesSummary', () => {
@@ -509,6 +680,28 @@ describe('performance', () => {
       const summary = formatCapabilitiesSummary(nonChromeCaps);
       expect(summary).not.toContain('Chromebook');
     });
+
+    it('includes iPhone/iPad suffix when isIOS is true', () => {
+      const caps = detectCapabilities();
+      const iosCaps = { ...caps, isIOS: true, isAndroid: false, isMobile: true };
+      const summary = formatCapabilitiesSummary(iosCaps);
+      expect(summary).toContain('iPhone/iPad');
+    });
+
+    it('includes Android suffix when isAndroid is true', () => {
+      const caps = detectCapabilities();
+      const androidCaps = { ...caps, isIOS: false, isAndroid: true, isMobile: true };
+      const summary = formatCapabilitiesSummary(androidCaps);
+      expect(summary).toContain('Android');
+    });
+
+    it('omits mobile suffix for desktop devices', () => {
+      const caps = detectCapabilities();
+      const desktopCaps = { ...caps, isIOS: false, isAndroid: false, isMobile: false };
+      const summary = formatCapabilitiesSummary(desktopCaps);
+      expect(summary).not.toContain('iPhone/iPad');
+      expect(summary).not.toContain('Android');
+    });
   });
 
   describe('formatDetailedSummary', () => {
@@ -517,6 +710,28 @@ describe('performance', () => {
       const chromeCaps = { ...caps, isChromOS: true };
       const summary = formatDetailedSummary(chromeCaps);
       expect(summary).toContain('Chromebook');
+    });
+
+    it('mentions iOS in detailed summary when isIOS', () => {
+      const caps = detectCapabilities();
+      const iosCaps = { ...caps, isIOS: true, isAndroid: false, isMobile: true };
+      const summary = formatDetailedSummary(iosCaps);
+      expect(summary).toContain('iOS');
+    });
+
+    it('mentions Android in detailed summary when isAndroid', () => {
+      const caps = detectCapabilities();
+      const androidCaps = { ...caps, isIOS: false, isAndroid: true, isMobile: true };
+      const summary = formatDetailedSummary(androidCaps);
+      expect(summary).toContain('Android');
+    });
+
+    it('omits mobile device line for desktop', () => {
+      const caps = detectCapabilities();
+      const desktopCaps = { ...caps, isIOS: false, isAndroid: false, isMobile: false };
+      const summary = formatDetailedSummary(desktopCaps);
+      expect(summary).not.toContain('iPhone/iPad');
+      expect(summary).not.toContain('Android — WebGL');
     });
   });
 
