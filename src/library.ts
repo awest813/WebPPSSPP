@@ -29,7 +29,8 @@
  *   blob        Blob     — the actual ROM file stored in IDB
  */
 
-import type { PerformanceTier } from "./performance.js";
+import type { PerformanceTier, ResolutionPreset } from "./performance.js";
+import type { PostProcessEffect } from "./webgpuPostProcess.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -512,6 +513,61 @@ export function saveGameTierProfile(gameId: string, tier: PerformanceTier): void
 export function clearGameTierProfile(gameId: string): void {
   try {
     localStorage.removeItem(TIER_PROFILE_PREFIX + gameId);
+  } catch { /* localStorage unavailable — best-effort */ }
+}
+
+// ── Per-game graphics profiles ────────────────────────────────────────────────
+
+/**
+ * Per-game graphics overrides stored in localStorage.
+ *
+ * These allow users to tune rendering quality on a per-game basis,
+ * independent of the global tier settings. A null value for any field
+ * means "use the global setting".
+ *
+ * Key format: `rv:gfx:{gameId}`
+ */
+export interface PerGameGraphicsProfile {
+  /** Resolution scaling preset override. Null means "use tier default". */
+  resolutionPreset?: ResolutionPreset | null;
+  /**
+   * Post-processing effect override. Null means "use global setting from
+   * app settings". "none" explicitly disables post-processing for this game.
+   */
+  postEffect?: PostProcessEffect | null;
+  /**
+   * Whether dynamic resolution scaling (DRS) is enabled for this game.
+   * Undefined means "use global DRS setting".
+   */
+  drsEnabled?: boolean;
+}
+
+const GRAPHICS_PROFILE_PREFIX = "rv:gfx:";
+
+export function getGameGraphicsProfile(gameId: string): PerGameGraphicsProfile | null {
+  try {
+    const raw = localStorage.getItem(GRAPHICS_PROFILE_PREFIX + gameId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    // Basic shape validation — unknown keys are tolerated for forward compatibility
+    return parsed as PerGameGraphicsProfile;
+  } catch {
+    return null;
+  }
+}
+
+export function saveGameGraphicsProfile(gameId: string, profile: PerGameGraphicsProfile): void {
+  try {
+    localStorage.setItem(GRAPHICS_PROFILE_PREFIX + gameId, JSON.stringify(profile));
+  } catch {
+    // localStorage unavailable — best-effort
+  }
+}
+
+export function clearGameGraphicsProfile(gameId: string): void {
+  try {
+    localStorage.removeItem(GRAPHICS_PROFILE_PREFIX + gameId);
   } catch { /* localStorage unavailable — best-effort */ }
 }
 

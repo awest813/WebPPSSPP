@@ -681,3 +681,75 @@ describe("adjustConfigForTier", () => {
     expect(adjusted.bloomIntensity).toBe(0.8);
   });
 });
+
+// ── FSR 1.0 effect ────────────────────────────────────────────────────────────
+
+describe("FSR effect", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes fsrSharpness", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG).toHaveProperty('fsrSharpness');
+    expect(typeof DEFAULT_POST_PROCESS_CONFIG.fsrSharpness).toBe('number');
+  });
+
+  it("fsrSharpness default is 0.25", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.fsrSharpness).toBe(0.25);
+  });
+
+  it("adjustConfigForTier zeros fsrSharpness on low tier", () => {
+    const config: PostProcessConfig = {
+      ...DEFAULT_POST_PROCESS_CONFIG,
+      tier: "low",
+      fsrSharpness: 0.8,
+    };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.fsrSharpness).toBe(0);
+  });
+
+  it("adjustConfigForTier caps fsrSharpness at 0.15 on medium tier", () => {
+    const config: PostProcessConfig = {
+      ...DEFAULT_POST_PROCESS_CONFIG,
+      tier: "medium",
+      fsrSharpness: 0.8,
+    };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.fsrSharpness).toBeLessThanOrEqual(0.15);
+  });
+
+  it("adjustConfigForTier leaves fsrSharpness unchanged on high tier", () => {
+    const config: PostProcessConfig = {
+      ...DEFAULT_POST_PROCESS_CONFIG,
+      tier: "high",
+      fsrSharpness: 0.5,
+    };
+    const adjusted = adjustConfigForTier(config);
+    expect(adjusted.fsrSharpness).toBe(0.5);
+  });
+
+  it("buildEffectPipeline succeeds for 'fsr' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'fsr' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'fsr' contains 'fsrSharpness'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("fsrSharpness");
+  });
+
+  it("wgslSources.fragment for 'fsr' contains EASU function", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("easu");
+  });
+
+  it("wgslSources.fragment for 'fsr' contains RCAS function", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("rcas");
+  });
+});

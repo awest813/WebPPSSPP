@@ -43,11 +43,16 @@ import {
   formatBytes,
   formatRelativeTime,
   type GameMetadata,
+  getGameGraphicsProfile,
+  saveGameGraphicsProfile,
+  clearGameGraphicsProfile,
+  type PerGameGraphicsProfile,
 } from "./library.js";
 import {
   type DeviceCapabilities,
   type PerformanceMode,
   type PerformanceTier,
+  type ResolutionPreset,
   formatCapabilitiesSummary,
   formatTierLabel,
   isLikelyIOS,
@@ -2238,7 +2243,28 @@ function buildInGameControls(
     });
   }
 
-  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouchToggle, btnTouch, btnTouchReset, btnNetplay, volWrap];
+  // Per-game graphics button
+  let btnGraphics: HTMLButtonElement | null = null;
+  {
+    const gameId    = getCurrentGameId?.()    ?? null;
+    const systemId  = getCurrentSystemId?.()  ?? null;
+    const gameName  = getCurrentGameName?.()  ?? null;
+
+    btnGraphics = make("button", {
+      class: "btn",
+      title: "Per-game graphics settings",
+      "aria-label": "Open per-game graphics settings",
+      "data-tooltip": "Graphics Settings",
+    }) as HTMLButtonElement;
+    btnGraphics.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 0 20.66 7"/><polyline points="22 2 22 8 16 8"/></svg> Graphics`;
+    btnGraphics.addEventListener("click", () => {
+      if (gameId && systemId && gameName) {
+        openPerGameGraphicsDialog(gameId, systemId, gameName, emulator, onSettingsChange, settings);
+      }
+    });
+  }
+
+  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouchToggle, btnTouch, btnTouchReset, btnGraphics, btnNetplay, volWrap];
   for (const ctrl of controls) {
     if (ctrl) container.appendChild(ctrl);
   }
@@ -3427,6 +3453,153 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
   );
 }
 
+// ── Per-game graphics settings dialog ────────────────────────────────────────
+
+/**
+ * Open a modal dialog for configuring per-game graphics overrides.
+ * Changes are persisted to localStorage immediately on confirmation.
+ */
+function openPerGameGraphicsDialog(
+  gameId:           string,
+  systemId:         string,
+  gameName:         string,
+  emulator:         PSPEmulator,
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  settings:         Settings,
+): void {
+  const existing = getGameGraphicsProfile(gameId) ?? {};
+
+  const overlay = make("div", { class: "confirm-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Per-Game Graphics Settings" });
+  const box     = make("div", { class: "confirm-box" });
+
+  const title = make("h3", { class: "confirm-title" }, `🎨 Graphics — ${gameName}`);
+  const body  = make("div", { class: "confirm-body", style: "display:flex;flex-direction:column;gap:12px;" });
+
+  // Resolution preset
+  const resPresetLabel = make("label", { class: "settings-label", style: "font-size:0.8rem;font-weight:600;" }, "Resolution Preset");
+  const resPresetDesc  = make("p", { class: "settings-desc", style: "font-size:0.72rem;opacity:0.7;margin:2px 0 6px;" },
+    "Override the tier default internal resolution for this game."
+  );
+  const resPresetSel = make("select", { class: "settings-select", style: "width:100%;padding:5px 8px;font-size:0.8rem;" }) as HTMLSelectElement;
+  const resPresetOptions: Array<{ value: string; label: string }> = [
+    { value: "",              label: "— Use tier default —" },
+    { value: "native",        label: "Native (1×)" },
+    { value: "2x",            label: "2× Crisp" },
+    { value: "4x",            label: "4× Ultra" },
+    { value: "display_match", label: "Display Match (auto)" },
+  ];
+  for (const opt of resPresetOptions) {
+    const o = make("option", { value: opt.value }, opt.label) as HTMLOptionElement;
+    if (existing.resolutionPreset === opt.value || (!existing.resolutionPreset && opt.value === "")) o.selected = true;
+    resPresetSel.appendChild(o);
+  }
+  body.append(resPresetLabel, resPresetDesc, resPresetSel);
+
+  // Post-process effect override
+  const fxLabel = make("label", { class: "settings-label", style: "font-size:0.8rem;font-weight:600;" }, "Post-Processing Effect");
+  const fxDesc  = make("p", { class: "settings-desc", style: "font-size:0.72rem;opacity:0.7;margin:2px 0 6px;" },
+    "Override the global post-processing effect for this game."
+  );
+  const fxSel = make("select", { class: "settings-select", style: "width:100%;padding:5px 8px;font-size:0.8rem;" }) as HTMLSelectElement;
+  const fxOptions: Array<{ value: string; label: string }> = [
+    { value: "__global__", label: "— Use global setting —" },
+    { value: "none",       label: "None" },
+    { value: "fsr",        label: "FSR 1.0 (upscaling + sharpening)" },
+    { value: "sharpen",    label: "Sharpen" },
+    { value: "fxaa",       label: "FXAA" },
+    { value: "crt",        label: "CRT Simulation" },
+    { value: "lcd",        label: "LCD Shadow Mask" },
+    { value: "bloom",      label: "Bloom" },
+  ];
+  for (const opt of fxOptions) {
+    const o = make("option", { value: opt.value }, opt.label) as HTMLOptionElement;
+    const curFx = existing.postEffect === undefined ? "__global__"
+                : existing.postEffect === null ? "__global__"
+                : existing.postEffect;
+    if (curFx === opt.value) o.selected = true;
+    fxSel.appendChild(o);
+  }
+  body.append(fxLabel, fxDesc, fxSel);
+
+  // DRS toggle
+  const drsRow = make("div", { style: "display:flex;align-items:center;gap:10px;margin-top:4px;" });
+  const drsCheck = make("input", { type: "checkbox", id: "gfx-drs-check", style: "width:16px;height:16px;" }) as HTMLInputElement;
+  drsCheck.checked = existing.drsEnabled ?? false;
+  const drsLabel = make("label", { for: "gfx-drs-check", style: "font-size:0.8rem;cursor:pointer;" },
+    "Enable Dynamic Resolution Scaling (DRS)"
+  );
+  const drsDesc = make("p", { class: "settings-desc", style: "font-size:0.72rem;opacity:0.7;margin:0 0 0 26px;" },
+    "Automatically lowers resolution when FPS drops, then raises it when performance recovers."
+  );
+  drsRow.append(drsCheck, drsLabel);
+  body.append(drsRow, drsDesc);
+
+  // Buttons
+  const btnBar     = make("div", { class: "confirm-actions" });
+  const btnClear   = make("button", { class: "btn btn--danger", style: "margin-right:auto;" }, "Reset to Defaults");
+  const btnCancel  = make("button", { class: "btn" }, "Cancel");
+  const btnConfirm = make("button", { class: "btn btn--primary" }, "Apply");
+  btnBar.append(btnClear, btnCancel, btnConfirm);
+
+  box.append(title, body, btnBar);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  const close = (save: boolean) => {
+    if (save) {
+      const profile: PerGameGraphicsProfile = {};
+      const resPick = resPresetSel.value as ResolutionPreset | "";
+      if (resPick) profile.resolutionPreset = resPick as ResolutionPreset;
+
+      const fxPick = fxSel.value;
+      if (fxPick !== "__global__") {
+        profile.postEffect = fxPick as import("./webgpuPostProcess.js").PostProcessEffect;
+      }
+
+      if (drsCheck.checked) profile.drsEnabled = true;
+
+      saveGameGraphicsProfile(gameId, profile);
+
+      // Apply DRS immediately
+      emulator.enableDRS(profile.drsEnabled ?? false);
+
+      // Apply post-effect immediately if one was set
+      if (profile.postEffect !== undefined) {
+        emulator.updatePostProcessConfig({ effect: profile.postEffect });
+      } else {
+        // Revert to global setting
+        emulator.updatePostProcessConfig({ effect: settings.postProcessEffect });
+        onSettingsChange({});
+      }
+
+      showInfoToast(`Graphics settings saved for "${gameName}"`);
+    }
+
+    document.removeEventListener("keydown", onKey, { capture: true });
+    overlay.classList.remove("confirm-overlay--visible");
+    overlay.addEventListener("transitionend", () => overlay.remove(), { once: true });
+    setTimeout(() => overlay.remove(), 250);
+  };
+
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); }
+  };
+
+  btnClear.addEventListener("click", () => {
+    clearGameGraphicsProfile(gameId);
+    emulator.enableDRS(false);
+    emulator.updatePostProcessConfig({ effect: settings.postProcessEffect });
+    showInfoToast(`Graphics settings cleared for "${gameName}"`);
+    close(false);
+  });
+  btnCancel.addEventListener("click", () => close(false));
+  btnConfirm.addEventListener("click", () => close(true));
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(false); });
+  document.addEventListener("keydown", onKey, { capture: true });
+
+  requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+}
+
 // ── Settings panel ────────────────────────────────────────────────────────────
 
 type SettingsTab = "performance" | "display" | "library" | "bios" | "multiplayer" | "debug" | "about";
@@ -3879,6 +4052,7 @@ function buildDisplayTab(
     type FxOption = { value: string; label: string; desc: string };
     const fxOptions: FxOption[] = [
       { value: "none",    label: "No effect",        desc: "Clean output — exactly as the game renders it" },
+      { value: "fsr",     label: "FSR 1.0",          desc: "Edge-adaptive upsampling + sharpening — AMD FidelityFX inspired" },
       { value: "crt",     label: "CRT screen",       desc: "Scanlines and glow — like playing on a real CRT TV" },
       { value: "sharpen", label: "Sharper image",    desc: "Crisper pixels — great for upscaled handheld games" },
       { value: "lcd",     label: "LCD handheld",     desc: "Sub-pixel grid — simulates a handheld LCD screen" },

@@ -22,10 +22,10 @@ import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
 import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { SaveGameService } from "./saveService.js";
-import { GameLibrary, getGameTierProfile, saveGameTierProfile } from "./library.js";
+import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
-import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary, scheduleIdleTask } from "./performance.js";
+import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary, scheduleIdleTask, getResolutionCoreOptions } from "./performance.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
          buildLandingControls, showTierDowngradePrompt,
@@ -117,7 +117,7 @@ function loadSettings(): Settings {
       useWebGPU: typeof parsed.useWebGPU === "boolean"
         ? parsed.useWebGPU
         : DEFAULT_SETTINGS.useWebGPU,
-      postProcessEffect: (["none", "crt", "sharpen", "lcd", "bloom", "fxaa"] as PostProcessEffect[]).includes(parsed.postProcessEffect as PostProcessEffect)
+      postProcessEffect: (["none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr"] as PostProcessEffect[]).includes(parsed.postProcessEffect as PostProcessEffect)
         ? (parsed.postProcessEffect as PostProcessEffect)
         : DEFAULT_SETTINGS.postProcessEffect,
       autoSaveEnabled: typeof parsed.autoSaveEnabled === "boolean"
@@ -379,6 +379,23 @@ function main(): void {
     const savedTier    = gameId ? getGameTierProfile(gameId) : null;
     const resolvedTier = tierOverride ?? savedTier ?? undefined;
 
+    // Apply per-game graphics profile overrides
+    const gfxProfile = gameId ? getGameGraphicsProfile(gameId) : null;
+    let coreSettingsOverride: Record<string, string> | undefined;
+    if (gfxProfile) {
+      // Resolution preset: build core-option overrides to merge at launch
+      if (gfxProfile.resolutionPreset) {
+        const presetOptions = getResolutionCoreOptions(systemId, gfxProfile.resolutionPreset);
+        if (Object.keys(presetOptions).length > 0) {
+          coreSettingsOverride = presetOptions;
+        }
+      }
+      // DRS: configure before launch so the game starts with the right setting
+      if (typeof gfxProfile.drsEnabled === "boolean") {
+        emulator.enableDRS(gfxProfile.drsEnabled);
+      }
+    }
+
     // Resolve BIOS URL for systems that need it (PS1, Saturn, Dreamcast, Lynx)
     let biosUrl: string | undefined;
     try {
@@ -402,6 +419,7 @@ function main(): void {
       performanceMode:     settings.performanceMode,
       deviceCaps,
       tierOverride:        resolvedTier,
+      coreSettingsOverride,
       biosUrl,
       netplayManager,
       gameId,
@@ -410,6 +428,13 @@ function main(): void {
       // check so the emulator doesn't refuse to launch the file.
       skipExtensionCheck:  !!gameId,
     });
+
+    // After a successful launch, apply per-game post-process effect override.
+    // This is done post-launch (not pre-launch) because the post-processor is
+    // attached to the emulator after game start, so we override it here.
+    if (gfxProfile?.postEffect !== null && gfxProfile?.postEffect !== undefined && emulator.state !== "error") {
+      emulator.updatePostProcessConfig({ effect: gfxProfile.postEffect });
+    }
 
     // launch() reports failures via state/onError instead of throwing.
     // Ensure failed launches don't leave stale pending restore handlers or

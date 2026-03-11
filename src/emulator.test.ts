@@ -3042,4 +3042,142 @@ describe('PSPEmulator', () => {
       expect(measures).toContain('retrovault:ready-to-game-start');
     });
   });
+
+  // ── Dynamic Resolution Scaling (DRS) ──────────────────────────────────────
+
+  describe('Dynamic Resolution Scaling', () => {
+    type EmuInternal = {
+      _drsEnabled: boolean;
+      _drsCurrentStepIdx: number;
+      _drsTotalSteps: number;
+      _drsLowFPSStartTime: number;
+      _drsHighFPSStartTime: number;
+      _currentSystem: { id: string } | null;
+      _checkDRS(fps: number, now: number): void;
+    };
+
+    it('isDRSEnabled defaults to false', () => {
+      expect(emulator.isDRSEnabled).toBe(false);
+    });
+
+    it('drsCurrentStep defaults to 0', () => {
+      expect(emulator.drsCurrentStep).toBe(0);
+    });
+
+    it('enableDRS(true) sets isDRSEnabled to true', () => {
+      emulator.enableDRS(true);
+      expect(emulator.isDRSEnabled).toBe(true);
+    });
+
+    it('enableDRS(false) resets DRS timers', () => {
+      const internal = emulator as unknown as EmuInternal;
+      emulator.enableDRS(true);
+      internal._drsLowFPSStartTime  = 999;
+      internal._drsHighFPSStartTime = 888;
+      emulator.enableDRS(false);
+      expect(internal._drsLowFPSStartTime).toBe(0);
+      expect(internal._drsHighFPSStartTime).toBe(0);
+    });
+
+    it('_checkDRS fires onDRSChange down when FPS is low for DRS_STEP_DOWN_MS', () => {
+      const internal = emulator as unknown as EmuInternal;
+
+      // Simulate a PSP game being active
+      internal._currentSystem = { id: 'psp' };
+      internal._drsTotalSteps = 4;   // PSP ladder has 4 steps
+      internal._drsCurrentStepIdx = 2; // start at step 2 (4×)
+      emulator.enableDRS(true);
+
+      const events: { key: string; value: string; step: number; dir: string }[] = [];
+      emulator.onDRSChange = (key, value, step, dir) => events.push({ key, value, step, dir });
+
+      // First call — start the timer
+      const t0 = performance.now();
+      internal._checkDRS(20, t0);
+      expect(events).toHaveLength(0); // timer just started
+
+      // Second call — advance 3 seconds (past the 2-second threshold)
+      internal._checkDRS(20, t0 + 3_000);
+      expect(events).toHaveLength(1);
+      expect(events[0]!.dir).toBe('down');
+      expect(events[0]!.step).toBe(1); // stepped from 2 → 1
+      expect(events[0]!.key).toBe('ppsspp_internal_resolution');
+    });
+
+    it('_checkDRS fires onDRSChange up when FPS recovers for DRS_STEP_UP_MS', () => {
+      const internal = emulator as unknown as EmuInternal;
+
+      internal._currentSystem = { id: 'psp' };
+      internal._drsTotalSteps = 4;
+      internal._drsCurrentStepIdx = 0; // at native (bottom)
+      emulator.enableDRS(true);
+
+      const events: { dir: string }[] = [];
+      emulator.onDRSChange = (_k, _v, _s, dir) => events.push({ dir });
+
+      const t0 = performance.now();
+
+      // FPS is 58 — above DRS_STEP_UP_FPS (55) — start the timer
+      internal._checkDRS(58, t0);
+      expect(events).toHaveLength(0);
+
+      // Advance 11 seconds (past the 10-second step-up threshold)
+      internal._checkDRS(58, t0 + 11_000);
+      expect(events).toHaveLength(1);
+      expect(events[0]!.dir).toBe('up');
+    });
+
+    it('_checkDRS does not step down when already at step 0 (native)', () => {
+      const internal = emulator as unknown as EmuInternal;
+
+      internal._currentSystem = { id: 'psp' };
+      internal._drsTotalSteps = 4;
+      internal._drsCurrentStepIdx = 0;
+      emulator.enableDRS(true);
+
+      const events: unknown[] = [];
+      emulator.onDRSChange = () => events.push(true);
+
+      const t0 = performance.now();
+      internal._checkDRS(10, t0);
+      internal._checkDRS(10, t0 + 5_000);
+      // No step-down possible — already at native
+      expect(events).toHaveLength(0);
+    });
+
+    it('_checkDRS resets step-up timer when FPS drops', () => {
+      const internal = emulator as unknown as EmuInternal;
+
+      internal._currentSystem = { id: 'psp' };
+      internal._drsTotalSteps = 4;
+      internal._drsCurrentStepIdx = 0;
+      emulator.enableDRS(true);
+
+      const t0 = performance.now();
+      // Start step-up timer
+      internal._checkDRS(60, t0);
+      expect(internal._drsHighFPSStartTime).toBeGreaterThan(0);
+
+      // FPS drops — step-up timer resets
+      internal._checkDRS(20, t0 + 1_000);
+      expect(internal._drsHighFPSStartTime).toBe(0);
+      expect(internal._drsLowFPSStartTime).toBeGreaterThan(0);
+    });
+
+    it('_checkDRS is a no-op for systems without a resolution ladder', () => {
+      const internal = emulator as unknown as EmuInternal;
+
+      // GBA has no resolution ladder in the DRS system
+      internal._currentSystem = { id: 'gba' };
+      internal._drsTotalSteps = 0;
+      emulator.enableDRS(true);
+
+      const events: unknown[] = [];
+      emulator.onDRSChange = () => events.push(true);
+
+      const t0 = performance.now();
+      internal._checkDRS(10, t0 + 5_000);
+      expect(events).toHaveLength(0);
+    });
+  });
 });

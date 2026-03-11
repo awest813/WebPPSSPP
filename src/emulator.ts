@@ -28,6 +28,7 @@ import {
   isLikelyIOS, getSafariVersion,
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
   MemoryMonitor,
+  getResolutionLadder,
 } from "./performance.js";
 import { shaderCache } from "./shaderCache.js";
 import { roomDisplayNameForKey, type NetplayManager } from "./multiplayer.js";
@@ -116,6 +117,12 @@ const LARGE_ROM_THRESHOLD = 500 * 1024 * 1024;
 const AQ_LOW_FPS_HZ   = 25;        // FPS floor before the timer starts
 const AQ_TRIGGER_MS   = 10_000;    // sustained low-FPS window before alert
 const AQ_COOLDOWN_MS  = 60_000;    // minimum gap between successive alerts
+
+// Dynamic resolution scaling thresholds
+const DRS_STEP_DOWN_FPS = 25;      // FPS floor that triggers a resolution step-down
+const DRS_STEP_UP_FPS   = 55;      // FPS headroom required before stepping resolution back up
+const DRS_STEP_DOWN_MS  = 2_000;   // sustained low-FPS window before stepping down (2 s)
+const DRS_STEP_UP_MS    = 10_000;  // sustained good-FPS window before stepping up (10 s)
 
 let cachedWebGL2Support: boolean | null = null;
 
@@ -468,6 +475,12 @@ export interface LaunchOptions {
    */
   tierOverride?: PerformanceTier;
   /**
+   * Optional per-game core-option overrides merged on top of the tier settings.
+   * Keys are RetroArch core-option names; values are string option values.
+   * Typical use: resolution preset from the per-game graphics profile.
+   */
+  coreSettingsOverride?: Record<string, string>;
+  /**
    * Blob URL for the system BIOS file (e.g. PS1 SCPH-5501, Saturn BIOS).
    * Set EJS_biosUrl when provided. The emulator takes ownership of revoking
    * this URL when the session ends. If the launch fails due to a preflight
@@ -545,6 +558,18 @@ export class PSPEmulator {
   /** Diagnostic event log for the debug panel timeline. */
   private _diagnosticLog: DiagnosticEvent[] = [];
 
+  // ── Dynamic resolution scaling (DRS) state ──────────────────────────────────
+  /** Whether DRS is currently active for this emulator instance. */
+  private _drsEnabled = false;
+  /** Index into the current system's resolution ladder (0 = native). */
+  private _drsCurrentStepIdx = 0;
+  /** Timestamp (ms) when low FPS was first detected for DRS step-down; 0 = not tracking. */
+  private _drsLowFPSStartTime = 0;
+  /** Timestamp (ms) when good FPS was first detected for DRS step-up; 0 = not tracking. */
+  private _drsHighFPSStartTime = 0;
+  /** Number of DRS ladder steps available for the active system (0 = not supported). */
+  private _drsTotalSteps = 0;
+
   /** When true, emit detailed debug information to the browser console. */
   verboseLogging = false;
 
@@ -576,6 +601,23 @@ export class PSPEmulator {
    * The handler should persist the save state asynchronously.
    */
   onAutoSave?: () => void;
+  /**
+   * Fired when dynamic resolution scaling changes the internal resolution.
+   *
+   * The handler receives the option key (e.g. `"ppsspp_internal_resolution"`)
+   * and the new value (e.g. `"2"`). The caller should apply this override to
+   * the core options — typically by silently relaunching the game at the new
+   * setting, or storing it in the per-game graphics profile for the next launch.
+   *
+   * `stepIdx` is the new step index (0 = native), `direction` is `"down"` when
+   * resolution is reduced and `"up"` when it is raised.
+   */
+  onDRSChange?: (
+    optionKey: string,
+    optionValue: string,
+    stepIdx: number,
+    direction: "down" | "up",
+  ) => void;
 
   constructor(playerId: string) {
     this._playerId = playerId;
@@ -627,6 +669,26 @@ export class PSPEmulator {
   get postProcessActive(): boolean { return this._postProcessor?.active ?? false; }
   /** Current post-processing configuration. */
   get postProcessConfig(): PostProcessConfig { return { ...this._postProcessConfig }; }
+  /** Whether dynamic resolution scaling is enabled. */
+  get isDRSEnabled(): boolean { return this._drsEnabled; }
+  /** Current DRS step index (0 = native resolution). */
+  get drsCurrentStep(): number { return this._drsCurrentStepIdx; }
+
+  /**
+   * Enable or disable Dynamic Resolution Scaling (DRS).
+   *
+   * When enabled, the emulator monitors FPS and fires `onDRSChange` when the
+   * resolution should be stepped down (low FPS) or up (recovered FPS).
+   * DRS only has effect for systems that have a resolution ladder (PSP, N64,
+   * PS1, Saturn, Dreamcast). For other systems this is a no-op.
+   */
+  enableDRS(enabled: boolean): void {
+    this._drsEnabled = enabled;
+    if (!enabled) {
+      this._drsLowFPSStartTime  = 0;
+      this._drsHighFPSStartTime = 0;
+    }
+  }
 
   /**
    * Diagnostic event log for the debug panel timeline.
@@ -1376,6 +1438,15 @@ export class PSPEmulator {
       this._resetAdaptiveQualityState();
       this.logDiagnostic("performance", `Resolved tier: ${tier}${opts.tierOverride ? " (override)" : ""}`);
 
+      // ── Initialise DRS state for the active system ──────────────────────
+      // Reset the step index to the bottom of the ladder (native) so DRS
+      // always starts from the tier's chosen resolution and can only step down.
+      const drsLadder = getResolutionLadder(opts.systemId);
+      this._drsTotalSteps    = drsLadder ? drsLadder.values.length : 0;
+      this._drsCurrentStepIdx = 0;
+      this._drsLowFPSStartTime  = 0;
+      this._drsHighFPSStartTime = 0;
+
       // Reset audio underrun counter, rate-limit timestamp, and level for the new session
       this._audioUnderruns = 0;
       this._lastAudioUnderrunWarnTime = 0;
@@ -1392,7 +1463,19 @@ export class PSPEmulator {
           : { ...system.qualitySettings };
       }
 
-      // ── Audio latency adaptation ─────────────────────────────────────────
+      // ── Per-game core settings overrides ─────────────────────────────────
+      // Merge caller-supplied overrides (e.g. resolution preset from per-game
+      // graphics profile) on top of the tier settings. These take precedence
+      // over everything except audio adaptation, which follows below.
+      if (opts.coreSettingsOverride && Object.keys(opts.coreSettingsOverride).length > 0) {
+        Object.assign(ejsSettings, opts.coreSettingsOverride);
+        this.logDiagnostic(
+          "performance",
+          `Per-game core overrides: ${JSON.stringify(opts.coreSettingsOverride)}`
+        );
+      }
+
+
       // Override the audio buffer size from tier defaults when the hardware
       // reports a different latency profile.  This prevents crackles on
       // Bluetooth/USB audio devices (high base latency) and allows the
@@ -1970,6 +2053,10 @@ export class PSPEmulator {
    * the game is definitively struggling on this hardware. We fire `onLowFPS`
    * so the UI layer can surface a "Switch to Performance mode?" suggestion.
    * A 60-second cooldown prevents spamming the user during loading screens.
+   *
+   * When DRS is enabled, sustained low FPS also triggers a resolution step-down
+   * after 2 seconds (faster than the AQ suggestion). Sustained good FPS (≥55)
+   * for 10 seconds triggers a resolution step-up.
    */
   private _checkAdaptiveQuality(averageFPS: number): void {
     const now = performance.now();
@@ -1995,6 +2082,77 @@ export class PSPEmulator {
       }
     } else {
       this._lowFPSStartTime = 0;
+    }
+
+    // ── DRS tracking ──────────────────────────────────────────────────────
+    if (this._drsEnabled && this._drsTotalSteps > 1) {
+      this._checkDRS(averageFPS, now);
+    }
+  }
+
+  /**
+   * Check whether DRS should step the resolution down or up.
+   * Separated from _checkAdaptiveQuality for clarity.
+   * @internal Exposed as private for testing.
+   */
+  private _checkDRS(averageFPS: number, now: number): void {
+    const systemId = this._currentSystem?.id ?? "";
+    const ladder   = getResolutionLadder(systemId);
+    if (!ladder) return;
+
+    if (averageFPS > 0 && averageFPS < DRS_STEP_DOWN_FPS) {
+      // FPS is too low — start the step-down timer
+      if (this._drsLowFPSStartTime === 0) {
+        this._drsLowFPSStartTime = now;
+      }
+      this._drsHighFPSStartTime = 0; // reset step-up timer
+
+      if (
+        now - this._drsLowFPSStartTime >= DRS_STEP_DOWN_MS &&
+        this._drsCurrentStepIdx > 0
+      ) {
+        this._drsLowFPSStartTime = 0;
+        this._drsCurrentStepIdx--;
+        const newValue = ladder.values[this._drsCurrentStepIdx]!;
+        this.logDiagnostic(
+          "performance",
+          `DRS step-down → ${ladder.key}=${newValue} (step ${this._drsCurrentStepIdx}/${ladder.values.length - 1})`
+        );
+        if (this.verboseLogging) {
+          console.info(
+            `[RetroVault] DRS: low FPS (${averageFPS.toFixed(1)}) — stepping down ` +
+            `${ladder.key} to "${newValue}" (step ${this._drsCurrentStepIdx}).`
+          );
+        }
+        this.onDRSChange?.(ladder.key, newValue, this._drsCurrentStepIdx, "down");
+      }
+    } else if (averageFPS >= DRS_STEP_UP_FPS && this._drsCurrentStepIdx < ladder.values.length - 1) {
+      // FPS has recovered — start the step-up timer
+      if (this._drsHighFPSStartTime === 0) {
+        this._drsHighFPSStartTime = now;
+      }
+      this._drsLowFPSStartTime = 0; // reset step-down timer
+
+      if (now - this._drsHighFPSStartTime >= DRS_STEP_UP_MS) {
+        this._drsHighFPSStartTime = 0;
+        this._drsCurrentStepIdx++;
+        const newValue = ladder.values[this._drsCurrentStepIdx]!;
+        this.logDiagnostic(
+          "performance",
+          `DRS step-up → ${ladder.key}=${newValue} (step ${this._drsCurrentStepIdx}/${ladder.values.length - 1})`
+        );
+        if (this.verboseLogging) {
+          console.info(
+            `[RetroVault] DRS: good FPS (${averageFPS.toFixed(1)}) — stepping up ` +
+            `${ladder.key} to "${newValue}" (step ${this._drsCurrentStepIdx}).`
+          );
+        }
+        this.onDRSChange?.(ladder.key, newValue, this._drsCurrentStepIdx, "up");
+      }
+    } else {
+      // FPS is in the acceptable range — reset both timers
+      this._drsLowFPSStartTime  = 0;
+      this._drsHighFPSStartTime = 0;
     }
   }
 
@@ -2155,6 +2313,10 @@ export class PSPEmulator {
   private _resetAdaptiveQualityState(): void {
     this._lowFPSStartTime = 0;
     this._lastQualitySuggestionTime = Number.NEGATIVE_INFINITY;
+    // Reset DRS tracking timers (but preserve _drsEnabled and _drsCurrentStepIdx
+    // so a caller-set initial step survives a reset).
+    this._drsLowFPSStartTime  = 0;
+    this._drsHighFPSStartTime = 0;
   }
 
   private _disconnectAudioWorklet(): void {

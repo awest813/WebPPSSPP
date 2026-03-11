@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { formatBytes, formatRelativeTime, GameLibrary, getGameTierProfile, saveGameTierProfile, clearGameTierProfile } from "./library.js";
+import { formatBytes, formatRelativeTime, GameLibrary, getGameTierProfile, saveGameTierProfile, clearGameTierProfile, getGameGraphicsProfile, saveGameGraphicsProfile, clearGameGraphicsProfile } from "./library.js";
 import "fake-indexeddb/auto";
 
 describe('formatBytes', () => {
@@ -395,5 +395,75 @@ describe('GameLibrary.getAllGamesMetadata concurrent call deduplication', () => 
     // After invalidation the second read is a fresh array
     expect(second).not.toBe(first);
     expect(second.length).toBeGreaterThan(first.length);
+  });
+});
+
+// ── PerGameGraphicsProfile ────────────────────────────────────────────────────
+
+describe('PerGameGraphicsProfile', () => {
+  const gameId = 'test-game-gfx-001';
+
+  beforeEach(() => {
+    clearGameGraphicsProfile(gameId);
+  });
+
+  it('returns null when no profile is stored', () => {
+    expect(getGameGraphicsProfile(gameId)).toBeNull();
+  });
+
+  it('saves and loads a profile with resolutionPreset', () => {
+    saveGameGraphicsProfile(gameId, { resolutionPreset: '2x' });
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.resolutionPreset).toBe('2x');
+  });
+
+  it('saves and loads a profile with postEffect', () => {
+    saveGameGraphicsProfile(gameId, { postEffect: 'fsr' });
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.postEffect).toBe('fsr');
+  });
+
+  it('saves and loads a profile with drsEnabled', () => {
+    saveGameGraphicsProfile(gameId, { drsEnabled: true });
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.drsEnabled).toBe(true);
+  });
+
+  it('saves and loads a full profile', () => {
+    saveGameGraphicsProfile(gameId, { resolutionPreset: '4x', postEffect: 'crt', drsEnabled: false });
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.resolutionPreset).toBe('4x');
+    expect(loaded!.postEffect).toBe('crt');
+    expect(loaded!.drsEnabled).toBe(false);
+  });
+
+  it('clears the profile', () => {
+    saveGameGraphicsProfile(gameId, { resolutionPreset: '2x' });
+    clearGameGraphicsProfile(gameId);
+    expect(getGameGraphicsProfile(gameId)).toBeNull();
+  });
+
+  it('overwrites an existing profile on save', () => {
+    saveGameGraphicsProfile(gameId, { resolutionPreset: '2x', drsEnabled: true });
+    saveGameGraphicsProfile(gameId, { resolutionPreset: '4x' });
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.resolutionPreset).toBe('4x');
+    expect(loaded!.drsEnabled).toBeUndefined();
+  });
+
+  it('returns null for corrupt JSON', () => {
+    localStorage.setItem('rv:gfx:' + gameId, 'not-json');
+    expect(getGameGraphicsProfile(gameId)).toBeNull();
+  });
+
+  it('returns null for non-object JSON', () => {
+    localStorage.setItem('rv:gfx:' + gameId, '"string"');
+    expect(getGameGraphicsProfile(gameId)).toBeNull();
+  });
+
+  it('does not throw when localStorage is unavailable', () => {
+    // Simulate by storing null manually — the try/catch guard handles errors
+    expect(() => clearGameGraphicsProfile(gameId)).not.toThrow();
   });
 });

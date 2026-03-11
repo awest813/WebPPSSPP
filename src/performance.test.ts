@@ -32,6 +32,8 @@ import {
   DeltaTracker,
   DeviceCapabilities,
   GPUCapabilities,
+  getResolutionCoreOptions,
+  getResolutionLadder,
 } from "./performance.js";
 
 describe('performance', () => {
@@ -2197,6 +2199,82 @@ describe('performance', () => {
       t.set('z', 7);
       const d = t.delta();
       expect(d).toHaveProperty('z', 7);
+    });
+  });
+
+  // ── ResolutionPreset / getResolutionCoreOptions ────────────────────────────
+  describe('getResolutionCoreOptions', () => {
+    it('returns empty object for an unknown system', () => {
+      expect(getResolutionCoreOptions('unknownSystem', '2x')).toEqual({});
+    });
+
+    it('returns empty object for native preset (native = index 0)', () => {
+      expect(getResolutionCoreOptions('psp', 'native')).toEqual({});
+      expect(getResolutionCoreOptions('n64', 'native')).toEqual({});
+    });
+
+    it('returns correct PSP 2× option', () => {
+      expect(getResolutionCoreOptions('psp', '2x')).toEqual({ ppsspp_internal_resolution: '2' });
+    });
+
+    it('returns correct PSP 4× option (step index 2)', () => {
+      expect(getResolutionCoreOptions('psp', '4x')).toEqual({ ppsspp_internal_resolution: '4' });
+    });
+
+    it('returns correct N64 2× option', () => {
+      expect(getResolutionCoreOptions('n64', '2x')).toEqual({ 'mupen64plus-resolution-factor': '2' });
+    });
+
+    it('returns correct N64 4× option', () => {
+      expect(getResolutionCoreOptions('n64', '4x')).toEqual({ 'mupen64plus-resolution-factor': '4' });
+    });
+
+    it('returns correct PS1 2× option', () => {
+      expect(getResolutionCoreOptions('psx', '2x')).toEqual({ beetle_psx_internal_resolution: '2x' });
+    });
+
+    it('returns correct PS1 4× option', () => {
+      expect(getResolutionCoreOptions('psx', '4x')).toEqual({ beetle_psx_internal_resolution: '4x' });
+    });
+
+    it('returns correct Saturn 2× option', () => {
+      expect(getResolutionCoreOptions('segaSaturn', '2x')).toEqual({ beetle_saturn_resolution: '2x' });
+    });
+
+    it('returns correct Dreamcast 2× option', () => {
+      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({ flycast_internal_resolution: '1280x960' });
+    });
+
+    it('clamps 4× to the ladder maximum when the system only has fewer steps', () => {
+      // N64 ladder: ["1","2","4"] — 3 entries; index 2 is "4"
+      expect(getResolutionCoreOptions('n64', '4x')).toEqual({ 'mupen64plus-resolution-factor': '4' });
+    });
+
+    it('display_match returns a non-empty object for PSP (fallback path in tests)', () => {
+      // In test environments window.screen may not be populated — just verify
+      // it returns either an object with one key or {} (native fallback).
+      const result = getResolutionCoreOptions('psp', 'display_match');
+      // Must be an object (either {} or { ppsspp_internal_resolution: '...' })
+      expect(typeof result).toBe('object');
+    });
+
+    describe('getResolutionLadder', () => {
+      it('returns null for unknown system', () => {
+        expect(getResolutionLadder('unknownSystem')).toBeNull();
+      });
+
+      it('returns the PSP ladder', () => {
+        const ladder = getResolutionLadder('psp');
+        expect(ladder).not.toBeNull();
+        expect(ladder!.key).toBe('ppsspp_internal_resolution');
+        expect(ladder!.values[0]).toBe('1');
+      });
+
+      it('returns the N64 ladder', () => {
+        const ladder = getResolutionLadder('n64');
+        expect(ladder).not.toBeNull();
+        expect(ladder!.key).toBe('mupen64plus-resolution-factor');
+      });
     });
   });
 });

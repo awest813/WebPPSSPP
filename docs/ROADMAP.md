@@ -228,11 +228,11 @@ WebGPU rendering pipeline completed in Phase 7/7.1.
 
 ### Rendering Pipeline
 
-- [ ] **FSR 1.0 upscaling**: AMD FidelityFX Super Resolution as a WGSL compute shader; quality slider in Settings; replaces simple bilinear on High/Ultra tiers
+- [x] **FSR 1.0 upscaling**: AMD FidelityFX Super Resolution-inspired WGSL fragment shader (EASU + RCAS); `fsrSharpness` config param; tier-aware sharpness reduction; available in Settings and per-game graphics dialog
 - [ ] **Temporal anti-aliasing (TAA)**: Lightweight frame-blend pass to reduce shimmer on PSP and N64; opt-in via Settings; disabled on Low/Medium
-- [ ] **Resolution scaling presets**: "Native", "2× Crisp", "4× Ultra", "Display Match" — one-click combos of internal res, upscale shader, and AA per system
-- [ ] **Dynamic resolution scaling (DRS)**: Auto-lower internal resolution after 2+ seconds below target FPS; auto-raise when headroom recovers; logged in diagnostic timeline
-- [ ] **Per-game graphics profiles**: User overrides for tier settings per game (e.g. force 1× for heavy PSP titles); stored in `localStorage`; accessible from emulator toolbar
+- [x] **Resolution scaling presets**: "Native", "2× Crisp", "4× Ultra", "Display Match" — `ResolutionPreset` type + `getResolutionCoreOptions()` in `performance.ts`; applied via `coreSettingsOverride` in `LaunchOptions`
+- [x] **Dynamic resolution scaling (DRS)**: Auto-lower internal resolution after 2 seconds below 25 FPS; auto-raise after 10 seconds above 55 FPS; logged in diagnostic timeline; `onDRSChange` callback; `enableDRS()` / `isDRSEnabled` on `PSPEmulator`
+- [x] **Per-game graphics profiles**: `PerGameGraphicsProfile` (resolution preset, post-effect override, DRS toggle) stored in `localStorage`; "🎨 Graphics" button in emulator toolbar; accessible from the in-game toolbar; `getGameGraphicsProfile` / `saveGameGraphicsProfile` / `clearGameGraphicsProfile` in `library.ts`
 
 ### Texture Management
 

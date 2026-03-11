@@ -25,6 +25,108 @@ export type PerformanceMode = "auto" | "performance" | "quality";
 
 export type PerformanceTier = "low" | "medium" | "high" | "ultra";
 
+/**
+ * Resolution scaling preset — a one-click combo of internal resolution,
+ * upscale filter, and anti-aliasing intensity.
+ *
+ * - "native"        — system's default resolution (no scaling)
+ * - "2x"            — 2× internal resolution (crisp, moderate cost)
+ * - "4x"            — 4× internal resolution (ultra sharpness, high cost)
+ * - "display_match" — best resolution for the display size (heuristic)
+ */
+export type ResolutionPreset = "native" | "2x" | "4x" | "display_match";
+
+// ── Per-system resolution ladders ─────────────────────────────────────────────
+
+/**
+ * Maps system IDs to the core-option key controlling internal resolution
+ * and the ordered ladder of values (native → highest).
+ */
+const RESOLUTION_LADDERS: Record<string, { key: string; values: string[] }> = {
+  psp: {
+    key: "ppsspp_internal_resolution",
+    values: ["1", "2", "4", "8"],
+  },
+  n64: {
+    key: "mupen64plus-resolution-factor",
+    values: ["1", "2", "4"],
+  },
+  psx: {
+    key: "beetle_psx_internal_resolution",
+    values: ["1x(native)", "2x", "4x"],
+  },
+  segaSaturn: {
+    key: "beetle_saturn_resolution",
+    values: ["1x(native)", "2x", "4x", "8x"],
+  },
+  segaDC: {
+    key: "flycast_internal_resolution",
+    values: ["640x480", "1280x960", "1920x1440", "2560x1920"],
+  },
+};
+
+/**
+ * Returns the core-option key and value pairs that implement the given
+ * resolution preset for the specified system.
+ *
+ * Returns an empty object for systems without a resolution option or when
+ * the preset maps to the same step as native (ladder index 0).
+ *
+ * The "display_match" preset picks 2× for small/medium displays (≤1440p)
+ * and 4× for large/high-DPI displays, falling back to 2× if the system
+ * only supports a two-step ladder.
+ */
+export function getResolutionCoreOptions(
+  systemId: string,
+  preset: ResolutionPreset,
+): Record<string, string> {
+  const ladder = RESOLUTION_LADDERS[systemId];
+  if (!ladder) return {};
+
+  let targetIdx: number;
+
+  switch (preset) {
+    case "native":
+      targetIdx = 0;
+      break;
+    case "2x":
+      targetIdx = Math.min(1, ladder.values.length - 1);
+      break;
+    case "4x":
+      targetIdx = Math.min(2, ladder.values.length - 1);
+      break;
+    case "display_match": {
+      // Heuristic: use devicePixelRatio and screen size to pick the best step.
+      // Falls back to 2× when window is unavailable (e.g., tests).
+      let displayStep = 1;
+      if (typeof window !== "undefined") {
+        const dpr         = window.devicePixelRatio ?? 1;
+        const logicalW    = window.screen?.width ?? 1920;
+        const physicalW   = logicalW * dpr;
+        displayStep = physicalW >= 3840 ? 2 : physicalW >= 1920 ? 1 : 1;
+      }
+      targetIdx = Math.min(displayStep, ladder.values.length - 1);
+      break;
+    }
+  }
+
+  const value = ladder.values[targetIdx];
+  // If the target is already the native value (index 0), return an empty map
+  // to avoid redundant core-option injection.
+  if (!value || targetIdx === 0) return {};
+  return { [ladder.key]: value };
+}
+
+/**
+ * Returns the ordered resolution values for the given system (native first).
+ * Returns null when the system has no known resolution option.
+ */
+export function getResolutionLadder(
+  systemId: string,
+): { key: string; values: string[] } | null {
+  return RESOLUTION_LADDERS[systemId] ?? null;
+}
+
 export interface GPUCapabilities {
   /** Unmasked renderer string. */
   renderer: string;
