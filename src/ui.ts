@@ -2316,7 +2316,7 @@ function buildCloudBar(
   cloudManager: CloudSaveManager,
   gameId:       string,
   saveLibrary:  SaveStateLibrary,
-): HTMLElement {
+): { bar: HTMLElement; teardown: () => void } {
   const bar = make("div", { class: "cloud-bar", role: "region", "aria-label": "Cloud sync" });
 
   const statusWrap = make("span", { class: "cloud-bar__status" });
@@ -2482,14 +2482,13 @@ function buildCloudBar(
     }
   };
 
-  // Register this bar's render function with the manager.
-  // Use a WeakRef-friendly approach: store the render fn in the manager's
-  // subscriber set so multiple bars (e.g. from re-opened galleries) don't
-  // accumulate stale handlers.
+  // Register this bar's render function with the manager and return a teardown
+  // callback so callers can unsubscribe when the gallery closes.
+  const removeStatusListener = cloudManager.addStatusListener(render);
   cloudManager.onStatusChange = render;
 
   render();
-  return bar;
+  return { bar, teardown: removeStatusListener };
 }
 
 /**
@@ -2847,9 +2846,12 @@ async function openSaveGallery(
   tabsRow.append(tabSave, tabLoad);
   box.appendChild(tabsRow);
 
+  let teardownCloudStatus: (() => void) | null = null;
+
   // Cloud bar (below the tabs, above the grid)
   const cloudBar = buildCloudBar(getCloudManager(), gameId, saveLibrary);
-  box.appendChild(cloudBar);
+  box.appendChild(cloudBar.bar);
+  teardownCloudStatus = cloudBar.teardown;
 
   const saveService = new SaveGameService({
     saveLibrary,
@@ -2899,6 +2901,8 @@ async function openSaveGallery(
 
   const close = () => {
     document.removeEventListener("keydown", onKey, { capture: true });
+    teardownCloudStatus?.();
+    teardownCloudStatus = null;
     overlay.classList.remove("confirm-overlay--visible");
     setTimeout(() => overlay.remove(), 200);
   };
