@@ -1028,7 +1028,7 @@ const AMBIGUOUS_EXT: Map<string, SystemInfo[]> = new Map();
     }
   }
   for (const [ext, systems] of extToSystems) {
-    if (systems.length === 1) UNIQUE_EXT.set(ext, systems[0]);
+    if (systems.length === 1) UNIQUE_EXT.set(ext, systems[0]!);
     else                      AMBIGUOUS_EXT.set(ext, systems);
   }
 })();

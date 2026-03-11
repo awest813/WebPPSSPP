@@ -330,7 +330,7 @@ class FPSMonitor {
 
     const count = this._ringCount;
     const lastIdx = (this._ringHead - 1 + this._windowSize) % this._windowSize;
-    const lastDelta = this._ring[lastIdx];
+    const lastDelta = this._ring[lastIdx]!;
     const current = lastDelta > 0 ? 1000 / lastDelta : 0;
 
     let sum = 0;
@@ -341,7 +341,7 @@ class FPSMonitor {
     let idx = this._ringHead - count;
     if (idx < 0) idx += this._windowSize;
     for (let i = 0; i < count; i++) {
-      const d = this._ring[idx];
+      const d = this._ring[idx]!;
       this._sortedScratch[i] = d;
       sum += d;
       if (d > maxDelta) maxDelta = d;
@@ -360,7 +360,7 @@ class FPSMonitor {
     // consistently allocation-free (fewer GC spikes in long sessions).
     this._sortScratchAscending(count);
     const p95Idx = Math.max(0, Math.ceil(count * 0.95) - 1);
-    const p95FrameTimeMs = Math.round(this._sortedScratch[p95Idx]);
+    const p95FrameTimeMs = Math.round(this._sortedScratch[p95Idx]!);
 
     return {
       current: Math.round(current),
@@ -374,10 +374,10 @@ class FPSMonitor {
 
   private _sortScratchAscending(count: number): void {
     for (let i = 1; i < count; i++) {
-      const value = this._sortedScratch[i];
+      const value = this._sortedScratch[i]!;
       let j = i - 1;
-      while (j >= 0 && this._sortedScratch[j] > value) {
-        this._sortedScratch[j + 1] = this._sortedScratch[j];
+      while (j >= 0 && this._sortedScratch[j]! > value) {
+        this._sortedScratch[j + 1] = this._sortedScratch[j]!;
         j--;
       }
       this._sortedScratch[j + 1] = value;

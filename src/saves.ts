@@ -143,7 +143,7 @@ export function stateBytesToBlob(stateBytes: Uint8Array | null | undefined): Blo
 export function computeChecksum(data: Uint8Array): string {
   let hash = 5381;
   for (let i = 0; i < data.length; i++) {
-    hash = ((hash << 5) + hash + data[i]) >>> 0;
+    hash = ((hash << 5) + hash + data[i]!) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
 }

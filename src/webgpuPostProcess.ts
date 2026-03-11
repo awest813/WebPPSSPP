@@ -1106,8 +1106,8 @@ export class WebGPUPostProcessor {
         const mapped = this._queryReadbackBuffer.getMappedRange();
         // Two BigInt64 timestamps: [beginNs, endNs]
         const view = new BigInt64Array(mapped);
-        const beginNs = view[0];
-        const endNs   = view[1];
+        const beginNs = view[0]!;
+        const endNs   = view[1]!;
         if (endNs > beginNs) {
           // Convert nanoseconds to milliseconds
           this._lastGPUFrameTimeMs = Number(endNs - beginNs) / 1_000_000;
@@ -1164,7 +1164,7 @@ export class WebGPUPostProcessor {
             const srcRowBase = (y * bytesPerRow) >> 2;
             const dstRowBase = y * width;
             for (let x = 0; x < width; x++) {
-              const word = src32[srcRowBase + x];
+              const word = src32[srcRowBase + x]!;
               // Swap bytes 0 (B) and 2 (R): keep G (byte 1) and A (byte 3) in place.
               dst32[dstRowBase + x] =
                 (word & 0xFF00FF00) |

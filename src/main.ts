@@ -478,7 +478,7 @@ function main(): void {
     const tierOrder: PerformanceTier[] = ["low", "medium", "high", "ultra"];
     const idx = tierOrder.indexOf(currentTier);
     if (idx <= 0) return;
-    const targetTier = tierOrder[idx - 1];
+    const targetTier = tierOrder[idx - 1]!;
 
     const confirmed = await showTierDowngradePrompt(
       averageFPS,

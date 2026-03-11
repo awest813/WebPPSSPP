@@ -442,7 +442,7 @@ export class TouchControlsOverlay {
       e.preventDefault();
       // Use the first changed touch for drag-start tracking; press the key
       // when the first finger lands on this button.
-      const first = e.changedTouches[0];
+      const first = e.changedTouches[0]!;
       if (!onDragStart(first.clientX, first.clientY)) {
         activeTouchCount += e.changedTouches.length;
         pressKey();
@@ -451,7 +451,7 @@ export class TouchControlsOverlay {
 
     el.addEventListener("touchmove", (e) => {
       e.preventDefault();
-      const t = e.changedTouches[0];
+      const t = e.changedTouches[0]!;
       onDragMove(t.clientX, t.clientY);
     }, { passive: false });
 

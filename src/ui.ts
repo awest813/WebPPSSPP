@@ -2517,8 +2517,7 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
     ["webdav",  "WebDAV (self-hosted)"],
     ["dropbox", "Dropbox"],
   ].forEach(([v, t]) => {
-    const opt = make("option", { value: v }, t);
-    // Pre-select provider that was previously connected (if any)
+    const opt = make("option", { value: v! }, t!);
     if (cloudManager.providerId !== "null" && cloudManager.providerId === v) {
       opt.setAttribute("selected", "");
     }
@@ -2597,7 +2596,7 @@ function openCloudConnectDialog(cloudManager: CloudSaveManager, onConnected: () 
   const cfgLbl  = make("label", { class: "cloud-dialog-label" }, "Conflict resolution");
   const cfgSel  = make("select", { class: "confirm-input" }) as HTMLSelectElement;
   [["newest", "Keep newest (default)"], ["local", "Always keep local"], ["remote", "Always keep remote"]].forEach(([v, t]) => {
-    const opt = make("option", { value: v }, t);
+    const opt = make("option", { value: v! }, t!);
     if (cloudManager.conflictResolution === v) opt.setAttribute("selected", "");
     cfgSel.appendChild(opt);
   });
@@ -2875,8 +2874,8 @@ async function openSaveGallery(
       else if (e.key === "ArrowDown") next = idx + colCount;
       else if (e.key === "ArrowUp") next = idx - colCount;
       if (next >= 0 && next < cards.length) {
-        const primaryBtn = cards[next].querySelector<HTMLElement>(".save-slot-card__btn-primary");
-        (primaryBtn ?? cards[next]).focus();
+        const primaryBtn = cards[next]!.querySelector<HTMLElement>(".save-slot-card__btn-primary");
+        (primaryBtn ?? cards[next]!).focus();
       }
     }
   };
@@ -3413,8 +3412,8 @@ export function openSettingsPanel(
       )
     ).filter(el => !el.closest("[hidden]"));
     if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last  = focusable[focusable.length - 1];
+    const first = focusable[0]!;
+    const last  = focusable[focusable.length - 1]!;
     if (e.shiftKey) {
       if (document.activeElement === first) { e.preventDefault(); last.focus(); }
     } else {
@@ -3512,13 +3511,13 @@ function buildSettingsContent(
     activeTab = id;
     const activeIndex = tabIndexById.get(id) ?? -1;
     tabBtns.forEach((btn, i) => {
-      const isActive = tabs[i].id === id;
+      const isActive = tabs[i]!.id === id;
       btn.setAttribute("aria-selected", String(isActive));
       btn.setAttribute("tabindex", isActive ? "0" : "-1");
       btn.classList.toggle("settings-tab--active", isActive);
     });
     panels.forEach((panel, i) => {
-      const isActive = tabs[i].id === id;
+      const isActive = tabs[i]!.id === id;
       panel.hidden = !isActive;
       panel.setAttribute("aria-hidden", String(!isActive));
     });
@@ -3551,8 +3550,8 @@ function buildSettingsContent(
           e.key === "End" ? tabs.length - 1 :
           e.key === "ArrowRight" ? (i + 1) % tabs.length :
           (i - 1 + tabs.length) % tabs.length;
-        const target = tabBtns[nextIndex];
-        switchTab(tabs[nextIndex].id);
+        const target = tabBtns[nextIndex]!;
+        switchTab(tabs[nextIndex]!.id);
         target.focus();
         return;
       }
@@ -3594,20 +3593,20 @@ function buildSettingsContent(
   switchTab(activeTab);
 
   // Fill tabs
-  buildPerfTab(panels[0], settings, deviceCaps, onSettingsChange, emulatorRef);
-  buildDisplayTab(panels[1], settings, deviceCaps, onSettingsChange, emulatorRef);
-  buildLibraryTab(panels[2], settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
-  buildBiosTab(panels[3], biosLibrary);
-  buildMultiplayerTab(panels[4], settings, onSettingsChange, netplayManager, settings.lastGameName, emulatorRef?.currentSystem?.id);
-  buildDebugTab(panels[5], settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager, biosLibrary);
-  buildAboutTab(panels[6]);
+  buildPerfTab(panels[0]!, settings, deviceCaps, onSettingsChange, emulatorRef);
+  buildDisplayTab(panels[1]!, settings, deviceCaps, onSettingsChange, emulatorRef);
+  buildLibraryTab(panels[2]!, settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
+  buildBiosTab(panels[3]!, biosLibrary);
+  buildMultiplayerTab(panels[4]!, settings, onSettingsChange, netplayManager, settings.lastGameName, emulatorRef?.currentSystem?.id);
+  buildDebugTab(panels[5]!, settings, onSettingsChange, deviceCaps, emulatorRef, netplayManager, biosLibrary);
+  buildAboutTab(panels[6]!);
 
   const applySearchFilter = () => {
     const query = searchInput.value.trim().toLowerCase();
     let matchedSections = 0;
 
     for (let i = 0; i < panels.length; i++) {
-      const panel = panels[i];
+      const panel = panels[i]!;
       const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
       let panelMatched = false;
 
@@ -3621,7 +3620,7 @@ function buildSettingsContent(
         }
       }
 
-      tabBtns[i].classList.toggle("settings-tab--match", panelMatched && query.length > 0);
+      tabBtns[i]!.classList.toggle("settings-tab--match", panelMatched && query.length > 0);
     }
 
     if (query.length === 0) {
@@ -4131,12 +4130,12 @@ export function openEasyNetplayModal(opts: {
   const switchTab = (id: string) => {
     activeTabId = id;
     tabBtns.forEach((b, i) => {
-      const isActive = tabs[i].id === id;
+      const isActive = tabs[i]!.id === id;
       b.setAttribute("aria-selected", String(isActive));
       b.classList.toggle("enp-tab--active", isActive);
     });
     panels.forEach((p, i) => {
-      p.hidden = tabs[i].id !== id;
+      p.hidden = tabs[i]!.id !== id;
     });
   };
 
@@ -4160,7 +4159,7 @@ export function openEasyNetplayModal(opts: {
   dialog.appendChild(panelWrap);
 
   // ── Host panel ───────────────────────────────────────────────────────────
-  _buildHostPanel(panels[0], {
+  _buildHostPanel(panels[0]!, {
     easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
     onRoomCreated: () => {/* panel updates itself via onEvent */},
   });
@@ -4168,13 +4167,13 @@ export function openEasyNetplayModal(opts: {
   // ── Join panel ───────────────────────────────────────────────────────────
   // Capture a ref so the Browse panel can pre-fill the code and switch tabs.
   let _fillJoinCode: ((code: string) => void) | null = null;
-  _buildJoinPanel(panels[1], {
+  _buildJoinPanel(panels[1]!, {
     easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl,
     onCodeSetterReady: (setter) => { _fillJoinCode = setter; },
   });
 
   // ── Browse panel ─────────────────────────────────────────────────────────
-  _buildBrowsePanel(panels[2], {
+  _buildBrowsePanel(panels[2]!, {
     easyMgr, currentGameName, currentSystemId, serverUrl,
     onJoinByCode: (code) => {
       switchTab("join");
@@ -4247,7 +4246,7 @@ function _buildHostPanel(
   typeWrap.appendChild(typeSelect);
 
   // Dynamic description beneath the selector
-  const typeDesc = make("p", { class: "enp-help" }, typeOptions[0].desc);
+  const typeDesc = make("p", { class: "enp-help" }, typeOptions[0]!.desc);
   typeSelect.addEventListener("change", () => {
     const found = typeOptions.find(o => o.value === typeSelect.value);
     typeDesc.textContent = found?.desc ?? "";
@@ -4296,7 +4295,7 @@ function _buildHostPanel(
         const cls = `enp-diag enp-diag--${ev.diagnostic.level === "error" ? "error" : ev.diagnostic.level === "warning" ? "warn" : "info"}`;
         const item = make("p", { class: cls }, ev.diagnostic.message);
         // Clear "Connecting…" placeholder on first real message
-        if (statusArea.children.length === 1 && statusArea.children[0].textContent === "Connecting…") {
+        if (statusArea.children.length === 1 && statusArea.children[0]!.textContent === "Connecting…") {
           statusArea.innerHTML = "";
         }
         statusArea.appendChild(item);
@@ -4428,7 +4427,7 @@ function _buildJoinPanel(
     const unsub = easyMgr.onEvent(ev => {
       if (ev.type === "diagnostic") {
         const cls = `enp-diag enp-diag--${ev.diagnostic.level === "error" ? "error" : ev.diagnostic.level === "warning" ? "warn" : "info"}`;
-        if (statusArea.children.length === 1 && statusArea.children[0].textContent === "Connecting…") {
+        if (statusArea.children.length === 1 && statusArea.children[0]!.textContent === "Connecting…") {
           statusArea.innerHTML = "";
         }
         statusArea.appendChild(make("p", { class: cls }, ev.diagnostic.message));
@@ -4503,7 +4502,7 @@ function _buildBrowsePanel(
   const applyFilter = (id: string, rooms: EasyNetplayRoom[]) => {
     activeFilter = id;
     filterBtns.forEach((b, i) => {
-      b.classList.toggle("enp-filter-btn--active", filters[i].id === id);
+      b.classList.toggle("enp-filter-btn--active", filters[i]!.id === id);
     });
     if (id === "nearby") {
       renderRooms(rooms.filter(r => r.isLocal));
@@ -5831,7 +5830,7 @@ class AudioVisualiser {
     const drawCount = Math.floor(barCount / step);
     const drawBarWidth = width / drawCount;
     for (let i = 0; i < drawCount; i++) {
-      const magnitude = this._buffer[i * step] / 255;
+      const magnitude = this._buffer[i * step]! / 255;
       const barHeight = magnitude * height;
       // Colour shifts from green (quiet) → yellow → red (loud)
       const hue = Math.round(120 - magnitude * 120);
@@ -5958,7 +5957,7 @@ function updateDevOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
   for (let i = 0; i < count; i++) {
     // Read from ring buffer in chronological order
     const idx = (_devFrameGraphHead + i) % count;
-    const ms  = _devFrameGraph[idx];
+    const ms  = _devFrameGraph[idx]!;
     if (ms === 0) continue;
     const barH = Math.min((ms / DEV_FT_GRAPH_MAX) * h, h);
     const hue  = ms <= DEV_FT_60FPS ? 120 : ms <= DEV_FT_30FPS ? 60 : 0;

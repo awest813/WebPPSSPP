@@ -256,7 +256,7 @@ export function getSafariVersion(): number | null {
     if (!isLikelySafari()) return null;
     const match = /\bVersion\/(\d+)/.exec(navigator.userAgent);
     if (!match) return null;
-    return parseInt(match[1], 10);
+    return parseInt(match[1]!, 10);
   } catch {
     return null;
   }
@@ -1403,7 +1403,7 @@ export class SpatialGrid<T> {
 
   /** Insert an object at the given world-space position. */
   insert(obj: T, x: number, y: number): void {
-    this._cells[this._cellIndex(x, y)].add(obj);
+    this._cells[this._cellIndex(x, y)]!.add(obj);
   }
 
   /**
@@ -1413,7 +1413,7 @@ export class SpatialGrid<T> {
    * If the object has moved, call `move()` instead.
    */
   remove(obj: T, x: number, y: number): void {
-    this._cells[this._cellIndex(x, y)].delete(obj);
+    this._cells[this._cellIndex(x, y)]!.delete(obj);
   }
 
   /**
@@ -1426,8 +1426,8 @@ export class SpatialGrid<T> {
     const oldIdx = this._cellIndex(oldX, oldY);
     const newIdx = this._cellIndex(newX, newY);
     if (oldIdx !== newIdx) {
-      this._cells[oldIdx].delete(obj);
-      this._cells[newIdx].add(obj);
+      this._cells[oldIdx]!.delete(obj);
+      this._cells[newIdx]!.add(obj);
     }
   }
 
@@ -1448,7 +1448,7 @@ export class SpatialGrid<T> {
     const rowMax = Math.min(Math.max(0, Math.floor(maxY / this._cellSize)), this._rows - 1);
     for (let r = rowMin; r <= rowMax; r++) {
       for (let c = colMin; c <= colMax; c++) {
-        for (const obj of this._cells[r * this._cols + c]) {
+        for (const obj of this._cells[r * this._cols + c]!) {
           result.add(obj);
         }
       }
@@ -1546,7 +1546,7 @@ export class FrameBudget {
   flush(): number {
     let i = 0;
     while (i < this._queue.length && !this.isOverBudget()) {
-      this._queue[i++]();
+      this._queue[i++]!();
     }
     if (i > 0) {
       this._queue.splice(0, i);
@@ -1930,11 +1930,11 @@ export class EntityComponentSystem {
   queryEntities(types: readonly string[]): number[] {
     if (types.length === 0) return Array.from(this._alive);
     // Start from the smallest store to minimise iterations.
-    let smallestType = types[0];
-    let smallestSize = this._stores.get(types[0])?.size ?? 0;
+    let smallestType = types[0]!;
+    let smallestSize = this._stores.get(types[0]!)?.size ?? 0;
     for (let i = 1; i < types.length; i++) {
-      const s = this._stores.get(types[i])?.size ?? 0;
-      if (s < smallestSize) { smallestSize = s; smallestType = types[i]; }
+      const s = this._stores.get(types[i]!)?.size ?? 0;
+      if (s < smallestSize) { smallestSize = s; smallestType = types[i]!; }
     }
     const primary = this._stores.get(smallestType);
     if (!primary) return [];
@@ -2208,11 +2208,11 @@ export class AssetLoader<T> {
       // Pop the highest-priority (lowest priority number) request.
       let bestIdx = 0;
       for (let i = 1; i < this._pending.length; i++) {
-        if (this._pending[i].priority < this._pending[bestIdx].priority) {
+        if (this._pending[i]!.priority < this._pending[bestIdx]!.priority) {
           bestIdx = i;
         }
       }
-      const req = this._pending.splice(bestIdx, 1)[0];
+      const req = this._pending.splice(bestIdx, 1)[0]!;
       this._inFlight++;
       req.load().then(
         (value) => {
@@ -2301,8 +2301,8 @@ export class DeltaTracker {
     let out: Record<string, number> | null = null;
     for (const key of Object.keys(this._current)) {
       const base = this._baseline[key] ?? 0;
-      if (Math.abs(this._current[key] - base) > this._epsilon) {
-        (out ??= {})[key] = this._current[key];
+      if (Math.abs(this._current[key]! - base) > this._epsilon) {
+        (out ??= {})[key] = this._current[key]!;
       }
     }
     return out;

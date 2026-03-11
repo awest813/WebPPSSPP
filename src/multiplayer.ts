@@ -308,7 +308,7 @@ export function validateAliasTable(): string[] {
     const seenRoomKeys = new Map<string, number>();
 
     for (let i = 0; i < rules.length; i++) {
-      const rule = rules[i];
+      const rule = rules[i]!;
 
       // Detect duplicate roomKey registrations within the same system bucket.
       const prev = seenRoomKeys.get(rule.roomKey);
@@ -325,14 +325,14 @@ export function validateAliasTable(): string[] {
       // ordering becomes load-order-dependent.
       const testId = rule.roomKey;
       for (let j = i + 1; j < rules.length; j++) {
-        if (rules[j].match.test(testId)) {
+        if (rules[j]!.match.test(testId)) {
           violations.push(
-            `[${systemId}] Overlapping patterns: rule ${i} (roomKey "${rule.roomKey}") and rule ${j} (roomKey "${rules[j].roomKey}") both match test ID "${testId}"`
+            `[${systemId}] Overlapping patterns: rule ${i} (roomKey "${rule.roomKey}") and rule ${j} (roomKey "${rules[j]!.roomKey}") both match test ID "${testId}"`
           );
         }
-        if (rule.match.test(rules[j].roomKey)) {
+        if (rule.match.test(rules[j]!.roomKey)) {
           violations.push(
-            `[${systemId}] Overlapping patterns: rule ${i} (roomKey "${rule.roomKey}") matches test ID "${rules[j].roomKey}" of rule ${j}`
+            `[${systemId}] Overlapping patterns: rule ${i} (roomKey "${rule.roomKey}") matches test ID "${rules[j]!.roomKey}" of rule ${j}`
           );
         }
       }
