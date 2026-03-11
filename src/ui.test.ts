@@ -721,7 +721,7 @@ describe("buildMultiplayerTab", () => {
   function openMultiplayerTab() {
     const caps: DeviceCapabilities = {
       isLowSpec: false,
-      isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+      isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false,
       gpuRenderer: "unknown",
       isSoftwareGPU: false,
       recommendedMode: "quality",
@@ -1063,7 +1063,7 @@ describe("buildMultiplayerTab", () => {
 describe("buildDebugTab", () => {
   const caps: DeviceCapabilities = {
     isLowSpec: false,
-    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false,
     gpuRenderer: "unknown",
     isSoftwareGPU: false,
     recommendedMode: "quality",
@@ -1405,7 +1405,7 @@ describe("buildDebugTab", () => {
 describe("settings panel ESC handler cleanup", () => {
   const fullCaps: DeviceCapabilities = {
     isLowSpec: false,
-    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false,
     gpuRenderer: "unknown",
     isSoftwareGPU: false,
     recommendedMode: "quality",
@@ -1486,7 +1486,7 @@ describe("settings panel ESC handler cleanup", () => {
 describe("buildLibraryTab clear library closes panel properly", () => {
   const fullCaps: DeviceCapabilities = {
     isLowSpec: false,
-    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false,
     gpuRenderer: "unknown",
     isSoftwareGPU: false,
     recommendedMode: "quality",
@@ -1949,7 +1949,7 @@ describe("UIDirtyTracker", () => {
 
 const fullCapsForTests: DeviceCapabilities = {
   isLowSpec: false,
-  isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+  isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false,
   gpuRenderer: "unknown",
   isSoftwareGPU: false,
   recommendedMode: "quality",
@@ -2782,7 +2782,7 @@ describe("dialog Escape handling when emulator is running", () => {
 
     // ── Inner overlay — trigger via Clear Library confirm dialog ──────────
     // Open settings, switch to Library tab, click "Remove All Games".
-    const fullCaps = { isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+    const fullCaps = { isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false,
       tier: "medium", gpuBenchmarkScore: 50, estimatedVRAMMB: 768,
       deviceMemoryGB: 4, cpuCores: 4, prefersReducedMotion: false,
       webgpuAvailable: false, connectionQuality: "unknown",

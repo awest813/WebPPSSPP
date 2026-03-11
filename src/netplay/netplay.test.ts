@@ -11,6 +11,7 @@ import {
   compatibilitySummary,
 } from "./compatibility.js";
 import { DiagnosticsLog, MSG, diagnosticForErrorCode } from "./diagnostics.js";
+import type { NetplayDiagnosticEntry } from "./netplayTypes.js";
 import { EasyNetplayManager } from "./EasyNetplayManager.js";
 
 // ── generateInviteCode ────────────────────────────────────────────────────────
@@ -211,7 +212,7 @@ describe("DiagnosticsLog", () => {
     log.onEntry(spy);
     log.info("test");
     expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0].message).toBe("test");
+    expect((spy.mock.calls[0] as [NetplayDiagnosticEntry])[0].message).toBe("test");
   });
 
   it("clears all entries", () => {
@@ -256,7 +257,7 @@ describe("HttpSignalingClient", () => {
     const client = new HttpSignalingClient("ws://localhost:8080");
     await client.listRooms();
 
-    const calledUrl: string = fetchSpy.mock.calls[0][0] as string;
+    const calledUrl = (fetchSpy.mock.calls[0] as [string])[0];
     expect(calledUrl).toMatch(/^http:\/\//);
 
     vi.unstubAllGlobals();
@@ -272,7 +273,7 @@ describe("HttpSignalingClient", () => {
     const client = new HttpSignalingClient("wss://example.com");
     await client.listRooms();
 
-    const calledUrl: string = fetchSpy.mock.calls[0][0] as string;
+    const calledUrl = (fetchSpy.mock.calls[0] as [string])[0];
     expect(calledUrl).toMatch(/^https:\/\//);
 
     vi.unstubAllGlobals();
