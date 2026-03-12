@@ -34,6 +34,8 @@ import {
   GPUCapabilities,
   getResolutionCoreOptions,
   getResolutionLadder,
+  recommendedAssetConcurrency,
+  recommendedFrameBudgetMs,
 } from "./performance.js";
 
 describe('performance', () => {
@@ -2276,5 +2278,91 @@ describe('performance', () => {
         expect(ladder!.key).toBe('mupen64plus-resolution-factor');
       });
     });
+  });
+});
+
+// ── recommendedAssetConcurrency ───────────────────────────────────────────────
+
+describe('recommendedAssetConcurrency', () => {
+  const mobileCaps = (tier: DeviceCapabilities['tier']): DeviceCapabilities =>
+    ({ tier, isMobile: true } as unknown as DeviceCapabilities);
+  const desktopCaps = (tier: DeviceCapabilities['tier']): DeviceCapabilities =>
+    ({ tier, isMobile: false } as unknown as DeviceCapabilities);
+
+  it('returns 1 for low-tier mobile', () => {
+    expect(recommendedAssetConcurrency(mobileCaps('low'))).toBe(1);
+  });
+
+  it('returns 2 for medium/high/ultra mobile', () => {
+    expect(recommendedAssetConcurrency(mobileCaps('medium'))).toBe(2);
+    expect(recommendedAssetConcurrency(mobileCaps('high'))).toBe(2);
+    expect(recommendedAssetConcurrency(mobileCaps('ultra'))).toBe(2);
+  });
+
+  it('returns 2 for low-tier desktop', () => {
+    expect(recommendedAssetConcurrency(desktopCaps('low'))).toBe(2);
+  });
+
+  it('returns 4 for medium-tier desktop', () => {
+    expect(recommendedAssetConcurrency(desktopCaps('medium'))).toBe(4);
+  });
+
+  it('returns 6 for high-tier desktop', () => {
+    expect(recommendedAssetConcurrency(desktopCaps('high'))).toBe(6);
+  });
+
+  it('returns 8 for ultra-tier desktop', () => {
+    expect(recommendedAssetConcurrency(desktopCaps('ultra'))).toBe(8);
+  });
+
+  it('mobile concurrency is always lower than desktop concurrency for the same tier', () => {
+    for (const tier of ['medium', 'high', 'ultra'] as const) {
+      expect(recommendedAssetConcurrency(mobileCaps(tier)))
+        .toBeLessThan(recommendedAssetConcurrency(desktopCaps(tier)));
+    }
+  });
+});
+
+// ── recommendedFrameBudgetMs ──────────────────────────────────────────────────
+
+describe('recommendedFrameBudgetMs', () => {
+  const mobileCaps = (tier: DeviceCapabilities['tier']): DeviceCapabilities =>
+    ({ tier, isMobile: true } as unknown as DeviceCapabilities);
+  const desktopCaps = (tier: DeviceCapabilities['tier']): DeviceCapabilities =>
+    ({ tier, isMobile: false } as unknown as DeviceCapabilities);
+
+  it('returns a positive number for all tiers on mobile', () => {
+    for (const tier of ['low', 'medium', 'high', 'ultra'] as const) {
+      expect(recommendedFrameBudgetMs(mobileCaps(tier))).toBeGreaterThan(0);
+    }
+  });
+
+  it('returns a positive number for all tiers on desktop', () => {
+    for (const tier of ['low', 'medium', 'high', 'ultra'] as const) {
+      expect(recommendedFrameBudgetMs(desktopCaps(tier))).toBeGreaterThan(0);
+    }
+  });
+
+  it('returns lower budget for low-tier mobile than medium-tier mobile', () => {
+    expect(recommendedFrameBudgetMs(mobileCaps('low')))
+      .toBeLessThan(recommendedFrameBudgetMs(mobileCaps('medium')));
+  });
+
+  it('returns ≤16 ms for all tiers (fits within a 60fps frame)', () => {
+    for (const tier of ['low', 'medium', 'high', 'ultra'] as const) {
+      expect(recommendedFrameBudgetMs(desktopCaps(tier))).toBeLessThanOrEqual(16);
+      expect(recommendedFrameBudgetMs(mobileCaps(tier))).toBeLessThanOrEqual(16);
+    }
+  });
+
+  it('ultra desktop returns 16 ms (full frame budget)', () => {
+    expect(recommendedFrameBudgetMs(desktopCaps('ultra'))).toBe(16);
+  });
+
+  it('mobile budget is not greater than equivalent desktop budget', () => {
+    for (const tier of ['low', 'medium', 'high', 'ultra'] as const) {
+      expect(recommendedFrameBudgetMs(mobileCaps(tier)))
+        .toBeLessThanOrEqual(recommendedFrameBudgetMs(desktopCaps(tier)));
+    }
   });
 });

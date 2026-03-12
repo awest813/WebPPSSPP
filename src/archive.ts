@@ -40,6 +40,9 @@ const COMPRESS_DEFLATE64 = 9;  // Deflate64 — non-standard extension
 const COMPRESS_BZIP2     = 12; // BZip2
 const COMPRESS_LZMA      = 14; // LZMA
 
+// ZIP general-purpose bit flags
+const GP_FLAG_ENCRYPTED = 0x0001; // bit 0: entry is encrypted (password-protected)
+
 // ── Safety limits ─────────────────────────────────────────────────────────────
 
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
@@ -60,6 +63,7 @@ interface CentralDirEntry {
   compressedSize: number;
   uncompressedSize: number;
   localHeaderOffset: number;
+  generalPurposeFlags: number;
 }
 
 interface ArchiveEntry {
@@ -120,6 +124,7 @@ export interface ArchiveExtractResult {
 interface ArchiveCandidateOptions {
   includeCandidates?: boolean;
   maxCandidates?: number;
+  onProgress?: (progress: ArchiveExtractProgress) => void;
 }
 
 function emitProgress(
@@ -670,6 +675,7 @@ export async function extractFromZip(
   while (pos < cdEnd && pos + 46 <= bytes.length) {
     if (readUint32LE(view, pos) !== CENTRAL_DIR_MAGIC) break;
 
+    const generalPurposeFlags = readUint16LE(view, pos + 8);
     const compressionMethod  = readUint16LE(view, pos + 10);
     let compressedSize       = readUint32LE(view, pos + 20);
     let uncompressedSize     = readUint32LE(view, pos + 24);
@@ -702,6 +708,7 @@ export async function extractFromZip(
       compressedSize,
       uncompressedSize,
       localHeaderOffset,
+      generalPurposeFlags,
     });
 
     pos += 46 + fileNameLength + extraFieldLength + commentLength;
@@ -725,7 +732,24 @@ export async function extractFromZip(
   const target = romCandidates[0]?.entry ?? null;
   if (!target) return null;
 
+  emitProgress({ onProgress: opts.onProgress }, {
+    format: "zip",
+    stage: "extract",
+    message: `Extracting ${shortNameFromPath(target.name)}…`,
+    percent: 0,
+    currentEntry: shortNameFromPath(target.name),
+  });
+
   const extractZipEntry = async (entry: CentralDirEntry): Promise<ArchiveEntry | null> => {
+    // Detect password-protected entries early so we can give a clear error
+    // instead of a confusing decompression failure.
+    if (entry.generalPurposeFlags & GP_FLAG_ENCRYPTED) {
+      throw new Error(
+        `ZIP entry "${entry.name}" is password-protected. ` +
+        "Please decrypt the archive and import the ROM file directly."
+      );
+    }
+
     if (entry.uncompressedSize > MAX_EXTRACTED_ENTRY_BYTES) {
       throw new Error(
         `ZIP entry "${entry.name}" is too large to extract in-browser ` +
@@ -800,6 +824,14 @@ export async function extractFromZip(
 
   const selected = await extractZipEntry(target);
   if (!selected) return null;
+
+  emitProgress({ onProgress: opts.onProgress }, {
+    format: "zip",
+    stage: "extract",
+    message: `Extracted ${shortNameFromPath(selected.name)}`,
+    percent: 100,
+    currentEntry: shortNameFromPath(selected.name),
+  });
 
   let candidates: ArchiveExtractCandidate[] | undefined;
   if (opts.includeCandidates) {
@@ -958,7 +990,13 @@ export async function extractFromArchive(
 
   switch (format) {
     case "zip": {
-      const extracted = await extractFromZip(blob, { includeCandidates: true, maxCandidates: 10 });
+      const extracted = await extractFromZip(blob, {
+        includeCandidates: true,
+        maxCandidates: 10,
+        onProgress: options.onProgress
+          ? (p) => emitProgress(options, p)
+          : undefined,
+      });
       return extracted ? { ...extracted, format } : null;
     }
 
