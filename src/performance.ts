@@ -2333,6 +2333,63 @@ export class AssetLoader<T> {
   }
 }
 
+// ── Mobile-aware performance helpers ─────────────────────────────────────────
+
+/**
+ * Return the recommended maximum concurrent asset loads for the device.
+ *
+ * Mobile browsers share a single process across tabs and have tighter memory
+ * bandwidth than desktop. Reducing concurrency prevents frame spikes caused
+ * by simultaneous large-asset decodes and avoids saturating the network on
+ * constrained connections.
+ *
+ * Callers should pass the result to `new AssetLoader(concurrency)`:
+ * ```typescript
+ * const loader = new AssetLoader(recommendedAssetConcurrency(caps));
+ * ```
+ */
+export function recommendedAssetConcurrency(caps: DeviceCapabilities): number {
+  if (caps.isMobile) {
+    // Mobile: keep concurrency low to avoid OOM and network contention.
+    return caps.tier === "low" ? 1 : 2;
+  }
+  switch (caps.tier) {
+    case "low":    return 2;
+    case "medium": return 4;
+    case "high":   return 6;
+    case "ultra":  return 8;
+  }
+}
+
+/**
+ * Return the recommended per-frame deferred-work budget in milliseconds.
+ *
+ * Deferred-work systems (e.g. `FrameBudget`) need a budget sized to leave
+ * enough headroom for the main render pass. Mobile devices and low-spec
+ * hardware have shorter effective frame windows due to thermal throttling
+ * and tighter memory bandwidth, so their budgets are conservatively lower.
+ *
+ * At 60 fps the total frame budget is ~16 ms. These values reserve a portion
+ * of that for background work while ensuring the render pass is not starved.
+ *
+ * Callers should pass the result to `new FrameBudget(budgetMs)`:
+ * ```typescript
+ * const budget = new FrameBudget(recommendedFrameBudgetMs(caps));
+ * ```
+ */
+export function recommendedFrameBudgetMs(caps: DeviceCapabilities): number {
+  if (caps.isMobile) {
+    // Mobile SoCs throttle aggressively; keep deferred work short.
+    return caps.tier === "low" ? 4 : 8;
+  }
+  switch (caps.tier) {
+    case "low":    return 8;
+    case "medium": return 12;
+    case "high":   return 14;
+    case "ultra":  return 16;
+  }
+}
+
 // ── Delta tracker ─────────────────────────────────────────────────────────────
 
 /**

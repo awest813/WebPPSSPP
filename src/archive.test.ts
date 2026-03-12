@@ -8,6 +8,7 @@ import {
   isArchiveExtension,
   ARCHIVE_SUPPORT_NOTE,
   type ArchiveFormat,
+  type ArchiveExtractProgress,
 } from "./archive.js";
 
 // ── ZIP binary builder ────────────────────────────────────────────────────────
@@ -112,6 +113,29 @@ function buildZip(
 
   return buf;
 }
+
+/**
+ * Build a ZIP with a single entry that has the encryption flag (bit 0) set in
+ * the central-directory general-purpose flags. The data is not actually
+ * encrypted; we only set the flag to test how the extractor handles it.
+ */
+function buildEncryptedZip(fileName: string, data: Uint8Array): ArrayBuffer {
+  const buf = buildZip(fileName, data);
+  const copy = buf.slice(0);
+  const view = new DataView(copy);
+  const nameLen = new TextEncoder().encode(fileName).length;
+
+  // Central directory starts at localHeaderSize + dataLen
+  const localHeaderSize = 30 + nameLen;
+  const cdOffset = localHeaderSize + data.length;
+
+  // Central directory general purpose flags are at offset +8 within the entry
+  const currentFlags = view.getUint16(cdOffset + 8, true);
+  view.setUint16(cdOffset + 8, currentFlags | 0x0001, true); // set encryption bit
+
+  return copy;
+}
+
 
 function patchSingleEntrySizes(
   zipBuf: ArrayBuffer,
@@ -1363,5 +1387,107 @@ describe('extractFromZip — all system format coverage', () => {
 
     expect(result).not.toBeNull();
     expect(result!.name).toBe('zelda.z64');
+  });
+});
+
+// ── Encrypted ZIP entry detection ─────────────────────────────────────────────
+
+describe('extractFromZip — encrypted entry detection', () => {
+  it('throws a password-protected error for an encrypted ROM entry', async () => {
+    const content = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd]);
+    const zipBuf  = buildEncryptedZip('game.nes', content);
+
+    await expect(extractFromZip(new Blob([zipBuf]))).rejects.toThrow(/password-protected/i);
+  });
+
+  it('error message includes the entry name for encrypted entries', async () => {
+    const content = new Uint8Array([0x01, 0x43, 0x44, 0x30]);
+    const zipBuf  = buildEncryptedZip('mygame.iso', content);
+
+    await expect(extractFromZip(new Blob([zipBuf]))).rejects.toThrow('mygame.iso');
+  });
+
+  it('encrypted entry throws before attempting decompression', async () => {
+    // Use compression method 8 (deflate) + encryption flag — should throw
+    // the encryption error, not a decompression error.
+    const content = new Uint8Array([0xaa, 0xbb]);
+    const zipBuf  = buildEncryptedZip('game.nes', content);
+    // Patch compression to 8 (deflate) in the CD entry
+    const copy = zipBuf.slice(0);
+    const view2 = new DataView(copy);
+    const nameLen2 = new TextEncoder().encode('game.nes').length;
+    const cdOff = (30 + nameLen2) + content.length;
+    view2.setUint16(cdOff + 10, 8, true); // compression method = deflate
+    await expect(extractFromZip(new Blob([copy]))).rejects.toThrow(/password-protected/i);
+  });
+});
+
+// ── extractFromZip progress callbacks ────────────────────────────────────────
+
+describe('extractFromZip — progress callbacks', () => {
+  it('calls onProgress with stage=extract when extracting a stored entry', async () => {
+    const content  = new Uint8Array([0xaa, 0xbb, 0xcc]);
+    const zipBuf   = buildZip('game.nes', content);
+
+    const events: ArchiveExtractProgress[] = [];
+    await extractFromZip(new Blob([zipBuf]), {
+      onProgress: (p) => events.push(p),
+    });
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every(e => e.format === 'zip')).toBe(true);
+    expect(events.some(e => e.stage === 'extract')).toBe(true);
+  });
+
+  it('progress events include the entry name', async () => {
+    const content  = new Uint8Array([1, 2, 3]);
+    const zipBuf   = buildZip('sonic.smc', content);
+
+    const events: ArchiveExtractProgress[] = [];
+    await extractFromZip(new Blob([zipBuf]), {
+      onProgress: (p) => events.push(p),
+    });
+
+    expect(events.some(e => e.currentEntry?.includes('sonic.smc'))).toBe(true);
+  });
+
+  it('final progress event has percent=100', async () => {
+    const content = new Uint8Array([0xaa]);
+    const zipBuf  = buildZip('game.gba', content);
+
+    const events: ArchiveExtractProgress[] = [];
+    await extractFromZip(new Blob([zipBuf]), {
+      onProgress: (p) => events.push(p),
+    });
+
+    const last = events[events.length - 1];
+    expect(last?.percent).toBe(100);
+  });
+
+  it('no progress events emitted when onProgress is omitted', async () => {
+    // Just verify no error is thrown when opts.onProgress is undefined.
+    const content = new Uint8Array([0xaa]);
+    const zipBuf  = buildZip('game.gba', content);
+    const result  = await extractFromZip(new Blob([zipBuf]));
+    expect(result).not.toBeNull();
+  });
+});
+
+// ── extractFromArchive progress threading ─────────────────────────────────────
+
+describe('extractFromArchive — ZIP progress threading', () => {
+  it('threads onProgress through to ZIP extraction', async () => {
+    const zipBuf = buildZip('game.nes', new Uint8Array([0xaa, 0xbb]));
+
+    const events: ArchiveExtractProgress[] = [];
+    await extractFromArchive(new Blob([zipBuf]), {
+      onProgress: (p) => events.push(p),
+    });
+
+    // Should have at least the detect + extract events
+    expect(events.some(e => e.stage === 'detect')).toBe(true);
+    expect(events.some(e => e.stage === 'extract')).toBe(true);
+    // All events should be format='zip' (after detection) or 'unknown' (detect phase)
+    expect(events.every(e => e.format === 'zip' || e.format === 'unknown')).toBe(true);
   });
 });
