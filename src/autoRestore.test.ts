@@ -75,6 +75,30 @@ describe("scheduleAutoRestoreOnGameStart", () => {
     expect(quickLoad).not.toHaveBeenCalled();
   });
 
+  it("cancel() after game start aborts the pending timeout", () => {
+    vi.useFakeTimers();
+    const writeStateData = vi.fn(() => true);
+    const quickLoad = vi.fn();
+
+    const reg = scheduleAutoRestoreOnGameStart({
+      emulator: { writeStateData, quickLoad },
+      stateBytes: new Uint8Array([5, 6]),
+      slot: 0,
+      delayMs: 200,
+    });
+
+    // Event fires — timeout is now scheduled but not yet executed.
+    document.dispatchEvent(new CustomEvent("retrovault:gameStarted"));
+    expect(writeStateData).not.toHaveBeenCalled();
+
+    // Cancel while timeout is still pending.
+    reg.cancel();
+    vi.advanceTimersByTime(500);
+
+    expect(writeStateData).not.toHaveBeenCalled();
+    expect(quickLoad).not.toHaveBeenCalled();
+  });
+
   it("catches exceptions thrown by writeStateData without propagating", () => {
     vi.useFakeTimers();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});

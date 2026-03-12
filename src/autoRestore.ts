@@ -40,6 +40,7 @@ export function scheduleAutoRestoreOnGameStart(opts: AutoRestoreOptions): AutoRe
   } = opts;
 
   let active = true;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const eventName = "retrovault:gameStarted";
 
   const onGameStart = () => {
@@ -49,7 +50,8 @@ export function scheduleAutoRestoreOnGameStart(opts: AutoRestoreOptions): AutoRe
     onConsumed?.();
 
     // Give the core a short window to render its first frame before loading.
-    setTimeout(() => {
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
       try {
         if (emulator.writeStateData(slot, stateBytes)) {
           emulator.quickLoad(slot);
@@ -64,6 +66,10 @@ export function scheduleAutoRestoreOnGameStart(opts: AutoRestoreOptions): AutoRe
 
   return {
     cancel(): void {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       if (!active) return;
       active = false;
       eventTarget.removeEventListener(eventName, onGameStart);
