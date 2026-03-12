@@ -3181,3 +3181,67 @@ describe('PSPEmulator', () => {
     });
   });
 });
+
+// ── _loadScript race-condition guard ─────────────────────────────────────────
+
+describe("_loadScript race-condition guard", () => {
+  let emulator: PSPEmulator;
+
+  beforeEach(() => {
+    emulator = new PSPEmulator("emu-player");
+  });
+
+  afterEach(() => {
+    document.querySelector("script[data-ejs-loader]")?.remove();
+    emulator.dispose();
+  });
+
+  it("concurrent calls return the same promise, injecting only one script", async () => {
+    let resolveLoad!: () => void;
+    let scriptInsertCount = 0;
+
+    // Intercept script injection via appendChild.
+    const origAppendChild = document.body.appendChild.bind(document.body);
+    vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      if (node instanceof HTMLScriptElement && node.hasAttribute("data-ejs-loader")) {
+        scriptInsertCount++;
+        // Capture the onload so we can trigger it manually.
+        const script = node;
+        resolveLoad = () => { script.onload?.(new Event("load")); };
+      }
+      return origAppendChild(node);
+    });
+
+    const loadScript = (
+      emulator as unknown as { _loadScript: (src: string) => Promise<void> }
+    )._loadScript.bind(emulator);
+
+    // Fire two concurrent loads.
+    const p1 = loadScript("https://cdn.example.com/loader.js");
+    const p2 = loadScript("https://cdn.example.com/loader.js");
+
+    // They must be the same promise.
+    expect(p1).toBe(p2);
+    expect(scriptInsertCount).toBe(1);
+
+    // Resolve the load.
+    resolveLoad!();
+    await Promise.all([p1, p2]);
+
+    vi.restoreAllMocks();
+  });
+
+  it("returns immediately when the marker script already exists in DOM", async () => {
+    const marker = document.createElement("script");
+    marker.setAttribute("data-ejs-loader", "true");
+    document.body.appendChild(marker);
+
+    const loadScript = (
+      emulator as unknown as { _loadScript: (src: string) => Promise<void> }
+    )._loadScript.bind(emulator);
+
+    // Should resolve without injecting a new script.
+    await expect(loadScript("https://cdn.example.com/loader.js")).resolves.toBeUndefined();
+    expect(document.querySelectorAll("script[data-ejs-loader]")).toHaveLength(1);
+  });
+});

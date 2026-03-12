@@ -557,6 +557,12 @@ export class PSPEmulator {
   private _launchTimeoutId: ReturnType<typeof setTimeout> | null = null;
   /** Diagnostic event log for the debug panel timeline. */
   private _diagnosticLog: DiagnosticEvent[] = [];
+  /**
+   * In-flight promise for the EmulatorJS loader script injection.
+   * Cached so that concurrent `_loadScript()` calls share the same load
+   * instead of double-injecting the script.
+   */
+  private _scriptLoadPromise: Promise<void> | null = null;
 
   // ── Dynamic resolution scaling (DRS) state ──────────────────────────────────
   /** Whether DRS is currently active for this emulator instance. */
@@ -2444,11 +2450,14 @@ export class PSPEmulator {
    * successive launches).
    */
   private _loadScript(src: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector("script[data-ejs-loader]")) {
-        resolve();
-        return;
-      }
+    // Return the cached promise when an injection is already in progress or
+    // the script has already been injected, preventing double-injection.
+    if (this._scriptLoadPromise) return this._scriptLoadPromise;
+    if (document.querySelector("script[data-ejs-loader]")) {
+      return Promise.resolve();
+    }
+
+    this._scriptLoadPromise = new Promise((resolve, reject) => {
       const script = document.createElement("script");
       script.src = src;
       script.setAttribute("data-ejs-loader", "true");
@@ -2460,6 +2469,11 @@ export class PSPEmulator {
           `Check your internet connection. If the CDN is down, try again later.`
         ));
       document.body.appendChild(script);
+    }).finally(() => {
+      // Clear the cached promise so a future _teardown+relaunch picks a
+      // fresh one — the script will have been removed by _teardown() then.
+      this._scriptLoadPromise = null;
     });
+    return this._scriptLoadPromise;
   }
 }

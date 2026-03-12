@@ -84,10 +84,7 @@ function toRtcIceServers(cfg?: PeerChannelIceConfig[]): RTCIceServer[] {
 }
 
 function isWebRTCAvailable(): boolean {
-  return (
-    typeof RTCPeerConnection !== "undefined" &&
-    typeof RTCSessionDescription !== "undefined"
-  );
+  return typeof RTCPeerConnection !== "undefined";
 }
 
 /** Extract an Error from an RTCErrorEvent, with a fallback message. */
@@ -169,7 +166,7 @@ export class PeerDataChannel {
   ): Promise<RTCSessionDescriptionInit> {
     this._assertWebRTC();
     this._initPeerConnection(false /* isOfferer */);
-    await this._pc!.setRemoteDescription(new RTCSessionDescription(offer));
+    await this._pc!.setRemoteDescription(offer);
     const answer = await this._pc!.createAnswer();
     await this._pc!.setLocalDescription(answer);
     return answer;
@@ -181,7 +178,7 @@ export class PeerDataChannel {
    */
   async applyAnswer(answer: RTCSessionDescriptionInit): Promise<void> {
     if (!this._pc) throw new Error("No peer connection — call createOffer() first.");
-    await this._pc.setRemoteDescription(new RTCSessionDescription(answer));
+    await this._pc.setRemoteDescription(answer);
   }
 
   /**
@@ -190,7 +187,7 @@ export class PeerDataChannel {
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     if (!this._pc) return;
     try {
-      await this._pc.addIceCandidate(new RTCIceCandidate(candidate));
+      await this._pc.addIceCandidate(candidate);
     } catch {
       // Silently ignore candidates that arrive after the connection closes.
     }
@@ -468,7 +465,7 @@ export class SpectatorChannel {
       };
     };
 
-    await this._pc.setRemoteDescription(new RTCSessionDescription(offer));
+    await this._pc.setRemoteDescription(offer);
     const answer = await this._pc.createAnswer();
     await this._pc.setLocalDescription(answer);
     return answer;
@@ -480,7 +477,7 @@ export class SpectatorChannel {
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     if (!this._pc) return;
     try {
-      await this._pc.addIceCandidate(new RTCIceCandidate(candidate));
+      await this._pc.addIceCandidate(candidate);
     } catch { /* ignore stale candidates */ }
   }
 

@@ -530,6 +530,9 @@ export class SaveStateLibrary {
 
 // ── Screenshot capture ────────────────────────────────────────────────────────
 
+/** Timeout (ms) after which a stalled `canvas.toBlob()` call is abandoned. */
+const SCREENSHOT_TIMEOUT_MS = 5_000;
+
 /**
  * Capture a JPEG screenshot from the emulator canvas.
  * Returns null if the canvas is not found or capture fails.
@@ -546,8 +549,19 @@ export function captureScreenshot(playerId: string): Promise<Blob | null> {
         return;
       }
 
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (!settled) { settled = true; resolve(null); }
+      }, SCREENSHOT_TIMEOUT_MS);
+
       canvas.toBlob(
-        (blob) => resolve(blob),
+        (blob) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeoutId);
+            resolve(blob);
+          }
+        },
         "image/jpeg",
         0.75
       );
@@ -583,8 +597,19 @@ export async function createThumbnail(screenshot: Blob): Promise<Blob | null> {
     bitmap.close();
 
     return new Promise<Blob | null>((resolve) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (!settled) { settled = true; resolve(null); }
+      }, SCREENSHOT_TIMEOUT_MS);
+
       canvas.toBlob(
-        (blob) => resolve(blob),
+        (blob) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeoutId);
+            resolve(blob);
+          }
+        },
         "image/jpeg",
         0.8
       );
@@ -608,6 +633,6 @@ export function downloadBlob(blob: Blob, fileName: string): void {
     setTimeout(() => {
       URL.revokeObjectURL(url);
       a.remove();
-    }, 100);
+    }, 500);
   }
 }

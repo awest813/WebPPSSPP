@@ -786,3 +786,78 @@ describe("PeerMessage type system", () => {
     expect(msg.count).toBe(5);
   });
 });
+
+// ── WebRTC availability guard ─────────────────────────────────────────────────
+
+describe("isWebRTCAvailable / WebRTC guard", () => {
+  it("createOffer() throws when only RTCPeerConnection is absent", async () => {
+    // jsdom does not expose RTCPeerConnection — confirm the guard fires.
+    const ch = new PeerDataChannel();
+    await expect(ch.createOffer()).rejects.toThrow(/WebRTC is not available/);
+  });
+
+  it("acceptOffer() throws when RTCPeerConnection is absent", async () => {
+    const ch = new SpectatorChannel();
+    await expect(ch.acceptOffer({ type: "offer", sdp: "" })).rejects.toThrow(/WebRTC is not available/);
+  });
+
+  it("createAnswer/applyAnswer/addIceCandidate pass plain objects to RTCPeerConnection", async () => {
+    // Install minimal RTCPeerConnection mock so the WebRTC path is exercised.
+    const receivedRemoteDescs: RTCSessionDescriptionInit[] = [];
+    const receivedCandidates: RTCIceCandidateInit[] = [];
+
+    const mockDc = {
+      onopen: null as (() => void) | null,
+      onclose: null as (() => void) | null,
+      onerror: null as unknown,
+      onmessage: null as unknown,
+    };
+
+    const mockPc = {
+      onicecandidate: null as unknown,
+      onconnectionstatechange: null as unknown,
+      ondatachannel: null as unknown,
+      connectionState: "new",
+      createOffer: vi.fn().mockResolvedValue({ type: "offer", sdp: "mock-sdp" }),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "mock-answer" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      setRemoteDescription: vi.fn().mockImplementation((desc: RTCSessionDescriptionInit) => {
+        receivedRemoteDescs.push(desc);
+        return Promise.resolve();
+      }),
+      addIceCandidate: vi.fn().mockImplementation((candidate: RTCIceCandidateInit) => {
+        receivedCandidates.push(candidate);
+        return Promise.resolve();
+      }),
+      createDataChannel: vi.fn().mockReturnValue(mockDc),
+      close: vi.fn(),
+    };
+
+    // Temporarily install the RTCPeerConnection mock.
+    const origRTCPC = (globalThis as Record<string, unknown>)["RTCPeerConnection"];
+    (globalThis as Record<string, unknown>)["RTCPeerConnection"] = vi.fn().mockReturnValue(mockPc);
+    try {
+      const ch = new PeerDataChannel();
+
+      // createOffer — no setRemoteDescription here, just ensure it doesn't throw.
+      await ch.createOffer();
+      expect(mockPc.createOffer).toHaveBeenCalled();
+
+      // applyAnswer — should pass the plain object directly (no RTCSessionDescription constructor).
+      const answer: RTCSessionDescriptionInit = { type: "answer", sdp: "my-answer" };
+      await ch.applyAnswer(answer);
+      expect(receivedRemoteDescs).toContain(answer);
+
+      // addIceCandidate — should pass the plain object directly.
+      const candidate: RTCIceCandidateInit = { candidate: "candidate:1 1 UDP 2130706431 192.168.1.1 54400 typ host", sdpMid: "0" };
+      await ch.addIceCandidate(candidate);
+      expect(receivedCandidates).toContain(candidate);
+    } finally {
+      if (origRTCPC !== undefined) {
+        (globalThis as Record<string, unknown>)["RTCPeerConnection"] = origRTCPC;
+      } else {
+        delete (globalThis as Record<string, unknown>)["RTCPeerConnection"];
+      }
+    }
+  });
+});

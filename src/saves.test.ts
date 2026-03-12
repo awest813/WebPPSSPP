@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import "fake-indexeddb/auto";
 import {
   SaveStateLibrary,
@@ -11,6 +11,9 @@ import {
   SaveEventBus,
   saveEvents,
   SAVE_FORMAT_VERSION,
+  captureScreenshot,
+  createThumbnail,
+  downloadBlob,
   type SaveStateEntry,
 } from "./saves.js";
 
@@ -534,5 +537,259 @@ describe('saveEvents singleton', () => {
     expect(events).toContain('deleted');
 
     saveEvents.clear();
+  });
+});
+
+// ── captureScreenshot ─────────────────────────────────────────────────────────
+
+describe('captureScreenshot', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('returns null when the player element does not exist', async () => {
+    const result = await captureScreenshot('nonexistent-player');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when the player element has no canvas', async () => {
+    const div = document.createElement('div');
+    div.id = 'player-no-canvas';
+    document.body.appendChild(div);
+    try {
+      const result = await captureScreenshot('player-no-canvas');
+      expect(result).toBeNull();
+    } finally {
+      div.remove();
+    }
+  });
+
+  it('returns null when canvas has zero dimensions', async () => {
+    const div = document.createElement('div');
+    div.id = 'player-zero-canvas';
+    const canvas = document.createElement('canvas');
+    canvas.width = 0;
+    canvas.height = 0;
+    div.appendChild(canvas);
+    document.body.appendChild(div);
+    try {
+      const result = await captureScreenshot('player-zero-canvas');
+      expect(result).toBeNull();
+    } finally {
+      div.remove();
+    }
+  });
+
+  it('resolves with a Blob when toBlob fires with a blob', async () => {
+    const div = document.createElement('div');
+    div.id = 'player-with-canvas';
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    const fakeBlob = new Blob(['data'], { type: 'image/jpeg' });
+    canvas.toBlob = (cb) => { setTimeout(() => cb(fakeBlob), 0); };
+    div.appendChild(canvas);
+    document.body.appendChild(div);
+    try {
+      const result = await captureScreenshot('player-with-canvas');
+      expect(result).toBe(fakeBlob);
+    } finally {
+      div.remove();
+    }
+  });
+
+  it('resolves with null when toBlob fires with null', async () => {
+    const div = document.createElement('div');
+    div.id = 'player-null-blob';
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    canvas.toBlob = (cb) => { setTimeout(() => cb(null), 0); };
+    div.appendChild(canvas);
+    document.body.appendChild(div);
+    try {
+      const result = await captureScreenshot('player-null-blob');
+      expect(result).toBeNull();
+    } finally {
+      div.remove();
+    }
+  });
+
+  it('resolves with null after 5-second timeout when toBlob never fires', async () => {
+    vi.useFakeTimers();
+    const div = document.createElement('div');
+    div.id = 'player-stalled';
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    // toBlob never calls its callback, simulating a stall.
+    canvas.toBlob = () => { /* never fires */ };
+    div.appendChild(canvas);
+    document.body.appendChild(div);
+    try {
+      const resultPromise = captureScreenshot('player-stalled');
+      vi.advanceTimersByTime(5_000);
+      const result = await resultPromise;
+      expect(result).toBeNull();
+    } finally {
+      div.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not call resolve twice when toBlob fires after timeout', async () => {
+    vi.useFakeTimers();
+    const div = document.createElement('div');
+    div.id = 'player-late-blob';
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    let savedCb: ((blob: Blob | null) => void) | null = null;
+    canvas.toBlob = (cb) => { savedCb = cb; };
+    div.appendChild(canvas);
+    document.body.appendChild(div);
+    try {
+      const resultPromise = captureScreenshot('player-late-blob');
+      // Advance past the timeout so null is returned.
+      vi.advanceTimersByTime(5_000);
+      const result = await resultPromise;
+      expect(result).toBeNull();
+      // Now fire the late callback — should not throw or double-resolve.
+      expect(() => savedCb?.(new Blob(['late']))).not.toThrow();
+    } finally {
+      div.remove();
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── createThumbnail ───────────────────────────────────────────────────────────
+
+describe('createThumbnail', () => {
+  beforeEach(() => {
+    // jsdom does not implement createImageBitmap — install a stub so spyOn works.
+    if (!globalThis.createImageBitmap) {
+      (globalThis as unknown as Record<string, unknown>).createImageBitmap =
+        async (_source: unknown) => ({ width: 1, height: 1, close: () => {} });
+    }
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('returns null when createImageBitmap throws', async () => {
+    vi.spyOn(globalThis, 'createImageBitmap').mockRejectedValue(new Error('unsupported'));
+    const blob = new Blob(['data'], { type: 'image/jpeg' });
+    const result = await createThumbnail(blob);
+    expect(result).toBeNull();
+  });
+
+  it('resolves with null after 5-second timeout when toBlob never fires', async () => {
+    vi.useFakeTimers();
+    const fakeBitmap = {
+      width: 100,
+      height: 100,
+      close: vi.fn(),
+    };
+    vi.spyOn(globalThis, 'createImageBitmap').mockResolvedValue(fakeBitmap as unknown as ImageBitmap);
+
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn().mockReturnValue({ drawImage: vi.fn() }),
+      toBlob: vi.fn(/* never fires */),
+    };
+    const createElSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      if (tag === 'canvas') return mockCanvas as unknown as HTMLElement;
+      return document.createElement.call(document, tag);
+    });
+
+    const blob = new Blob(['data'], { type: 'image/jpeg' });
+    const resultPromise = createThumbnail(blob);
+    // Let createImageBitmap's microtask resolve, then set up the setTimeout,
+    // then advance fake timers past the 5-second threshold.
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result).toBeNull();
+    createElSpy.mockRestore();
+    vi.useRealTimers();
+  });
+});
+
+// ── downloadBlob ──────────────────────────────────────────────────────────────
+
+describe('downloadBlob', () => {
+  beforeEach(() => {
+    // jsdom does not implement URL.createObjectURL / revokeObjectURL.
+    // Install stub implementations so spyOn and the production code both work.
+    if (!URL.createObjectURL) {
+      URL.createObjectURL = (_blob: Blob) => 'blob:http://localhost/stub';
+    }
+    if (!URL.revokeObjectURL) {
+      URL.revokeObjectURL = (_url: string) => { /* no-op */ };
+    }
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('creates an anchor with the correct download attribute and clicks it', () => {
+    vi.useFakeTimers();
+    const fakeUrl = 'blob:http://localhost/fake';
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue(fakeUrl);
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => { /* no-op */ });
+
+    const blob = new Blob(['content'], { type: 'text/plain' });
+    const clicked: string[] = [];
+    // Intercept appendChild to capture the anchor and record the click.
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
+      if (node instanceof HTMLAnchorElement) {
+        clicked.push(node.download);
+        node.click = vi.fn();
+      }
+      return node;
+    });
+
+    downloadBlob(blob, 'save-file.sav');
+
+    expect(appendSpy).toHaveBeenCalled();
+    expect(clicked).toContain('save-file.sav');
+
+    // URL should not be revoked yet — the 500 ms timer is still pending.
+    expect(revokeSpy).not.toHaveBeenCalled();
+
+    // After 500 ms the URL is revoked.
+    vi.advanceTimersByTime(500);
+    expect(revokeSpy).toHaveBeenCalledWith(fakeUrl);
+
+    appendSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('revokes the URL after 500 ms, not 100 ms', () => {
+    vi.useFakeTimers();
+    const fakeUrl = 'blob:http://localhost/fake2';
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue(fakeUrl);
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => { /* no-op */ });
+    vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
+      if (node instanceof HTMLAnchorElement) node.click = vi.fn();
+      return node;
+    });
+
+    downloadBlob(new Blob(['x']), 'test.bin');
+
+    vi.advanceTimersByTime(499);
+    expect(revokeSpy).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(revokeSpy).toHaveBeenCalledWith(fakeUrl);
+
+    vi.useRealTimers();
   });
 });
