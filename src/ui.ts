@@ -3461,7 +3461,7 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
  */
 function openPerGameGraphicsDialog(
   gameId:           string,
-  systemId:         string,
+  _systemId:        string,
   gameName:         string,
   emulator:         PSPEmulator,
   onSettingsChange: (patch: Partial<Settings>) => void,
@@ -3510,6 +3510,9 @@ function openPerGameGraphicsDialog(
     { value: "crt",        label: "CRT Simulation" },
     { value: "lcd",        label: "LCD Shadow Mask" },
     { value: "bloom",      label: "Bloom" },
+    { value: "grain",      label: "Film Grain" },
+    { value: "retro",      label: "Retro Pixel Art" },
+    { value: "colorgrade", label: "Color Grade" },
   ];
   for (const opt of fxOptions) {
     const o = make("option", { value: opt.value }, opt.label) as HTMLOptionElement;
@@ -3564,7 +3567,7 @@ function openPerGameGraphicsDialog(
       emulator.enableDRS(profile.drsEnabled ?? false);
 
       // Apply post-effect immediately if one was set
-      if (profile.postEffect !== undefined) {
+      if (profile.postEffect != null) {
         emulator.updatePostProcessConfig({ effect: profile.postEffect });
       } else {
         // Revert to global setting
@@ -4051,13 +4054,16 @@ function buildDisplayTab(
 
     type FxOption = { value: string; label: string; desc: string };
     const fxOptions: FxOption[] = [
-      { value: "none",    label: "No effect",        desc: "Clean output — exactly as the game renders it" },
-      { value: "fsr",     label: "FSR 1.0",          desc: "Edge-adaptive upsampling + sharpening — AMD FidelityFX inspired" },
-      { value: "crt",     label: "CRT screen",       desc: "Scanlines and glow — like playing on a real CRT TV" },
-      { value: "sharpen", label: "Sharper image",    desc: "Crisper pixels — great for upscaled handheld games" },
-      { value: "lcd",     label: "LCD handheld",     desc: "Sub-pixel grid — simulates a handheld LCD screen" },
-      { value: "bloom",   label: "Soft glow",        desc: "Gentle glow on bright areas — warm, cinematic feel" },
-      { value: "fxaa",    label: "Smooth edges",     desc: "Reduces jagged edges on 3D game geometry" },
+      { value: "none",       label: "No effect",        desc: "Clean output — exactly as the game renders it" },
+      { value: "fsr",        label: "FSR 1.0",          desc: "Edge-adaptive upsampling + sharpening — AMD FidelityFX inspired" },
+      { value: "crt",        label: "CRT screen",       desc: "Scanlines and glow — like playing on a real CRT TV" },
+      { value: "sharpen",    label: "Sharper image",    desc: "Crisper pixels — great for upscaled handheld games" },
+      { value: "lcd",        label: "LCD handheld",     desc: "Sub-pixel grid — simulates a handheld LCD screen" },
+      { value: "bloom",      label: "Soft glow",        desc: "Gentle glow on bright areas — warm, cinematic feel" },
+      { value: "fxaa",       label: "Smooth edges",     desc: "Reduces jagged edges on 3D game geometry" },
+      { value: "grain",      label: "Film grain",       desc: "Cinematic noise overlay — adds texture to flat backgrounds" },
+      { value: "retro",      label: "Retro pixel art",  desc: "Limited palette with ordered dithering — classic console look" },
+      { value: "colorgrade", label: "Color grading",    desc: "Adjust contrast, saturation, and brightness for a custom look" },
     ];
     for (const opt of fxOptions) {
       const row   = make("label", { class: "radio-row" });

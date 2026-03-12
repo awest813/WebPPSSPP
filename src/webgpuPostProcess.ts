@@ -52,7 +52,7 @@ const MAP_MODE_READ = 0x0001;
 
 // ── Effect types ──────────────────────────────────────────────────────────────
 
-export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom" | "fxaa" | "fsr";
+export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom" | "fxaa" | "fsr" | "grain" | "retro" | "colorgrade";
 
 export interface PostProcessConfig {
   effect: PostProcessEffect;
@@ -79,6 +79,26 @@ export interface PostProcessConfig {
    * Range 0 (no sharpening) to 1 (maximum sharpness). Default 0.25.
    */
   fsrSharpness: number;
+  /** Film grain intensity (0 = off, 1 = heavy grain). Default 0.08. */
+  grainIntensity: number;
+  /**
+   * Film grain texel size — larger values produce coarser, blockier grain.
+   * Range 0.5–8. Default 1.5.
+   */
+  grainSize: number;
+  /**
+   * Retro color quantization steps per channel (2–256).
+   * Lower values produce a more restricted palette (e.g. 4 = ~64 colors total).
+   * Fractional values are rounded to the nearest integer by validatePostProcessConfig().
+   * Default 16.
+   */
+  retroColors: number;
+  /** Color-grade contrast multiplier, pivoted at 0.5 (0 = flat grey, 1 = neutral, 2 = high). Default 1.0. */
+  contrast: number;
+  /** Color-grade saturation (0 = greyscale, 1 = neutral, 2 = vivid). Default 1.0. */
+  saturation: number;
+  /** Color-grade brightness offset added to each channel (−1–1). Default 0.0. */
+  brightness: number;
   /** Performance tier — used to auto-reduce effect quality on low-end devices. */
   tier?: PerformanceTier;
 }
@@ -95,6 +115,12 @@ export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
   bloomIntensity: 0.5,
   fxaaQuality: 0.75,
   fsrSharpness: 0.25,
+  grainIntensity: 0.08,
+  grainSize: 1.5,
+  retroColors: 16,
+  contrast: 1.0,
+  saturation: 1.0,
+  brightness: 0.0,
 };
 
 // ── WGSL shaders ──────────────────────────────────────────────────────────────
@@ -406,7 +432,160 @@ fn luma(rgb: vec3f) -> f32 {
 }
 `;
 
-// ── Pipeline builder ──────────────────────────────────────────────────────────
+// ── New effect shaders ─────────────────────────────────────────────────────────
+
+// Film grain — hash-based per-cell noise that changes with a per-frame seed.
+//
+// The noise is computed from a 2-D integer cell coordinate so that cells
+// larger than one screen pixel share the same random value, producing
+// coarser, film-grain-like clusters.  The grainSeed uniform is incremented
+// each frame by the processor so the pattern animates in real time.
+//
+// Uniform layout (32 bytes):
+//   offset  0: grainIntensity (f32)
+//   offset  4: grainSize      (f32)
+//   offset  8: grainSeed      (f32) — changes every frame for animation
+//   offset 12: _pad           (f32)
+//   offset 16: resolution     (vec2f)
+//   offset 24: _pad4, _pad5   (padding to 32 bytes)
+const GRAIN_FRAGMENT = /* wgsl */ `
+struct Params {
+  grainIntensity: f32,
+  grainSize: f32,
+  grainSeed: f32,
+  _pad: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Pseudo-random hash in [0, 1) from a 2-D point.
+// Uses two dot products and a large prime multiplier for good distribution.
+fn hash2(p: vec2f) -> f32 {
+  let q = vec2f(dot(p, vec2f(127.1, 311.7)), dot(p, vec2f(269.5, 183.3)));
+  return fract(sin(dot(q, vec2f(1.0, 1.0))) * 43758.5453123);
+}
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let uv = fragCoord.xy / params.resolution;
+  let base = textureSample(srcTex, srcSampler, uv);
+
+  // Grain cell — cells larger than one pixel share the same noise value,
+  // producing coarser, blockier grain that resembles film grain clusters.
+  let cellSize = max(params.grainSize, 0.5);
+  let cell = floor(fragCoord.xy / cellSize) + params.grainSeed;
+  // Map [0,1) hash to [-1,1] additive noise
+  let noise = hash2(cell) * 2.0 - 1.0;
+
+  return vec4f(clamp(base.rgb + noise * params.grainIntensity, vec3f(0.0), vec3f(1.0)), base.a);
+}
+`;
+
+// Retro pixel-art — quantises each RGB channel to a limited number of evenly
+// spaced levels using Bayer 4×4 ordered dithering to smooth gradient transitions
+// without any additional passes.
+//
+// With retroColors = 4 each channel has 4 possible output values (0, ⅓, ⅔, 1),
+// giving 64 possible colours in total — comparable to a classic 6-bit palette.
+// At retroColors = 16 the output is close to the original but with visible
+// colour banding at sharp gradients.
+//
+// Uniform layout (32 bytes):
+//   offset  0: retroColors  (f32 — cast from integer, minimum 2)
+//   offset  4–12: _pad × 3
+//   offset 16: resolution   (vec2f)
+const RETRO_FRAGMENT = /* wgsl */ `
+struct Params {
+  retroColors: f32,
+  _pad1: f32,
+  _pad2: f32,
+  _pad3: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Bayer 4×4 ordered dithering matrix.  Each entry is the threshold for that
+// screen position.  The values are normalised so the returned threshold is in
+// the range [-0.5, 0.5], ready to be scaled by the inter-level gap.
+fn bayer4(p: vec2u) -> f32 {
+  let bayer = array<u32, 16>(
+     0u,  8u,  2u, 10u,
+    12u,  4u, 14u,  6u,
+     3u, 11u,  1u,  9u,
+    15u,  7u, 13u,  5u,
+  );
+  let idx = (p.y & 3u) * 4u + (p.x & 3u);
+  return (f32(bayer[idx]) / 15.0) - 0.5;
+}
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let uv = fragCoord.xy / params.resolution;
+  let base = textureSample(srcTex, srcSampler, uv);
+
+  let steps = max(params.retroColors, 2.0);
+  // Scale the Bayer threshold by the inter-level gap so dithering occurs only
+  // at quantisation boundaries, not across the full dynamic range.
+  let threshold = bayer4(vec2u(u32(fragCoord.x), u32(fragCoord.y))) / max(steps - 1.0, 1.0);
+  let dithered = clamp(base.rgb + threshold, vec3f(0.0), vec3f(1.0));
+  // Round to the nearest quantisation level in [0, 1]
+  let quantized = round(dithered * (steps - 1.0)) / (steps - 1.0);
+
+  return vec4f(quantized, base.a);
+}
+`;
+
+// Colour grading — adjusts brightness, contrast, and saturation in a single
+// pass.  The three operations are applied in order: brightness first (additive
+// offset), then contrast (multiplicative pivot at 0.5), then saturation (mix
+// toward the perceptual luminance).  Neutral settings (contrast = 1, sat = 1,
+// brightness = 0) leave the image unchanged.
+//
+// Uniform layout (32 bytes):
+//   offset  0: contrast   (f32 — multiplier, 0 = flat grey, 1 = neutral)
+//   offset  4: saturation (f32 — mix factor,  0 = greyscale, 1 = neutral)
+//   offset  8: brightness (f32 — additive offset, 0 = neutral)
+//   offset 12: _pad
+//   offset 16: resolution (vec2f)
+const COLORGRADE_FRAGMENT = /* wgsl */ `
+struct Params {
+  contrast: f32,
+  saturation: f32,
+  brightness: f32,
+  _pad: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Perceived luminance using Rec. 601 coefficients.
+fn luminance(rgb: vec3f) -> f32 {
+  return dot(rgb, vec3f(0.299, 0.587, 0.114));
+}
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let uv = fragCoord.xy / params.resolution;
+  var color = textureSample(srcTex, srcSampler, uv).rgb;
+
+  // 1. Brightness — additive lift/crush
+  color = color + params.brightness;
+
+  // 2. Contrast — pivot around mid-grey (0.5) to preserve average exposure
+  color = (color - 0.5) * max(params.contrast, 0.0) + 0.5;
+
+  // 3. Saturation — interpolate between greyscale and the original colour
+  let grey = luminance(color);
+  color = mix(vec3f(grey), color, max(params.saturation, 0.0));
+
+  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
+}
+`;
 
 // FSR 1.0-inspired edge-adaptive spatial upsampling with RCAS sharpening.
 //
@@ -544,6 +723,61 @@ interface EffectPipeline {
   wgslSources: { vertex: string; fragment: string };
 }
 
+// ── Pipeline builder ──────────────────────────────────────────────────────────
+
+/**
+ * Public alias for the pipeline descriptor returned by buildEffectPipeline().
+ * Expose this type so callers can annotate references to the pipeline object.
+ */
+export type { EffectPipeline };
+
+/**
+ * Human-readable display labels for each post-processing effect.
+ * Useful for building UI dropdowns and tooltips without duplicating
+ * label strings across the application.
+ */
+export const EFFECT_LABELS: Record<PostProcessEffect, string> = {
+  none:       "No effect",
+  crt:        "CRT screen",
+  sharpen:    "Sharpen",
+  lcd:        "LCD shadow mask",
+  bloom:      "Bloom glow",
+  fxaa:       "FXAA anti-aliasing",
+  fsr:        "FSR 1.0 upscaling",
+  grain:      "Film grain",
+  retro:      "Retro pixel art",
+  colorgrade: "Color grading",
+};
+
+/**
+ * Clamp all numeric parameters in a PostProcessConfig to their documented
+ * valid ranges.  Returns a new object; does not mutate the input.
+ *
+ * Use this before persisting user-supplied settings or after deserialising
+ * config from localStorage to guard against out-of-range values.
+ */
+export function validatePostProcessConfig(config: PostProcessConfig): PostProcessConfig {
+  return {
+    ...config,
+    scanlineIntensity: Math.max(0, Math.min(1,   config.scanlineIntensity)),
+    curvature:         Math.max(0, Math.min(1,   config.curvature)),
+    vignetteStrength:  Math.max(0, Math.min(1,   config.vignetteStrength)),
+    sharpenAmount:     Math.max(0, Math.min(2,   config.sharpenAmount)),
+    lcdShadowMask:     Math.max(0, Math.min(1,   config.lcdShadowMask)),
+    lcdPixelScale:     Math.max(0.1, Math.min(8, config.lcdPixelScale)),
+    bloomThreshold:    Math.max(0, Math.min(1,   config.bloomThreshold)),
+    bloomIntensity:    Math.max(0, Math.min(2,   config.bloomIntensity)),
+    fxaaQuality:       Math.max(0, Math.min(1,   config.fxaaQuality)),
+    fsrSharpness:      Math.max(0, Math.min(1,   config.fsrSharpness)),
+    grainIntensity:    Math.max(0, Math.min(1,   config.grainIntensity)),
+    grainSize:         Math.max(0.5, Math.min(8, config.grainSize)),
+    retroColors:       Math.max(2, Math.min(256, Math.round(config.retroColors))),
+    contrast:          Math.max(0, Math.min(4,   config.contrast)),
+    saturation:        Math.max(0, Math.min(4,   config.saturation)),
+    brightness:        Math.max(-1, Math.min(1,  config.brightness)),
+  };
+}
+
 /**
  * Adjust post-process parameters based on device tier.
  * Reduces effect intensity on lower-tier devices to maintain framerate.
@@ -582,19 +816,23 @@ export function buildEffectPipeline(
   let fragmentCode: string;
 
   switch (effect) {
-    case "crt":     fragmentCode = CRT_FRAGMENT; break;
-    case "sharpen": fragmentCode = SHARPEN_FRAGMENT; break;
-    case "lcd":     fragmentCode = LCD_FRAGMENT; break;
-    case "bloom":   fragmentCode = BLOOM_FRAGMENT; break;
-    case "fxaa":    fragmentCode = FXAA_FRAGMENT; break;
-    case "fsr":     fragmentCode = FSR_FRAGMENT; break;
-    default:        fragmentCode = PASSTHROUGH_FRAGMENT; break;
+    case "crt":        fragmentCode = CRT_FRAGMENT; break;
+    case "sharpen":    fragmentCode = SHARPEN_FRAGMENT; break;
+    case "lcd":        fragmentCode = LCD_FRAGMENT; break;
+    case "bloom":      fragmentCode = BLOOM_FRAGMENT; break;
+    case "fxaa":       fragmentCode = FXAA_FRAGMENT; break;
+    case "fsr":        fragmentCode = FSR_FRAGMENT; break;
+    case "grain":      fragmentCode = GRAIN_FRAGMENT; break;
+    case "retro":      fragmentCode = RETRO_FRAGMENT; break;
+    case "colorgrade": fragmentCode = COLORGRADE_FRAGMENT; break;
+    default:           fragmentCode = PASSTHROUGH_FRAGMENT; break;
   }
 
   const vertModule = device.createShaderModule({ code: FULLSCREEN_VERTEX });
   const fragModule = device.createShaderModule({ code: fragmentCode });
 
-  const hasUniforms = effect === "crt" || effect === "sharpen" || effect === "lcd" || effect === "bloom" || effect === "fxaa" || effect === "fsr";
+  // All effects except passthrough ("none") use a uniform buffer for parameters.
+  const hasUniforms = effect !== "none";
 
   const entries: GPUBindGroupLayoutEntry[] = [
     { binding: 0, visibility: SHADER_STAGE_FRAGMENT, texture: { sampleType: "float" } },
@@ -659,6 +897,19 @@ export class WebGPUPostProcessor {
    * Reusing this buffer avoids a 32-byte heap allocation every rAF tick.
    */
   private readonly _uniformData = new Float32Array(8);
+
+  /**
+   * Counts every rendered frame — used as the animated grain seed.
+   * Wraps at _FRAME_COUNT_WRAP to stay within safe f32 integer precision.
+   */
+  private _frameCount = 0;
+  /**
+   * Upper bound for the frame counter modulo wrap.
+   * 10 000 keeps the value well within f32 integer precision (f32 can represent
+   * all integers up to 2^24 = 16 777 216 exactly) while providing a long enough
+   * cycle that the grain pattern does not visibly repeat.
+   */
+  private static readonly _FRAME_COUNT_WRAP = 10_000;
 
   // ── GPU timestamp query state ─────────────────────────────────────────────
   /**
@@ -1016,6 +1267,9 @@ export class WebGPUPostProcessor {
       return;
     }
 
+    // Increment the frame counter after a successful copy (used as grain seed).
+    this._frameCount = (this._frameCount + 1) % WebGPUPostProcessor._FRAME_COUNT_WRAP;
+
     // Upload uniforms — reuses the pre-allocated Float32Array
     this._writeUniforms(srcW, srcH);
 
@@ -1131,6 +1385,30 @@ export class WebGPUPostProcessor {
         data[0] = cfg.fsrSharpness;
         data[1] = 0;
         data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "grain":
+        data[0] = cfg.grainIntensity;
+        data[1] = cfg.grainSize;
+        data[2] = this._frameCount; // animated seed — changes every frame
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "retro":
+        data[0] = cfg.retroColors;
+        data[1] = 0;
+        data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "colorgrade":
+        data[0] = cfg.contrast;
+        data[1] = cfg.saturation;
+        data[2] = cfg.brightness;
         data[3] = 0;
         data[4] = width;
         data[5] = height;

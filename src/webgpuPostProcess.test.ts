@@ -4,7 +4,11 @@ import {
   DEFAULT_POST_PROCESS_CONFIG,
   buildEffectPipeline,
   adjustConfigForTier,
+  validatePostProcessConfig,
+  EFFECT_LABELS,
   type PostProcessConfig,
+  type PostProcessEffect,
+  type EffectPipeline,
 } from "./webgpuPostProcess.js";
 
 // ── Mock GPU device factory ───────────────────────────────────────────────────
@@ -751,5 +755,298 @@ describe("FSR effect", () => {
     const { device } = createMockGPUDevice();
     const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("rcas");
+  });
+});
+
+// ── New effects: grain, retro, colorgrade ─────────────────────────────────────
+
+describe("grain effect", () => {
+  it("buildEffectPipeline succeeds for 'grain' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'grain' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'grain' contains 'grainIntensity'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("grainIntensity");
+  });
+
+  it("wgslSources.fragment for 'grain' contains 'grainSize'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("grainSize");
+  });
+
+  it("wgslSources.fragment for 'grain' contains hash function", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("hash2");
+  });
+
+  it("wgslSources.fragment for 'grain' contains animated seed param", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("grainSeed");
+  });
+
+  it("updateConfig accepts grain-specific parameters", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ effect: "grain", grainIntensity: 0.15, grainSize: 2.0 });
+    expect(pp.config.effect).toBe("grain");
+    expect(pp.config.grainIntensity).toBe(0.15);
+    expect(pp.config.grainSize).toBe(2.0);
+  });
+});
+
+describe("retro effect", () => {
+  it("buildEffectPipeline succeeds for 'retro' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'retro' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'retro' contains 'retroColors'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("retroColors");
+  });
+
+  it("wgslSources.fragment for 'retro' contains Bayer dithering", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("bayer4");
+  });
+
+  it("updateConfig accepts retro-specific parameters", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ effect: "retro", retroColors: 8 });
+    expect(pp.config.effect).toBe("retro");
+    expect(pp.config.retroColors).toBe(8);
+  });
+});
+
+describe("colorgrade effect", () => {
+  it("buildEffectPipeline succeeds for 'colorgrade' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'colorgrade' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'colorgrade' contains 'contrast'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("contrast");
+  });
+
+  it("wgslSources.fragment for 'colorgrade' contains 'saturation'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("saturation");
+  });
+
+  it("wgslSources.fragment for 'colorgrade' contains 'brightness'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("brightness");
+  });
+
+  it("updateConfig accepts colorgrade-specific parameters", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ effect: "colorgrade", contrast: 1.2, saturation: 0.8, brightness: -0.05 });
+    expect(pp.config.effect).toBe("colorgrade");
+    expect(pp.config.contrast).toBe(1.2);
+    expect(pp.config.saturation).toBe(0.8);
+    expect(pp.config.brightness).toBe(-0.05);
+  });
+});
+
+// ── EFFECT_LABELS ─────────────────────────────────────────────────────────────
+
+describe("EFFECT_LABELS", () => {
+  it("provides a label for every PostProcessEffect", () => {
+    const allEffects: PostProcessEffect[] = [
+      "none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr",
+      "grain", "retro", "colorgrade",
+    ];
+    for (const e of allEffects) {
+      expect(EFFECT_LABELS[e]).toBeTruthy();
+    }
+  });
+
+  it("none effect label indicates no effect", () => {
+    expect(EFFECT_LABELS.none).toContain("No effect");
+  });
+
+  it("grain effect label indicates film grain", () => {
+    expect(EFFECT_LABELS.grain.toLowerCase()).toContain("grain");
+  });
+
+  it("retro effect label indicates retro / pixel art", () => {
+    expect(EFFECT_LABELS.retro.toLowerCase()).toMatch(/retro|pixel/);
+  });
+
+  it("colorgrade effect label indicates colour grading", () => {
+    expect(EFFECT_LABELS.colorgrade.toLowerCase()).toMatch(/color|colour|grad/);
+  });
+});
+
+// ── validatePostProcessConfig ─────────────────────────────────────────────────
+
+describe("validatePostProcessConfig", () => {
+  it("returns a new object (does not mutate input)", () => {
+    const config = { ...DEFAULT_POST_PROCESS_CONFIG };
+    const validated = validatePostProcessConfig(config);
+    expect(validated).not.toBe(config);
+  });
+
+  it("preserves valid values unchanged", () => {
+    const config = { ...DEFAULT_POST_PROCESS_CONFIG };
+    const validated = validatePostProcessConfig(config);
+    expect(validated.scanlineIntensity).toBe(config.scanlineIntensity);
+    expect(validated.curvature).toBe(config.curvature);
+    expect(validated.fsrSharpness).toBe(config.fsrSharpness);
+    expect(validated.grainIntensity).toBe(config.grainIntensity);
+    expect(validated.retroColors).toBe(config.retroColors);
+    expect(validated.contrast).toBe(config.contrast);
+  });
+
+  it("clamps scanlineIntensity above 1 down to 1", () => {
+    const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, scanlineIntensity: 2.5 };
+    expect(validatePostProcessConfig(cfg).scanlineIntensity).toBe(1);
+  });
+
+  it("clamps scanlineIntensity below 0 up to 0", () => {
+    const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, scanlineIntensity: -0.5 };
+    expect(validatePostProcessConfig(cfg).scanlineIntensity).toBe(0);
+  });
+
+  it("clamps sharpenAmount to [0, 2]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, sharpenAmount: -1 }).sharpenAmount).toBe(0);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, sharpenAmount: 5 }).sharpenAmount).toBe(2);
+  });
+
+  it("clamps grainIntensity to [0, 1]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainIntensity: -0.1 }).grainIntensity).toBe(0);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainIntensity: 1.5 }).grainIntensity).toBe(1);
+  });
+
+  it("clamps grainSize to [0.5, 8]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainSize: 0 }).grainSize).toBe(0.5);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainSize: 100 }).grainSize).toBe(8);
+  });
+
+  it("clamps retroColors to [2, 256] and rounds to integer", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, retroColors: 1 }).retroColors).toBe(2);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, retroColors: 999 }).retroColors).toBe(256);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, retroColors: 7.6 }).retroColors).toBe(8);
+  });
+
+  it("clamps contrast to [0, 4]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, contrast: -1 }).contrast).toBe(0);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, contrast: 10 }).contrast).toBe(4);
+  });
+
+  it("clamps saturation to [0, 4]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, saturation: -0.5 }).saturation).toBe(0);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, saturation: 5 }).saturation).toBe(4);
+  });
+
+  it("clamps brightness to [-1, 1]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, brightness: -2 }).brightness).toBe(-1);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, brightness: 2 }).brightness).toBe(1);
+  });
+
+  it("clamps lcdPixelScale minimum to 0.1", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, lcdPixelScale: 0 }).lcdPixelScale).toBe(0.1);
+  });
+
+  it("preserves effect and tier fields", () => {
+    const cfg: PostProcessConfig = { ...DEFAULT_POST_PROCESS_CONFIG, effect: "crt", tier: "medium" };
+    const validated = validatePostProcessConfig(cfg);
+    expect(validated.effect).toBe("crt");
+    expect(validated.tier).toBe("medium");
+  });
+});
+
+// ── EffectPipeline type export ────────────────────────────────────────────────
+
+describe("EffectPipeline type", () => {
+  it("buildEffectPipeline return value is assignable to EffectPipeline", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline: EffectPipeline = buildEffectPipeline(device as unknown as GPUDevice, "crt", "bgra8unorm");
+    expect(pipeline).toBeDefined();
+    expect(pipeline.pipeline).toBeDefined();
+    expect(pipeline.bindGroupLayout).toBeDefined();
+    expect(pipeline.wgslSources).toBeDefined();
+  });
+});
+
+// ── DEFAULT_POST_PROCESS_CONFIG new fields ────────────────────────────────────
+
+describe("DEFAULT_POST_PROCESS_CONFIG new fields", () => {
+  it("includes grainIntensity with value 0.08", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.grainIntensity).toBe(0.08);
+  });
+
+  it("includes grainSize with value 1.5", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.grainSize).toBe(1.5);
+  });
+
+  it("includes retroColors with value 16", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.retroColors).toBe(16);
+  });
+
+  it("includes contrast with neutral value 1.0", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.contrast).toBe(1.0);
+  });
+
+  it("includes saturation with neutral value 1.0", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.saturation).toBe(1.0);
+  });
+
+  it("includes brightness with neutral value 0.0", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.brightness).toBe(0.0);
+  });
+});
+
+// ── hasUniforms: passthrough has no uniform buffer ────────────────────────────
+
+describe("buildEffectPipeline uniform buffer presence", () => {
+  const effectsWithUniforms: PostProcessEffect[] = [
+    "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr", "grain", "retro", "colorgrade",
+  ];
+
+  for (const effect of effectsWithUniforms) {
+    it(`'${effect}' effect always creates a uniform buffer`, () => {
+      const { device } = createMockGPUDevice();
+      const pipeline = buildEffectPipeline(device as unknown as GPUDevice, effect, "bgra8unorm");
+      expect(pipeline.uniformBuffer).not.toBeNull();
+    });
+  }
+
+  it("'none' (passthrough) effect never creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
+    expect(pipeline.uniformBuffer).toBeNull();
   });
 });
