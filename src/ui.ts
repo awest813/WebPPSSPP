@@ -179,22 +179,25 @@ export function buildDOM(app: HTMLElement): void {
     <!-- ── Header ── -->
     <header class="app-header">
       <div class="app-header__brand">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none"
-             stroke="currentColor" stroke-width="1.8"
+        <svg width="30" height="30" viewBox="0 0 32 32" fill="none"
+             stroke="currentColor" stroke-width="1.75"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <!-- Controller body -->
-          <rect x="2" y="7" width="24" height="14" rx="7"/>
-          <!-- D-pad left group -->
-          <rect x="7" y="12.5" width="5" height="3" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
-          <rect x="8.5" y="11" width="2" height="6" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
-          <!-- ABXY buttons -->
-          <circle cx="20" cy="12.5" r="1.2" fill="currentColor" stroke="none"/>
-          <circle cx="22.5" cy="14" r="1.2" fill="currentColor" stroke="none"/>
-          <circle cx="20" cy="15.5" r="1.2" fill="currentColor" stroke="none"/>
-          <circle cx="17.5" cy="14" r="1.2" fill="currentColor" stroke="none"/>
-          <!-- Center buttons -->
-          <circle cx="13" cy="14" r="1" fill="currentColor" stroke="none" opacity="0.5"/>
-          <circle cx="15" cy="14" r="1" fill="currentColor" stroke="none" opacity="0.5"/>
+          <!-- Joy-Con left body -->
+          <rect x="1" y="8" width="10" height="16" rx="5" fill="color-mix(in srgb, currentColor 8%, transparent)" stroke="var(--c-joy-red)" stroke-width="1.75"/>
+          <!-- D-pad on left Joy-Con -->
+          <line x1="6" y1="12" x2="6" y2="17" stroke="var(--c-joy-red)" stroke-width="1.5" opacity="0.85"/>
+          <line x1="3.5" y1="14.5" x2="8.5" y2="14.5" stroke="var(--c-joy-red)" stroke-width="1.5" opacity="0.85"/>
+          <!-- Joy-Con right body -->
+          <rect x="21" y="8" width="10" height="16" rx="5" fill="color-mix(in srgb, currentColor 8%, transparent)" stroke="var(--c-joy-blue)" stroke-width="1.75"/>
+          <!-- ABXY on right Joy-Con -->
+          <circle cx="26" cy="12.5" r="1.15" fill="var(--c-joy-blue)" stroke="none" opacity="0.9"/>
+          <circle cx="28.5" cy="14.5" r="1.15" fill="var(--c-joy-blue)" stroke="none" opacity="0.9"/>
+          <circle cx="26" cy="16.5" r="1.15" fill="var(--c-joy-blue)" stroke="none" opacity="0.9"/>
+          <circle cx="23.5" cy="14.5" r="1.15" fill="var(--c-joy-blue)" stroke="none" opacity="0.9"/>
+          <!-- Center dock -->
+          <rect x="11" y="10" width="10" height="12" rx="3" fill="color-mix(in srgb, currentColor 5%, transparent)" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+          <!-- Home button -->
+          <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" opacity="0.4"/>
         </svg>
         <span class="brand-long">RetroVault</span>
         <span class="brand-short" aria-hidden="true">RV</span>
@@ -267,39 +270,39 @@ export function buildDOM(app: HTMLElement): void {
         <!-- Onboarding — only visible when library is empty -->
         <div class="onboarding" id="onboarding">
           <div class="welcome-hero">
-            <h2 class="welcome-hero__title">Play retro games in your browser</h2>
-            <p class="welcome-hero__tagline">PSP · N64 · PS1 · GBA · SNES · NES and 20+ more systems — no installs, no account, nothing to sign up for</p>
+            <h2 class="welcome-hero__title">Your retro games, in your browser</h2>
+            <p class="welcome-hero__tagline">PSP · N64 · PS1 · GBA · SNES · NES and 20+ more systems — no installs, no account, just pure play</p>
             <div class="welcome-steps">
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">1</span>
-                <span class="welcome-step__text">Drop or choose a game file above</span>
+                <span class="welcome-step__text">Drop or choose a game ROM</span>
               </div>
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">2</span>
-                <span class="welcome-step__text">Pick a system if needed</span>
+                <span class="welcome-step__text">Pick a system if prompted</span>
               </div>
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">3</span>
-                <span class="welcome-step__text">Start playing! 🎉</span>
+                <span class="welcome-step__text">Play instantly! 🎮</span>
               </div>
             </div>
           </div>
           <div class="onboarding__features">
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">💾</span>
-              <span><strong>Save anytime</strong><br>Snapshot your progress and pick up later</span>
+              <span><strong>Save anytime</strong><br>Snapshot your progress across up to 8 slots — quick-save with F5</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🎮</span>
-              <span><strong>Any controller</strong><br>Touch screen, keyboard, USB or Bluetooth pad</span>
+              <span><strong>Any controller</strong><br>Touch screen, keyboard, USB gamepad, or Bluetooth — plug in and play</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">⚡</span>
-              <span><strong>Auto-tuned</strong><br>Detects your device and picks the best settings</span>
+              <span><strong>Auto-optimized</strong><br>Detects your hardware and tunes graphics for the smoothest experience</span>
             </div>
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">🔒</span>
-              <span><strong>Private &amp; offline</strong><br>Your games stay in your browser, never uploaded</span>
+              <span><strong>100% private</strong><br>Everything stays in your browser — no uploads, no account needed</span>
             </div>
           </div>
         </div>
@@ -410,7 +413,7 @@ export function buildDOM(app: HTMLElement): void {
       </div>
       <div class="status-item hide-mobile" style="margin-left:auto;gap:6px">
         ${_CTRL_SVG_MINI}
-        <span class="status-item__value" style="opacity:0.45;font-size:0.7rem">RetroVault v1.0</span>
+        <span class="status-item__value" style="opacity:0.4;font-size:0.7rem;font-weight:700;letter-spacing:0.01em">RetroVault</span>
       </div>
     </footer>
   `;
