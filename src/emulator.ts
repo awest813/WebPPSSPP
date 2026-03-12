@@ -2457,7 +2457,7 @@ export class PSPEmulator {
       return Promise.resolve();
     }
 
-    this._scriptLoadPromise = new Promise((resolve, reject) => {
+    const promise = new Promise<void>((resolve, reject) => {
       const script = document.createElement("script");
       script.src = src;
       script.setAttribute("data-ejs-loader", "true");
@@ -2474,6 +2474,7 @@ export class PSPEmulator {
       // fresh one — the script will have been removed by _teardown() then.
       this._scriptLoadPromise = null;
     });
-    return this._scriptLoadPromise;
+    this._scriptLoadPromise = promise;
+    return promise;
   }
 }
