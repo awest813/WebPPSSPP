@@ -159,8 +159,9 @@ export class EasyNetplayManager {
     this._hostAbort = new AbortController();
 
     try {
+      const displayName = options.hostName.trim() || "Player";
       const createOpts: CreateRoomOptions = {
-        name:       `${options.hostName}'s Room`,
+        name:       `${displayName}'s Room`,
         gameId:     options.gameId,
         gameName:   options.gameName,
         systemId:   options.systemId,
@@ -301,7 +302,11 @@ export class EasyNetplayManager {
     this._cancelPendingRequests();
 
     if (this._room && this._sigClient) {
-      await this._sigClient.leaveRoom(this._room.id);
+      try {
+        await this._sigClient.leaveRoom(this._room.id);
+      } catch {
+        // Leave failures are non-fatal — always clean up local state.
+      }
     }
 
     const reason = this._room?.name ? `Left ${this._room.name}` : undefined;
@@ -384,10 +389,11 @@ export class EasyNetplayManager {
    * Called by the Browse panel's auto-refresh to surface updated player counts
    * without requiring a full list reload.
    *
-   * Callers are responsible for ensuring `count` is a valid, non-negative number.
-   * This method is a thin broadcast and does not validate against room capacity.
+   * Silently ignores non-finite or negative counts to prevent bad data from
+   * propagating to the UI.
    */
   updatePlayerCount(roomId: string, count: number): void {
+    if (!Number.isFinite(count) || count < 0) return;
     this._emit({ type: "player_count", roomId, count });
   }
 
@@ -408,7 +414,11 @@ export class EasyNetplayManager {
 
   private _emit(ev: NetplayEvent): void {
     for (const fn of this._listeners) {
-      try { fn(ev); } catch { /* ignore listener errors */ }
+      try { fn(ev); } catch (err) {
+        // Listener errors must never crash the session state machine.
+        // Log to console so bugs in UI layer are still visible during development.
+        console.error("[EasyNetplayManager] Listener threw an error:", err);
+      }
     }
   }
 
@@ -429,10 +439,11 @@ export class EasyNetplayManager {
     const sessionSeed = `local_${options.gameId}_${Date.now()}`;
     const id   = sessionSeed;
     const code = generateInviteCode(sessionSeed);
+    const displayName = options.hostName.trim() || "Player";
     return {
       id,
       code,
-      name:        `${options.hostName}'s Room`,
+      name:        `${displayName}'s Room`,
       privacy:     options.privacy ?? "local",
       gameId:      options.gameId,
       gameName:    options.gameName,

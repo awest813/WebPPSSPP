@@ -622,6 +622,149 @@ describe("EasyNetplayManager", () => {
     manager.updatePlayerCount("room-99", 3);
     expect(received).toEqual({ roomId: "room-99", count: 3 });
   });
+
+  it("updatePlayerCount ignores negative count", () => {
+    let received = false;
+    manager.onEvent(ev => { if (ev.type === "player_count") received = true; });
+    manager.updatePlayerCount("room-99", -1);
+    expect(received).toBe(false);
+  });
+
+  it("updatePlayerCount ignores NaN", () => {
+    let received = false;
+    manager.onEvent(ev => { if (ev.type === "player_count") received = true; });
+    manager.updatePlayerCount("room-99", NaN);
+    expect(received).toBe(false);
+  });
+
+  it("updatePlayerCount ignores Infinity", () => {
+    let received = false;
+    manager.onEvent(ev => { if (ev.type === "player_count") received = true; });
+    manager.updatePlayerCount("room-99", Infinity);
+    expect(received).toBe(false);
+  });
+
+  it("updatePlayerCount allows zero (room with no players)", () => {
+    let received: number | null = null;
+    manager.onEvent(ev => { if (ev.type === "player_count") received = ev.count; });
+    manager.updatePlayerCount("room-99", 0);
+    expect(received).toBe(0);
+  });
+
+  // ── markInGame ─────────────────────────────────────────────────────────────
+
+  it("markInGame transitions connected state to in_game", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "room-1", code: "ABCDEF", name: "Test Room",
+        gameId: "gran_turismo", gameName: "Gran Turismo", systemId: "psp",
+        host: "Alice", privacy: "public", players: 1, maxPlayers: 2,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    await manager.joinRoom({ code: "ABCDEF", playerName: "Bob" });
+    expect(manager.state).toBe("connected");
+
+    manager.markInGame();
+    expect(manager.state).toBe("in_game");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("markInGame emits state_changed with in_game", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "room-1", code: "ABCDEF", name: "Test Room",
+        gameId: "gran_turismo", gameName: "Gran Turismo", systemId: "psp",
+        host: "Alice", privacy: "public", players: 1, maxPlayers: 2,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    await manager.joinRoom({ code: "ABCDEF", playerName: "Bob" });
+
+    const states: string[] = [];
+    manager.onEvent(ev => { if (ev.type === "state_changed") states.push(ev.state); });
+    manager.markInGame();
+    expect(states).toContain("in_game");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("markInGame is a no-op when state is not connected", async () => {
+    // State is idle — markInGame should do nothing.
+    manager.markInGame();
+    expect(manager.state).toBe("idle");
+  });
+
+  it("markInGame is a no-op when state is hosting (stub room)", async () => {
+    await manager.hostRoom(hostOpts);
+    expect(manager.state).toBe("hosting");
+    manager.markInGame();
+    expect(manager.state).toBe("hosting");
+  });
+
+  // ── hostRoom with empty hostName ───────────────────────────────────────────
+
+  it("hostRoom with empty hostName produces a valid room name (local stub)", async () => {
+    await manager.hostRoom({ ...hostOpts, hostName: "" });
+    expect(manager.room?.name).toBeTruthy();
+    expect(manager.room?.name).not.toMatch(/^'s Room/);
+    expect(manager.room?.name).toContain("'s Room");
+  });
+
+  it("hostRoom with whitespace-only hostName produces a valid room name", async () => {
+    await manager.hostRoom({ ...hostOpts, hostName: "   " });
+    expect(manager.room?.name).toBeTruthy();
+    expect(manager.room?.name).not.toMatch(/^\s*'s Room/);
+  });
+
+  // ── listRooms AbortError ───────────────────────────────────────────────────
+
+  it("listRooms re-throws AbortError", async () => {
+    const abortErr = Object.assign(new Error("AbortError"), { name: "AbortError" });
+    const fetchSpy = vi.fn().mockRejectedValue(abortErr);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    const controller = new AbortController();
+    await expect(manager.listRooms(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+
+    vi.unstubAllGlobals();
+  });
+
+  // ── leaveRoom with throwing signaling client ───────────────────────────────
+
+  it("leaveRoom cleans up local state even when signaling server throws", async () => {
+    // Stub a server that returns a valid room on join but throws on leave.
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: "room-1", code: "ABCDEF", name: "Test Room",
+          gameId: "gran_turismo", gameName: "Gran Turismo", systemId: "psp",
+          host: "Alice", privacy: "public", players: 1, maxPlayers: 2,
+        }),
+      })
+      .mockRejectedValue(new Error("Network failure"));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    manager.setServerUrl("wss://example.com");
+    await manager.joinRoom({ code: "ABCDEF", playerName: "Bob" });
+    expect(manager.room).not.toBeNull();
+
+    // leaveRoom should NOT throw even though the server call fails.
+    await expect(manager.leaveRoom()).resolves.toBeUndefined();
+    expect(manager.state).toBe("idle");
+    expect(manager.room).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── PeerDataChannel ───────────────────────────────────────────────────────────
@@ -741,6 +884,24 @@ describe("SpectatorChannel", () => {
     ch.onClose = () => { closed = true; };
     ch.close();
     expect(closed).toBe(true);
+  });
+
+  it("close() is idempotent — onClose does not fire twice", () => {
+    const ch = new SpectatorChannel();
+    let count = 0;
+    ch.onClose = () => { count++; };
+    ch.close();
+    ch.close();
+    expect(count).toBe(1);
+  });
+
+  it("close() is idempotent — onStateChange does not fire twice", () => {
+    const ch = new SpectatorChannel();
+    let count = 0;
+    ch.onStateChange = () => { count++; };
+    ch.close();
+    ch.close();
+    expect(count).toBe(1);
   });
 
   it("SpectatorChannel has no send() method (read-only contract)", () => {
