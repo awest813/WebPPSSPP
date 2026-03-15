@@ -1050,7 +1050,11 @@ export const ALL_EXTENSIONS: string[] = [
 export function detectSystem(
   fileName: string
 ): SystemInfo | SystemInfo[] | null {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const dotIdx = fileName.lastIndexOf(".");
+  const ext = (dotIdx > 0 && dotIdx < fileName.length - 1)
+    ? fileName.substring(dotIdx + 1).toLowerCase()
+    : "";
+  if (!ext) return null;
   if (UNIQUE_EXT.has(ext))    return UNIQUE_EXT.get(ext)!;
   if (AMBIGUOUS_EXT.has(ext)) return AMBIGUOUS_EXT.get(ext)!;
   return null;

@@ -67,6 +67,16 @@ describe('systems performance profiles', () => {
       expect(noExtDetected).toBeNull();
     });
 
+    it('returns null for extensionless files whose names coincide with known extensions', () => {
+      // A file literally named "bin" (no dot) has no extension and must not
+      // be matched against the "bin" extension used by PSX / Atari 7800.
+      expect(detectSystem('bin')).toBeNull();
+      // Similarly for "iso", which is shared between PSP and PSX.
+      expect(detectSystem('iso')).toBeNull();
+      // And "zip", shared between arcade/MAME cores.
+      expect(detectSystem('zip')).toBeNull();
+    });
+
     it('detects ambiguous extensions for Saturn, PSX, and Dreamcast', () => {
       // .chd is shared between PSX, Saturn, and Dreamcast
       const chdDetected = detectSystem('game.chd');
@@ -133,9 +143,10 @@ describe('systems performance profiles', () => {
       expect(detected).toBeNull();
     });
 
-    it('handles hidden files correctly (treating name after dot as extension)', () => {
-      // Currently detectSystem uses split(".").pop()
-      // For ".gitignore", pop() returns "gitignore"
+    it('returns null for hidden files (dot-prefixed names like ".gitignore")', () => {
+      // With lastIndexOf-based extraction, a leading dot is not treated as a
+      // separator — dotIdx === 0, which is not > 0, so ext resolves to "" and
+      // detectSystem correctly returns null.
       const detected = detectSystem('.gitignore');
       expect(detected).toBeNull();
     });
