@@ -22,7 +22,7 @@ Items within each phase are roughly ordered by expected impact.
 | 7 | WebGPU Native Path | ✅ Complete |
 | 7.1 | 3D Emulator Overhaul | ✅ Complete |
 | 8 | Advanced 3D Rendering & Quality | 🔄 In Progress |
-| 9 | Intelligent Performance Optimization | 📋 Planned |
+| 9 | Intelligent Performance Optimization | 🔄 In Progress |
 | 10 | Community, Accessibility & Ecosystem | 📋 Planned |
 
 ---
@@ -247,24 +247,24 @@ WebGPU rendering pipeline completed in Phase 7/7.1.
 
 ---
 
-## Phase 9 — Intelligent Performance Optimization (Planned)
+## Phase 9 — Intelligent Performance Optimization (In Progress)
 
 Data-driven and heuristic approaches to automatically tune emulator settings.
 
 ### Adaptive Tuning
 
-- [ ] **Game compatibility database**: Community JSON mapping game IDs to known-good tier overrides, required BIOS, and known issues; checked at launch
-- [ ] **Thermal-aware throttling**: Compute Pressure API monitoring; proactive tier reduction before OS-forced throttling; logged in diagnostic timeline
-- [ ] **Memory pressure detection**: `performance.measureUserAgentSpecificMemory()` monitoring; reduce texture caches or lower resolution near JS heap limit
-- [ ] **Startup profiler**: High-resolution timestamp per launch phase (core download, WASM compile, BIOS load, first frame); surface slowest phase in UI
-- [ ] **FPS prediction**: Use first 5 s of gameplay to predict if current tier will sustain 60 fps; offer immediate downgrade if prediction is below threshold
+- [x] **Game compatibility database**: `GameCompatibilityDb` in `src/compatibility.ts`; built-in entries for well-known games; user-importable JSON overlay; remote merge via `fetchAndMerge()`; shared singleton `gameCompatibilityDb`
+- [x] **Thermal-aware throttling**: `ThermalMonitor` class in `performance.ts`; Compute Pressure API (`PressureObserver`); `onPressureChange` callback; wired into `PSPEmulator` constructor; logged in diagnostic timeline; `onThermalPressureChange` callback on emulator; thermal status shown in Debug tab
+- [x] **Memory pressure detection**: `MemoryMonitor` already uses `performance.memory`; wired to `PSPEmulator.onMemoryPressure` callback; logged in diagnostic timeline
+- [x] **Startup profiler**: `StartupProfiler` class in `performance.ts`; tracks `core_download` and `first_frame` phases; exposed as `emulator.startupProfiler`; slowest phase surfaced in Debug tab and diagnostic log; `onFpsPredictionUnsustainable` callback
+- [x] **FPS prediction**: `FpsPrediction` class in `performance.ts`; 5-second observation window; linear regression for trend detection; `onFpsPredictionUnsustainable` fires when tier is not sustainable; fires at most once per launch
 
 ### Caching & Preloading
 
-- [ ] **Intelligent core preloading**: Track most-launched systems; background-prefetch top-2 cores at startup; saves 5–15 s on next launch
+- [x] **Intelligent core preloading**: `recordSystemLaunch()` / `getTopLaunchedSystems()` in `performance.ts`; `emulator.prefetchTopSystems(2)` called at startup in `main.ts` via `scheduleIdleTask`; tracks launch counts in `localStorage` under `rv:launchCounts`
 - [ ] **Per-game shader warmup**: Record exact programs compiled during first 60 s of each game; pre-compile those on subsequent launches
-- [ ] **WASM compilation caching**: IndexedDB-backed `WebAssembly.Module` cache as fallback when CDN cache headers are insufficient
-- [ ] **Capability cache TTL**: `detectCapabilitiesCached()` uses `sessionStorage` under key `retrovault-devcaps-v1`; expose a settings button to clear and re-run detection
+- [x] **WASM compilation caching**: `WasmModuleCache` in `src/wasmCache.ts`; IndexedDB-backed `WebAssembly.Module` store; ETag/Last-Modified conditional validation; `wasmModuleCache` shared singleton
+- [x] **Capability cache TTL**: `detectCapabilitiesCached()` uses `sessionStorage` under `retrovault-devcaps-v1`; "Clear Capability Cache" button added to Debug tab in Settings
 
 ---
 

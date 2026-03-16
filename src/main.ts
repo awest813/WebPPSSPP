@@ -300,6 +300,9 @@ function main(): void {
   scheduleIdleTask(() => emulator.warmUpPSPPipeline());
   scheduleIdleTask(() => emulator.preWarmShaderCache().catch(() => {}));
   scheduleIdleTask(() => emulator.prefetchLoader());
+  // Intelligent core preloading — background-prefetch the top 2 most-launched
+  // systems so they are already in the browser cache on subsequent launches.
+  scheduleIdleTask(() => emulator.prefetchTopSystems(2));
 
   // 4b. Battery status — asynchronously check if the device is low on battery.
   // If so, auto-switch to "performance" mode when the user hasn't made a manual

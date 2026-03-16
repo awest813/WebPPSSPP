@@ -29,6 +29,11 @@ import {
   type PerformanceMode, type DeviceCapabilities, type PerformanceTier,
   MemoryMonitor,
   getResolutionLadder,
+  ThermalMonitor,
+  StartupProfiler,
+  FpsPrediction,
+  recordSystemLaunch,
+  getTopLaunchedSystems,
 } from "./performance.js";
 import { shaderCache } from "./shaderCache.js";
 import { roomDisplayNameForKey, type NetplayManager } from "./multiplayer.js";
@@ -578,6 +583,16 @@ export class PSPEmulator {
   /** Number of DRS ladder steps available for the active system (0 = not supported). */
   private _drsTotalSteps = 0;
 
+  // ── Phase 9: Thermal, startup profiler, FPS prediction ──────────────────────
+  /** Thermal/compute pressure monitor — started once and kept alive. */
+  private readonly _thermalMonitor: ThermalMonitor = new ThermalMonitor();
+  /** Startup profiler for the current launch attempt. */
+  private _startupProfiler: StartupProfiler = new StartupProfiler();
+  /** FPS sustainability predictor for the first 5 s of gameplay. */
+  private _fpsPrediction: FpsPrediction = new FpsPrediction();
+  /** Whether onFpsPredictionUnsustainable has already fired for this game launch. */
+  private _fpsPredictionFired = false;
+
   /** When true, emit detailed debug information to the browser console. */
   verboseLogging = false;
 
@@ -627,6 +642,29 @@ export class PSPEmulator {
     direction: "down" | "up",
   ) => void;
 
+  /**
+   * Fired when the FPS prediction window closes with a "not sustainable" result.
+   *
+   * This fires at most once per game launch (after the first ~5 s of gameplay)
+   * when the predictor determines the current tier cannot sustain 60 fps.
+   * Callers can use this to proactively offer a tier downgrade.
+   *
+   * @param averageFps     Mean FPS over the prediction window.
+   * @param trendFpsPerS   FPS slope (fps/s). Negative = degrading performance.
+   */
+  onFpsPredictionUnsustainable?: (averageFps: number, trendFpsPerS: number) => void;
+
+  /**
+   * Fired when thermal/compute pressure transitions to a new level.
+   *
+   * Callers can use this to proactively suggest a tier downgrade when the
+   * device is experiencing sustained CPU/thermal pressure ("serious" or "critical").
+   *
+   * @param state  New thermal pressure state.
+   * @param prev   Previous thermal pressure state.
+   */
+  onThermalPressureChange?: (state: string, prev: string) => void;
+
   constructor(playerId: string) {
     this._playerId = playerId;
     this._fpsMonitor = new FPSMonitor(60);
@@ -643,6 +681,15 @@ export class PSPEmulator {
       );
       this.onMemoryPressure?.(usedMB, limitMB);
     };
+    this._thermalMonitor.onPressureChange = (state, prev) => {
+      this.logDiagnostic("performance", `Thermal pressure: ${prev} → ${state}`);
+      if (state === "serious" || state === "critical") {
+        console.warn(`[RetroVault] Thermal pressure elevated: ${state}. Performance may be throttled.`);
+      }
+      this.onThermalPressureChange?.(state, prev);
+    };
+    // Start thermal monitoring — it's a no-op when the API is unavailable
+    this._thermalMonitor.start().catch(() => {});
   }
 
   get state(): EmulatorState { return this._state; }
@@ -681,6 +728,10 @@ export class PSPEmulator {
   get isDRSEnabled(): boolean { return this._drsEnabled; }
   /** Current DRS step index (0 = native resolution). */
   get drsCurrentStep(): number { return this._drsCurrentStepIdx; }
+  /** Current thermal pressure state (requires Compute Pressure API). */
+  get thermalPressureState(): string { return this._thermalMonitor.state; }
+  /** Startup profiler for the most recent launch attempt. */
+  get startupProfiler(): StartupProfiler { return this._startupProfiler; }
 
   /**
    * Enable or disable Dynamic Resolution Scaling (DRS).
@@ -831,6 +882,26 @@ export class PSPEmulator {
       fetch(wasmUrl, { mode: "cors", credentials: "omit" })
         .then(res => WebAssembly.compileStreaming(res))
         .catch(() => { /* streaming compile failed — loader will compile at runtime */ });
+    }
+  }
+
+  /**
+   * Prefetch the top N most-frequently-launched system cores using the
+   * intelligent core preloading system.
+   *
+   * Call this once at app startup (in an idle callback) to warm the browser's
+   * HTTP cache for the systems the user launches most often. This eliminates
+   * the 5–15 s core download on subsequent launches.
+   *
+   * @param n  Maximum number of systems to prefetch (default 2).
+   */
+  prefetchTopSystems(n = 2): void {
+    const topSystems = getTopLaunchedSystems(n);
+    for (const systemId of topSystems) {
+      this.prefetchCore(systemId);
+    }
+    if (topSystems.length > 0 && this.verboseLogging) {
+      console.info(`[RetroVault] Intelligent core preload: prefetching ${topSystems.join(", ")}`);
     }
   }
 
@@ -1504,6 +1575,12 @@ export class PSPEmulator {
     this._emit("onProgress", "Preparing game file…");
     this.logDiagnostic("system", `Launching "${fileName}" on ${opts.systemId} (${(opts.file.size / 1024 / 1024).toFixed(1)} MB)`);
 
+    // ── Startup profiler — reset and start timing the launch ────────────────
+    this._startupProfiler.reset();
+    this._fpsPrediction.reset();
+    this._fpsPredictionFired = false;
+    this._startupProfiler.begin("core_download");
+
     // Mark the launch start time for DevTools Performance timeline profiling.
     // Measures "retrovault:launch-to-ready" and "retrovault:ready-to-game-start"
     // will be recorded when EJS_ready and EJS_onGameStart fire respectively.
@@ -1528,6 +1605,9 @@ export class PSPEmulator {
       const gameName = fileName.replace(/\.[^.]+$/, "");
 
       this._emit("onProgress", "Initialising EmulatorJS…");
+
+      // ── Record launch count for intelligent core preloading ─────────────
+      recordSystemLaunch(opts.systemId);
 
       // ── Resolve performance settings (tier-aware) ───────────────────────
       // tierOverride bypasses auto-detection — used by the tier-downgrade flow
@@ -1782,6 +1862,9 @@ export class PSPEmulator {
         // Ignore stale callbacks from a torn-down/replaced core instance.
         if (this._state !== "loading") return;
         this._emit("onProgress", "Booting game…");
+        // End core_download phase — the JS glue + WASM have loaded
+        this._startupProfiler.end("core_download");
+        this._startupProfiler.begin("first_frame");
         if (this.verboseLogging) {
           console.info("[RetroVault] EJS_ready fired — core loaded, booting game.");
         }
@@ -1795,8 +1878,19 @@ export class PSPEmulator {
       window.EJS_onGameStart = () => {
         // Ignore stale callbacks from a torn-down/replaced core instance.
         if (this._state !== "loading") return;
+        // End first_frame phase
+        this._startupProfiler.end("first_frame");
+        const profSummary = this._startupProfiler.summary();
+        this.logDiagnostic(
+          "performance",
+          `Startup: ${profSummary.totalMs.toFixed(0)} ms total` +
+          (profSummary.slowest ? `, slowest: ${profSummary.slowest.phase} (${profSummary.slowest.durationMs.toFixed(0)} ms)` : "")
+        );
         if (this.verboseLogging) {
           console.info("[RetroVault] EJS_onGameStart fired — game is running.");
+          for (const r of profSummary.records) {
+            console.info(`[RetroVault] startup phase ${r.phase}: ${r.durationMs.toFixed(0)} ms`);
+          }
         }
         // Mark the moment the first game frame rendered.
         try {
@@ -1807,6 +1901,23 @@ export class PSPEmulator {
         this._fpsMonitor.onUpdate = (snap) => {
           this.onFPSUpdate?.(snap);
           this._checkAdaptiveQuality(snap.average);
+          // Feed FPS prediction with the current average FPS
+          this._fpsPrediction.addSample(snap.average);
+          if (this._fpsPrediction.isLocked && !this._fpsPredictionFired) {
+            const pred = this._fpsPrediction.predict();
+            if (pred && !pred.sustainable) {
+              this._fpsPredictionFired = true;
+              this.logDiagnostic(
+                "performance",
+                `FPS prediction: avg ${pred.averageFps.toFixed(1)} fps, ` +
+                `trend ${pred.trendFpsPerS.toFixed(1)} fps/s — tier may be unsustainable`
+              );
+              this.onFpsPredictionUnsustainable?.(pred.averageFps, pred.trendFpsPerS);
+            } else if (pred) {
+              // Prediction complete and sustainable — no need to check further
+              this._fpsPredictionFired = true;
+            }
+          }
         };
         this._fpsMonitor.start();
         this._memoryMonitor.start();

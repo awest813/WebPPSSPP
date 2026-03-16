@@ -59,6 +59,7 @@ import {
   isLikelyAndroid,
   UIDirtyFlags,
   UIDirtyTracker,
+  clearCapabilitiesCache,
 } from "./performance.js";
 import {
   BiosLibrary,
@@ -6044,6 +6045,30 @@ function buildDebugTab(
     stateSection.appendChild(coreSettingsSection);
   }
 
+  // Startup profiler section (Phase 9)
+  const profSummary = emulatorRef?.startupProfiler?.summary();
+  if (profSummary && profSummary.records.length > 0) {
+    const profSection = make("div", { class: "settings-section" });
+    profSection.appendChild(make("h4", { class: "settings-section__title" }, "Last Launch Profile"));
+    profSection.appendChild(make("p", { class: "settings-help" },
+      "Time spent in each phase of the most recent game launch."
+    ));
+    const profList = make("ul", { class: "core-settings-list" });
+    for (const r of profSummary.records) {
+      const item = make("li", { class: "core-settings-item" });
+      const isSlowest = r === profSummary.slowest;
+      item.appendChild(make("span", { class: "core-settings-key" }, `${isSlowest ? "⚡ " : ""}${r.phase}`));
+      item.appendChild(make("span", { class: "core-settings-value" }, `${r.durationMs.toFixed(0)} ms`));
+      profList.appendChild(item);
+    }
+    const totalItem = make("li", { class: "core-settings-item" });
+    totalItem.appendChild(make("span", { class: "core-settings-key" }, "total"));
+    totalItem.appendChild(make("span", { class: "core-settings-value" }, `${profSummary.totalMs.toFixed(0)} ms`));
+    profList.appendChild(totalItem);
+    profSection.appendChild(profList);
+    stateSection.appendChild(profSection);
+  }
+
   // Diagnostic event timeline section
   const timelineSection = make("div", { class: "settings-section" });
   timelineSection.appendChild(make("h4", { class: "settings-section__title" }, "Diagnostic Timeline"));
@@ -6116,6 +6141,7 @@ function buildDebugTab(
       `State: ${emulatorRef?.state ?? "unknown"}`,
       `System: ${emulatorRef?.currentSystem?.id ?? "—"}`,
       `Tier: ${emulatorRef?.activeTier ?? "—"}`,
+      `Thermal Pressure: ${emulatorRef?.thermalPressureState ?? "unknown"}`,
     ];
     if (adapterLabel) {
       lines.push(`WebGPU Adapter: ${adapterLabel}`);
@@ -6126,6 +6152,15 @@ function buildDebugTab(
       for (const [key, value] of Object.entries(snapshotSettings)) {
         lines.push(`${key}: ${String(value)}`);
       }
+    }
+    // Include startup profiler summary
+    const profSummary = emulatorRef?.startupProfiler?.summary();
+    if (profSummary && profSummary.records.length > 0) {
+      lines.push(``, `[Startup Profile]`);
+      for (const r of profSummary.records) {
+        lines.push(`${r.phase}: ${r.durationMs.toFixed(0)} ms`);
+      }
+      lines.push(`total: ${profSummary.totalMs.toFixed(0)} ms`);
     }
     // Include PS1 BIOS status (populated asynchronously when the tab opened)
     if (psxBiosReqs.length > 0) {
@@ -6174,7 +6209,38 @@ function buildDebugTab(
   });
   actionsSection.appendChild(btnCopy);
 
-  container.append(settingsSection, envSection, gpuSection, ps1Section, ndsSection, stateSection, timelineSection, actionsSection);
+  // Clear device capability cache — forces full re-detection on next page load
+  const btnClearCaps = make("button", { class: "btn btn--secondary" }, "Clear Capability Cache");
+  btnClearCaps.title = "Force re-detection of GPU tier and device capabilities on next reload.";
+  btnClearCaps.addEventListener("click", () => {
+    clearCapabilitiesCache();
+    showInfoToast("Capability cache cleared. Reload the page to re-detect device capabilities.");
+  });
+  actionsSection.appendChild(btnClearCaps);
+
+  // Thermal pressure section (Phase 9)
+  const thermalSection = make("div", { class: "settings-section" });
+  thermalSection.appendChild(make("h4", { class: "settings-section__title" }, "Thermal & Pressure"));
+  thermalSection.appendChild(make("p", { class: "settings-help" },
+    "Compute Pressure API — monitors CPU thermal load to proactively prevent OS-forced throttling. " +
+    "Requires Chrome 125+ (or a compatible browser)."
+  ));
+  const thermalState = emulatorRef?.thermalPressureState ?? "unknown";
+  const thermalLabel = thermalState === "nominal"  ? "✅ Nominal — device is cool"
+    : thermalState === "fair"     ? "🟡 Fair — minor thermal load"
+    : thermalState === "serious"  ? "🟠 Serious — sustained high thermal load"
+    : thermalState === "critical" ? "🔴 Critical — OS throttling is active"
+    : "⚪ Unknown — Compute Pressure API unavailable";
+  thermalSection.appendChild(make("p", { class: "device-info" },
+    `Thermal Pressure: ${thermalLabel}`
+  ));
+  if (thermalState === "unknown") {
+    thermalSection.appendChild(make("p", { class: "device-info" },
+      "Compute Pressure API is not available in this browser."
+    ));
+  }
+
+  container.append(settingsSection, envSection, gpuSection, ps1Section, ndsSection, stateSection, timelineSection, thermalSection, actionsSection);
 }
 
 // ── About tab ─────────────────────────────────────────────────────────────────

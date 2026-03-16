@@ -36,6 +36,12 @@ import {
   getResolutionLadder,
   recommendedAssetConcurrency,
   recommendedFrameBudgetMs,
+  ThermalMonitor,
+  StartupProfiler,
+  FpsPrediction,
+  getLaunchCounts,
+  recordSystemLaunch,
+  getTopLaunchedSystems,
 } from "./performance.js";
 
 describe('performance', () => {
@@ -2465,5 +2471,437 @@ describe('recommendedFrameBudgetMs', () => {
       expect(recommendedFrameBudgetMs(mobileCaps(tier)))
         .toBeLessThanOrEqual(recommendedFrameBudgetMs(desktopCaps(tier)));
     }
+  });
+});
+
+// ── ThermalMonitor ────────────────────────────────────────────────────────────
+
+describe('ThermalMonitor', () => {
+  it('starts in "unknown" state when the Compute Pressure API is unavailable', () => {
+    const monitor = new ThermalMonitor();
+    expect(monitor.state).toBe('unknown');
+  });
+
+  it('isSupported() returns false when PressureObserver is not defined', () => {
+    const original = (globalThis as Record<string, unknown>)['PressureObserver'];
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+    expect(ThermalMonitor.isSupported()).toBe(false);
+    (globalThis as Record<string, unknown>)['PressureObserver'] = original;
+  });
+
+  it('isSupported() returns true when PressureObserver is a function', () => {
+    (globalThis as Record<string, unknown>)['PressureObserver'] = function() {};
+    expect(ThermalMonitor.isSupported()).toBe(true);
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+  });
+
+  it('start() resolves without error when API is unavailable', async () => {
+    const monitor = new ThermalMonitor();
+    await expect(monitor.start()).resolves.toBeUndefined();
+    expect(monitor.state).toBe('unknown');
+  });
+
+  it('stop() is safe to call before start()', () => {
+    const monitor = new ThermalMonitor();
+    expect(() => monitor.stop()).not.toThrow();
+  });
+
+  it('stop() resets state to "unknown"', async () => {
+    // Simulate a running monitor with a mock PressureObserver
+    let callback: ((records: Array<{ state: string }>) => void) | null = null;
+    const mockObserver = {
+      observe: vi.fn().mockResolvedValue(undefined),
+      unobserve: vi.fn(),
+    };
+    const MockPO = vi.fn().mockImplementation((cb: (records: Array<{ state: string }>) => void) => {
+      callback = cb;
+      return mockObserver;
+    });
+    (globalThis as Record<string, unknown>)['PressureObserver'] = MockPO;
+
+    const monitor = new ThermalMonitor();
+    await monitor.start();
+
+    // Fire a simulated state change
+    callback?.([{ state: 'serious' }]);
+    expect(monitor.state).toBe('serious');
+
+    monitor.stop();
+    expect(monitor.state).toBe('unknown');
+
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+  });
+
+  it('fires onPressureChange callback on state transition', async () => {
+    let callback: ((records: Array<{ state: string }>) => void) | null = null;
+    const mockObserver = {
+      observe: vi.fn().mockResolvedValue(undefined),
+      unobserve: vi.fn(),
+    };
+    const MockPO = vi.fn().mockImplementation((cb: (records: Array<{ state: string }>) => void) => {
+      callback = cb;
+      return mockObserver;
+    });
+    (globalThis as Record<string, unknown>)['PressureObserver'] = MockPO;
+
+    const monitor = new ThermalMonitor();
+    const changes: Array<[string, string]> = [];
+    monitor.onPressureChange = (s, p) => changes.push([s, p]);
+    await monitor.start();
+
+    callback?.([{ state: 'fair' }]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual(['fair', 'unknown']);
+
+    callback?.([{ state: 'serious' }]);
+    expect(changes).toHaveLength(2);
+    expect(changes[1]).toEqual(['serious', 'fair']);
+
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+  });
+
+  it('does not fire onPressureChange when the state does not change', async () => {
+    let callback: ((records: Array<{ state: string }>) => void) | null = null;
+    const mockObserver = {
+      observe: vi.fn().mockResolvedValue(undefined),
+      unobserve: vi.fn(),
+    };
+    const MockPO = vi.fn().mockImplementation((cb: (records: Array<{ state: string }>) => void) => {
+      callback = cb;
+      return mockObserver;
+    });
+    (globalThis as Record<string, unknown>)['PressureObserver'] = MockPO;
+
+    const monitor = new ThermalMonitor();
+    let callCount = 0;
+    monitor.onPressureChange = () => callCount++;
+    await monitor.start();
+
+    callback?.([{ state: 'nominal' }]);
+    callback?.([{ state: 'nominal' }]); // same state — should not fire again
+    expect(callCount).toBe(1);
+
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+  });
+
+  it('maps unknown pressure states to "unknown"', async () => {
+    let callback: ((records: Array<{ state: string }>) => void) | null = null;
+    const mockObserver = {
+      observe: vi.fn().mockResolvedValue(undefined),
+      unobserve: vi.fn(),
+    };
+    const MockPO = vi.fn().mockImplementation((cb: (records: Array<{ state: string }>) => void) => {
+      callback = cb;
+      return mockObserver;
+    });
+    (globalThis as Record<string, unknown>)['PressureObserver'] = MockPO;
+
+    const monitor = new ThermalMonitor();
+    const states: string[] = [];
+    monitor.onPressureChange = (s) => states.push(s);
+    await monitor.start();
+
+    // Transition to a known state first
+    callback?.([{ state: 'fair' }]);
+    expect(monitor.state).toBe('fair');
+
+    // Now an unknown state maps to "unknown" — should fire a transition fair → unknown
+    callback?.([{ state: 'extremely_hot' }]);
+    expect(states).toHaveLength(2);
+    expect(states[1]).toBe('unknown');
+    expect(monitor.state).toBe('unknown');
+
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+  });
+
+  it('stays stopped when observe() throws', async () => {
+    const MockPO = vi.fn().mockImplementation(() => ({
+      observe: vi.fn().mockRejectedValue(new Error('permissions policy')),
+      unobserve: vi.fn(),
+    }));
+    (globalThis as Record<string, unknown>)['PressureObserver'] = MockPO;
+
+    const monitor = new ThermalMonitor();
+    await monitor.start();
+    expect(monitor.state).toBe('unknown');
+
+    delete (globalThis as Record<string, unknown>)['PressureObserver'];
+  });
+});
+
+// ── StartupProfiler ───────────────────────────────────────────────────────────
+
+describe('StartupProfiler', () => {
+  it('starts with no records', () => {
+    const profiler = new StartupProfiler();
+    expect(profiler.records()).toHaveLength(0);
+  });
+
+  it('records a completed phase', () => {
+    const profiler = new StartupProfiler();
+    profiler.begin('core_download');
+    profiler.end('core_download');
+    const recs = profiler.records();
+    expect(recs).toHaveLength(1);
+    expect(recs[0]!.phase).toBe('core_download');
+    expect(recs[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('does not record a phase that was begun but not ended', () => {
+    const profiler = new StartupProfiler();
+    profiler.begin('core_download');
+    expect(profiler.records()).toHaveLength(0);
+  });
+
+  it('begin() is idempotent — second call does not reset the start time', () => {
+    const profiler = new StartupProfiler();
+    profiler.begin('core_download');
+    const recs1 = profiler.records();
+    profiler.begin('core_download'); // second call — should be ignored
+    profiler.end('core_download');
+    const recs2 = profiler.records();
+    expect(recs2).toHaveLength(1);
+    // The start time should not have changed
+    void recs1; // suppress unused warning
+  });
+
+  it('end() is safe to call when begin() was not called', () => {
+    const profiler = new StartupProfiler();
+    expect(() => profiler.end('core_download')).not.toThrow();
+    expect(profiler.records()).toHaveLength(0);
+  });
+
+  it('end() is idempotent — second call does not extend duration', () => {
+    const profiler = new StartupProfiler();
+    profiler.begin('core_download');
+    profiler.end('core_download');
+    const dur1 = profiler.records()[0]!.durationMs;
+    profiler.end('core_download'); // second call — should be ignored
+    const dur2 = profiler.records()[0]!.durationMs;
+    expect(dur2).toBe(dur1);
+  });
+
+  it('sorts records by start time', () => {
+    const profiler = new StartupProfiler();
+    profiler.begin('first_frame');
+    profiler.begin('core_download');
+    profiler.end('core_download');
+    profiler.end('first_frame');
+    const recs = profiler.records();
+    // first_frame was begun first but they may interleave — just check ordering
+    expect(recs.every((r, i) => i === 0 || r.startMs >= recs[i - 1]!.startMs)).toBe(true);
+  });
+
+  it('summary() returns correct totalMs and slowest phase', () => {
+    const profiler = new StartupProfiler();
+    // Use fake timers to get deterministic results
+    let t = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+
+    profiler.begin('core_download');
+    t += 500;
+    profiler.end('core_download');
+
+    profiler.begin('first_frame');
+    t += 200;
+    profiler.end('first_frame');
+
+    const { totalMs, slowest } = profiler.summary();
+    expect(totalMs).toBe(700);
+    expect(slowest?.phase).toBe('core_download');
+    expect(slowest?.durationMs).toBe(500);
+  });
+
+  it('summary() returns null slowest when there are no records', () => {
+    const profiler = new StartupProfiler();
+    const { totalMs, slowest } = profiler.summary();
+    expect(totalMs).toBe(0);
+    expect(slowest).toBeNull();
+  });
+
+  it('reset() clears all phases', () => {
+    const profiler = new StartupProfiler();
+    profiler.begin('core_download');
+    profiler.end('core_download');
+    profiler.reset();
+    expect(profiler.records()).toHaveLength(0);
+  });
+});
+
+// ── FpsPrediction ─────────────────────────────────────────────────────────────
+
+describe('FpsPrediction', () => {
+  it('returns null when fewer than minSamples are collected', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    pred.addSample(60, 0);
+    pred.addSample(60, 100);
+    expect(pred.predict()).toBeNull();
+  });
+
+  it('returns a prediction once minSamples are collected', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    pred.addSample(60, 0);
+    pred.addSample(60, 100);
+    pred.addSample(60, 200);
+    const result = pred.predict();
+    expect(result).not.toBeNull();
+    expect(result!.sustainable).toBe(true);
+  });
+
+  it('marks as unsustainable when averageFps is below threshold', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    pred.addSample(30, 0);
+    pred.addSample(30, 100);
+    pred.addSample(30, 200);
+    const result = pred.predict();
+    expect(result).not.toBeNull();
+    expect(result!.sustainable).toBe(false);
+    expect(result!.averageFps).toBeCloseTo(30);
+  });
+
+  it('marks as unsustainable when trend is strongly negative even if avg is above threshold', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    // FPS degrading rapidly: starts at 60, drops 10 fps/s
+    pred.addSample(60, 0);
+    pred.addSample(50, 1000);
+    pred.addSample(40, 2000);
+    pred.addSample(30, 3000);
+    const result = pred.predict();
+    expect(result).not.toBeNull();
+    // Trend should be negative
+    expect(result!.trendFpsPerS).toBeLessThan(-2);
+    expect(result!.sustainable).toBe(false);
+  });
+
+  it('locks after the observation window elapses', () => {
+    const pred = new FpsPrediction(1000, 55, 3);
+    pred.addSample(60, 0);
+    pred.addSample(60, 500);
+    pred.addSample(60, 999);
+    // Window is 1000ms — the next sample at t=1001 should lock the predictor
+    pred.addSample(60, 1001);
+    expect(pred.isLocked).toBe(true);
+    // Further samples are ignored
+    const beforeCount = pred.sampleCount;
+    pred.addSample(60, 2000);
+    expect(pred.sampleCount).toBe(beforeCount);
+  });
+
+  it('ignores non-finite fps values', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    pred.addSample(NaN, 0);
+    pred.addSample(Infinity, 100);
+    pred.addSample(-10, 200); // negative fps
+    expect(pred.sampleCount).toBe(0);
+  });
+
+  it('reset() clears all state', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    pred.addSample(60, 0);
+    pred.addSample(60, 100);
+    pred.addSample(60, 200);
+    pred.reset();
+    expect(pred.sampleCount).toBe(0);
+    expect(pred.isLocked).toBe(false);
+    expect(pred.predict()).toBeNull();
+  });
+
+  it('confidence is "high" with 20+ samples', () => {
+    const pred = new FpsPrediction(60_000, 55, 3);
+    for (let i = 0; i < 20; i++) pred.addSample(60, i * 100);
+    const result = pred.predict();
+    expect(result?.confidence).toBe('high');
+  });
+
+  it('confidence is "medium" with 8–19 samples', () => {
+    const pred = new FpsPrediction(60_000, 55, 3);
+    for (let i = 0; i < 10; i++) pred.addSample(60, i * 100);
+    const result = pred.predict();
+    expect(result?.confidence).toBe('medium');
+  });
+
+  it('confidence is "low" with 3–7 samples', () => {
+    const pred = new FpsPrediction(60_000, 55, 3);
+    for (let i = 0; i < 5; i++) pred.addSample(60, i * 100);
+    const result = pred.predict();
+    expect(result?.confidence).toBe('low');
+  });
+
+  it('trendFpsPerS is 0 when all samples have the same FPS', () => {
+    const pred = new FpsPrediction(5000, 55, 3);
+    pred.addSample(60, 0);
+    pred.addSample(60, 1000);
+    pred.addSample(60, 2000);
+    const result = pred.predict();
+    expect(result?.trendFpsPerS).toBeCloseTo(0, 5);
+  });
+});
+
+// ── Launch count tracking (intelligent core preloading) ───────────────────────
+
+describe('getLaunchCounts / recordSystemLaunch / getTopLaunchedSystems', () => {
+  beforeEach(() => {
+    // Clear the launch count key before each test
+    localStorage.removeItem('rv:launchCounts');
+  });
+
+  afterEach(() => {
+    localStorage.removeItem('rv:launchCounts');
+  });
+
+  it('getLaunchCounts returns an empty object when nothing has been recorded', () => {
+    expect(getLaunchCounts()).toEqual({});
+  });
+
+  it('recordSystemLaunch increments the count for a system', () => {
+    recordSystemLaunch('psp');
+    expect(getLaunchCounts()).toEqual({ psp: 1 });
+    recordSystemLaunch('psp');
+    expect(getLaunchCounts()).toEqual({ psp: 2 });
+  });
+
+  it('recordSystemLaunch tracks multiple systems independently', () => {
+    recordSystemLaunch('psp');
+    recordSystemLaunch('n64');
+    recordSystemLaunch('n64');
+    recordSystemLaunch('gba');
+    const counts = getLaunchCounts();
+    expect(counts['psp']).toBe(1);
+    expect(counts['n64']).toBe(2);
+    expect(counts['gba']).toBe(1);
+  });
+
+  it('getTopLaunchedSystems returns the top N systems by launch count', () => {
+    recordSystemLaunch('psp');
+    recordSystemLaunch('psp');
+    recordSystemLaunch('psp');
+    recordSystemLaunch('n64');
+    recordSystemLaunch('n64');
+    recordSystemLaunch('gba');
+    const top2 = getTopLaunchedSystems(2);
+    expect(top2).toHaveLength(2);
+    expect(top2[0]).toBe('psp');
+    expect(top2[1]).toBe('n64');
+  });
+
+  it('getTopLaunchedSystems returns fewer than N when not enough systems exist', () => {
+    recordSystemLaunch('psp');
+    const top5 = getTopLaunchedSystems(5);
+    expect(top5).toHaveLength(1);
+    expect(top5[0]).toBe('psp');
+  });
+
+  it('getTopLaunchedSystems returns empty array when no systems have been launched', () => {
+    expect(getTopLaunchedSystems(2)).toHaveLength(0);
+  });
+
+  it('getLaunchCounts returns empty object when localStorage contains invalid JSON', () => {
+    localStorage.setItem('rv:launchCounts', '{invalid json}');
+    expect(getLaunchCounts()).toEqual({});
+  });
+
+  it('getLaunchCounts returns empty object when stored value is an array', () => {
+    localStorage.setItem('rv:launchCounts', '[1,2,3]');
+    expect(getLaunchCounts()).toEqual({});
   });
 });

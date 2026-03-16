@@ -2523,3 +2523,392 @@ export class DeltaTracker {
     this._current  = { ...state };
   }
 }
+
+// ── Thermal monitor (Compute Pressure API) ────────────────────────────────────
+
+/**
+ * Thermal/compute pressure state observed via the Compute Pressure API.
+ *
+ * - "nominal"  — Device is running cool; no throttling expected.
+ * - "fair"     — Minor thermal load; brief throttling bursts possible.
+ * - "serious"  — Sustained high thermal load; performance is impacted.
+ * - "critical" — Device is overheating; OS-level throttling is active.
+ * - "unknown"  — Compute Pressure API is unavailable in this browser.
+ */
+export type ThermalPressureState = "nominal" | "fair" | "serious" | "critical" | "unknown";
+
+/**
+ * Monitors CPU/thermal pressure using the Compute Pressure API (Chrome 125+).
+ *
+ * When the API is unavailable the monitor enters "unknown" state and no
+ * callbacks are fired. Callers should treat "unknown" as "nominal" for
+ * decision-making purposes.
+ *
+ * ### Usage
+ * ```typescript
+ * const monitor = new ThermalMonitor();
+ * monitor.onPressureChange = (state, prev) => {
+ *   if (state === "serious" || state === "critical") {
+ *     emulator.suggestTierDowngrade();
+ *   }
+ * };
+ * await monitor.start();
+ * // … later …
+ * monitor.stop();
+ * ```
+ */
+export class ThermalMonitor {
+  private _state: ThermalPressureState = "unknown";
+  private _observer: unknown = null;   // PressureObserver (typed as unknown for API compat)
+  private _running = false;
+
+  /**
+   * Fired when the compute pressure state transitions to a new value.
+   * The second argument is the previous state.
+   */
+  onPressureChange?: (state: ThermalPressureState, prev: ThermalPressureState) => void;
+
+  /** Current pressure state. "unknown" when the API is unavailable. */
+  get state(): ThermalPressureState { return this._state; }
+
+  /** Whether the Compute Pressure API is available in this browser. */
+  static isSupported(): boolean {
+    return typeof (globalThis as Record<string, unknown>)["PressureObserver"] === "function";
+  }
+
+  /**
+   * Start observing CPU pressure.
+   *
+   * Resolves immediately when the Compute Pressure API is unavailable —
+   * the instance remains in "unknown" state but is otherwise harmless.
+   *
+   * @returns Promise that resolves once observation has started (or been
+   *          determined to be unsupported).
+   */
+  async start(): Promise<void> {
+    if (this._running) return;
+    const PO = (globalThis as Record<string, unknown>)["PressureObserver"] as
+      | { new(cb: (records: Array<{ state: string }>) => void): { observe(source: string): Promise<void>; unobserve(source: string): void } }
+      | undefined;
+    if (!PO) return;
+
+    this._running = true;
+    this._observer = new PO((records: Array<{ state: string }>) => {
+      const last = records[records.length - 1];
+      if (!last) return;
+      const next = this._mapState(last.state);
+      if (next !== this._state) {
+        const prev = this._state;
+        this._state = next;
+        this.onPressureChange?.(next, prev);
+      }
+    });
+    try {
+      await (this._observer as { observe(source: string): Promise<void> }).observe("cpu");
+    } catch {
+      // Observation start failed (e.g. permissions policy) — stay in "unknown"
+      this._running = false;
+      this._observer = null;
+    }
+  }
+
+  /** Stop observing CPU pressure. */
+  stop(): void {
+    if (!this._running || !this._observer) return;
+    try {
+      (this._observer as { unobserve(source: string): void }).unobserve("cpu");
+    } catch { /* ignore */ }
+    this._running = false;
+    this._observer = null;
+    this._state = "unknown";
+  }
+
+  private _mapState(raw: string): ThermalPressureState {
+    if (raw === "nominal" || raw === "fair" || raw === "serious" || raw === "critical") {
+      return raw as ThermalPressureState;
+    }
+    return "unknown";
+  }
+}
+
+// ── Startup profiler ──────────────────────────────────────────────────────────
+
+/**
+ * A named phase in the emulator launch pipeline.
+ *
+ * - "core_download" — Time spent fetching the JS glue + WASM files from CDN.
+ * - "wasm_compile"  — Time spent compiling the WASM binary (streaming or sync).
+ * - "bios_load"     — Time spent fetching + loading the system BIOS file.
+ * - "first_frame"   — Time from EJS_ready until `EJS_onGameStart` fires.
+ */
+export type LaunchPhase = "core_download" | "wasm_compile" | "bios_load" | "first_frame";
+
+/** A completed launch phase with start and end timestamps (performance.now). */
+export interface LaunchPhaseRecord {
+  phase:      LaunchPhase;
+  startMs:    number;
+  endMs:      number;
+  durationMs: number;
+}
+
+/**
+ * High-resolution launch phase profiler.
+ *
+ * Records how long each phase of the emulator startup takes.  The slowest
+ * phase is surfaced so the caller can display a targeted optimisation hint
+ * (e.g. "Slow core download — check your connection").
+ *
+ * ### Usage
+ * ```typescript
+ * const profiler = new StartupProfiler();
+ * profiler.begin("core_download");
+ * // … fetch core files …
+ * profiler.end("core_download");
+ * profiler.begin("first_frame");
+ * // … wait for EJS_onGameStart …
+ * profiler.end("first_frame");
+ *
+ * const summary = profiler.summary();
+ * console.log(`Total: ${summary.totalMs.toFixed(0)} ms`);
+ * console.log(`Slowest: ${summary.slowest?.phase} (${summary.slowest?.durationMs.toFixed(0)} ms)`);
+ * ```
+ */
+export class StartupProfiler {
+  private _phases: Map<LaunchPhase, { startMs: number; endMs?: number }> = new Map();
+
+  /** Mark the start of a launch phase. Idempotent per phase. */
+  begin(phase: LaunchPhase): void {
+    if (this._phases.has(phase)) return;
+    this._phases.set(phase, { startMs: this._now() });
+  }
+
+  /**
+   * Mark the end of a launch phase.
+   *
+   * Silently no-ops when `begin()` has not been called for this phase, or when
+   * `end()` has already been called (idempotent).
+   */
+  end(phase: LaunchPhase): void {
+    const rec = this._phases.get(phase);
+    if (!rec) return;
+    if (rec.endMs === undefined) {
+      rec.endMs = this._now();
+    }
+  }
+
+  /** Return all completed phase records, sorted by start time. */
+  records(): LaunchPhaseRecord[] {
+    const out: LaunchPhaseRecord[] = [];
+    for (const [phase, rec] of this._phases) {
+      if (rec.endMs !== undefined) {
+        out.push({
+          phase,
+          startMs:    rec.startMs,
+          endMs:      rec.endMs,
+          durationMs: rec.endMs - rec.startMs,
+        });
+      }
+    }
+    out.sort((a, b) => a.startMs - b.startMs);
+    return out;
+  }
+
+  /**
+   * Summary of all completed phases.
+   *
+   * Returns the total elapsed time across completed phases, the slowest
+   * individual phase, and all records.
+   */
+  summary(): { totalMs: number; slowest: LaunchPhaseRecord | null; records: LaunchPhaseRecord[] } {
+    const recs = this.records();
+    let totalMs = 0;
+    let slowest: LaunchPhaseRecord | null = null;
+    for (const r of recs) {
+      totalMs += r.durationMs;
+      if (!slowest || r.durationMs > slowest.durationMs) slowest = r;
+    }
+    return { totalMs, slowest, records: recs };
+  }
+
+  /** Reset all phase records (e.g. before a new launch attempt). */
+  reset(): void {
+    this._phases.clear();
+  }
+
+  private _now(): number {
+    try { return performance.now(); } catch { return Date.now(); }
+  }
+}
+
+// ── FPS prediction ────────────────────────────────────────────────────────────
+
+/**
+ * Collects FPS samples over an initial observation window and predicts
+ * whether the current tier can sustain 60 fps long-term.
+ *
+ * Uses a simple linear-regression trend over the collected samples to
+ * determine if FPS is stable, degrading, or recovering. After `windowMs`
+ * milliseconds the prediction is locked in and no new samples are accepted.
+ *
+ * ### Design
+ * - Observation window: first 5 s of gameplay (configurable).
+ * - Minimum samples: 3 (fewer gives an unreliable prediction).
+ * - FPS threshold: 55 fps → "sustainable"; below → "unsustainable".
+ * - Trend threshold: slope < −2 fps/s over the window → "degrading".
+ */
+export class FpsPrediction {
+  private readonly _windowMs:    number;
+  private readonly _minSamples:  number;
+  private readonly _targetFps:   number;
+  private _samples: Array<{ t: number; fps: number }> = [];
+  private _locked  = false;
+  private _startMs = -1;
+
+  /**
+   * @param windowMs    Observation window in milliseconds (default 5000).
+   * @param targetFps   FPS threshold above which the tier is "sustainable" (default 55).
+   * @param minSamples  Minimum samples required for a prediction (default 3).
+   */
+  constructor(windowMs = 5_000, targetFps = 55, minSamples = 3) {
+    this._windowMs   = windowMs;
+    this._targetFps  = targetFps;
+    this._minSamples = minSamples;
+  }
+
+  /**
+   * Record a new FPS sample.
+   *
+   * Samples are ignored after the prediction window closes or when the
+   * prediction has been locked.
+   *
+   * @param fps  Current FPS reading (must be a finite non-negative number).
+   * @param nowMs  Current time in ms (defaults to `performance.now()`).
+   */
+  addSample(fps: number, nowMs?: number): void {
+    if (this._locked || !Number.isFinite(fps) || fps < 0) return;
+    const t = nowMs ?? this._now();
+    if (this._startMs < 0) this._startMs = t;
+    if (t - this._startMs > this._windowMs) {
+      this._locked = true;
+      return;
+    }
+    this._samples.push({ t, fps });
+  }
+
+  /** Whether the observation window has elapsed. */
+  get isLocked(): boolean { return this._locked; }
+
+  /** Number of samples collected so far. */
+  get sampleCount(): number { return this._samples.length; }
+
+  /**
+   * Return a prediction once enough samples have been collected.
+   *
+   * Returns `null` if fewer than `minSamples` samples are available.
+   *
+   * ### Result fields
+   * - `sustainable`  — `true` when the average FPS meets the threshold AND
+   *                    the trend is not strongly negative.
+   * - `averageFps`   — Mean FPS over the observation window.
+   * - `trendFpsPerS` — FPS slope (fps per second) from linear regression.
+   *                    Negative means FPS is degrading; positive means recovery.
+   * - `confidence`   — `"low"` | `"medium"` | `"high"` based on sample count.
+   */
+  predict(): {
+    sustainable: boolean;
+    averageFps: number;
+    trendFpsPerS: number;
+    confidence: "low" | "medium" | "high";
+  } | null {
+    if (this._samples.length < this._minSamples) return null;
+
+    const n = this._samples.length;
+    let sumFps = 0;
+    for (const s of this._samples) sumFps += s.fps;
+    const averageFps = sumFps / n;
+
+    // Linear regression: fps = a*t + b — we want the slope (a) in fps/second
+    const tRef = this._samples[0]!.t;
+    let sumT  = 0, sumF = 0, sumTF = 0, sumT2 = 0;
+    for (const s of this._samples) {
+      const tSec = (s.t - tRef) / 1000;
+      sumT  += tSec;
+      sumF  += s.fps;
+      sumTF += tSec * s.fps;
+      sumT2 += tSec * tSec;
+    }
+    const denom = n * sumT2 - sumT * sumT;
+    const trendFpsPerS = denom !== 0 ? (n * sumTF - sumT * sumF) / denom : 0;
+
+    // A strongly negative slope (< −2 fps/s) is a warning sign even if the
+    // current average is above threshold — the tier is likely unsustainable.
+    const sustainable = averageFps >= this._targetFps && trendFpsPerS >= -2;
+
+    const confidence: "low" | "medium" | "high" =
+      n >= 20 ? "high" : n >= 8 ? "medium" : "low";
+
+    return { sustainable, averageFps, trendFpsPerS, confidence };
+  }
+
+  /** Reset the predictor for a new game session. */
+  reset(): void {
+    this._samples = [];
+    this._locked  = false;
+    this._startMs = -1;
+  }
+
+  private _now(): number {
+    try { return performance.now(); } catch { return Date.now(); }
+  }
+}
+
+// ── Intelligent core preloading ───────────────────────────────────────────────
+
+const LAUNCH_COUNT_KEY = "rv:launchCounts";
+
+/**
+ * Read the persisted per-system launch count map from localStorage.
+ *
+ * Returns an empty map when localStorage is unavailable or the stored
+ * value is not a valid JSON object.
+ */
+export function getLaunchCounts(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(LAUNCH_COUNT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, number>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Increment the launch count for a system and persist to localStorage.
+ *
+ * @param systemId  EmulatorJS system/core id (e.g. "psp", "n64").
+ */
+export function recordSystemLaunch(systemId: string): void {
+  try {
+    const counts = getLaunchCounts();
+    counts[systemId] = (counts[systemId] ?? 0) + 1;
+    localStorage.setItem(LAUNCH_COUNT_KEY, JSON.stringify(counts));
+  } catch { /* localStorage unavailable — ignore */ }
+}
+
+/**
+ * Return the top N most-frequently-launched system IDs, sorted by descending
+ * launch count.
+ *
+ * @param n  Maximum number of system IDs to return (default 2).
+ */
+export function getTopLaunchedSystems(n = 2): string[] {
+  const counts = getLaunchCounts();
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([id]) => id);
+}
