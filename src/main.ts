@@ -58,6 +58,16 @@ export interface Settings {
   touchControls:   boolean;
   /** Whether haptic feedback fires on virtual button presses (Android only). */
   hapticFeedback:  boolean;
+  /**
+   * Opacity of the on-screen touch buttons (0.1–1.0).
+   * Lower values make the buttons more transparent so the game is easier to see.
+   */
+  touchOpacity: number;
+  /**
+   * Global scale factor for all on-screen buttons (0.5–2.0).
+   * Values above 1 make buttons larger; values below 1 make them smaller.
+   */
+  touchButtonScale: number;
   /** Whether to lock screen orientation to landscape while a game runs. */
   orientationLock: boolean;
   /** Whether the built-in EmulatorJS Netplay feature is enabled. */
@@ -94,6 +104,8 @@ const DEFAULT_SETTINGS: Settings = {
   autoSaveEnabled: true,
   touchControls:   isTouchDevice(),
   hapticFeedback:  true,
+  touchOpacity:    0.85,
+  touchButtonScale: 1.0,
   orientationLock: true,
   netplayEnabled:  false,
   netplayServerUrl: "",
@@ -142,6 +154,12 @@ function loadSettings(): Settings {
       hapticFeedback: typeof parsed.hapticFeedback === "boolean"
         ? parsed.hapticFeedback
         : DEFAULT_SETTINGS.hapticFeedback,
+      touchOpacity: typeof parsed.touchOpacity === "number"
+        ? Math.max(0.1, Math.min(1, parsed.touchOpacity))
+        : DEFAULT_SETTINGS.touchOpacity,
+      touchButtonScale: typeof parsed.touchButtonScale === "number"
+        ? Math.max(0.5, Math.min(2, parsed.touchButtonScale))
+        : DEFAULT_SETTINGS.touchButtonScale,
       orientationLock: typeof parsed.orientationLock === "boolean"
         ? parsed.orientationLock
         : DEFAULT_SETTINGS.orientationLock,
@@ -349,10 +367,15 @@ function main(): void {
       if (ejsContainer) {
         if (!touchOverlay) {
           const { TouchControlsOverlay } = await import("./touchControls.js");
-          touchOverlay = new TouchControlsOverlay(ejsContainer, systemId, settings.hapticFeedback);
+          touchOverlay = new TouchControlsOverlay(
+            ejsContainer, systemId, settings.hapticFeedback,
+            settings.touchOpacity, settings.touchButtonScale,
+          );
         } else {
           touchOverlay.setSystem(systemId);
           touchOverlay.setHapticEnabled(settings.hapticFeedback);
+          touchOverlay.setOpacity(settings.touchOpacity);
+          touchOverlay.setScale(settings.touchButtonScale);
         }
       }
     }
@@ -604,6 +627,13 @@ function main(): void {
     if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {
       touchOverlay.setHapticEnabled(patch.hapticFeedback);
     }
+    // Sync opacity and scale changes immediately
+    if (typeof patch.touchOpacity === "number" && touchOverlay) {
+      touchOverlay.setOpacity(patch.touchOpacity);
+    }
+    if (typeof patch.touchButtonScale === "number" && touchOverlay) {
+      touchOverlay.setScale(patch.touchButtonScale);
+    }
     // Show or hide the touch controls overlay immediately when the setting changes
     // while a game is running so the user sees the effect without relaunching.
     if (typeof patch.touchControls === "boolean") {
@@ -615,12 +645,17 @@ function main(): void {
             const ejsContainer = document.getElementById("ejs-container");
             if (ejsContainer) {
               const { TouchControlsOverlay } = await import("./touchControls.js");
-              touchOverlay = new TouchControlsOverlay(ejsContainer, currentSystemId, settings.hapticFeedback);
+              touchOverlay = new TouchControlsOverlay(
+                ejsContainer, currentSystemId, settings.hapticFeedback,
+                settings.touchOpacity, settings.touchButtonScale,
+              );
             }
           }
           if (touchOverlay) {
             if (currentSystemId) touchOverlay.setSystem(currentSystemId);
             touchOverlay.setHapticEnabled(settings.hapticFeedback);
+            touchOverlay.setOpacity(settings.touchOpacity);
+            touchOverlay.setScale(settings.touchButtonScale);
             touchOverlay.show();
           }
         } else {

@@ -817,6 +817,7 @@ body {
   pointer-events: none;
   touch-action: none;
   user-select: none;
+  --tc-opacity: 0.85;
 }
 
 .tc-btn {
@@ -836,6 +837,7 @@ body {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   transition: transform 0.08s ease, filter 0.12s ease, border-color var(--transition-fast), box-shadow var(--transition-fast);
+  opacity: var(--tc-opacity, 0.85);
 }
 
 .tc-btn::after {
@@ -856,6 +858,69 @@ body {
 .touch-controls--editing .tc-btn {
   border-color: color-mix(in srgb, var(--c-accent) 70%, white 10%);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45), 0 0 0 2px color-mix(in srgb, var(--c-accent) 28%, transparent);
+}
+
+/* ── Analog stick ─────────────────────────────────────────── */
+.tc-stick {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32), inset 0 0 18px rgba(0, 0, 0, 0.18);
+  pointer-events: auto;
+  touch-action: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: var(--tc-opacity, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.tc-stick__knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  background: rgba(160, 170, 200, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  transition: background 0.08s ease;
+  pointer-events: none;
+}
+
+.tc-stick:active .tc-stick__knob,
+.tc-stick.tc-stick--active .tc-stick__knob {
+  background: rgba(200, 210, 255, 0.75);
+}
+
+.touch-controls--editing .tc-stick {
+  border-color: color-mix(in srgb, var(--c-accent) 70%, white 10%);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45), 0 0 0 2px color-mix(in srgb, var(--c-accent) 28%, transparent);
+}
+
+/* Crosshair guide lines inside the stick zone */
+.tc-stick::before,
+.tc-stick::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+}
+.tc-stick::before {
+  width: 1px;
+  top: 15%;
+  bottom: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.tc-stick::after {
+  height: 1px;
+  left: 15%;
+  right: 15%;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .tc-edit-hint {

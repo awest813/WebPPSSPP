@@ -4072,6 +4072,44 @@ function buildDisplayTab(
     (v) => onSettingsChange({ touchControls: v })
   ));
 
+  // Button opacity slider
+  const opacityRow = make("div", { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;" });
+  const opacityLabel = make("span", { style: "font-size:0.8rem;font-weight:600;flex-shrink:0;min-width:120px;" }, "Button opacity:");
+  const opacityInp = make("input", {
+    type: "range", min: "0.1", max: "1", step: "0.05",
+    value: String(settings.touchOpacity ?? 0.85),
+    style: "flex:1;min-width:120px;",
+    "aria-label": "Touch button opacity",
+  }) as HTMLInputElement;
+  const opacityVal = make("span", { style: "font-size:0.8rem;width:40px;text-align:right;" },
+    `${Math.round((settings.touchOpacity ?? 0.85) * 100)}%`);
+  opacityInp.addEventListener("input", () => {
+    const v = parseFloat(opacityInp.value);
+    opacityVal.textContent = `${Math.round(v * 100)}%`;
+    onSettingsChange({ touchOpacity: v });
+  });
+  opacityRow.append(opacityLabel, opacityInp, opacityVal);
+  mobileSection.appendChild(opacityRow);
+
+  // Button scale slider
+  const scaleRow = make("div", { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;" });
+  const scaleLabel = make("span", { style: "font-size:0.8rem;font-weight:600;flex-shrink:0;min-width:120px;" }, "Button size:");
+  const scaleInp = make("input", {
+    type: "range", min: "0.5", max: "2", step: "0.1",
+    value: String(settings.touchButtonScale ?? 1.0),
+    style: "flex:1;min-width:120px;",
+    "aria-label": "Touch button scale",
+  }) as HTMLInputElement;
+  const scaleVal = make("span", { style: "font-size:0.8rem;width:40px;text-align:right;" },
+    `${Math.round((settings.touchButtonScale ?? 1.0) * 100)}%`);
+  scaleInp.addEventListener("input", () => {
+    const v = parseFloat(scaleInp.value);
+    scaleVal.textContent = `${Math.round(v * 100)}%`;
+    onSettingsChange({ touchButtonScale: v });
+  });
+  scaleRow.append(scaleLabel, scaleInp, scaleVal);
+  mobileSection.appendChild(scaleRow);
+
   mobileSection.appendChild(buildToggleRow(
     "Vibration feedback",
     "Vibrate briefly when pressing on-screen buttons (works on Android Chrome; not supported on iOS)",
