@@ -12,28 +12,49 @@
  *
  * Haptic feedback via navigator.vibrate() fires on button press/release
  * when enabled — only on Android Chrome (iOS silently ignores it).
+ *
+ * The overlay supports a virtual analog stick ("stick" button type) that
+ * renders a draggable joystick and fires keyboard events for the four
+ * directional stick inputs (stick_up/stick_down/stick_left/stick_right),
+ * matching the EmulatorJS default analog-as-keys mapping (t/g/f/h).
  */
 
-// ── Key bindings (RetroArch defaults) ─────────────────────────────────────────
+// ── Key bindings (EmulatorJS defaults) ────────────────────────────────────────
 
 /**
- * Maps each virtual button id to the keyboard key that EmulatorJS/RetroArch
- * binds by default. These are the standard "player 1" defaults; users who
- * rebind keys in the EJS settings menu will need to remap here too.
+ * Maps each virtual button id to the keyboard key that EmulatorJS binds by
+ * default for player 1.  These match the `defaultControllers[0]` entries in
+ * emulator.js:
+ *   button 0  (Cross/A)    → x
+ *   button 8  (Circle/B)   → z
+ *   button 9  (Triangle/X) → a
+ *   button 1  (Square/Y)   → s
+ *   button 10 (L)          → q
+ *   button 11 (R)          → e   ← fixed from previous 'w'
+ *   button 2  (Select)     → v   ← fixed from previous 'Shift'
+ *   button 3  (Start)      → Enter
+ *   analog right (16)      → h
+ *   analog left  (17)      → f
+ *   analog down  (18)      → g
+ *   analog up    (19)      → t
  */
 const KEY_MAP: Record<string, { key: string; code: string }> = {
-  up:     { key: "ArrowUp",    code: "ArrowUp"    },
-  down:   { key: "ArrowDown",  code: "ArrowDown"  },
-  left:   { key: "ArrowLeft",  code: "ArrowLeft"  },
-  right:  { key: "ArrowRight", code: "ArrowRight" },
-  a:      { key: "z",          code: "KeyZ"       },
-  b:      { key: "x",          code: "KeyX"       },
-  x:      { key: "a",          code: "KeyA"       },
-  y:      { key: "s",          code: "KeyS"       },
-  l:      { key: "q",          code: "KeyQ"       },
-  r:      { key: "w",          code: "KeyW"       },
-  start:  { key: "Enter",      code: "Enter"      },
-  select: { key: "Shift",      code: "ShiftLeft"  },
+  up:          { key: "ArrowUp",    code: "ArrowUp"    },
+  down:        { key: "ArrowDown",  code: "ArrowDown"  },
+  left:        { key: "ArrowLeft",  code: "ArrowLeft"  },
+  right:       { key: "ArrowRight", code: "ArrowRight" },
+  a:           { key: "z",          code: "KeyZ"       },
+  b:           { key: "x",          code: "KeyX"       },
+  x:           { key: "a",          code: "KeyA"       },
+  y:           { key: "s",          code: "KeyS"       },
+  l:           { key: "q",          code: "KeyQ"       },
+  r:           { key: "e",          code: "KeyE"       },
+  start:       { key: "Enter",      code: "Enter"      },
+  select:      { key: "v",          code: "KeyV"       },
+  stick_right: { key: "h",          code: "KeyH"       },
+  stick_left:  { key: "f",          code: "KeyF"       },
+  stick_down:  { key: "g",          code: "KeyG"       },
+  stick_up:    { key: "t",          code: "KeyT"       },
 };
 
 // ── Button definitions ────────────────────────────────────────────────────────
@@ -48,6 +69,14 @@ export interface TouchButtonDef {
   /** Diameter in CSS pixels. */
   size:  number;
   color: string;
+  /**
+   * Optional element type.
+   * - `"button"` (default) — a tappable circular button.
+   * - `"stick"`            — a draggable analog joystick.  The `id` must be
+   *   `"stick"` so the overlay can map directional movement to
+   *   `stick_up/down/left/right` in KEY_MAP.
+   */
+  type?: "button" | "stick";
 }
 
 /** Default button layout for landscape orientation. */
@@ -57,17 +86,19 @@ export const DEFAULT_LAYOUT: TouchButtonDef[] = [
   { id: "down",   label: "▼",   x: 11,  y: 78, size: 46, color: "rgba(60,60,80,0.82)"   },
   { id: "left",   label: "◀",   x: 5.5, y: 65, size: 46, color: "rgba(60,60,80,0.82)"   },
   { id: "right",  label: "▶",   x: 16.5,y: 65, size: 46, color: "rgba(60,60,80,0.82)"   },
-  // Face buttons — bottom right (SNES/PS layout)
-  { id: "a",      label: "A",   x: 90,  y: 65, size: 48, color: "rgba(190,50,50,0.82)"  },
-  { id: "b",      label: "B",   x: 83,  y: 78, size: 48, color: "rgba(190,130,30,0.82)" },
-  { id: "x",      label: "X",   x: 83,  y: 52, size: 48, color: "rgba(50,100,200,0.82)" },
-  { id: "y",      label: "Y",   x: 76,  y: 65, size: 48, color: "rgba(50,160,80,0.82)"  },
+  // Face buttons — bottom right (PSP/PlayStation layout: ○ top-right, × bottom, □ left, △ top)
+  { id: "a",      label: "○",   x: 90,  y: 65, size: 48, color: "rgba(190,50,50,0.82)"  },
+  { id: "b",      label: "×",   x: 83,  y: 78, size: 48, color: "rgba(190,130,30,0.82)" },
+  { id: "x",      label: "△",   x: 83,  y: 52, size: 48, color: "rgba(50,100,200,0.82)" },
+  { id: "y",      label: "□",   x: 76,  y: 65, size: 48, color: "rgba(50,160,80,0.82)"  },
   // Shoulder buttons — top corners
   { id: "l",      label: "L",   x: 3,   y: 8,  size: 52, color: "rgba(40,40,60,0.85)"   },
   { id: "r",      label: "R",   x: 93,  y: 8,  size: 52, color: "rgba(40,40,60,0.85)"   },
   // Meta buttons — bottom centre
   { id: "select", label: "SEL", x: 39,  y: 90, size: 40, color: "rgba(40,40,60,0.85)"   },
   { id: "start",  label: "STA", x: 56,  y: 90, size: 40, color: "rgba(40,40,60,0.85)"   },
+  // Analog stick (PSP nub) — bottom left, below D-pad
+  { id: "stick",  label: "",    x: 27,  y: 75, size: 78, color: "rgba(35,35,55,0.80)", type: "stick" },
 ];
 
 /**
@@ -83,17 +114,19 @@ export const DEFAULT_PORTRAIT_LAYOUT: TouchButtonDef[] = [
   { id: "down",   label: "▼",   x: 15,  y: 80, size: 46, color: "rgba(60,60,80,0.82)"   },
   { id: "left",   label: "◀",   x: 7,   y: 69, size: 46, color: "rgba(60,60,80,0.82)"   },
   { id: "right",  label: "▶",   x: 23,  y: 69, size: 46, color: "rgba(60,60,80,0.82)"   },
-  // Face buttons — lower-right
-  { id: "a",      label: "A",   x: 88,  y: 69, size: 48, color: "rgba(190,50,50,0.82)"  },
-  { id: "b",      label: "B",   x: 80,  y: 80, size: 48, color: "rgba(190,130,30,0.82)" },
-  { id: "x",      label: "X",   x: 80,  y: 58, size: 48, color: "rgba(50,100,200,0.82)" },
-  { id: "y",      label: "Y",   x: 72,  y: 69, size: 48, color: "rgba(50,160,80,0.82)"  },
+  // Face buttons — lower-right (PSP/PlayStation layout)
+  { id: "a",      label: "○",   x: 88,  y: 69, size: 48, color: "rgba(190,50,50,0.82)"  },
+  { id: "b",      label: "×",   x: 80,  y: 80, size: 48, color: "rgba(190,130,30,0.82)" },
+  { id: "x",      label: "△",   x: 80,  y: 58, size: 48, color: "rgba(50,100,200,0.82)" },
+  { id: "y",      label: "□",   x: 72,  y: 69, size: 48, color: "rgba(50,160,80,0.82)"  },
   // Shoulder buttons — mid-screen corners so thumbs can reach without moving the hand
   { id: "l",      label: "L",   x: 4,   y: 42, size: 52, color: "rgba(40,40,60,0.85)"   },
   { id: "r",      label: "R",   x: 92,  y: 42, size: 52, color: "rgba(40,40,60,0.85)"   },
   // Meta buttons — bottom centre
   { id: "select", label: "SEL", x: 37,  y: 91, size: 40, color: "rgba(40,40,60,0.85)"   },
   { id: "start",  label: "STA", x: 57,  y: 91, size: 40, color: "rgba(40,40,60,0.85)"   },
+  // Analog stick (PSP nub) — bottom left, to the right of D-pad
+  { id: "stick",  label: "",    x: 30,  y: 76, size: 78, color: "rgba(35,35,55,0.80)", type: "stick" },
 ];
 
 // ── Layout persistence ────────────────────────────────────────────────────────
@@ -199,6 +232,8 @@ export class TouchControlsOverlay {
   private _visible = false;
   private _editing = false;
   private _hapticEnabled: boolean;
+  private _opacity: number;
+  private _scale: number;
   private _pressedKeys = new Set<string>();
   private _portrait: boolean;
   private _orientationHandler: (() => void) | null = null;
@@ -206,10 +241,12 @@ export class TouchControlsOverlay {
   /** Called when the layout is saved (after drag ends in edit mode). */
   onLayoutSaved?: (systemId: string, layout: TouchButtonDef[]) => void;
 
-  constructor(container: HTMLElement, systemId: string, hapticEnabled = true) {
+  constructor(container: HTMLElement, systemId: string, hapticEnabled = true, opacity = 0.85, scale = 1.0) {
     this._container = container;
     this._systemId = systemId;
     this._hapticEnabled = hapticEnabled;
+    this._opacity = Math.max(0.1, Math.min(1, opacity));
+    this._scale   = Math.max(0.5, Math.min(2, scale));
     this._portrait = isPortrait();
     this._buttons = loadLayout(systemId, this._portrait);
 
@@ -240,6 +277,24 @@ export class TouchControlsOverlay {
   /** Change haptic feedback on/off at runtime. */
   setHapticEnabled(enabled: boolean): void {
     this._hapticEnabled = enabled;
+  }
+
+  /** Change button opacity (0.1–1.0) at runtime — rebuilds DOM if visible. */
+  setOpacity(opacity: number): void {
+    const clamped = Math.max(0.1, Math.min(1, opacity));
+    if (clamped === this._opacity) return;
+    this._opacity = clamped;
+    if (this._overlay) {
+      this._overlay.style.setProperty("--tc-opacity", String(this._opacity));
+    }
+  }
+
+  /** Change global button scale (0.5–2.0) at runtime — rebuilds DOM if visible. */
+  setScale(scale: number): void {
+    const clamped = Math.max(0.5, Math.min(2, scale));
+    if (clamped === this._scale) return;
+    this._scale = clamped;
+    if (this._visible) this._rebuild();
   }
 
   /** Swap to a different system (reloads its layout). */
@@ -316,9 +371,12 @@ export class TouchControlsOverlay {
     const overlay = document.createElement("div");
     overlay.className = "touch-controls";
     overlay.setAttribute("aria-hidden", "true");
+    overlay.style.setProperty("--tc-opacity", String(this._opacity));
 
     for (const btn of this._buttons) {
-      const el = this._buildButton(btn);
+      const el = btn.type === "stick"
+        ? this._buildStick(btn)
+        : this._buildButton(btn);
       overlay.appendChild(el);
       this._buttonEls.set(btn.id, el);
     }
@@ -336,6 +394,7 @@ export class TouchControlsOverlay {
   }
 
   private _buildButton(btn: TouchButtonDef): HTMLElement {
+    const scaled = Math.round(btn.size * this._scale);
     const el = document.createElement("div");
     el.className = "tc-btn";
     el.dataset.btnId = btn.id;
@@ -343,15 +402,192 @@ export class TouchControlsOverlay {
     el.style.cssText = [
       `left:${btn.x}%`,
       `top:${btn.y}%`,
-      `width:${btn.size}px`,
-      `height:${btn.size}px`,
-      `margin-left:-${btn.size / 2}px`,
-      `margin-top:-${btn.size / 2}px`,
+      `width:${scaled}px`,
+      `height:${scaled}px`,
+      `margin-left:-${scaled / 2}px`,
+      `margin-top:-${scaled / 2}px`,
       `background:${btn.color}`,
     ].join(";");
 
     this._bindButton(el, btn);
     return el;
+  }
+
+  /**
+   * Build a draggable analog joystick element.
+   *
+   * The stick zone is a fixed outer circle.  A smaller inner dot ("knob")
+   * tracks the user's finger within the zone and shows the current deflection.
+   * Movement is mapped to stick_up/down/left/right key events with a ~25%
+   * dead-zone so accidental grazes don't trigger inputs.
+   */
+  private _buildStick(btn: TouchButtonDef): HTMLElement {
+    const scaled = Math.round(btn.size * this._scale);
+    const outer = document.createElement("div");
+    outer.className = "tc-stick";
+    outer.dataset.btnId = btn.id;
+    outer.style.cssText = [
+      `left:${btn.x}%`,
+      `top:${btn.y}%`,
+      `width:${scaled}px`,
+      `height:${scaled}px`,
+      `margin-left:-${scaled / 2}px`,
+      `margin-top:-${scaled / 2}px`,
+      `background:${btn.color}`,
+    ].join(";");
+
+    const knobSize = Math.round(scaled * 0.44);
+    const knob = document.createElement("div");
+    knob.className = "tc-stick__knob";
+    knob.style.cssText = `width:${knobSize}px;height:${knobSize}px;`;
+    outer.appendChild(knob);
+
+    this._bindStick(outer, knob, btn, scaled);
+    return outer;
+  }
+
+  private _bindStick(outer: HTMLElement, knob: HTMLElement, btn: TouchButtonDef, scaledSize: number): void {
+    const radius     = scaledSize / 2;
+    const maxMove    = radius * 0.52;  // knob travel range
+    const deadZone   = 0.25;           // fraction of maxMove before input fires
+
+    // Currently-active stick key IDs (stick_up / stick_down / etc.)
+    const active = new Set<string>();
+
+    const fireKey = (id: string) => {
+      if (active.has(id) || this._editing) return;
+      active.add(id);
+      const kd = KEY_MAP[id];
+      if (!kd) return;
+      this._pressedKeys.add(id);
+      if (this._hapticEnabled) vibratePress();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: kd.key, code: kd.code, bubbles: true, cancelable: true }));
+    };
+
+    const releaseKey = (id: string) => {
+      if (!active.has(id)) return;
+      active.delete(id);
+      const kd = KEY_MAP[id];
+      if (!kd) return;
+      this._pressedKeys.delete(id);
+      if (this._hapticEnabled) vibrateRelease();
+      document.dispatchEvent(new KeyboardEvent("keyup", { key: kd.key, code: kd.code, bubbles: true, cancelable: true }));
+    };
+
+    const releaseAll = () => {
+      for (const id of [...active]) releaseKey(id);
+      knob.style.transform = "translate(-50%, -50%)";
+    };
+
+    // Edit-mode drag (reposition the whole stick element)
+    let dragActive = false;
+    let dragStartX = 0, dragStartY = 0;
+    let origX = btn.x, origY = btn.y;
+
+    const onEditDragStart = (cx: number, cy: number) => {
+      if (!this._editing) return false;
+      dragActive = true;
+      dragStartX = cx; dragStartY = cy;
+      origX = btn.x;   origY = btn.y;
+      outer.style.cursor = "grabbing";
+      return true;
+    };
+    const onEditDragMove = (cx: number, cy: number) => {
+      if (!dragActive || !this._overlay) return;
+      const rect = this._overlay.getBoundingClientRect();
+      btn.x = Math.max(0, Math.min(100, origX + ((cx - dragStartX) / rect.width)  * 100));
+      btn.y = Math.max(0, Math.min(100, origY + ((cy - dragStartY) / rect.height) * 100));
+      outer.style.left = `${btn.x}%`;
+      outer.style.top  = `${btn.y}%`;
+    };
+    const onEditDragEnd = () => {
+      if (!dragActive) return;
+      dragActive = false;
+      outer.style.cursor = "grab";
+      saveLayout(this._systemId, this._buttons, this._portrait);
+      this.onLayoutSaved?.(this._systemId, this._buttons);
+    };
+
+    // Play-mode: track touch within the joystick zone and fire keys
+    let playActive = false;
+    const onPlayMove = (cx: number, cy: number) => {
+      if (this._editing) return;
+      const rect = outer.getBoundingClientRect();
+      const dx = cx - (rect.left + rect.width  / 2);
+      const dy = cy - (rect.top  + rect.height / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Clamp knob within the travel range
+      const clamped = Math.min(dist, maxMove);
+      const angle   = Math.atan2(dy, dx);
+      const kx      = clamped * Math.cos(angle);
+      const ky      = clamped * Math.sin(angle);
+      knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+
+      const threshold = maxMove * deadZone;
+      // Right / Left
+      if (dx >  threshold) fireKey("stick_right"); else releaseKey("stick_right");
+      if (dx < -threshold) fireKey("stick_left");  else releaseKey("stick_left");
+      // Down / Up
+      if (dy >  threshold) fireKey("stick_down");  else releaseKey("stick_down");
+      if (dy < -threshold) fireKey("stick_up");    else releaseKey("stick_up");
+    };
+
+    // Touch handlers
+    outer.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      const first = e.changedTouches[0]!;
+      if (onEditDragStart(first.clientX, first.clientY)) return;
+      playActive = true;
+      onPlayMove(first.clientX, first.clientY);
+    }, { passive: false });
+
+    outer.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      const t = e.changedTouches[0]!;
+      if (dragActive) { onEditDragMove(t.clientX, t.clientY); return; }
+      if (playActive) onPlayMove(t.clientX, t.clientY);
+    }, { passive: false });
+
+    outer.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      onEditDragEnd();
+      playActive = false;
+      releaseAll();
+    }, { passive: false });
+
+    outer.addEventListener("touchcancel", (e) => {
+      e.preventDefault();
+      onEditDragEnd();
+      playActive = false;
+      releaseAll();
+    }, { passive: false });
+
+    // Mouse fallback
+    outer.addEventListener("mousedown", (e) => {
+      if (onEditDragStart(e.clientX, e.clientY)) {
+        const onMove = (ev: MouseEvent) => onEditDragMove(ev.clientX, ev.clientY);
+        const onUp   = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          onEditDragEnd();
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        return;
+      }
+      playActive = true;
+      onPlayMove(e.clientX, e.clientY);
+      const onMove = (ev: MouseEvent) => { if (playActive) onPlayMove(ev.clientX, ev.clientY); };
+      const onUp   = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        playActive = false;
+        releaseAll();
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
   }
 
   private _bindButton(el: HTMLElement, btn: TouchButtonDef): void {
