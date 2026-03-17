@@ -51,8 +51,8 @@ function removeContainer(el: HTMLElement) {
 // ── DEFAULT_LAYOUT ────────────────────────────────────────────────────────────
 
 describe("DEFAULT_LAYOUT", () => {
-  it("contains 12 buttons", () => {
-    expect(DEFAULT_LAYOUT).toHaveLength(12);
+  it("contains 13 buttons", () => {
+    expect(DEFAULT_LAYOUT).toHaveLength(13);
   });
 
   it("includes all required D-pad buttons", () => {
@@ -104,8 +104,8 @@ describe("DEFAULT_LAYOUT", () => {
 // ── DEFAULT_PORTRAIT_LAYOUT ───────────────────────────────────────────────────
 
 describe("DEFAULT_PORTRAIT_LAYOUT", () => {
-  it("contains 12 buttons", () => {
-    expect(DEFAULT_PORTRAIT_LAYOUT).toHaveLength(12);
+  it("contains 13 buttons", () => {
+    expect(DEFAULT_PORTRAIT_LAYOUT).toHaveLength(13);
   });
 
   it("has the same button ids as DEFAULT_LAYOUT", () => {
@@ -439,10 +439,12 @@ describe("TouchControlsOverlay", () => {
     expect(container.querySelector(".touch-controls")).not.toBeNull();
   });
 
-  it("show() creates one button element per default button", () => {
+  it("show() creates one control element per default button", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
-    const btns = container.querySelectorAll(".tc-btn");
+    // Both regular buttons (.tc-btn) and the analog stick (.tc-stick) carry a
+    // data-btn-id attribute, so [data-btn-id] counts all interactive elements.
+    const btns = container.querySelectorAll("[data-btn-id]");
     expect(btns.length).toBe(DEFAULT_LAYOUT.length);
   });
 
@@ -630,6 +632,32 @@ describe("TouchControlsOverlay", () => {
     // Overlay should remain hidden
     expect(container.querySelector(".touch-controls")).toBeNull();
   });
+
+  it("setEditing(true) resets a displaced stick knob to centre", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    // Manually displace the knob to simulate an active stick position
+    const stickEl = container.querySelector<HTMLElement>(".tc-stick")!;
+    const knob    = stickEl.querySelector<HTMLElement>(".tc-stick__knob")!;
+    knob.style.transform = "translate(calc(-50% + 20px), calc(-50% + 10px))";
+
+    // Entering edit mode should reset the knob to centre
+    overlay.setEditing(true);
+    expect(knob.style.transform).toBe("translate(-50%, -50%)");
+  });
+
+  it("setEditing(true) removes tc-stick--active class from stick element", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const stickEl = container.querySelector<HTMLElement>(".tc-stick")!;
+    // Simulate the stick being active
+    stickEl.classList.add("tc-stick--active");
+
+    overlay.setEditing(true);
+    expect(stickEl.classList.contains("tc-stick--active")).toBe(false);
+  });
 });
 
 // ── TouchControlsOverlay — orientation switching ──────────────────────────────
@@ -741,6 +769,35 @@ describe("TouchControlsOverlay — orientation switching", () => {
 
     expect(rebuilds).toBe(0);
     overlay.destroy();
+  });
+});
+
+// ── Analog stick active-class behaviour ──────────────────────────────────────
+
+describe("TouchControlsOverlay — analog stick active class", () => {
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    container = makeContainer();
+  });
+
+  afterEach(() => {
+    removeContainer(container);
+    cleanLS("psp");
+  });
+
+  it("adds tc-stick--active on mousedown and removes it on mouseup", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const stickEl = container.querySelector<HTMLElement>(".tc-stick")!;
+    expect(stickEl).not.toBeNull();
+
+    stickEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(stickEl.classList.contains("tc-stick--active")).toBe(true);
+
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    expect(stickEl.classList.contains("tc-stick--active")).toBe(false);
   });
 });
 

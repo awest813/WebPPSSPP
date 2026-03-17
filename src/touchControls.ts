@@ -338,6 +338,13 @@ export class TouchControlsOverlay {
       } else if (!editing && editHint) {
         editHint.remove();
       }
+      // When entering edit mode, reset any displaced stick knob to centre so
+      // the user doesn't see a stuck-offset knob while repositioning the stick.
+      if (editing && el.classList.contains("tc-stick")) {
+        el.classList.remove("tc-stick--active");
+        const knob = el.querySelector<HTMLElement>(".tc-stick__knob");
+        if (knob) knob.style.transform = "translate(-50%, -50%)";
+      }
     }
   }
 
@@ -533,12 +540,17 @@ export class TouchControlsOverlay {
       if (dy < -threshold) fireKey("stick_up");    else releaseKey("stick_up");
     };
 
+    const setPlayActive = (active: boolean) => {
+      playActive = active;
+      outer.classList.toggle("tc-stick--active", active);
+    };
+
     // Touch handlers
     outer.addEventListener("touchstart", (e) => {
       e.preventDefault();
       const first = e.changedTouches[0]!;
       if (onEditDragStart(first.clientX, first.clientY)) return;
-      playActive = true;
+      setPlayActive(true);
       onPlayMove(first.clientX, first.clientY);
     }, { passive: false });
 
@@ -552,14 +564,14 @@ export class TouchControlsOverlay {
     outer.addEventListener("touchend", (e) => {
       e.preventDefault();
       onEditDragEnd();
-      playActive = false;
+      setPlayActive(false);
       releaseAll();
     }, { passive: false });
 
     outer.addEventListener("touchcancel", (e) => {
       e.preventDefault();
       onEditDragEnd();
-      playActive = false;
+      setPlayActive(false);
       releaseAll();
     }, { passive: false });
 
@@ -576,13 +588,13 @@ export class TouchControlsOverlay {
         document.addEventListener("mouseup", onUp);
         return;
       }
-      playActive = true;
+      setPlayActive(true);
       onPlayMove(e.clientX, e.clientY);
       const onMove = (ev: MouseEvent) => { if (playActive) onPlayMove(ev.clientX, ev.clientY); };
       const onUp   = () => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        playActive = false;
+        setPlayActive(false);
         releaseAll();
       };
       document.addEventListener("mousemove", onMove);
