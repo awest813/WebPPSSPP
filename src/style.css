@@ -860,6 +860,60 @@ body {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45), 0 0 0 2px color-mix(in srgb, var(--c-accent) 28%, transparent);
 }
 
+/* ── D-pad cross element ──────────────────────────────────── */
+.tc-dpad {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  opacity: var(--tc-opacity, 0.85);
+  /* Transparent background — only the arm children are visible */
+}
+
+.tc-dpad__arm {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35), inset 0 0 10px rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.70);
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 5px;
+  pointer-events: none; /* parent element handles all pointer events */
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: filter 0.06s ease, border-color 0.06s ease, box-shadow 0.06s ease;
+}
+
+/* Cross arm positioning: each arm occupies 1/3 of element width/height */
+.tc-dpad__arm--up    { left: 33.3%; top: 0;     width: 33.4%; height: 37%; border-radius: 5px 5px 3px 3px; }
+.tc-dpad__arm--down  { left: 33.3%; bottom: 0;  width: 33.4%; height: 37%; border-radius: 3px 3px 5px 5px; }
+.tc-dpad__arm--left  { left: 0;     top: 33.3%; width: 37%;   height: 33.4%; border-radius: 5px 3px 3px 5px; }
+.tc-dpad__arm--right { right: 0;    top: 33.3%; width: 37%;   height: 33.4%; border-radius: 3px 5px 5px 3px; }
+
+.tc-dpad__center {
+  position: absolute;
+  left: 33.3%;
+  top: 33.3%;
+  width: 33.4%;
+  height: 33.4%;
+  pointer-events: none;
+  /* Small gap between arms — no border */
+}
+
+.tc-dpad__arm--active {
+  filter: brightness(1.45);
+  border-color: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), inset 0 0 14px rgba(255, 255, 255, 0.16);
+}
+
+.touch-controls--editing .tc-dpad .tc-dpad__arm {
+  border-color: color-mix(in srgb, var(--c-accent) 70%, white 10%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45), 0 0 0 1px color-mix(in srgb, var(--c-accent) 28%, transparent);
+}
+
 /* ── Analog stick ─────────────────────────────────────────── */
 .tc-stick {
   position: absolute;

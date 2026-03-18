@@ -1,5 +1,5 @@
 /**
- * touchControls.test.ts — Tests for the Phase 5 virtual gamepad overlay.
+ * touchControls.test.ts — Tests for the virtual gamepad overlay.
  *
  * Covers:
  *   - Default layout structure (button count, required fields)
@@ -11,7 +11,13 @@
  *   - isTouchDevice() detection
  *   - Haptic helpers (vibrate call routing)
  *   - TouchControlsOverlay lifecycle (show, hide, setEditing, setSystem)
- *   - Key event dispatch on button press/release
+ *   - Key event dispatch on button press/release (pointer events)
+ *   - Pointer capture semantics (key released on pointercancel)
+ *   - Edit mode suppresses key events
+ *   - D-pad cross element: directional input, diagonal input
+ *   - Orientation switching with automatic layout reload
+ *   - Multi-pointer handling (simultaneous pointers on a button)
+ *   - Analog stick active class
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -51,16 +57,14 @@ function removeContainer(el: HTMLElement) {
 // ── DEFAULT_LAYOUT ────────────────────────────────────────────────────────────
 
 describe("DEFAULT_LAYOUT", () => {
-  it("contains 13 buttons", () => {
-    expect(DEFAULT_LAYOUT).toHaveLength(13);
+  it("contains 10 buttons (dpad + 4 face + 2 shoulder + 2 meta + stick)", () => {
+    expect(DEFAULT_LAYOUT).toHaveLength(10);
   });
 
-  it("includes all required D-pad buttons", () => {
-    const ids = DEFAULT_LAYOUT.map((b) => b.id);
-    expect(ids).toContain("up");
-    expect(ids).toContain("down");
-    expect(ids).toContain("left");
-    expect(ids).toContain("right");
+  it("includes a single cross-shaped D-pad element (type: dpad)", () => {
+    const dpad = DEFAULT_LAYOUT.find((b) => b.id === "dpad");
+    expect(dpad).toBeDefined();
+    expect(dpad!.type).toBe("dpad");
   });
 
   it("includes all required face buttons", () => {
@@ -77,6 +81,14 @@ describe("DEFAULT_LAYOUT", () => {
     expect(ids).toContain("r");
     expect(ids).toContain("start");
     expect(ids).toContain("select");
+  });
+
+  it("does not contain individual directional buttons (up/down/left/right)", () => {
+    const ids = DEFAULT_LAYOUT.map((b) => b.id);
+    expect(ids).not.toContain("up");
+    expect(ids).not.toContain("down");
+    expect(ids).not.toContain("left");
+    expect(ids).not.toContain("right");
   });
 
   it("all buttons have numeric x, y, size fields in valid ranges", () => {
@@ -104,8 +116,8 @@ describe("DEFAULT_LAYOUT", () => {
 // ── DEFAULT_PORTRAIT_LAYOUT ───────────────────────────────────────────────────
 
 describe("DEFAULT_PORTRAIT_LAYOUT", () => {
-  it("contains 13 buttons", () => {
-    expect(DEFAULT_PORTRAIT_LAYOUT).toHaveLength(13);
+  it("contains 10 buttons", () => {
+    expect(DEFAULT_PORTRAIT_LAYOUT).toHaveLength(10);
   });
 
   it("has the same button ids as DEFAULT_LAYOUT", () => {
@@ -127,11 +139,11 @@ describe("DEFAULT_PORTRAIT_LAYOUT", () => {
     }
   });
 
-  it("D-pad buttons are positioned lower than in landscape to reach thumbs in portrait", () => {
-    const portraitUp  = DEFAULT_PORTRAIT_LAYOUT.find((b) => b.id === "up")!;
-    const landscapeUp = DEFAULT_LAYOUT.find((b) => b.id === "up")!;
+  it("D-pad is positioned lower in portrait for thumb reach", () => {
+    const portraitDpad  = DEFAULT_PORTRAIT_LAYOUT.find((b) => b.id === "dpad")!;
+    const landscapeDpad = DEFAULT_LAYOUT.find((b) => b.id === "dpad")!;
     // Portrait D-pad should be lower on the screen (higher y %)
-    expect(portraitUp.y).toBeGreaterThan(landscapeUp.y);
+    expect(portraitDpad.y).toBeGreaterThan(landscapeDpad.y);
   });
 });
 
@@ -161,15 +173,15 @@ describe("loadLayout", () => {
 
   it("falls back to defaults for buttons absent from the saved blob", () => {
     // Save only partial layout (missing some buttons)
-    localStorage.setItem(LS_KEY(SYS), JSON.stringify([{ id: "up", x: 5, y: 5 }]));
+    localStorage.setItem(LS_KEY(SYS), JSON.stringify([{ id: "dpad", x: 5, y: 5 }]));
     const layout = loadLayout(SYS);
-    // "up" should have the saved position
-    const upBtn = layout.find((b) => b.id === "up")!;
-    expect(upBtn.x).toBe(5);
-    // "down" was not saved — should get the default
-    const downBtn = layout.find((b) => b.id === "down")!;
-    const defaultDown = DEFAULT_LAYOUT.find((b) => b.id === "down")!;
-    expect(downBtn.x).toBe(defaultDown.x);
+    // "dpad" should have the saved position
+    const dpadBtn = layout.find((b) => b.id === "dpad")!;
+    expect(dpadBtn.x).toBe(5);
+    // "a" was not saved — should get the default
+    const aBtn = layout.find((b) => b.id === "a")!;
+    const defaultA = DEFAULT_LAYOUT.find((b) => b.id === "a")!;
+    expect(aBtn.x).toBe(defaultA.x);
   });
 
   it("handles corrupt localStorage data gracefully", () => {
@@ -232,9 +244,9 @@ describe("loadLayout — portrait mode", () => {
   it("returns portrait defaults when portrait=true and no saved layout exists", () => {
     const layout = loadLayout(SYS, true);
     expect(layout).toHaveLength(DEFAULT_PORTRAIT_LAYOUT.length);
-    const upBtn = layout.find((b) => b.id === "up")!;
-    const portraitDefault = DEFAULT_PORTRAIT_LAYOUT.find((b) => b.id === "up")!;
-    expect(upBtn.y).toBe(portraitDefault.y);
+    const dpadBtn = layout.find((b) => b.id === "dpad")!;
+    const portraitDefault = DEFAULT_PORTRAIT_LAYOUT.find((b) => b.id === "dpad")!;
+    expect(dpadBtn.y).toBe(portraitDefault.y);
   });
 
   it("landscape and portrait use separate storage keys", () => {
@@ -442,10 +454,30 @@ describe("TouchControlsOverlay", () => {
   it("show() creates one control element per default button", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
-    // Both regular buttons (.tc-btn) and the analog stick (.tc-stick) carry a
-    // data-btn-id attribute, so [data-btn-id] counts all interactive elements.
+    // Both regular buttons (.tc-btn), the D-pad (.tc-dpad), and the analog
+    // stick (.tc-stick) carry a data-btn-id attribute.
     const btns = container.querySelectorAll("[data-btn-id]");
     expect(btns.length).toBe(DEFAULT_LAYOUT.length);
+  });
+
+  it("show() renders a .tc-dpad element for the D-pad button", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpadEl = container.querySelector(".tc-dpad");
+    expect(dpadEl).not.toBeNull();
+    expect((dpadEl as HTMLElement).dataset.btnId).toBe("dpad");
+    overlay.destroy();
+  });
+
+  it("D-pad element contains four directional arm children", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpadEl = container.querySelector(".tc-dpad")!;
+    expect(dpadEl.querySelector(".tc-dpad__arm--up")).not.toBeNull();
+    expect(dpadEl.querySelector(".tc-dpad__arm--down")).not.toBeNull();
+    expect(dpadEl.querySelector(".tc-dpad__arm--left")).not.toBeNull();
+    expect(dpadEl.querySelector(".tc-dpad__arm--right")).not.toBeNull();
+    overlay.destroy();
   });
 
   it("hide() removes the overlay DOM", () => {
@@ -493,18 +525,18 @@ describe("TouchControlsOverlay", () => {
 
     // Save a custom layout for NES with modified position
     const nesLayout = DEFAULT_LAYOUT.map((b) => ({ ...b }));
-    const upBtn = nesLayout.find((b) => b.id === "up")!;
-    upBtn.x = 33;
+    const dpadBtn = nesLayout.find((b) => b.id === "dpad")!;
+    dpadBtn.x = 33;
     saveLayout("nes", nesLayout);
 
     overlay.setSystem("nes");
-    // After setSystem, buttons should be rebuilt; the overlay re-appears
-    const upEl = Array.from(container.querySelectorAll(".tc-btn")).find(
-      (el) => (el as HTMLElement).dataset.btnId === "up"
+    // After setSystem, buttons should be rebuilt
+    const dpadEl = Array.from(container.querySelectorAll(".tc-dpad")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "dpad"
     ) as HTMLElement | undefined;
 
     // The left% style should reflect x=33
-    expect(upEl?.style.left).toBe("33%");
+    expect(dpadEl?.style.left).toBe("33%");
   });
 
   it("hide() exits editing mode so a new show() starts in play mode", () => {
@@ -546,12 +578,12 @@ describe("TouchControlsOverlay", () => {
     expect(saved).toHaveLength(1);
     expect(saved[0]!.systemId).toBe("psp");
     // Positions should be back to defaults
-    const upDefault = DEFAULT_LAYOUT.find((b) => b.id === "up")!;
-    const upRestored = saved[0]!.layout.find((b) => b.id === "up")!;
-    expect(upRestored.x).toBe(upDefault.x);
+    const dpadDefault = DEFAULT_LAYOUT.find((b) => b.id === "dpad")!;
+    const dpadRestored = saved[0]!.layout.find((b) => b.id === "dpad")!;
+    expect(dpadRestored.x).toBe(dpadDefault.x);
   });
 
-  it("dispatches keydown/keyup on mousedown/mouseup in play mode", () => {
+  it("dispatches keydown/keyup on pointerdown/pointerup in play mode", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
@@ -559,22 +591,22 @@ describe("TouchControlsOverlay", () => {
     document.addEventListener("keydown", (e) => keyEvents.push(`down:${e.key}`));
     document.addEventListener("keyup",   (e) => keyEvents.push(`up:${e.key}`));
 
-    const upEl = Array.from(container.querySelectorAll(".tc-btn")).find(
-      (el) => (el as HTMLElement).dataset.btnId === "up"
+    const aEl = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "a"
     ) as HTMLElement | undefined;
 
-    expect(upEl).toBeDefined();
-    upEl!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    upEl!.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    expect(aEl).toBeDefined();
+    aEl!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
+    aEl!.dispatchEvent(new PointerEvent("pointerup",   { bubbles: true, cancelable: true, pointerId: 1 }));
 
-    expect(keyEvents).toContain("down:ArrowUp");
-    expect(keyEvents).toContain("up:ArrowUp");
+    expect(keyEvents).toContain("down:z");
+    expect(keyEvents).toContain("up:z");
   });
 
-  it("releases the key when mouseup fires on document (cursor moved off button before release)", () => {
-    // Regression test: previously, releasing the mouse outside the button
-    // element left the key stuck in the pressed state because no document-
-    // level mouseup listener was attached in play mode.
+  it("releases the key on pointercancel (pointer capture lost mid-press)", () => {
+    // With setPointerCapture, a captured pointer fires events on the element
+    // even outside its bounds.  pointercancel covers cases like the browser
+    // stealing the pointer (scroll, zoom, incoming call, etc.).
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
@@ -587,14 +619,14 @@ describe("TouchControlsOverlay", () => {
     ) as HTMLElement | undefined;
     expect(aEl).toBeDefined();
 
-    // Press on the button
-    aEl!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    // Press button
+    aEl!.dispatchEvent(new PointerEvent("pointerdown",  { bubbles: true, cancelable: true, pointerId: 1 }));
     expect(keyEvents).toContain("down:z");
 
-    // Release mouse on the DOCUMENT (not on the element — simulates cursor drift)
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    // Pointer is cancelled (e.g. browser interrupt)
+    aEl!.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, cancelable: true, pointerId: 1 }));
 
-    // The key must have been released via the document-level listener
+    // The key must have been released
     expect(keyEvents).toContain("up:z");
   });
 
@@ -607,9 +639,9 @@ describe("TouchControlsOverlay", () => {
     document.addEventListener("keydown", (e) => keyEvents.push(e.key));
 
     const downEl = Array.from(container.querySelectorAll(".tc-btn")).find(
-      (el) => (el as HTMLElement).dataset.btnId === "down"
+      (el) => (el as HTMLElement).dataset.btnId === "b"
     ) as HTMLElement | undefined;
-    downEl?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    downEl?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
 
     expect(keyEvents).toHaveLength(0);
   });
@@ -658,6 +690,202 @@ describe("TouchControlsOverlay", () => {
     overlay.setEditing(true);
     expect(stickEl.classList.contains("tc-stick--active")).toBe(false);
   });
+
+  it("setEditing(true) releases any currently-pressed keys", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const keyEvents: string[] = [];
+    document.addEventListener("keyup", (e) => keyEvents.push(e.key));
+
+    // Press a face button
+    const aEl = Array.from(container.querySelectorAll(".tc-btn")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "a"
+    ) as HTMLElement;
+    aEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
+
+    // Enter edit mode — key should be released immediately
+    overlay.setEditing(true);
+    expect(keyEvents).toContain("z");
+  });
+});
+
+// ── TouchControlsOverlay — D-pad directional input ───────────────────────────
+
+describe("TouchControlsOverlay — D-pad directional input", () => {
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    container = makeContainer();
+  });
+
+  afterEach(() => {
+    removeContainer(container);
+    cleanLS("psp");
+  });
+
+  function getDpadEl(): HTMLElement {
+    const el = container.querySelector<HTMLElement>(".tc-dpad");
+    if (!el) throw new Error(".tc-dpad not found");
+    return el;
+  }
+
+  function mockDpadRect(el: HTMLElement, size = 120) {
+    // Place the element at (0,0) with the given size so that the centre is
+    // at (size/2, size/2) in client coordinates.
+    Object.defineProperty(el, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 0, top: 0,
+        width: size, height: size,
+        right: size, bottom: size,
+        x: 0, y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+  }
+
+  it("fires ArrowUp when pointer touches above centre", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const keys: string[] = [];
+    document.addEventListener("keydown", (e) => keys.push(e.key));
+
+    // Centre is at (60, 60). Touch at (60, 5) → dy=-55, dx=0 → up.
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(keys).toContain("ArrowUp");
+    expect(keys).not.toContain("ArrowDown");
+    overlay.destroy();
+  });
+
+  it("fires ArrowDown when pointer touches below centre", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const keys: string[] = [];
+    document.addEventListener("keydown", (e) => keys.push(e.key));
+
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 60, clientY: 115, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(keys).toContain("ArrowDown");
+    expect(keys).not.toContain("ArrowUp");
+    overlay.destroy();
+  });
+
+  it("fires ArrowLeft when pointer touches left of centre", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const keys: string[] = [];
+    document.addEventListener("keydown", (e) => keys.push(e.key));
+
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 5, clientY: 60, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(keys).toContain("ArrowLeft");
+    expect(keys).not.toContain("ArrowRight");
+    overlay.destroy();
+  });
+
+  it("fires ArrowRight when pointer touches right of centre", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const keys: string[] = [];
+    document.addEventListener("keydown", (e) => keys.push(e.key));
+
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 115, clientY: 60, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(keys).toContain("ArrowRight");
+    expect(keys).not.toContain("ArrowLeft");
+    overlay.destroy();
+  });
+
+  it("fires both ArrowUp and ArrowRight for diagonal up-right input", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const keys: string[] = [];
+    document.addEventListener("keydown", (e) => keys.push(e.key));
+
+    // Touching the top-right corner: dx=+55, dy=-55 → both up and right
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 115, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(keys).toContain("ArrowUp");
+    expect(keys).toContain("ArrowRight");
+    overlay.destroy();
+  });
+
+  it("releases direction key when pointer moves back to centre (dead zone)", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const downKeys: string[] = [];
+    const upKeys:   string[] = [];
+    document.addEventListener("keydown", (e) => downKeys.push(e.key));
+    document.addEventListener("keyup",   (e) => upKeys.push(e.key));
+
+    // Press upward
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(downKeys).toContain("ArrowUp");
+
+    // Move to dead zone near centre
+    dpad.dispatchEvent(new PointerEvent("pointermove", { clientX: 61, clientY: 59, pointerId: 1, bubbles: true }));
+    expect(upKeys).toContain("ArrowUp");
+    overlay.destroy();
+  });
+
+  it("releases all D-pad keys on pointerup", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const upKeys: string[] = [];
+    document.addEventListener("keyup", (e) => upKeys.push(e.key));
+
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    dpad.dispatchEvent(new PointerEvent("pointerup",   { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(upKeys).toContain("ArrowUp");
+    overlay.destroy();
+  });
+
+  it("does NOT fire direction keys in edit mode", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    overlay.setEditing(true);
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    const keys: string[] = [];
+    document.addEventListener("keydown", (e) => keys.push(e.key));
+
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(keys.filter((k) => k.startsWith("Arrow"))).toHaveLength(0);
+    overlay.destroy();
+  });
+
+  it("arm element gains tc-dpad__arm--active class when its direction is pressed", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+    const dpad = getDpadEl();
+    mockDpadRect(dpad);
+
+    dpad.dispatchEvent(new PointerEvent("pointerdown", { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(dpad.querySelector(".tc-dpad__arm--up")!.classList.contains("tc-dpad__arm--active")).toBe(true);
+
+    dpad.dispatchEvent(new PointerEvent("pointerup", { clientX: 60, clientY: 5, pointerId: 1, bubbles: true, cancelable: true }));
+    expect(dpad.querySelector(".tc-dpad__arm--up")!.classList.contains("tc-dpad__arm--active")).toBe(false);
+    overlay.destroy();
+  });
 });
 
 // ── TouchControlsOverlay — orientation switching ──────────────────────────────
@@ -702,34 +930,34 @@ describe("TouchControlsOverlay — orientation switching", () => {
 
     // Save a portrait-specific position so we can detect which layout loaded
     const portraitLayout = DEFAULT_PORTRAIT_LAYOUT.map((b) => ({ ...b }));
-    const upBtn = portraitLayout.find((b) => b.id === "up")!;
-    upBtn.x = 99;
+    const dpadBtn = portraitLayout.find((b) => b.id === "dpad")!;
+    dpadBtn.x = 99;
     saveLayout("psp", portraitLayout, true);
 
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
-    const upEl = Array.from(container.querySelectorAll(".tc-btn")).find(
-      (el) => (el as HTMLElement).dataset.btnId === "up"
+    const dpadEl = Array.from(container.querySelectorAll(".tc-dpad")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "dpad"
     ) as HTMLElement | undefined;
 
-    expect(upEl?.style.left).toBe("99%");
+    expect(dpadEl?.style.left).toBe("99%");
   });
 
   it("rebuilds with portrait layout when a resize event switches to portrait", () => {
     // Save a distinct portrait position so we can detect the rebuild
     const portraitLayout = DEFAULT_PORTRAIT_LAYOUT.map((b) => ({ ...b }));
-    portraitLayout.find((b) => b.id === "up")!.x = 42;
+    portraitLayout.find((b) => b.id === "dpad")!.x = 42;
     saveLayout("psp", portraitLayout, true);
 
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
     // Confirm we started in landscape
-    const upElBefore = Array.from(container.querySelectorAll(".tc-btn")).find(
-      (el) => (el as HTMLElement).dataset.btnId === "up"
+    const dpadBefore = Array.from(container.querySelectorAll(".tc-dpad")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "dpad"
     ) as HTMLElement | undefined;
-    expect(upElBefore?.style.left).not.toBe("42%");
+    expect(dpadBefore?.style.left).not.toBe("42%");
 
     // Switch to portrait and fire resize
     vi.stubGlobal("matchMedia", (query: string) => ({
@@ -745,10 +973,10 @@ describe("TouchControlsOverlay — orientation switching", () => {
     window.dispatchEvent(new Event("resize"));
 
     // After rebuild the overlay should reflect the portrait layout
-    const upElAfter = Array.from(container.querySelectorAll(".tc-btn")).find(
-      (el) => (el as HTMLElement).dataset.btnId === "up"
+    const dpadAfter = Array.from(container.querySelectorAll(".tc-dpad")).find(
+      (el) => (el as HTMLElement).dataset.btnId === "dpad"
     ) as HTMLElement | undefined;
-    expect(upElAfter?.style.left).toBe("42%");
+    expect(dpadAfter?.style.left).toBe("42%");
 
     overlay.destroy();
   });
@@ -786,45 +1014,24 @@ describe("TouchControlsOverlay — analog stick active class", () => {
     cleanLS("psp");
   });
 
-  it("adds tc-stick--active on mousedown and removes it on mouseup", () => {
+  it("adds tc-stick--active on pointerdown and removes it on pointerup", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
     const stickEl = container.querySelector<HTMLElement>(".tc-stick")!;
     expect(stickEl).not.toBeNull();
 
-    stickEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    stickEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
     expect(stickEl.classList.contains("tc-stick--active")).toBe(true);
 
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    stickEl.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 1 }));
     expect(stickEl.classList.contains("tc-stick--active")).toBe(false);
   });
 });
 
-// ── Multi-touch handling ──────────────────────────────────────────────────────
+// ── Multi-pointer handling ────────────────────────────────────────────────────
 
-/**
- * Build a minimal Touch-like object for use in synthetic TouchEvents.
- * jsdom does not fully implement Touch, so we cast as needed.
- */
-function makeTouch(id: number, target: EventTarget): Touch {
-  return {
-    identifier:   id,
-    target,
-    clientX:      0,
-    clientY:      0,
-    screenX:      0,
-    screenY:      0,
-    pageX:        0,
-    pageY:        0,
-    radiusX:      1,
-    radiusY:      1,
-    rotationAngle: 0,
-    force:        1,
-  } as Touch;
-}
-
-describe("TouchControlsOverlay — multi-touch", () => {
+describe("TouchControlsOverlay — multi-pointer", () => {
   let container: HTMLElement;
 
   beforeEach(() => {
@@ -845,102 +1052,68 @@ describe("TouchControlsOverlay — multi-touch", () => {
     return el;
   }
 
-  it("pressing a button with two simultaneous touches fires keydown only once", () => {
+  it("pressing a button with two simultaneous pointers fires keydown only once", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
     const keyEvents: string[] = [];
     document.addEventListener("keydown", (e) => keyEvents.push(e.key));
 
-    const upEl = getButtonEl("up");
-    const t1 = makeTouch(1, upEl);
-    const t2 = makeTouch(2, upEl);
+    const aEl = getButtonEl("a");
 
-    // Simulate two fingers landing simultaneously
-    upEl.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t1, t2],
-      touches: [t1, t2],
-    }));
+    // Two pointers land on the same button
+    aEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
+    aEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 2 }));
 
-    // Only one keydown should fire (not two)
-    expect(keyEvents.filter((k) => k === "ArrowUp")).toHaveLength(1);
-
-    document.removeEventListener("keydown", () => {});
+    // Only one keydown should fire (pressKey guard: key already in _pressedKeys)
+    expect(keyEvents.filter((k) => k === "z")).toHaveLength(1);
   });
 
-  it("key stays pressed when first of two simultaneous touches ends", () => {
+  it("key stays pressed when first of two simultaneous pointers ends", () => {
     const overlay = new TouchControlsOverlay(container, "psp", false);
     overlay.show();
 
-    const keyEvents: string[] = [];
-    document.addEventListener("keydown",  (e) => keyEvents.push(`down:${e.key}`));
-    document.addEventListener("keyup",    (e) => keyEvents.push(`up:${e.key}`));
-
-    const upEl = getButtonEl("up");
-    const t1 = makeTouch(1, upEl);
-    const t2 = makeTouch(2, upEl);
-
-    // Both fingers land
-    upEl.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t1, t2],
-      touches: [t1, t2],
-    }));
-
-    // First finger lifts — key must NOT be released yet
-    upEl.dispatchEvent(new TouchEvent("touchend", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t1],
-      touches: [t2],
-    }));
-
-    expect(keyEvents.some((e) => e.startsWith("up:"))).toBe(false);
-
-    // Second finger lifts — now the key should be released
-    upEl.dispatchEvent(new TouchEvent("touchend", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t2],
-      touches: [],
-    }));
-
-    expect(keyEvents).toContain("up:ArrowUp");
-  });
-
-  it("touchcancel releases key only after all active touches are cancelled", () => {
-    const overlay = new TouchControlsOverlay(container, "psp", false);
-    overlay.show();
-
-    const keyEvents: string[] = [];
-    document.addEventListener("keyup", (e) => keyEvents.push(e.key));
+    const downKeys: string[] = [];
+    const upKeys:   string[] = [];
+    document.addEventListener("keydown", (e) => downKeys.push(`down:${e.key}`));
+    document.addEventListener("keyup",   (e) => upKeys.push(`up:${e.key}`));
 
     const aEl = getButtonEl("a");
-    const t1 = makeTouch(3, aEl);
-    const t2 = makeTouch(4, aEl);
 
-    // Two touches start
-    aEl.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t1, t2],
-      touches: [t1, t2],
-    }));
+    // Both pointers land
+    aEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
+    aEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 2 }));
 
-    // One touch is cancelled
-    aEl.dispatchEvent(new TouchEvent("touchcancel", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t1],
-      touches: [t2],
-    }));
+    // First pointer lifts — key must NOT be released yet (pointer 2 still active)
+    aEl.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 1 }));
+    expect(upKeys.some((e) => e.startsWith("up:"))).toBe(false);
+
+    // Second pointer lifts — now the key should be released
+    aEl.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 2 }));
+    expect(upKeys).toContain("up:z");
+  });
+
+  it("pointercancel releases key only after all active pointers are cancelled", () => {
+    const overlay = new TouchControlsOverlay(container, "psp", false);
+    overlay.show();
+
+    const upKeys: string[] = [];
+    document.addEventListener("keyup", (e) => upKeys.push(e.key));
+
+    const bEl = getButtonEl("b");
+
+    // Two pointers start
+    bEl.dispatchEvent(new PointerEvent("pointerdown",  { bubbles: true, cancelable: true, pointerId: 3 }));
+    bEl.dispatchEvent(new PointerEvent("pointerdown",  { bubbles: true, cancelable: true, pointerId: 4 }));
+
+    // One pointer cancelled
+    bEl.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, cancelable: true, pointerId: 3 }));
     // Key must still be held
-    expect(keyEvents).not.toContain("z");
+    expect(upKeys).not.toContain("x");
 
-    // Second touch is cancelled
-    aEl.dispatchEvent(new TouchEvent("touchcancel", {
-      bubbles: true, cancelable: true,
-      changedTouches: [t2],
-      touches: [],
-    }));
+    // Second pointer cancelled
+    bEl.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, cancelable: true, pointerId: 4 }));
     // Now the key should be released
-    expect(keyEvents).toContain("z");
+    expect(upKeys).toContain("x");
   });
 });

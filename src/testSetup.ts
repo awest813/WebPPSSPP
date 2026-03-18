@@ -63,6 +63,24 @@ console.warn = ((...args: unknown[]) => {
   originalConsoleWarn(...args);
 }) as typeof console.warn;
 
+// ── Pointer capture stubs ─────────────────────────────────────────────────────
+
+// jsdom does not implement the Pointer Events capture API.  Provide no-op
+// stubs so that code calling setPointerCapture/releasePointerCapture does not
+// throw in the test environment.  Actual capture routing is handled by the
+// browser; tests simulate it by dispatching events directly on the element.
+if (typeof HTMLElement !== "undefined") {
+  if (!HTMLElement.prototype.setPointerCapture) {
+    HTMLElement.prototype.setPointerCapture = () => {};
+  }
+  if (!HTMLElement.prototype.releasePointerCapture) {
+    HTMLElement.prototype.releasePointerCapture = () => {};
+  }
+  if (!HTMLElement.prototype.hasPointerCapture) {
+    HTMLElement.prototype.hasPointerCapture = () => false;
+  }
+}
+
 // ── window.matchMedia stub ────────────────────────────────────────────────────
 
 // jsdom does not implement window.matchMedia.  Provide a minimal stub that

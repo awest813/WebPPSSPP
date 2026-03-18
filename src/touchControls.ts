@@ -1,22 +1,30 @@
 /**
  * touchControls.ts — Virtual gamepad overlay for touch devices
  *
- * Renders a set of draggable virtual buttons over the emulator canvas.
- * Button presses are forwarded to the emulator via synthetic keyboard events,
- * matching RetroArch/EmulatorJS default key bindings.
+ * Renders a virtual gamepad over the emulator canvas.  Button presses are
+ * forwarded to the emulator via synthetic keyboard events, matching the
+ * RetroArch/EmulatorJS default key bindings.
+ *
+ * Overhaul highlights:
+ *   - D-pad is now a single cross-shaped element that supports 8-way
+ *     (diagonal) directional input via angle-based detection.  The four
+ *     separate circular arrow buttons have been replaced by this element.
+ *   - All event handling has been migrated from the legacy split
+ *     (touchstart/touchmove/touchend + mousedown/mousemove/mouseup) to the
+ *     unified Pointer Events API (pointerdown/pointermove/pointerup/
+ *     pointercancel).  setPointerCapture() ensures pressed inputs remain
+ *     tracked even when the pointer slides outside the element boundary —
+ *     no document-level listener hacks required.
+ *   - Multi-touch is handled by tracking a Set<number> of active pointer IDs
+ *     instead of an integer counter, making the semantics explicit.
  *
  * Layout profiles are stored per system in localStorage so the user's
- * arrangement persists across sessions. Each button is independently
+ * arrangement persists across sessions.  Each button is independently
  * positioned as a percentage of the overlay dimensions, so layouts work
  * across different screen sizes and orientations.
  *
  * Haptic feedback via navigator.vibrate() fires on button press/release
  * when enabled — only on Android Chrome (iOS silently ignores it).
- *
- * The overlay supports a virtual analog stick ("stick" button type) that
- * renders a draggable joystick and fires keyboard events for the four
- * directional stick inputs (stick_up/stick_down/stick_left/stick_right),
- * matching the EmulatorJS default analog-as-keys mapping (t/g/f/h).
  */
 
 // ── Key bindings (EmulatorJS defaults) ────────────────────────────────────────
@@ -30,13 +38,16 @@
  *   button 9  (Triangle/X) → a
  *   button 1  (Square/Y)   → s
  *   button 10 (L)          → q
- *   button 11 (R)          → e   ← fixed from previous 'w'
- *   button 2  (Select)     → v   ← fixed from previous 'Shift'
+ *   button 11 (R)          → e
+ *   button 2  (Select)     → v
  *   button 3  (Start)      → Enter
  *   analog right (16)      → h
  *   analog left  (17)      → f
  *   analog down  (18)      → g
  *   analog up    (19)      → t
+ *
+ * The D-pad directions (up/down/left/right) are also present here so that
+ * the cross-shaped D-pad element can fire the correct key events.
  */
 const KEY_MAP: Record<string, { key: string; code: string }> = {
   up:          { key: "ArrowUp",    code: "ArrowUp"    },
@@ -75,30 +86,34 @@ export interface TouchButtonDef {
    * - `"stick"`            — a draggable analog joystick.  The `id` must be
    *   `"stick"` so the overlay can map directional movement to
    *   `stick_up/down/left/right` in KEY_MAP.
+   * - `"dpad"`             — a cross-shaped directional pad that fires
+   *   `up/down/left/right` (and diagonals) based on touch angle.
    */
-  type?: "button" | "stick";
+  type?: "button" | "stick" | "dpad";
 }
 
-/** Default button layout for landscape orientation. */
+/**
+ * Default button layout for landscape orientation.
+ *
+ * The D-pad is a single cross-shaped element positioned at the bottom-left.
+ * Ten elements total: dpad, 4 face buttons, 2 shoulders, 2 meta, 1 stick.
+ */
 export const DEFAULT_LAYOUT: TouchButtonDef[] = [
-  // D-pad cluster — bottom left
-  { id: "up",     label: "▲",   x: 11,  y: 52, size: 46, color: "rgba(60,60,80,0.82)"   },
-  { id: "down",   label: "▼",   x: 11,  y: 78, size: 46, color: "rgba(60,60,80,0.82)"   },
-  { id: "left",   label: "◀",   x: 5.5, y: 65, size: 46, color: "rgba(60,60,80,0.82)"   },
-  { id: "right",  label: "▶",   x: 16.5,y: 65, size: 46, color: "rgba(60,60,80,0.82)"   },
+  // D-pad — single cross element, bottom-left
+  { id: "dpad",   label: "",    x: 11,  y: 65, size: 120, color: "rgba(35,35,55,0.85)", type: "dpad" },
   // Face buttons — bottom right (PSP/PlayStation layout: ○ top-right, × bottom, □ left, △ top)
-  { id: "a",      label: "○",   x: 90,  y: 65, size: 48, color: "rgba(190,50,50,0.82)"  },
-  { id: "b",      label: "×",   x: 83,  y: 78, size: 48, color: "rgba(190,130,30,0.82)" },
-  { id: "x",      label: "△",   x: 83,  y: 52, size: 48, color: "rgba(50,100,200,0.82)" },
-  { id: "y",      label: "□",   x: 76,  y: 65, size: 48, color: "rgba(50,160,80,0.82)"  },
+  { id: "a",      label: "○",   x: 90,  y: 65, size: 48,  color: "rgba(190,50,50,0.82)"  },
+  { id: "b",      label: "×",   x: 83,  y: 78, size: 48,  color: "rgba(190,130,30,0.82)" },
+  { id: "x",      label: "△",   x: 83,  y: 52, size: 48,  color: "rgba(50,100,200,0.82)" },
+  { id: "y",      label: "□",   x: 76,  y: 65, size: 48,  color: "rgba(50,160,80,0.82)"  },
   // Shoulder buttons — top corners
-  { id: "l",      label: "L",   x: 3,   y: 8,  size: 52, color: "rgba(40,40,60,0.85)"   },
-  { id: "r",      label: "R",   x: 93,  y: 8,  size: 52, color: "rgba(40,40,60,0.85)"   },
+  { id: "l",      label: "L",   x: 3,   y: 8,  size: 52,  color: "rgba(40,40,60,0.85)"   },
+  { id: "r",      label: "R",   x: 93,  y: 8,  size: 52,  color: "rgba(40,40,60,0.85)"   },
   // Meta buttons — bottom centre
-  { id: "select", label: "SEL", x: 39,  y: 90, size: 40, color: "rgba(40,40,60,0.85)"   },
-  { id: "start",  label: "STA", x: 56,  y: 90, size: 40, color: "rgba(40,40,60,0.85)"   },
-  // Analog stick (PSP nub) — bottom left, below D-pad
-  { id: "stick",  label: "",    x: 27,  y: 75, size: 78, color: "rgba(35,35,55,0.80)", type: "stick" },
+  { id: "select", label: "SEL", x: 39,  y: 90, size: 40,  color: "rgba(40,40,60,0.85)"   },
+  { id: "start",  label: "STA", x: 56,  y: 90, size: 40,  color: "rgba(40,40,60,0.85)"   },
+  // Analog stick (PSP nub) — bottom left, to the right of the D-pad
+  { id: "stick",  label: "",    x: 27,  y: 75, size: 78,  color: "rgba(35,35,55,0.80)", type: "stick" },
 ];
 
 /**
@@ -109,24 +124,21 @@ export const DEFAULT_LAYOUT: TouchButtonDef[] = [
  * so they remain accessible without awkward finger stretching.
  */
 export const DEFAULT_PORTRAIT_LAYOUT: TouchButtonDef[] = [
-  // D-pad cluster — lower-left, spread to use the wider relative thumb zone
-  { id: "up",     label: "▲",   x: 15,  y: 58, size: 46, color: "rgba(60,60,80,0.82)"   },
-  { id: "down",   label: "▼",   x: 15,  y: 80, size: 46, color: "rgba(60,60,80,0.82)"   },
-  { id: "left",   label: "◀",   x: 7,   y: 69, size: 46, color: "rgba(60,60,80,0.82)"   },
-  { id: "right",  label: "▶",   x: 23,  y: 69, size: 46, color: "rgba(60,60,80,0.82)"   },
+  // D-pad — lower-left, wider than landscape to use the full thumb zone
+  { id: "dpad",   label: "",    x: 15,  y: 70, size: 120, color: "rgba(35,35,55,0.85)", type: "dpad" },
   // Face buttons — lower-right (PSP/PlayStation layout)
-  { id: "a",      label: "○",   x: 88,  y: 69, size: 48, color: "rgba(190,50,50,0.82)"  },
-  { id: "b",      label: "×",   x: 80,  y: 80, size: 48, color: "rgba(190,130,30,0.82)" },
-  { id: "x",      label: "△",   x: 80,  y: 58, size: 48, color: "rgba(50,100,200,0.82)" },
-  { id: "y",      label: "□",   x: 72,  y: 69, size: 48, color: "rgba(50,160,80,0.82)"  },
+  { id: "a",      label: "○",   x: 88,  y: 69, size: 48,  color: "rgba(190,50,50,0.82)"  },
+  { id: "b",      label: "×",   x: 80,  y: 80, size: 48,  color: "rgba(190,130,30,0.82)" },
+  { id: "x",      label: "△",   x: 80,  y: 58, size: 48,  color: "rgba(50,100,200,0.82)" },
+  { id: "y",      label: "□",   x: 72,  y: 69, size: 48,  color: "rgba(50,160,80,0.82)"  },
   // Shoulder buttons — mid-screen corners so thumbs can reach without moving the hand
-  { id: "l",      label: "L",   x: 4,   y: 42, size: 52, color: "rgba(40,40,60,0.85)"   },
-  { id: "r",      label: "R",   x: 92,  y: 42, size: 52, color: "rgba(40,40,60,0.85)"   },
+  { id: "l",      label: "L",   x: 4,   y: 42, size: 52,  color: "rgba(40,40,60,0.85)"   },
+  { id: "r",      label: "R",   x: 92,  y: 42, size: 52,  color: "rgba(40,40,60,0.85)"   },
   // Meta buttons — bottom centre
-  { id: "select", label: "SEL", x: 37,  y: 91, size: 40, color: "rgba(40,40,60,0.85)"   },
-  { id: "start",  label: "STA", x: 57,  y: 91, size: 40, color: "rgba(40,40,60,0.85)"   },
-  // Analog stick (PSP nub) — bottom left, to the right of D-pad
-  { id: "stick",  label: "",    x: 30,  y: 76, size: 78, color: "rgba(35,35,55,0.80)", type: "stick" },
+  { id: "select", label: "SEL", x: 37,  y: 91, size: 40,  color: "rgba(40,40,60,0.85)"   },
+  { id: "start",  label: "STA", x: 57,  y: 91, size: 40,  color: "rgba(40,40,60,0.85)"   },
+  // Analog stick — to the right of the D-pad
+  { id: "stick",  label: "",    x: 30,  y: 76, size: 78,  color: "rgba(35,35,55,0.80)", type: "stick" },
 ];
 
 // ── Layout persistence ────────────────────────────────────────────────────────
@@ -218,10 +230,10 @@ export function vibrateRelease(): void {
  *
  * Usage:
  *   const overlay = new TouchControlsOverlay(container, systemId);
- *   overlay.show();          // show during gameplay
- *   overlay.hide();          // hide when returning to library
+ *   overlay.show();           // show during gameplay
+ *   overlay.hide();           // hide when returning to library
  *   overlay.setEditing(true); // enter drag-to-reposition mode
- *   overlay.destroy();       // clean up on page unload
+ *   overlay.destroy();        // clean up on page unload
  */
 export class TouchControlsOverlay {
   private _container: HTMLElement;
@@ -237,6 +249,11 @@ export class TouchControlsOverlay {
   private _pressedKeys = new Set<string>();
   private _portrait: boolean;
   private _orientationHandler: (() => void) | null = null;
+  /**
+   * Cleanup callback set by _bindDpad to release its internal active-direction
+   * Set when keys need to be force-released (e.g. entering edit mode).
+   */
+  private _dpadCleanup: (() => void) | null = null;
 
   /** Called when the layout is saved (after drag ends in edit mode). */
   onLayoutSaved?: (systemId: string, layout: TouchButtonDef[]) => void;
@@ -279,7 +296,7 @@ export class TouchControlsOverlay {
     this._hapticEnabled = enabled;
   }
 
-  /** Change button opacity (0.1–1.0) at runtime — rebuilds DOM if visible. */
+  /** Change button opacity (0.1–1.0) at runtime. */
   setOpacity(opacity: number): void {
     const clamped = Math.max(0.1, Math.min(1, opacity));
     if (clamped === this._opacity) return;
@@ -313,16 +330,22 @@ export class TouchControlsOverlay {
   hide(): void {
     if (!this._visible) return;
     this._visible = false;
-    // Leaving gameplay should always exit edit mode so the next session
+    // Leaving gameplay always exits edit mode so the next session
     // starts in normal play mode.
     this._editing = false;
     this._releaseAllKeys();
     this._overlay?.remove();
     this._overlay = null;
     this._buttonEls.clear();
+    this._dpadCleanup = null;
   }
 
   setEditing(editing: boolean): void {
+    // Release all currently-held inputs before entering edit mode so that no
+    // key gets stuck while the user is dragging buttons around.
+    if (editing && !this._editing) {
+      this._releaseAllKeys();
+    }
     this._editing = editing;
     if (!this._overlay) return;
     this._overlay.classList.toggle("touch-controls--editing", editing);
@@ -371,6 +394,7 @@ export class TouchControlsOverlay {
     this._overlay?.remove();
     this._overlay = null;
     this._buttonEls.clear();
+    this._dpadCleanup = null;
     this._build();
   }
 
@@ -381,9 +405,10 @@ export class TouchControlsOverlay {
     overlay.style.setProperty("--tc-opacity", String(this._opacity));
 
     for (const btn of this._buttons) {
-      const el = btn.type === "stick"
-        ? this._buildStick(btn)
-        : this._buildButton(btn);
+      const el =
+        btn.type === "stick" ? this._buildStick(btn) :
+        btn.type === "dpad"  ? this._buildDpad(btn)  :
+        this._buildButton(btn);
       overlay.appendChild(el);
       this._buttonEls.set(btn.id, el);
     }
@@ -421,6 +446,204 @@ export class TouchControlsOverlay {
   }
 
   /**
+   * Build a cross-shaped directional pad element.
+   *
+   * The outer element is a square whose full bounding box acts as the touch
+   * target.  Five inner divs (up/down/left/right arms + center) form the
+   * visible cross/plus shape.  Touches anywhere in the bounding box fire
+   * directional keys based on the angle from the center; corners naturally
+   * produce diagonal (two-key) inputs.
+   */
+  private _buildDpad(btn: TouchButtonDef): HTMLElement {
+    const scaled = Math.round(btn.size * this._scale);
+    const outer = document.createElement("div");
+    outer.className = "tc-dpad";
+    outer.dataset.btnId = btn.id;
+    outer.style.cssText = [
+      `left:${btn.x}%`,
+      `top:${btn.y}%`,
+      `width:${scaled}px`,
+      `height:${scaled}px`,
+      `margin-left:-${scaled / 2}px`,
+      `margin-top:-${scaled / 2}px`,
+    ].join(";");
+
+    // Create the four directional arm divs and the center piece.
+    const armDirs: { id: "up" | "down" | "left" | "right"; label: string }[] = [
+      { id: "up",    label: "▲" },
+      { id: "down",  label: "▼" },
+      { id: "left",  label: "◀" },
+      { id: "right", label: "▶" },
+    ];
+    const arms = new Map<string, HTMLElement>();
+    for (const { id, label } of armDirs) {
+      const arm = document.createElement("div");
+      arm.className = `tc-dpad__arm tc-dpad__arm--${id}`;
+      arm.textContent = label;
+      arm.style.background = btn.color;
+      outer.appendChild(arm);
+      arms.set(id, arm);
+    }
+    const center = document.createElement("div");
+    center.className = "tc-dpad__center";
+    center.style.background = btn.color;
+    outer.appendChild(center);
+
+    this._bindDpad(outer, arms, btn, scaled);
+    return outer;
+  }
+
+  /**
+   * Bind pointer events to the cross-shaped D-pad element.
+   *
+   * Direction is determined by the angle of the pointer relative to the
+   * element's centre.  Two keys fire simultaneously for diagonal inputs
+   * (e.g. up + right when touching the top-right quadrant).
+   *
+   * A dead-zone radius (12 % of half the element size) suppresses accidental
+   * firing when the finger is resting near the centre.
+   *
+   * In edit mode the element drags as a whole unit instead of firing keys.
+   */
+  private _bindDpad(
+    outer: HTMLElement,
+    arms: Map<string, HTMLElement>,
+    btn: TouchButtonDef,
+    scaledSize: number,
+  ): void {
+    const DEAD_ZONE  = scaledSize * 0.06; // 6% of element size
+    // A direction fires when its component exceeds 40% of the distance from
+    // centre.  This gives ~24° pure-cardinal zones and ~45° diagonal zones.
+    const DIAGONAL_THRESHOLD = 0.4;
+
+    const active = new Set<string>(); // D-pad directions currently pressed
+
+    // Expose a cleanup function so _releaseAllKeys() can clear this Set.
+    this._dpadCleanup = () => {
+      for (const id of [...active]) {
+        active.delete(id);
+        arms.get(id)?.classList.remove("tc-dpad__arm--active");
+      }
+      outer.classList.remove("tc-dpad--active");
+    };
+
+    const fireDir = (id: string) => {
+      if (active.has(id) || this._editing) return;
+      active.add(id);
+      const kd = KEY_MAP[id];
+      if (!kd) return;
+      this._pressedKeys.add(id);
+      if (this._hapticEnabled) vibratePress();
+      arms.get(id)?.classList.add("tc-dpad__arm--active");
+      outer.classList.add("tc-dpad--active");
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: kd.key, code: kd.code, bubbles: true, cancelable: true }));
+    };
+
+    const releaseDir = (id: string) => {
+      if (!active.has(id)) return;
+      active.delete(id);
+      const kd = KEY_MAP[id];
+      if (!kd) return;
+      this._pressedKeys.delete(id);
+      if (this._hapticEnabled) vibrateRelease();
+      arms.get(id)?.classList.remove("tc-dpad__arm--active");
+      if (active.size === 0) outer.classList.remove("tc-dpad--active");
+      document.dispatchEvent(new KeyboardEvent("keyup", { key: kd.key, code: kd.code, bubbles: true, cancelable: true }));
+    };
+
+    const releaseAll = () => {
+      for (const id of [...active]) releaseDir(id);
+    };
+
+    /** Compute which directions should be active for a pointer at (cx, cy). */
+    const getDirs = (cx: number, cy: number): Set<string> => {
+      const rect = outer.getBoundingClientRect();
+      const dx   = cx - (rect.left + rect.width  / 2);
+      const dy   = cy - (rect.top  + rect.height / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const dirs = new Set<string>();
+      if (dist < DEAD_ZONE) return dirs;
+      if (dy < -dist * DIAGONAL_THRESHOLD) dirs.add("up");
+      if (dy >  dist * DIAGONAL_THRESHOLD) dirs.add("down");
+      if (dx < -dist * DIAGONAL_THRESHOLD) dirs.add("left");
+      if (dx >  dist * DIAGONAL_THRESHOLD) dirs.add("right");
+      return dirs;
+    };
+
+    const updateDirs = (cx: number, cy: number) => {
+      const newDirs = getDirs(cx, cy);
+      // Release directions no longer active
+      for (const id of [...active]) {
+        if (!newDirs.has(id)) releaseDir(id);
+      }
+      // Fire newly active directions
+      for (const id of newDirs) fireDir(id);
+    };
+
+    // ── Edit-mode drag ────────────────────────────────────────────────────
+    let dragPointerId = -1;
+    let dragStartX = 0, dragStartY = 0;
+    let origX = btn.x, origY = btn.y;
+
+    // ── Play-mode pointer tracking ────────────────────────────────────────
+    // Track only the first pointer that lands on the D-pad; subsequent
+    // simultaneous pointers are ignored (multi-finger D-pad isn't useful).
+    let playPointerId = -1;
+
+    outer.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      outer.setPointerCapture(e.pointerId);
+
+      if (this._editing) {
+        if (dragPointerId !== -1) return; // already dragging
+        dragPointerId = e.pointerId;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        origX = btn.x;
+        origY = btn.y;
+        outer.style.cursor = "grabbing";
+        return;
+      }
+
+      if (playPointerId !== -1) return; // already tracking a pointer
+      playPointerId = e.pointerId;
+      updateDirs(e.clientX, e.clientY);
+    }, { passive: false });
+
+    outer.addEventListener("pointermove", (e) => {
+      if (dragPointerId === e.pointerId) {
+        if (!this._overlay) return;
+        const rect = this._overlay.getBoundingClientRect();
+        btn.x = Math.max(0, Math.min(100, origX + ((e.clientX - dragStartX) / rect.width)  * 100));
+        btn.y = Math.max(0, Math.min(100, origY + ((e.clientY - dragStartY) / rect.height) * 100));
+        outer.style.left = `${btn.x}%`;
+        outer.style.top  = `${btn.y}%`;
+        return;
+      }
+      if (e.pointerId === playPointerId) {
+        updateDirs(e.clientX, e.clientY);
+      }
+    });
+
+    const onPointerEnd = (e: PointerEvent) => {
+      if (dragPointerId === e.pointerId) {
+        dragPointerId = -1;
+        outer.style.cursor = "grab";
+        saveLayout(this._systemId, this._buttons, this._portrait);
+        this.onLayoutSaved?.(this._systemId, this._buttons);
+        return;
+      }
+      if (e.pointerId === playPointerId) {
+        playPointerId = -1;
+        releaseAll();
+      }
+    };
+
+    outer.addEventListener("pointerup",     onPointerEnd);
+    outer.addEventListener("pointercancel", onPointerEnd);
+  }
+
+  /**
    * Build a draggable analog joystick element.
    *
    * The stick zone is a fixed outer circle.  A smaller inner dot ("knob")
@@ -454,9 +677,9 @@ export class TouchControlsOverlay {
   }
 
   private _bindStick(outer: HTMLElement, knob: HTMLElement, btn: TouchButtonDef, scaledSize: number): void {
-    const radius     = scaledSize / 2;
-    const maxMove    = radius * 0.52;  // knob travel range
-    const deadZone   = 0.25;           // fraction of maxMove before input fires
+    const radius   = scaledSize / 2;
+    const maxMove  = radius * 0.52;  // knob travel range
+    const deadZone = 0.25;           // fraction of maxMove before input fires
 
     // Currently-active stick key IDs (stick_up / stick_down / etc.)
     const active = new Set<string>();
@@ -486,43 +709,12 @@ export class TouchControlsOverlay {
       knob.style.transform = "translate(-50%, -50%)";
     };
 
-    // Edit-mode drag (reposition the whole stick element)
-    let dragActive = false;
-    let dragStartX = 0, dragStartY = 0;
-    let origX = btn.x, origY = btn.y;
-
-    const onEditDragStart = (cx: number, cy: number) => {
-      if (!this._editing) return false;
-      dragActive = true;
-      dragStartX = cx; dragStartY = cy;
-      origX = btn.x;   origY = btn.y;
-      outer.style.cursor = "grabbing";
-      return true;
-    };
-    const onEditDragMove = (cx: number, cy: number) => {
-      if (!dragActive || !this._overlay) return;
-      const rect = this._overlay.getBoundingClientRect();
-      btn.x = Math.max(0, Math.min(100, origX + ((cx - dragStartX) / rect.width)  * 100));
-      btn.y = Math.max(0, Math.min(100, origY + ((cy - dragStartY) / rect.height) * 100));
-      outer.style.left = `${btn.x}%`;
-      outer.style.top  = `${btn.y}%`;
-    };
-    const onEditDragEnd = () => {
-      if (!dragActive) return;
-      dragActive = false;
-      outer.style.cursor = "grab";
-      saveLayout(this._systemId, this._buttons, this._portrait);
-      this.onLayoutSaved?.(this._systemId, this._buttons);
-    };
-
-    // Play-mode: track touch within the joystick zone and fire keys
-    let playActive = false;
     const onPlayMove = (cx: number, cy: number) => {
       if (this._editing) return;
-      const rect = outer.getBoundingClientRect();
-      const dx = cx - (rect.left + rect.width  / 2);
-      const dy = cy - (rect.top  + rect.height / 2);
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const rect   = outer.getBoundingClientRect();
+      const dx     = cx - (rect.left + rect.width  / 2);
+      const dy     = cy - (rect.top  + rect.height / 2);
+      const dist   = Math.sqrt(dx * dx + dy * dy);
 
       // Clamp knob within the travel range
       const clamped = Math.min(dist, maxMove);
@@ -532,130 +724,91 @@ export class TouchControlsOverlay {
       knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
 
       const threshold = maxMove * deadZone;
-      // Right / Left
       if (dx >  threshold) fireKey("stick_right"); else releaseKey("stick_right");
       if (dx < -threshold) fireKey("stick_left");  else releaseKey("stick_left");
-      // Down / Up
       if (dy >  threshold) fireKey("stick_down");  else releaseKey("stick_down");
       if (dy < -threshold) fireKey("stick_up");    else releaseKey("stick_up");
     };
 
-    const setPlayActive = (active: boolean) => {
-      playActive = active;
-      outer.classList.toggle("tc-stick--active", active);
+    const setPlayActive = (isActive: boolean) => {
+      outer.classList.toggle("tc-stick--active", isActive);
     };
 
-    // Touch handlers
-    outer.addEventListener("touchstart", (e) => {
-      e.preventDefault();
-      const first = e.changedTouches[0]!;
-      if (onEditDragStart(first.clientX, first.clientY)) return;
-      setPlayActive(true);
-      onPlayMove(first.clientX, first.clientY);
-    }, { passive: false });
+    // ── Edit-mode drag ────────────────────────────────────────────────────
+    let dragPointerId = -1;
+    let dragStartX = 0, dragStartY = 0;
+    let origX = btn.x, origY = btn.y;
 
-    outer.addEventListener("touchmove", (e) => {
-      e.preventDefault();
-      const t = e.changedTouches[0]!;
-      if (dragActive) { onEditDragMove(t.clientX, t.clientY); return; }
-      if (playActive) onPlayMove(t.clientX, t.clientY);
-    }, { passive: false });
+    // ── Play-mode pointer tracking ────────────────────────────────────────
+    let playPointerId = -1;
 
-    outer.addEventListener("touchend", (e) => {
+    outer.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      onEditDragEnd();
-      setPlayActive(false);
-      releaseAll();
-    }, { passive: false });
+      outer.setPointerCapture(e.pointerId);
 
-    outer.addEventListener("touchcancel", (e) => {
-      e.preventDefault();
-      onEditDragEnd();
-      setPlayActive(false);
-      releaseAll();
-    }, { passive: false });
-
-    // Mouse fallback
-    outer.addEventListener("mousedown", (e) => {
-      if (onEditDragStart(e.clientX, e.clientY)) {
-        const onMove = (ev: MouseEvent) => onEditDragMove(ev.clientX, ev.clientY);
-        const onUp   = () => {
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          onEditDragEnd();
-        };
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
+      if (this._editing) {
+        if (dragPointerId !== -1) return;
+        dragPointerId = e.pointerId;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        origX = btn.x;
+        origY = btn.y;
+        outer.style.cursor = "grabbing";
         return;
       }
+
+      if (playPointerId !== -1) return;
+      playPointerId = e.pointerId;
       setPlayActive(true);
       onPlayMove(e.clientX, e.clientY);
-      const onMove = (ev: MouseEvent) => { if (playActive) onPlayMove(ev.clientX, ev.clientY); };
-      const onUp   = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
+    }, { passive: false });
+
+    outer.addEventListener("pointermove", (e) => {
+      if (dragPointerId === e.pointerId) {
+        if (!this._overlay) return;
+        const rect = this._overlay.getBoundingClientRect();
+        btn.x = Math.max(0, Math.min(100, origX + ((e.clientX - dragStartX) / rect.width)  * 100));
+        btn.y = Math.max(0, Math.min(100, origY + ((e.clientY - dragStartY) / rect.height) * 100));
+        outer.style.left = `${btn.x}%`;
+        outer.style.top  = `${btn.y}%`;
+        return;
+      }
+      if (e.pointerId === playPointerId) {
+        onPlayMove(e.clientX, e.clientY);
+      }
+    });
+
+    const onPointerEnd = (e: PointerEvent) => {
+      if (dragPointerId === e.pointerId) {
+        dragPointerId = -1;
+        outer.style.cursor = "grab";
+        saveLayout(this._systemId, this._buttons, this._portrait);
+        this.onLayoutSaved?.(this._systemId, this._buttons);
+        return;
+      }
+      if (e.pointerId === playPointerId) {
+        playPointerId = -1;
         setPlayActive(false);
         releaseAll();
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    });
+      }
+    };
+
+    outer.addEventListener("pointerup",     onPointerEnd);
+    outer.addEventListener("pointercancel", onPointerEnd);
   }
 
   private _bindButton(el: HTMLElement, btn: TouchButtonDef): void {
     const keyDef = KEY_MAP[btn.id];
 
-    // ── Edit mode: drag to reposition ───────────────────────────────────────
-    let dragActive = false;
-    let dragStartX = 0;
-    let dragStartY = 0;
-    let origX = btn.x;
-    let origY = btn.y;
+    // ── Edit mode: drag to reposition ────────────────────────────────────────
+    let dragPointerId = -1;
+    let dragStartX = 0, dragStartY = 0;
+    let origX = btn.x, origY = btn.y;
 
-    const onDragStart = (cx: number, cy: number) => {
-      if (!this._editing) return false;
-      dragActive = true;
-      dragStartX = cx;
-      dragStartY = cy;
-      origX = btn.x;
-      origY = btn.y;
-      el.style.cursor = "grabbing";
-      return true;
-    };
-
-    const onDragMove = (cx: number, cy: number) => {
-      if (!dragActive || !this._overlay) return;
-      const rect = this._overlay.getBoundingClientRect();
-      const dx = ((cx - dragStartX) / rect.width)  * 100;
-      const dy = ((cy - dragStartY) / rect.height) * 100;
-      btn.x = Math.max(0, Math.min(100, origX + dx));
-      btn.y = Math.max(0, Math.min(100, origY + dy));
-      el.style.left = `${btn.x}%`;
-      el.style.top  = `${btn.y}%`;
-    };
-
-    const onDragEnd = () => {
-      if (!dragActive) return;
-      dragActive = false;
-      el.style.cursor = "grab";
-      saveLayout(this._systemId, this._buttons, this._portrait);
-      this.onLayoutSaved?.(this._systemId, this._buttons);
-    };
-
-    // ── Play mode: press/release → key events ───────────────────────────────
-    // Track active touch count so that a key is only released when the last
-    // finger leaves the button. Without this, lifting one finger while a
-    // second is still on the same button would prematurely release the key.
-    //
-    // JavaScript is single-threaded; touch event handlers run serially on the
-    // event loop, so there are no concurrent-modification concerns here.
-    //
-    // The counter is guarded by Math.max(0, ...) on decrement as a safety net
-    // for browsers that occasionally fire touchend/touchcancel for a touch
-    // point that was never seen in a corresponding touchstart (e.g. when the
-    // element is created while a touch sequence is already in progress). In
-    // normal operation the counter should never go negative.
-    let activeTouchCount = 0;
+    // ── Play mode: track active pointer IDs so the key is released only
+    //   when the last finger lifts.  Using a Set of pointer IDs makes the
+    //   semantics explicit and handles simultaneous presses correctly.
+    const activePointers = new Set<number>();
 
     const pressKey = () => {
       if (this._editing || !keyDef) return;
@@ -664,114 +817,82 @@ export class TouchControlsOverlay {
       if (this._hapticEnabled) vibratePress();
       el.classList.add("tc-btn--pressed");
       document.dispatchEvent(new KeyboardEvent("keydown", {
-        key:      keyDef.key,
-        code:     keyDef.code,
-        bubbles:  true,
-        cancelable: true,
+        key: keyDef.key, code: keyDef.code, bubbles: true, cancelable: true,
       }));
     };
 
     const releaseKey = () => {
-      if (this._editing || !keyDef) return;
+      if (!keyDef) return;
       if (!this._pressedKeys.has(btn.id)) return;
       this._pressedKeys.delete(btn.id);
       if (this._hapticEnabled) vibrateRelease();
       el.classList.remove("tc-btn--pressed");
       document.dispatchEvent(new KeyboardEvent("keyup", {
-        key:      keyDef.key,
-        code:     keyDef.code,
-        bubbles:  true,
-        cancelable: true,
+        key: keyDef.key, code: keyDef.code, bubbles: true, cancelable: true,
       }));
     };
 
-    // Touch events
-    el.addEventListener("touchstart", (e) => {
+    el.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      // Use the first changed touch for drag-start tracking; press the key
-      // when the first finger lands on this button.
-      const first = e.changedTouches[0]!;
-      if (!onDragStart(first.clientX, first.clientY)) {
-        activeTouchCount += e.changedTouches.length;
-        pressKey();
-      }
-    }, { passive: false });
+      el.setPointerCapture(e.pointerId);
 
-    el.addEventListener("touchmove", (e) => {
-      e.preventDefault();
-      const t = e.changedTouches[0]!;
-      onDragMove(t.clientX, t.clientY);
-    }, { passive: false });
-
-    el.addEventListener("touchend", (e) => {
-      e.preventDefault();
-      onDragEnd();
-      activeTouchCount = Math.max(0, activeTouchCount - e.changedTouches.length);
-      // Only release the key when the last active touch leaves the button.
-      if (activeTouchCount === 0) releaseKey();
-    }, { passive: false });
-
-    el.addEventListener("touchcancel", (e) => {
-      e.preventDefault();
-      onDragEnd();
-      activeTouchCount = Math.max(0, activeTouchCount - e.changedTouches.length);
-      if (activeTouchCount === 0) releaseKey();
-    }, { passive: false });
-
-    // Mouse events (fallback for desktop testing).
-    // Attach mousemove/mouseup to document on drag start so the button keeps
-    // tracking even when the cursor moves outside the element boundary.
-    //
-    // In play mode (not editing) we also attach a one-shot document-level
-    // mouseup listener so the key is released even when the user releases the
-    // mouse button outside the element (e.g. after accidentally drifting the
-    // cursor off the button while holding it down).  Without this, the key
-    // would remain stuck in the pressed state until the overlay is hidden or
-    // the game loses focus.
-    el.addEventListener("mousedown", (e) => {
-      if (!onDragStart(e.clientX, e.clientY)) {
-        pressKey();
-        const onPlayUp = () => {
-          document.removeEventListener("mouseup", onPlayUp);
-          releaseKey();
-        };
-        document.addEventListener("mouseup", onPlayUp);
+      if (this._editing) {
+        if (dragPointerId !== -1) return; // already dragging with another pointer
+        dragPointerId = e.pointerId;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        origX = btn.x;
+        origY = btn.y;
+        el.style.cursor = "grabbing";
         return;
       }
-      const onMove = (ev: MouseEvent) => onDragMove(ev.clientX, ev.clientY);
-      const onUp   = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        onDragEnd();
-        releaseKey();
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
+
+      activePointers.add(e.pointerId);
+      pressKey();
+    }, { passive: false });
+
+    el.addEventListener("pointermove", (e) => {
+      if (dragPointerId === e.pointerId) {
+        if (!this._overlay) return;
+        const rect = this._overlay.getBoundingClientRect();
+        btn.x = Math.max(0, Math.min(100, origX + ((e.clientX - dragStartX) / rect.width)  * 100));
+        btn.y = Math.max(0, Math.min(100, origY + ((e.clientY - dragStartY) / rect.height) * 100));
+        el.style.left = `${btn.x}%`;
+        el.style.top  = `${btn.y}%`;
+      }
     });
-    // Belt-and-suspenders: also release on mouseup fired directly on the
-    // element (covers the common case and acts as a safety net if the
-    // document-level listener is somehow missed).
-    el.addEventListener("mouseup", () => {
-      if (!dragActive) releaseKey();
-    });
+
+    const onPointerEnd = (e: PointerEvent) => {
+      if (dragPointerId === e.pointerId) {
+        dragPointerId = -1;
+        el.style.cursor = "grab";
+        saveLayout(this._systemId, this._buttons, this._portrait);
+        this.onLayoutSaved?.(this._systemId, this._buttons);
+        return;
+      }
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) releaseKey();
+    };
+
+    el.addEventListener("pointerup",     onPointerEnd);
+    el.addEventListener("pointercancel", onPointerEnd);
   }
 
-  /** Release all currently-held virtual keys (on hide or swipe-away). */
+  /** Release all currently-held virtual keys (on hide or entering edit mode). */
   private _releaseAllKeys(): void {
     for (const id of this._pressedKeys) {
       const keyDef = KEY_MAP[id];
       if (!keyDef) continue;
       document.dispatchEvent(new KeyboardEvent("keyup", {
-        key:      keyDef.key,
-        code:     keyDef.code,
-        bubbles:  true,
-        cancelable: true,
+        key: keyDef.key, code: keyDef.code, bubbles: true, cancelable: true,
       }));
     }
     this._pressedKeys.clear();
     for (const el of this._buttonEls.values()) {
       el.classList.remove("tc-btn--pressed");
     }
+    // Clear the D-pad's internal active-direction Set and arm highlighting.
+    this._dpadCleanup?.();
   }
 }
 
