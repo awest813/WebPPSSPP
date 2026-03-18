@@ -195,11 +195,11 @@ export class GameCompatibilityDb {
    * Remote entries have the highest priority — they overwrite built-in and
    * custom entries for the same game ID.
    *
-   * @param remote  Parsed JSON object that conforms to `CompatibilityDb`.
+   * @param remote  Parsed JSON value. Non-object values are ignored gracefully.
    */
-  mergeRemote(remote: CompatibilityDb): void {
+  mergeRemote(remote: unknown): void {
     if (typeof remote !== "object" || remote === null || Array.isArray(remote)) return;
-    for (const [key, entry] of Object.entries(remote)) {
+    for (const [key, entry] of Object.entries(remote as Record<string, unknown>)) {
       const k = this._normalise(key);
       if (k && typeof entry === "object" && entry !== null) {
         this._db[k] = entry as CompatibilityEntry;
@@ -219,10 +219,8 @@ export class GameCompatibilityDb {
     try {
       const res = await fetch(url, { mode: "cors", credentials: "omit" });
       if (!res.ok) return;
-      const data = await res.json() as unknown;
-      if (typeof data === "object" && data !== null && !Array.isArray(data)) {
-        this.mergeRemote(data as CompatibilityDb);
-      }
+      const data: unknown = await res.json();
+      this.mergeRemote(data);
     } catch { /* network error — ignore */ }
   }
 
