@@ -3144,3 +3144,326 @@ describe("openEasyNetplayModal", () => {
     }
   });
 });
+
+// ── Library keyboard / gamepad navigation ─────────────────────────────────────
+
+describe("library keyboard navigation", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    // JSDOM does not implement scrollIntoView; provide a no-op to suppress errors.
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  });
+
+  async function setupLibraryWithGames(games: GameMetadata[]) {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    const library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue(games),
+      preloadGame: vi.fn(),
+    } as unknown as GameLibrary;
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+    return app;
+  }
+
+  it("ArrowRight moves focus from first card to second card", async () => {
+    await setupLibraryWithGames([
+      makeGame("g1", "Alpha", "psp"),
+      makeGame("g2", "Beta",  "psp"),
+      makeGame("g3", "Gamma", "psp"),
+    ]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    expect(cards.length).toBe(3);
+
+    cards[0]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[1]);
+  });
+
+  it("ArrowLeft moves focus back from second card to first", async () => {
+    await setupLibraryWithGames([
+      makeGame("g1", "Alpha", "psp"),
+      makeGame("g2", "Beta",  "psp"),
+    ]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+
+    cards[1]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[0]);
+  });
+
+  it("ArrowLeft does not move focus before the first card", async () => {
+    await setupLibraryWithGames([makeGame("g1", "Alpha", "psp")]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+
+    cards[0]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[0]);
+  });
+
+  it("ArrowRight does not move focus past the last card", async () => {
+    await setupLibraryWithGames([makeGame("g1", "Alpha", "psp")]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+
+    cards[0]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[0]);
+  });
+
+  it("Home moves focus to the first card", async () => {
+    await setupLibraryWithGames([
+      makeGame("g1", "Alpha", "psp"),
+      makeGame("g2", "Beta",  "psp"),
+      makeGame("g3", "Gamma", "psp"),
+    ]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+
+    cards[2]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[0]);
+  });
+
+  it("End moves focus to the last card", async () => {
+    await setupLibraryWithGames([
+      makeGame("g1", "Alpha", "psp"),
+      makeGame("g2", "Beta",  "psp"),
+      makeGame("g3", "Gamma", "psp"),
+    ]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+
+    cards[0]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[2]);
+  });
+
+  it("navigation is not triggered when no card is focused", async () => {
+    await setupLibraryWithGames([
+      makeGame("g1", "Alpha", "psp"),
+      makeGame("g2", "Beta",  "psp"),
+    ]);
+
+    const grid = document.getElementById("library-grid")!;
+    // Focus something outside the grid
+    document.body.focus();
+    const before = document.activeElement;
+
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    // Focus should not have moved to a card
+    expect(document.activeElement).toBe(before);
+  });
+
+  it("re-rendering the library preserves keyboard navigation (wired idempotently)", async () => {
+    const games = [makeGame("g1", "Alpha", "psp"), makeGame("g2", "Beta", "psp")];
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    const library = { getAllGamesMetadata: vi.fn().mockResolvedValue(games), preloadGame: vi.fn() } as unknown as GameLibrary;
+
+    // First render
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+    // Second render (should not double-wire and should still work)
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    cards[0]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[1]);
+  });
+
+  it("ArrowUp/ArrowDown navigate across rows using position heuristic", async () => {
+    await setupLibraryWithGames([
+      makeGame("g1", "Row1Col1", "psp"),
+      makeGame("g2", "Row1Col2", "psp"),
+      makeGame("g3", "Row2Col1", "psp"),
+    ]);
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+
+    // Simulate cards laid out in two rows using getBoundingClientRect mocks.
+    // Row 1: cards[0] and cards[1] at top=0; Row 2: cards[2] at top=200.
+    vi.spyOn(cards[0]!, "getBoundingClientRect").mockReturnValue(
+      { top: 0,   left: 0,   width: 160, height: 180, right: 160, bottom: 180 } as DOMRect
+    );
+    vi.spyOn(cards[1]!, "getBoundingClientRect").mockReturnValue(
+      { top: 0,   left: 170, width: 160, height: 180, right: 330, bottom: 180 } as DOMRect
+    );
+    vi.spyOn(cards[2]!, "getBoundingClientRect").mockReturnValue(
+      { top: 200, left: 0,   width: 160, height: 180, right: 160, bottom: 380 } as DOMRect
+    );
+
+    // ArrowDown from cards[0] should land on cards[2] (same column, row below)
+    cards[0]!.focus();
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[2]);
+
+    // ArrowUp from cards[2] should return to cards[0] (same column, row above)
+    grid.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cards[0]);
+  });
+});
+
+describe("library gamepad navigation", () => {
+  let rafCallbacks: FrameRequestCallback[] = [];
+  let rafId = 0;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    rafCallbacks = [];
+    rafId = 0;
+    // JSDOM does not implement scrollIntoView; provide a no-op to suppress errors.
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    // Stub requestAnimationFrame to collect callbacks without running them
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return ++rafId;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+      // Remove any pending callback registered with that id (simplified stub)
+      rafCallbacks = rafCallbacks.filter((_, i) => i !== id - 1);
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function makeGamepad(overrides: Partial<Gamepad> = {}): Gamepad {
+    const makeBtn = (pressed: boolean) => ({ pressed, touched: pressed, value: pressed ? 1 : 0 });
+    return {
+      id: "Test Gamepad",
+      index: 0,
+      connected: true,
+      timestamp: 0,
+      mapping: "standard" as GamepadMappingType,
+      axes: [0, 0, 0, 0],
+      buttons: Array.from({ length: 17 }, () => makeBtn(false)) as GamepadButton[],
+      hapticActuators: [],
+      vibrationActuator: null,
+      ...overrides,
+    } as Gamepad;
+  }
+
+  function runRafTick(): void {
+    const cbs = rafCallbacks.splice(0);
+    for (const cb of cbs) cb(performance.now());
+  }
+
+  it("starts a requestAnimationFrame loop when navigation is wired", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    const library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([makeGame("g1", "Alpha", "psp")]),
+      preloadGame: vi.fn(),
+    } as unknown as GameLibrary;
+
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+    expect(rafCallbacks.length).toBeGreaterThan(0);
+  });
+
+  it("buildDOM cancels the existing RAF loop and allows rewiring", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    const library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([makeGame("g1", "Alpha", "psp")]),
+      preloadGame: vi.fn(),
+    } as unknown as GameLibrary;
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const rafCountBefore = rafCallbacks.length;
+    expect(rafCountBefore).toBeGreaterThan(0);
+
+    // Rebuild DOM — should cancel previous loop and reset nav state
+    document.body.innerHTML = "";
+    const app2 = document.createElement("div");
+    document.body.appendChild(app2);
+    buildDOM(app2);
+    // After buildDOM the old RAF loop is cancelled; new one starts after next renderLibrary
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+    // The loop should have been re-scheduled
+    expect(rafCallbacks.length).toBeGreaterThan(0);
+  });
+
+  it("D-pad right moves focus to the next card", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const games = [makeGame("g1", "Alpha", "psp"), makeGame("g2", "Beta", "psp")];
+    const library = { getAllGamesMetadata: vi.fn().mockResolvedValue(games), preloadGame: vi.fn() } as unknown as GameLibrary;
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    cards[0]!.focus();
+
+    // Simulate gamepad with D-pad right pressed (button index 15)
+    const gp = makeGamepad({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === 15, touched: i === 15, value: i === 15 ? 1 : 0 })) as GamepadButton[] });
+    vi.stubGlobal("navigator", { ...navigator, getGamepads: () => [gp] });
+
+    // Run one RAF tick (first tick triggers move immediately)
+    runRafTick();
+
+    expect(document.activeElement).toBe(cards[1]);
+  });
+
+  it("D-pad left moves focus to the previous card", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const games = [makeGame("g1", "Alpha", "psp"), makeGame("g2", "Beta", "psp")];
+    const library = { getAllGamesMetadata: vi.fn().mockResolvedValue(games), preloadGame: vi.fn() } as unknown as GameLibrary;
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    cards[1]!.focus();
+
+    // D-pad left = button index 14
+    const gp = makeGamepad({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === 14, touched: i === 14, value: i === 14 ? 1 : 0 })) as GamepadButton[] });
+    vi.stubGlobal("navigator", { ...navigator, getGamepads: () => [gp] });
+
+    runRafTick();
+    expect(document.activeElement).toBe(cards[0]);
+  });
+
+  it("gamepad does not navigate when landing is hidden", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const games = [makeGame("g1", "Alpha", "psp"), makeGame("g2", "Beta", "psp")];
+    const library = { getAllGamesMetadata: vi.fn().mockResolvedValue(games), preloadGame: vi.fn() } as unknown as GameLibrary;
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    cards[0]!.focus();
+
+    // Hide the landing section (simulates a game running)
+    document.getElementById("landing")!.classList.add("hidden");
+
+    const gp = makeGamepad({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === 15, touched: i === 15, value: i === 15 ? 1 : 0 })) as GamepadButton[] });
+    vi.stubGlobal("navigator", { ...navigator, getGamepads: () => [gp] });
+
+    runRafTick();
+    // Focus should not have moved
+    expect(document.activeElement).toBe(cards[0]);
+  });
+});

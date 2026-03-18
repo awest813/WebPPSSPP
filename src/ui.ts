@@ -160,6 +160,15 @@ export function buildDOM(app: HTMLElement): void {
   _librarySearchQuery   = "";
   _librarySortMode      = "lastPlayed";
   _librarySystemFilter  = "";
+  // Stop any running gamepad polling loop and allow re-wiring on the new DOM
+  if (_libraryGamepadRafId !== null) {
+    cancelAnimationFrame(_libraryGamepadRafId);
+    _libraryGamepadRafId = null;
+  }
+  _libraryNavWired   = false;
+  _libGpPrevAxes     = [];
+  _libGpPrevBtns     = [];
+  _libGpRepeatTimer  = 0;
 
   const archivePickerExts = [
     "zip", "7z", "rar", "tar", "gz", "tgz",
@@ -767,6 +776,9 @@ export async function renderLibrary(
   // Wire up search + sort + filter controls (idempotent)
   _wireLibraryControls(allGames, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
 
+  // Wire up keyboard + gamepad navigation (idempotent)
+  _wireLibraryNavigation();
+
   // Build system filter chips
   _renderSystemFilterChips(allGames, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
 
@@ -838,6 +850,196 @@ function _applyLibraryFilters(games: GameMetadata[]): GameMetadata[] {
 }
 
 let _libraryControlsWired = false;
+
+// ── Library keyboard / gamepad navigation ─────────────────────────────────────
+let _libraryNavWired = false;
+let _libraryGamepadRafId: number | null = null;
+// Tracks per-axis/button state for gamepad repeat logic
+let _libGpPrevAxes: number[] = [];
+let _libGpPrevBtns: boolean[] = [];
+let _libGpRepeatTimer = 0;
+const _LIB_NAV_INITIAL_DELAY = 400; // ms before held-direction auto-repeat starts
+const _LIB_NAV_REPEAT_RATE   = 150; // ms between repeats once held
+
+/** Move focus among library game cards using arrow keys or gamepad. */
+function _wireLibraryNavigation(): void {
+  if (_libraryNavWired) return;
+  _libraryNavWired = true;
+
+  const grid = document.getElementById("library-grid");
+  if (!grid) return;
+
+  // ── Arrow key navigation on the grid container ────────────────────────────
+  grid.addEventListener("keydown", (e: KeyboardEvent) => {
+    const key = e.key;
+    if (key !== "ArrowLeft" && key !== "ArrowRight" &&
+        key !== "ArrowUp"   && key !== "ArrowDown"  &&
+        key !== "Home"       && key !== "End") return;
+
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    if (!cards.length) return;
+
+    const focused = document.activeElement as HTMLElement | null;
+    const idx = focused ? cards.indexOf(focused) : -1;
+    if (idx === -1) return;
+
+    e.preventDefault();
+
+    let nextIdx = idx;
+    if (key === "ArrowLeft") {
+      nextIdx = Math.max(0, idx - 1);
+    } else if (key === "ArrowRight") {
+      nextIdx = Math.min(cards.length - 1, idx + 1);
+    } else if (key === "Home") {
+      nextIdx = 0;
+    } else if (key === "End") {
+      nextIdx = cards.length - 1;
+    } else {
+      // ArrowUp / ArrowDown — find closest card in the row above/below
+      const curRect = cards[idx]!.getBoundingClientRect();
+      const curMidX = curRect.left + curRect.width / 2;
+      const curTop  = curRect.top;
+      let best = -1;
+      let bestScore = Infinity;
+      for (let i = 0; i < cards.length; i++) {
+        if (i === idx) continue;
+        const r = cards[i]!.getBoundingClientRect();
+        if (key === "ArrowUp"   && r.top >= curTop - 4) continue;
+        if (key === "ArrowDown" && r.top <= curTop + 4) continue;
+        const dx = Math.abs((r.left + r.width / 2) - curMidX);
+        const dy = Math.abs(r.top - curTop);
+        // Weight horizontal distance more heavily so same-column cards are preferred
+        const score = dx * 3 + dy;
+        if (score < bestScore) { bestScore = score; best = i; }
+      }
+      if (best !== -1) nextIdx = best;
+    }
+
+    if (nextIdx !== idx) {
+      cards[nextIdx]!.focus();
+      cards[nextIdx]!.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+
+  // ── Gamepad polling loop ──────────────────────────────────────────────────
+  // Runs continuously but only acts when the landing page is visible.
+  function _libGamepadTick(): void {
+    _libraryGamepadRafId = requestAnimationFrame(_libGamepadTick);
+
+    // Only navigate when the library landing is visible (not while a game runs)
+    const landingEl = document.getElementById("landing");
+    if (!landingEl || landingEl.classList.contains("hidden")) return;
+
+    // Skip if a modal / overlay is open
+    if (document.querySelector(".confirm-overlay")) return;
+
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : ([] as (Gamepad | null)[]);
+    const gp = Array.from(gamepads).find((g): g is Gamepad => g != null);
+    if (!gp) return;
+
+    const now = performance.now();
+
+    // Read directional inputs (D-pad buttons 12–15 and left analogue stick)
+    const rawUp    = (gp.buttons[12]?.pressed ?? false) || (gp.axes[1] ?? 0) < -0.5;
+    const rawDown  = (gp.buttons[13]?.pressed ?? false) || (gp.axes[1] ?? 0) >  0.5;
+    const rawLeft  = (gp.buttons[14]?.pressed ?? false) || (gp.axes[0] ?? 0) < -0.5;
+    const rawRight = (gp.buttons[15]?.pressed ?? false) || (gp.axes[0] ?? 0) >  0.5;
+
+    // Button 0 = Cross/A (launch), Button 1 = Circle/B (deselect)
+    const btnA = gp.buttons[0]?.pressed ?? false;
+    const btnB = gp.buttons[1]?.pressed ?? false;
+
+    const prevBtnA = _libGpPrevBtns[0] ?? false;
+    const prevBtnB = _libGpPrevBtns[1] ?? false;
+
+    // Rising-edge detection for action buttons
+    const pressedA = btnA && !prevBtnA;
+    const pressedB = btnB && !prevBtnB;
+
+    _libGpPrevBtns[0] = btnA;
+    _libGpPrevBtns[1] = btnB;
+
+    const anyDir = rawUp || rawDown || rawLeft || rawRight;
+
+    // Determine whether this frame triggers a navigation step (rising edge or repeat)
+    let doMove = false;
+    if (anyDir) {
+      if (_libGpPrevAxes[0] !== 1) {
+        // First frame the direction was pressed → move immediately
+        doMove = true;
+        _libGpRepeatTimer = now + _LIB_NAV_INITIAL_DELAY;
+      } else if (now >= _libGpRepeatTimer) {
+        // Held long enough → auto-repeat
+        doMove = true;
+        _libGpRepeatTimer = now + _LIB_NAV_REPEAT_RATE;
+      }
+    }
+    _libGpPrevAxes[0] = anyDir ? 1 : 0;
+
+    const cards = Array.from(grid!.querySelectorAll<HTMLElement>(".game-card"));
+
+    if (pressedA && cards.length) {
+      const focused = document.activeElement as HTMLElement | null;
+      const idx = focused ? cards.indexOf(focused) : -1;
+      if (idx !== -1) { cards[idx]!.click(); return; }
+      // No card focused — focus & launch first card
+      cards[0]!.focus();
+      cards[0]!.click();
+      return;
+    }
+
+    if (pressedB) {
+      // Deselect / return focus to the search input
+      const searchEl = document.getElementById("library-search") as HTMLInputElement | null;
+      if (searchEl) searchEl.focus();
+      return;
+    }
+
+    if (!doMove || !cards.length) return;
+
+    const focused = document.activeElement as HTMLElement | null;
+    let idx = focused ? cards.indexOf(focused) : -1;
+
+    if (idx === -1) {
+      // Nothing focused yet — focus the first card
+      cards[0]!.focus();
+      cards[0]!.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      return;
+    }
+
+    let nextIdx = idx;
+    if (rawLeft) {
+      nextIdx = Math.max(0, idx - 1);
+    } else if (rawRight) {
+      nextIdx = Math.min(cards.length - 1, idx + 1);
+    } else {
+      // Up / Down — same column-detection logic as keyboard
+      const curRect = cards[idx]!.getBoundingClientRect();
+      const curMidX = curRect.left + curRect.width / 2;
+      const curTop  = curRect.top;
+      let best = -1;
+      let bestScore = Infinity;
+      for (let i = 0; i < cards.length; i++) {
+        if (i === idx) continue;
+        const r = cards[i]!.getBoundingClientRect();
+        if (rawUp   && r.top >= curTop - 4) continue;
+        if (rawDown && r.top <= curTop + 4) continue;
+        const dx = Math.abs((r.left + r.width / 2) - curMidX);
+        const dy = Math.abs(r.top - curTop);
+        const score = dx * 3 + dy;
+        if (score < bestScore) { bestScore = score; best = i; }
+      }
+      if (best !== -1) nextIdx = best;
+    }
+
+    if (nextIdx !== idx) {
+      cards[nextIdx]!.focus();
+      cards[nextIdx]!.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  _libraryGamepadRafId = requestAnimationFrame(_libGamepadTick);
+}
 
 // Persists the last non-zero volume across buildInGameControls rebuilds (e.g.
 // game resume) so mute/unmute restores the correct level after a re-render.
