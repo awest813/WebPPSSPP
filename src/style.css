@@ -1,6 +1,6 @@
 /* ============================================================
-   RetroVault — Nintendo-inspired UI Design System
-   Dark theme, clean, polished, game-console aesthetic.
+   RetroVault — Neon Vault UI Design System
+   Deep space dark theme with electric violet & amber accents.
    ============================================================ */
 
 /* ── Reset / base ─────────────────────────────────────────── */
@@ -11,40 +11,46 @@
 }
 
 :root {
-  /* ── Nintendo-inspired Color Palette ── */
-  --c-bg:         #0d0f1c;
-  --c-surface:    #151828;
-  --c-surface2:   #1d2138;
-  --c-surface3:   #262a42;
-  --c-border:     #2c3060;
-  --c-border-lt:  #3c4278;
+  /* ── Neon Vault Color Palette ── */
+  --c-bg:         #0b0b14;
+  --c-surface:    #121220;
+  --c-surface2:   #1a1a2e;
+  --c-surface3:   #22223a;
+  --c-border:     #2c2c4a;
+  --c-border-lt:  #3e3e64;
 
-  /* Brand accent: Nintendo Switch cyan-blue */
-  --c-accent:     #00c4f0;
-  --c-accent-h:   #3dd6ff;
-  --c-accent-dim: rgba(0, 196, 240, 0.15);
-  --c-accent-glow: rgba(0, 196, 240, 0.32);
+  /* Primary accent: Electric Violet */
+  --c-accent:     #7c3aed;
+  --c-accent-h:   #9f67ff;
+  --c-accent-dim: rgba(124, 58, 237, 0.16);
+  --c-accent-glow: rgba(124, 58, 237, 0.38);
 
-  /* Nintendo brand accents */
-  --c-joy-red:    #e60012;
-  --c-joy-blue:   #009dd4;
-  --c-joy-red-dim:  rgba(230, 0, 18, 0.12);
-  --c-joy-blue-dim: rgba(0, 157, 212, 0.12);
+  /* Secondary accent: Amber Gold */
+  --c-gold:       #f59e0b;
+  --c-gold-h:     #fbbf24;
+  --c-gold-dim:   rgba(245, 158, 11, 0.14);
+  --c-gold-glow:  rgba(245, 158, 11, 0.32);
+
+  /* Legacy aliases (kept for system color compatibility) */
+  --c-joy-red:    #ef4444;
+  --c-joy-blue:   #3b82f6;
+  --c-joy-red-dim:  rgba(239, 68, 68, 0.12);
+  --c-joy-blue-dim: rgba(59, 130, 246, 0.12);
 
   /* Semantic colors */
-  --c-danger:     #ff3b3b;
-  --c-warn:       #ff9f0a;
-  --c-success:    #34c759;
+  --c-danger:     #ef4444;
+  --c-warn:       #f59e0b;
+  --c-success:    #22c55e;
 
   /* Text hierarchy */
-  --c-text:       #eef0f8;
-  --c-text-dim:   #8c92b0;
-  --c-text-faint: #636888;
+  --c-text:       #eeecfa;
+  --c-text-dim:   #9390b8;
+  --c-text-faint: #65618e;
 
   /* ── Shape & Sizing ── */
-  --radius:       12px;
-  --radius-lg:    20px;
-  --radius-xl:    30px;
+  --radius:       10px;
+  --radius-lg:    16px;
+  --radius-xl:    22px;
   --radius-pill:  999px;
 
   /* ── Safe area insets (iOS notch / home bar) ── */
@@ -54,8 +60,8 @@
   --safe-right:  env(safe-area-inset-right, 0px);
 
   /* ── Layout ── */
-  --header-h:     62px;
-  --footer-h:     36px;
+  --header-h:     64px;
+  --footer-h:     38px;
   --sidebar-w:    300px;
   --toast-bottom: calc(var(--footer-h) + var(--safe-bottom) + 14px);
 
@@ -67,17 +73,17 @@
   --spring-fast:      0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ── Shadows ── */
-  --shadow:       0 16px 48px rgba(0, 0, 0, 0.65);
-  --shadow-sm:    0 4px 18px rgba(0, 0, 0, 0.38);
-  --shadow-card:  0 3px 10px rgba(0, 0, 0, 0.5);
-  --shadow-lift:  0 10px 28px rgba(0, 0, 0, 0.55);
+  --shadow:       0 16px 52px rgba(0, 0, 0, 0.72);
+  --shadow-sm:    0 4px 18px rgba(0, 0, 0, 0.42);
+  --shadow-card:  0 3px 12px rgba(0, 0, 0, 0.55);
+  --shadow-lift:  0 12px 32px rgba(0, 0, 0, 0.62);
 
   /* ── Glass / depth ── */
-  --glass-bg:     rgba(18, 21, 40, 0.88);
-  --glass-border: rgba(55, 65, 130, 0.65);
+  --glass-bg:     rgba(11, 11, 20, 0.92);
+  --glass-border: rgba(60, 55, 100, 0.55);
 
-  /* ── Typography — Nunito for rounded Nintendo feel ── */
-  font-family: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* ── Typography — Space Grotesk for technical retro feel ── */
+  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 15px;
   color: var(--c-text);
   background: var(--c-bg);
@@ -97,12 +103,12 @@ body {
   overflow: hidden;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
-  /* Nintendo Switch-style: subtle dual accent radial spotlights + dot grid */
+  /* Neon Vault: violet spotlight top-left, amber glow bottom-right, fine dot grid */
   background-image:
-    radial-gradient(ellipse 60% 40% at 15% 5%,  rgba(0, 196, 240, 0.07) 0%, transparent 65%),
-    radial-gradient(ellipse 55% 35% at 88% 95%, rgba(230, 0, 18, 0.05)  0%, transparent 60%),
-    radial-gradient(circle, rgba(44, 48, 96, 0.5) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 28px 28px;
+    radial-gradient(ellipse 65% 45% at 8% 4%,   rgba(124, 58, 237, 0.10) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 40% at 92% 96%,  rgba(245, 158, 11, 0.07) 0%, transparent 60%),
+    radial-gradient(circle, rgba(44, 44, 74, 0.48) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 30px 30px;
 }
 
 /* ── Skip link ────────────────────────────────────────────── */
@@ -168,23 +174,24 @@ body {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    var(--c-joy-red) 10%,
-    var(--c-accent) 40%,
-    var(--c-accent-h) 55%,
-    var(--c-accent) 70%,
-    var(--c-joy-blue) 90%,
+    var(--c-accent) 12%,
+    var(--c-accent-h) 35%,
+    var(--c-gold-h) 55%,
+    var(--c-gold) 68%,
+    var(--c-accent-h) 82%,
+    var(--c-accent) 90%,
     transparent 100%
   );
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
 .app-header__brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 1.15rem;
-  font-weight: 900;
-  letter-spacing: -0.03em;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--c-text);
   flex-shrink: 0;
   user-select: none;
@@ -192,7 +199,7 @@ body {
 
 .app-header__brand svg {
   color: var(--c-accent);
-  filter: drop-shadow(0 0 10px rgba(0, 196, 240, 0.7));
+  filter: drop-shadow(0 0 10px rgba(124, 58, 237, 0.8));
 }
 
 .brand-short { display: none; }
@@ -268,10 +275,10 @@ body {
 }
 
 .library-title {
-  font-size: 1.35rem;
-  font-weight: 900;
+  font-size: 1.3rem;
+  font-weight: 700;
   color: var(--c-text);
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 .library-count {
@@ -419,15 +426,15 @@ body {
 /* ── Game grid ────────────────────────────────────────────── */
 .library-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 16px;
 }
 
 /* ── Game card ────────────────────────────────────────────── */
 .game-card {
   position: relative;
   background: var(--c-surface);
-  border: 1.5px solid var(--c-border);
+  border: 1px solid var(--c-border);
   border-radius: var(--radius-xl);
   overflow: hidden;
   cursor: pointer;
@@ -441,14 +448,43 @@ body {
   contain-intrinsic-size: 1px 200px; /* 1px width avoids zero-width placeholder; 200px height closer to actual rendered height */
 }
 
+/* Glowing top accent bar revealed on hover */
+.game-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 15%;
+  right: 15%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--sys-color, var(--c-accent)),
+    var(--sys-color, var(--c-accent-h)),
+    var(--sys-color, var(--c-accent)),
+    transparent
+  );
+  border-radius: 0 0 3px 3px;
+  opacity: 0;
+  transition: opacity var(--transition-med), left var(--transition-med), right var(--transition-med);
+  z-index: 1;
+}
+
+.game-card:hover::before,
+.game-card:focus-visible::before {
+  opacity: 1;
+  left: 5%;
+  right: 5%;
+}
+
 .game-card:hover,
 .game-card:focus-visible {
-  border-color: var(--sys-color, var(--c-accent));
+  border-color: color-mix(in srgb, var(--sys-color, var(--c-accent)) 60%, transparent);
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--sys-color, var(--c-accent)) 30%, transparent),
-    0 14px 40px rgba(0, 0, 0, 0.6),
-    0 0 36px color-mix(in srgb, var(--sys-color, var(--c-accent)) 18%, transparent);
-  transform: translateY(-6px) scale(1.04);
+    0 0 0 1px color-mix(in srgb, var(--sys-color, var(--c-accent)) 22%, transparent),
+    0 16px 44px rgba(0, 0, 0, 0.65),
+    0 0 40px color-mix(in srgb, var(--sys-color, var(--c-accent)) 14%, transparent);
+  transform: translateY(-7px) scale(1.03);
 }
 
 .game-card:active {
@@ -462,16 +498,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2.4rem;
+  font-size: 2.5rem;
   border-bottom: 1px solid var(--c-border);
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
   transition: background var(--transition);
   background: linear-gradient(
-    155deg,
-    color-mix(in srgb, var(--sys-color, var(--c-accent)) 16%, var(--c-surface2)) 0%,
-    color-mix(in srgb, var(--sys-color, var(--c-accent)) 4%, var(--c-surface3)) 100%
+    145deg,
+    color-mix(in srgb, var(--sys-color, var(--c-accent)) 20%, var(--c-surface2)) 0%,
+    color-mix(in srgb, var(--sys-color, var(--c-accent)) 6%, var(--c-surface3)) 60%,
+    var(--c-surface3) 100%
   );
 }
 
@@ -585,23 +622,32 @@ body {
 .game-card:hover .game-card__play-overlay { opacity: 1; }
 
 .game-card__play-btn {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
-  background: var(--sys-color, var(--c-accent));
+  background: linear-gradient(135deg,
+    var(--sys-color, var(--c-accent)) 0%,
+    color-mix(in srgb, var(--sys-color, var(--c-accent)) 70%, #000) 100%
+  );
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   color: #fff;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 0 16px color-mix(in srgb, var(--sys-color, var(--c-accent)) 40%, transparent);
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.55),
+    0 0 20px color-mix(in srgb, var(--sys-color, var(--c-accent)) 45%, transparent),
+    0 1px 0 rgba(255,255,255,0.2) inset;
   padding-left: 4px;
   transition: transform var(--spring), box-shadow var(--transition);
 }
 
 .game-card:hover .game-card__play-btn {
-  transform: scale(1.15);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.65), 0 0 24px color-mix(in srgb, var(--sys-color, var(--c-accent)) 55%, transparent);
+  transform: scale(1.18);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.65),
+    0 0 30px color-mix(in srgb, var(--sys-color, var(--c-accent)) 60%, transparent),
+    0 1px 0 rgba(255,255,255,0.2) inset;
 }
 
 /* System badge */
@@ -641,7 +687,7 @@ body {
   padding: 40px 32px;
   background: linear-gradient(
     155deg,
-    color-mix(in srgb, var(--c-accent) 5%, var(--c-surface)) 0%,
+    color-mix(in srgb, var(--c-accent) 8%, var(--c-surface)) 0%,
     var(--c-surface) 100%
   );
 }
@@ -762,10 +808,10 @@ body {
 }
 
 .onboarding__feature:hover {
-  border-color: var(--c-accent);
-  background: color-mix(in srgb, var(--c-accent) 5%, var(--c-surface));
+  border-color: color-mix(in srgb, var(--c-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--c-accent) 7%, var(--c-surface));
   transform: translateY(-3px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 0 16px var(--c-accent-dim);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4), 0 0 20px var(--c-accent-dim);
 }
 
 .onboarding__feature-icon {
@@ -1010,7 +1056,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 24px;
-  background: rgba(13, 15, 26, 0.96);
+  background: rgba(11, 11, 20, 0.97);
   z-index: 20;
   opacity: 0;
   visibility: hidden;
@@ -1023,11 +1069,11 @@ body {
 
 #loading-overlay.visible { opacity: 1; visibility: visible; pointer-events: all; }
 
-/* Dual-ring loading spinner */
+/* Triple-ring loading spinner with counter-rotation */
 .loading-spinner {
   position: relative;
-  width: 52px;
-  height: 52px;
+  width: 58px;
+  height: 58px;
   flex-shrink: 0;
 }
 
@@ -1035,23 +1081,31 @@ body {
 .loading-spinner::after {
   content: "";
   position: absolute;
-  inset: 0;
   border-radius: 50%;
 }
 
+/* Outer ring: violet, clockwise */
 .loading-spinner::before {
-  border: 3px solid rgba(44, 48, 96, 0.7);
-}
-
-.loading-spinner::after {
+  inset: 0;
   border: 3px solid transparent;
   border-top-color: var(--c-accent);
-  border-right-color: color-mix(in srgb, var(--c-accent) 45%, transparent);
-  animation: spin 0.75s cubic-bezier(0.66, 0, 0.33, 1) infinite;
-  box-shadow: 0 0 22px var(--c-accent-glow);
+  border-right-color: color-mix(in srgb, var(--c-accent) 40%, transparent);
+  animation: spin 0.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  box-shadow: 0 0 24px var(--c-accent-glow);
+}
+
+/* Inner ring: gold, counter-clockwise */
+.loading-spinner::after {
+  inset: 12px;
+  border: 2.5px solid transparent;
+  border-bottom-color: var(--c-gold);
+  border-left-color: color-mix(in srgb, var(--c-gold) 40%, transparent);
+  animation: spin-reverse 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  box-shadow: 0 0 14px var(--c-gold-glow);
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin-reverse { to { transform: rotate(-360deg); } }
 
 #loading-message {
   font-size: 0.95rem;
@@ -1492,9 +1546,9 @@ body {
 }
 
 .toggle-switch:has(input:checked) {
-  background: var(--c-accent);
+  background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 100%);
   border-color: var(--c-accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 35%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c-accent) 40%, transparent);
 }
 
 .toggle-switch__knob {
@@ -1597,10 +1651,10 @@ body {
 }
 
 .status-dot.idle    { background: var(--c-text-faint); }
-.status-dot.loading { background: var(--c-warn);    animation: pulse 1s ease-in-out infinite; }
-.status-dot.running { background: var(--c-success); box-shadow: 0 0 6px var(--c-success); }
-.status-dot.paused  { background: var(--c-accent);  }
-.status-dot.error   { background: var(--c-danger);  }
+.status-dot.loading { background: var(--c-gold); animation: pulse 1s ease-in-out infinite; }
+.status-dot.running { background: var(--c-success); box-shadow: 0 0 7px var(--c-success); }
+.status-dot.paused  { background: var(--c-accent); box-shadow: 0 0 7px var(--c-accent-glow); }
+.status-dot.error   { background: var(--c-danger); }
 
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.85); } }
 
@@ -1642,25 +1696,29 @@ body {
 .btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
 
 .btn--primary {
-  background: linear-gradient(135deg, var(--c-accent) 0%, color-mix(in srgb, var(--c-accent) 65%, #0055cc) 100%);
+  background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 50%, color-mix(in srgb, var(--c-accent) 70%, #1a0088) 100%);
   border-color: var(--c-accent);
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  box-shadow: 0 3px 14px color-mix(in srgb, var(--c-accent) 40%, transparent), 0 1px 0 rgba(255,255,255,0.15) inset;
-  font-weight: 800;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 3px 16px color-mix(in srgb, var(--c-accent) 45%, transparent),
+    0 1px 0 rgba(255,255,255,0.18) inset;
+  font-weight: 700;
 }
 
 .btn--primary:hover {
-  background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 100%);
+  background: linear-gradient(135deg, var(--c-accent-h) 0%, color-mix(in srgb, var(--c-accent-h) 80%, var(--c-accent)) 100%);
   border-color: var(--c-accent-h);
   color: #fff;
-  box-shadow: 0 5px 24px color-mix(in srgb, var(--c-accent) 60%, transparent), 0 1px 0 rgba(255,255,255,0.15) inset;
+  box-shadow:
+    0 6px 28px color-mix(in srgb, var(--c-accent) 65%, transparent),
+    0 1px 0 rgba(255,255,255,0.18) inset;
   transform: translateY(-1px) scale(1.02);
 }
 
 .btn--primary:active:not(:disabled) {
   transform: translateY(1px) scale(0.98);
-  box-shadow: 0 1px 6px color-mix(in srgb, var(--c-accent) 30%, transparent);
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--c-accent) 35%, transparent);
 }
 
 .btn--danger  { border-color: var(--c-danger); color: var(--c-danger); }
@@ -1828,8 +1886,8 @@ body {
 }
 
 .dev-overlay__state--running  { color: #30d158; }
-.dev-overlay__state--loading  { color: #ffd60a; }
-.dev-overlay__state--paused   { color: #64d2ff; }
+.dev-overlay__state--loading  { color: #fbbf24; }
+.dev-overlay__state--paused   { color: #9f67ff; }
 .dev-overlay__state--error    { color: #ff453a; }
 .dev-overlay__state--idle     { color: var(--c-text-dim); }
 
@@ -1884,7 +1942,7 @@ body {
 
   .status-item.hide-mobile { display: none; }
 
-  .library-grid { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 10px; }
+  .library-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 12px; }
   .game-card__remove { opacity: 1; }
   .game-card__patch { opacity: 1; }
   .game-card__change-sys { opacity: 1; }
@@ -1931,7 +1989,7 @@ body {
 
 @media (max-width: 400px) { .library-grid { grid-template-columns: repeat(2, 1fr); } }
 
-@media (min-width: 900px) { .library-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } }
+@media (min-width: 900px) { .library-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); } }
 
 /* ── Touch device (pointer: coarse) ──────────────────────── */
 /* Applied to any device with a coarse pointer (phone, tablet) */
@@ -2007,8 +2065,9 @@ body {
     scroll-behavior: auto !important;
   }
 
-  /* Loading spinner: static outline when motion is reduced */
-  .loading-spinner::after { animation: none; border-top-color: var(--c-accent); border-right-color: transparent; }
+  /* Loading spinner: static rings when motion is reduced */
+  .loading-spinner::before { animation: none; border-top-color: var(--c-accent); }
+  .loading-spinner::after  { animation: none; border-bottom-color: var(--c-gold); }
   .status-dot.loading { animation: none; opacity: 1; }
 }
 
@@ -2389,7 +2448,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 
 .confirm-overlay--visible .confirm-box { transform: translateY(0) scale(1); }
 
-.confirm-title  { font-size: 1.05rem; font-weight: 800; color: var(--c-text); letter-spacing: -0.01em; }
+.confirm-title  { font-size: 1.05rem; font-weight: 700; color: var(--c-text); letter-spacing: -0.01em; }
 .confirm-body   { font-size: 0.88rem; color: var(--c-text-dim); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .confirm-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 
@@ -2430,8 +2489,8 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   height: 26px;
   border-radius: 50%;
   border: none;
-  background: rgba(0, 180, 230, 0.18);
-  color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  color: var(--c-accent-h);
   font-size: 1rem;
   line-height: 1;
   display: flex;
@@ -2448,7 +2507,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 .game-card:focus-within .game-card__patch { opacity: 1; }
 
 .game-card__patch:hover {
-  background: rgba(0, 180, 230, 0.35);
+  background: color-mix(in srgb, var(--c-accent) 35%, transparent);
   transform: scale(1.1);
 }
 
@@ -2851,7 +2910,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 .save-slot-card__busy {
   position: absolute;
   inset: 0;
-  background: rgba(13, 15, 26, 0.72);
+  background: rgba(11, 11, 20, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3837,13 +3896,13 @@ kbd {
   justify-content: center;
   width: 26px;
   height: 26px;
-  background: linear-gradient(135deg, var(--c-accent) 0%, color-mix(in srgb, var(--c-accent) 70%, #0055cc) 100%);
+  background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 100%);
   color: #fff;
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 3px 10px var(--c-accent-glow), 0 1px 0 rgba(255,255,255,0.2) inset;
+  box-shadow: 0 3px 12px var(--c-accent-glow), 0 1px 0 rgba(255,255,255,0.2) inset;
 }
 
 .welcome-step__text {
@@ -4082,10 +4141,10 @@ kbd {
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--c-accent) 0%, color-mix(in srgb, var(--c-accent) 65%, #0055cc) 100%);
+  background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 50%, color-mix(in srgb, var(--c-accent) 70%, #1a0088) 100%);
   color: #fff;
   border: none;
-  box-shadow: 0 6px 24px rgba(0, 196, 240, 0.55), 0 10px 36px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255,255,255,0.18) inset;
+  box-shadow: 0 6px 26px rgba(124, 58, 237, 0.6), 0 10px 36px rgba(0, 0, 0, 0.48), 0 1px 0 rgba(255,255,255,0.18) inset;
   cursor: pointer;
   z-index: 25;
   align-items: center;
@@ -4105,7 +4164,7 @@ kbd {
 
 .mobile-fab:active {
   transform: scale(0.88);
-  box-shadow: 0 2px 12px rgba(0, 196, 240, 0.38);
+  box-shadow: 0 2px 12px rgba(124, 58, 237, 0.40);
 }
 
 /* Hidden while a game is running, or when on non-landing views */
@@ -4407,8 +4466,8 @@ kbd {
 .enp-server-warn {
   font-size:   0.8rem;
   color:       var(--c-warn);
-  background:  rgba(255, 159, 10, 0.08);
-  border:      1px solid rgba(255, 159, 10, 0.25);
+  background:  color-mix(in srgb, var(--c-warn) 8%, transparent);
+  border:      1px solid color-mix(in srgb, var(--c-warn) 25%, transparent);
   border-radius: var(--radius);
   padding:     8px 12px;
   margin-bottom: 10px;
