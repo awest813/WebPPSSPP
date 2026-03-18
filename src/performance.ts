@@ -616,6 +616,7 @@ function benchmarkGPU(): number {
       void main() { v_uv = a_uv; gl_Position = vec4(a_pos, 0.0, 1.0); }
     `);
     gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) return 0;
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     if (!fs) return 0;
@@ -633,12 +634,14 @@ function benchmarkGPU(): number {
       }
     `);
     gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) return 0;
 
     const prog = gl.createProgram();
     if (!prog) return 0;
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return 0;
     gl.useProgram(prog);
 
     const uVal = gl.getUniformLocation(prog, "u_val");
