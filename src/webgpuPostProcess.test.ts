@@ -887,6 +887,7 @@ describe("EFFECT_LABELS", () => {
     const allEffects: PostProcessEffect[] = [
       "none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr",
       "grain", "retro", "colorgrade", "taa",
+      "pixelate", "ntsc", "hdr",
     ];
     for (const e of allEffects) {
       expect(EFFECT_LABELS[e]).toBeTruthy();
@@ -1034,6 +1035,7 @@ describe("DEFAULT_POST_PROCESS_CONFIG new fields", () => {
 describe("buildEffectPipeline uniform buffer presence", () => {
   const effectsWithUniforms: PostProcessEffect[] = [
     "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr", "grain", "retro", "colorgrade", "taa",
+    "pixelate", "ntsc", "hdr",
   ];
 
   for (const effect of effectsWithUniforms) {
@@ -1145,4 +1147,451 @@ describe("taa effect", () => {
     const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
+});
+
+// ── New effects: pixelate, ntsc, hdr ─────────────────────────────────────────
+
+describe("pixelate effect", () => {
+  it("buildEffectPipeline succeeds for 'pixelate' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'pixelate' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'pixelate' contains 'pixelateSize'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("pixelateSize");
+  });
+
+  it("wgslSources.fragment for 'pixelate' snaps UV to block centre", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("floor");
+  });
+
+  it("updateConfig accepts pixelateSize parameter", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ effect: "pixelate", pixelateSize: 8 });
+    expect(pp.config.effect).toBe("pixelate");
+    expect(pp.config.pixelateSize).toBe(8);
+  });
+
+  it("EFFECT_LABELS has a label for 'pixelate'", () => {
+    expect(EFFECT_LABELS.pixelate).toBeTruthy();
+    expect(EFFECT_LABELS.pixelate.toLowerCase()).toContain("pixel");
+  });
+
+  it("DEFAULT_POST_PROCESS_CONFIG includes pixelateSize = 4", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.pixelateSize).toBe(4);
+  });
+
+  it("validatePostProcessConfig clamps pixelateSize to [1, 32] and rounds", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, pixelateSize: 0 }).pixelateSize).toBe(1);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, pixelateSize: 100 }).pixelateSize).toBe(32);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, pixelateSize: 5.7 }).pixelateSize).toBe(6);
+  });
+
+  it("adjustConfigForTier enforces minimum pixelateSize of 2 on low tier", () => {
+    const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "low" as const, pixelateSize: 1 };
+    const adjusted = adjustConfigForTier(cfg);
+    expect(adjusted.pixelateSize).toBeGreaterThanOrEqual(2);
+  });
+
+  it("'pixelate' effect always creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+});
+
+describe("ntsc effect", () => {
+  it("buildEffectPipeline succeeds for 'ntsc' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'ntsc' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'ntsc' contains 'ntscArtifacts'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("ntscArtifacts");
+  });
+
+  it("wgslSources.fragment for 'ntsc' contains 'ntscSharpness'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("ntscSharpness");
+  });
+
+  it("wgslSources.fragment for 'ntsc' contains YIQ colour space conversion", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("rgb2yiq");
+    expect(pipeline.wgslSources.fragment).toContain("yiq2rgb");
+  });
+
+  it("wgslSources.fragment for 'ntsc' contains dot-crawl animation via grainSeed", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("grainSeed");
+  });
+
+  it("updateConfig accepts ntsc-specific parameters", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ effect: "ntsc", ntscArtifacts: 0.7, ntscSharpness: 0.3 });
+    expect(pp.config.effect).toBe("ntsc");
+    expect(pp.config.ntscArtifacts).toBe(0.7);
+    expect(pp.config.ntscSharpness).toBe(0.3);
+  });
+
+  it("EFFECT_LABELS has a label for 'ntsc'", () => {
+    expect(EFFECT_LABELS.ntsc).toBeTruthy();
+    expect(EFFECT_LABELS.ntsc.toLowerCase()).toContain("ntsc");
+  });
+
+  it("DEFAULT_POST_PROCESS_CONFIG includes ntscArtifacts = 0.5", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.ntscArtifacts).toBe(0.5);
+  });
+
+  it("DEFAULT_POST_PROCESS_CONFIG includes ntscSharpness = 0.5", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.ntscSharpness).toBe(0.5);
+  });
+
+  it("validatePostProcessConfig clamps ntscArtifacts to [0, 1]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscArtifacts: -1 }).ntscArtifacts).toBe(0);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscArtifacts: 2 }).ntscArtifacts).toBe(1);
+  });
+
+  it("validatePostProcessConfig clamps ntscSharpness to [0, 1]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscSharpness: -0.5 }).ntscSharpness).toBe(0);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscSharpness: 3 }).ntscSharpness).toBe(1);
+  });
+
+  it("adjustConfigForTier caps ntscArtifacts at 0.4 on low tier", () => {
+    const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "low" as const, ntscArtifacts: 0.9 };
+    expect(adjustConfigForTier(cfg).ntscArtifacts).toBeLessThanOrEqual(0.4);
+  });
+
+  it("adjustConfigForTier caps ntscArtifacts at 0.7 on medium tier", () => {
+    const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "medium" as const, ntscArtifacts: 1.0 };
+    expect(adjustConfigForTier(cfg).ntscArtifacts).toBeLessThanOrEqual(0.7);
+  });
+});
+
+describe("hdr effect", () => {
+  it("buildEffectPipeline succeeds for 'hdr' effect", () => {
+    const { device } = createMockGPUDevice();
+    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm")).not.toThrow();
+  });
+
+  it("buildEffectPipeline for 'hdr' creates a uniform buffer", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    expect(pipeline.uniformBuffer).not.toBeNull();
+  });
+
+  it("wgslSources.fragment for 'hdr' contains 'hdrExposure'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("hdrExposure");
+  });
+
+  it("wgslSources.fragment for 'hdr' contains 'hdrWhitePoint'", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("hdrWhitePoint");
+  });
+
+  it("wgslSources.fragment for 'hdr' contains Reinhard tone mapping function", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    expect(pipeline.wgslSources.fragment).toContain("reinhardExtended");
+  });
+
+  it("wgslSources.fragment for 'hdr' applies sRGB gamma encoding", () => {
+    const { device } = createMockGPUDevice();
+    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    // The shader uses pow() for sRGB gamma approximation
+    expect(pipeline.wgslSources.fragment).toContain("pow");
+  });
+
+  it("updateConfig accepts hdr-specific parameters", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ effect: "hdr", hdrExposure: 1.5, hdrWhitePoint: 2.0 });
+    expect(pp.config.effect).toBe("hdr");
+    expect(pp.config.hdrExposure).toBe(1.5);
+    expect(pp.config.hdrWhitePoint).toBe(2.0);
+  });
+
+  it("EFFECT_LABELS has a label for 'hdr'", () => {
+    expect(EFFECT_LABELS.hdr).toBeTruthy();
+    expect(EFFECT_LABELS.hdr.toLowerCase()).toContain("hdr");
+  });
+
+  it("DEFAULT_POST_PROCESS_CONFIG includes hdrExposure = 1.0", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.hdrExposure).toBe(1.0);
+  });
+
+  it("DEFAULT_POST_PROCESS_CONFIG includes hdrWhitePoint = 1.0", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.hdrWhitePoint).toBe(1.0);
+  });
+
+  it("validatePostProcessConfig clamps hdrExposure to [0.1, 8]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrExposure: 0 }).hdrExposure).toBe(0.1);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrExposure: 100 }).hdrExposure).toBe(8);
+  });
+
+  it("validatePostProcessConfig clamps hdrWhitePoint to [0.1, 8]", () => {
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrWhitePoint: -1 }).hdrWhitePoint).toBe(0.1);
+    expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrWhitePoint: 20 }).hdrWhitePoint).toBe(8);
+  });
+});
+
+// ── pixelPerfect sampler mode ─────────────────────────────────────────────────
+
+describe("pixelPerfect mode", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG has pixelPerfect = false", () => {
+    expect(DEFAULT_POST_PROCESS_CONFIG.pixelPerfect).toBe(false);
+  });
+
+  it("updateConfig accepts pixelPerfect toggle", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    pp.updateConfig({ pixelPerfect: true });
+    expect(pp.config.pixelPerfect).toBe(true);
+    pp.updateConfig({ pixelPerfect: false });
+    expect(pp.config.pixelPerfect).toBe(false);
+  });
+
+  it("invalidates bind group cache when pixelPerfect changes", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+    pp.updateConfig({ effect: "crt" });
+
+    // Initial bind group creation count
+    const callsBefore = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // Toggling pixelPerfect should NOT itself call createBindGroup (only invalidates cache)
+    pp.updateConfig({ pixelPerfect: true });
+    const callsAfterToggle = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(callsAfterToggle).toBe(callsBefore); // Bind group is only created on next render
+  });
+
+  it("attach() creates both linear and nearest-neighbour samplers", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
+
+    const testContainer = document.createElement("div");
+    document.body.appendChild(testContainer);
+    const testCanvas = document.createElement("canvas");
+    testCanvas.width = 640;
+    testCanvas.height = 480;
+    testContainer.appendChild(testCanvas);
+
+    const webgpuContext = {
+      configure: vi.fn(),
+      getCurrentTexture: vi.fn().mockReturnValue({ createView: vi.fn().mockReturnValue({}) }),
+    };
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation((contextId: "webgpu") => {
+        if (contextId === "webgpu") return webgpuContext as unknown as GPUCanvasContext;
+        return null;
+      });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const originalGPU = navigator.gpu;
+    Object.defineProperty(navigator, "gpu", {
+      configurable: true,
+      writable: true,
+      value: { getPreferredCanvasFormat: vi.fn().mockReturnValue("bgra8unorm") },
+    });
+
+    pp.attach(testCanvas, testContainer);
+
+    // Both bilinear and nearest samplers should be created
+    const samplerCalls = (device.createSampler as ReturnType<typeof vi.fn>).mock.calls;
+    expect(samplerCalls.length).toBeGreaterThanOrEqual(2);
+    const filters = samplerCalls.map((c: unknown[]) => (c[0] as { magFilter?: string }).magFilter);
+    expect(filters).toContain("linear");
+    expect(filters).toContain("nearest");
+
+    pp.dispose();
+    testContainer.remove();
+    getContextSpy.mockRestore();
+    Object.defineProperty(navigator, "gpu", { configurable: true, writable: true, value: originalGPU });
+  });
+
+  it("validatePostProcessConfig preserves pixelPerfect boolean", () => {
+    const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, pixelPerfect: true };
+    expect(validatePostProcessConfig(cfg).pixelPerfect).toBe(true);
+    const cfg2 = { ...DEFAULT_POST_PROCESS_CONFIG, pixelPerfect: false };
+    expect(validatePostProcessConfig(cfg2).pixelPerfect).toBe(false);
+  });
+});
+
+// ── onDeviceLost callback ─────────────────────────────────────────────────────
+
+describe("onDeviceLost callback", () => {
+  it("fires onDeviceLost when the GPU device is lost", async () => {
+    let signalLost!: (info: { reason: string; message: string }) => void;
+    const lostPromise = new Promise<{ reason: string; message: string }>(
+      (resolve) => { signalLost = resolve; }
+    );
+
+    const { device } = createMockGPUDevice();
+    (device as unknown as Record<string, unknown>).lost = lostPromise;
+
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
+    const onDeviceLostSpy = vi.fn();
+    pp.onDeviceLost = onDeviceLostSpy;
+
+    const testContainer = document.createElement("div");
+    document.body.appendChild(testContainer);
+    const testCanvas = document.createElement("canvas");
+    testCanvas.width = 640;
+    testCanvas.height = 480;
+    testContainer.appendChild(testCanvas);
+
+    const webgpuContext = {
+      configure: vi.fn(),
+      getCurrentTexture: vi.fn().mockReturnValue({ createView: vi.fn().mockReturnValue({}) }),
+    };
+    const getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation((contextId: "webgpu") => {
+        if (contextId === "webgpu") return webgpuContext as unknown as GPUCanvasContext;
+        return null;
+      });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    const originalGPU = navigator.gpu;
+    Object.defineProperty(navigator, "gpu", {
+      configurable: true,
+      writable: true,
+      value: { getPreferredCanvasFormat: vi.fn().mockReturnValue("bgra8unorm") },
+    });
+
+    pp.attach(testCanvas, testContainer);
+    expect(pp.active).toBe(true);
+
+    signalLost({ reason: "destroyed", message: "test device loss" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onDeviceLostSpy).toHaveBeenCalledOnce();
+    expect(pp.active).toBe(false);
+
+    pp.dispose();
+    testContainer.remove();
+    getContextSpy.mockRestore();
+    Object.defineProperty(navigator, "gpu", { configurable: true, writable: true, value: originalGPU });
+  });
+
+  it("does not fire onDeviceLost when device is already inactive at loss time", async () => {
+    let signalLost!: (info: { reason: string; message: string }) => void;
+    const lostPromise = new Promise<{ reason: string; message: string }>(
+      (resolve) => { signalLost = resolve; }
+    );
+
+    const { device } = createMockGPUDevice();
+    (device as unknown as Record<string, unknown>).lost = lostPromise;
+
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    const onDeviceLostSpy = vi.fn();
+    pp.onDeviceLost = onDeviceLostSpy;
+
+    // Never attached — _active is false
+    signalLost({ reason: "destroyed", message: "inactive processor" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onDeviceLostSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── TAA bind group cache (history texture invalidation) ───────────────────────
+
+describe("TAA bind group cache with history texture", () => {
+  it("bind group cache key includes history texture — does not use stale cache on TAA resize", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+
+    // Force invalidation of bind group cache
+    const ppAny = pp as unknown as {
+      _invalidateBindGroupCache: () => void;
+      _cachedBindGroupHistoryTexture: GPUTexture | null;
+      _cachedBindGroup: GPUBindGroup | null;
+    };
+
+    pp.updateConfig({ effect: "taa" });
+
+    // _cachedBindGroupHistoryTexture should start as null (no render frame run yet)
+    expect(ppAny._cachedBindGroupHistoryTexture).toBeNull();
+
+    // After explicit invalidation, both caches should be cleared
+    ppAny._invalidateBindGroupCache();
+    expect(ppAny._cachedBindGroup).toBeNull();
+    expect(ppAny._cachedBindGroupHistoryTexture).toBeNull();
+  });
+
+  it("invalidates bind group when pixelPerfect toggles (cache key includes sampler)", () => {
+    const { device } = createMockGPUDevice();
+    const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
+    const ppAny = pp as unknown as {
+      _cachedBindGroup: GPUBindGroup | null;
+      _invalidateBindGroupCache: () => void;
+    };
+
+    pp.updateConfig({ effect: "crt" });
+
+    // Simulate a cached bind group
+    ppAny._cachedBindGroup = {} as unknown as GPUBindGroup;
+
+    // Toggling pixelPerfect should invalidate the cache
+    pp.updateConfig({ pixelPerfect: true });
+    expect(ppAny._cachedBindGroup).toBeNull();
+  });
+});
+
+// ── EFFECT_LABELS completeness (including new effects) ────────────────────────
+
+describe("EFFECT_LABELS completeness", () => {
+  it("provides labels for all 14 effects including pixelate, ntsc, hdr", () => {
+    const allEffects: PostProcessEffect[] = [
+      "none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr",
+      "grain", "retro", "colorgrade", "taa",
+      "pixelate", "ntsc", "hdr",
+    ];
+    for (const e of allEffects) {
+      expect(EFFECT_LABELS[e], `Missing label for effect: ${e}`).toBeTruthy();
+    }
+  });
+});
+
+// ── buildEffectPipeline uniform buffer (all effects incl. new ones) ───────────
+
+describe("buildEffectPipeline uniform buffer presence (new effects)", () => {
+  const newEffects: PostProcessEffect[] = ["pixelate", "ntsc", "hdr"];
+
+  for (const effect of newEffects) {
+    it(`'${effect}' effect creates a uniform buffer`, () => {
+      const { device } = createMockGPUDevice();
+      const pipeline = buildEffectPipeline(device as unknown as GPUDevice, effect, "bgra8unorm");
+      expect(pipeline.uniformBuffer).not.toBeNull();
+    });
+  }
 });

@@ -1301,7 +1301,11 @@ export class PSPEmulator {
       // launches via preCompileWGSL().
       try {
         const presentFormat = navigator.gpu.getPreferredCanvasFormat();
-        for (const effect of ["crt", "sharpen", "lcd", "bloom", "fxaa"] as const) {
+        for (const effect of [
+          "crt", "sharpen", "lcd", "bloom", "fxaa",
+          "fsr", "grain", "retro", "colorgrade", "taa",
+          "pixelate", "ntsc", "hdr",
+        ] as const) {
           buildEffectPipeline(device, effect, presentFormat);
         }
         // Persist the pipeline WGSL sources for future sessions
@@ -2631,6 +2635,21 @@ export class PSPEmulator {
         this._webgpuDevice,
         this._postProcessConfig,
       );
+
+      // Re-initialise WebGPU and re-attach the post-processor if the GPU
+      // device is lost (driver crash, GPU reset, tab backgrounded on mobile).
+      postProcessor.onDeviceLost = () => {
+        this._postProcessor = null;
+        this._webgpuDevice = null;
+        this._webgpuPreWarmed = false;
+        const powerPref = this._activeTier === "low" ? "low-power" : "high-performance";
+        this.preWarmWebGPU(powerPref).then(() => {
+          if (this._webgpuDevice && this._state === "running") {
+            this._attachPostProcessor();
+          }
+        }).catch(() => { /* recovery is best-effort */ });
+      };
+
       postProcessor.attach(canvas, playerEl);
       if (!postProcessor.active) {
         postProcessor.dispose();

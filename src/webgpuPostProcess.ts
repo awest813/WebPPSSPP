@@ -52,7 +52,7 @@ const MAP_MODE_READ = 0x0001;
 
 // ── Effect types ──────────────────────────────────────────────────────────────
 
-export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom" | "fxaa" | "fsr" | "grain" | "retro" | "colorgrade" | "taa";
+export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom" | "fxaa" | "fsr" | "grain" | "retro" | "colorgrade" | "taa" | "pixelate" | "ntsc" | "hdr";
 
 export interface PostProcessConfig {
   effect: PostProcessEffect;
@@ -105,6 +105,35 @@ export interface PostProcessConfig {
    * Default 0.1.
    */
   taaBlend: number;
+  /**
+   * Pixelate block size in screen pixels (1–32).
+   * Larger values produce coarser, more blocky pixelation. Default 4.
+   */
+  pixelateSize: number;
+  /**
+   * NTSC composite artifact intensity (0 = clean, 1 = heavy chroma bleed + dot crawl).
+   * Controls horizontal chroma smear and dot-crawl animation strength. Default 0.5.
+   */
+  ntscArtifacts: number;
+  /**
+   * NTSC luma sharpness retention (0 = blurry, 1 = sharp Y channel). Default 0.5.
+   */
+  ntscSharpness: number;
+  /**
+   * HDR exposure multiplier applied before tone mapping (0.1–8). Default 1.0.
+   */
+  hdrExposure: number;
+  /**
+   * Reinhard extended white-point — luminance at which the curve saturates (0.1–8).
+   * Higher values preserve more highlight detail. Default 1.0.
+   */
+  hdrWhitePoint: number;
+  /**
+   * When true, use a nearest-neighbor (point) sampler instead of bilinear.
+   * Ideal for pixel-art games where bilinear blurring destroys sharp pixel edges.
+   * Default false.
+   */
+  pixelPerfect: boolean;
   /** Performance tier — used to auto-reduce effect quality on low-end devices. */
   tier?: PerformanceTier;
 }
@@ -128,6 +157,12 @@ export const DEFAULT_POST_PROCESS_CONFIG: PostProcessConfig = {
   saturation: 1.0,
   brightness: 0.0,
   taaBlend: 0.1,
+  pixelateSize: 4,
+  ntscArtifacts: 0.5,
+  ntscSharpness: 0.5,
+  hdrExposure: 1.0,
+  hdrWhitePoint: 1.0,
+  pixelPerfect: false,
 };
 
 // ── WGSL shaders ──────────────────────────────────────────────────────────────
@@ -768,6 +803,190 @@ struct Params {
 }
 `;
 
+// Block pixelation — snaps each fragment to the centre of its enclosing pixel
+// cell, producing the classic "mosaic" or "Minecraft" low-resolution look.
+//
+// Uniform layout (32 bytes):
+//   offset  0: pixelateSize (f32 — block size in screen pixels, minimum 1)
+//   offset  4–12: _pad × 3
+//   offset 16: resolution (vec2f)
+const PIXELATE_FRAGMENT = /* wgsl */ `
+struct Params {
+  pixelateSize: f32,
+  _pad1: f32,
+  _pad2: f32,
+  _pad3: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  // Snap to the centre of the nearest pixel block
+  let blockSize = max(params.pixelateSize, 1.0);
+  let blockUV = (floor(fragCoord.xy / blockSize) * blockSize + blockSize * 0.5) / params.resolution;
+  return textureSample(srcTex, srcSampler, clamp(blockUV, vec2f(0.0), vec2f(1.0)));
+}
+`;
+
+// NTSC composite video simulation — encodes the image into Y (luma) + IQ (chroma)
+// signals, applies the characteristic limited-bandwidth chroma smear, then
+// decodes back to RGB.  A dot-crawl pattern is superimposed at colour boundaries
+// to reproduce the interference fringing visible on real composite hardware.
+//
+// Chroma smear: sample the IQ channels at several horizontal offsets and blend
+//   them with the center sample, simulating a ~1.3 MHz IQ bandwidth limit.
+// Dot crawl: a sine-based beat pattern at the luma–chroma boundary frequency
+//   (~3.58 MHz / line-rate) that scrolls with time (animated via grainSeed).
+// Luma sharpness: independently controlled so the brightness channel stays crisp.
+//
+// Uniform layout (32 bytes):
+//   offset  0: ntscArtifacts (f32 — composite intensity 0–1)
+//   offset  4: ntscSharpness (f32 — luma retention 0–1)
+//   offset  8: grainSeed     (f32 — frame counter for dot-crawl animation)
+//   offset 12: _pad          (f32)
+//   offset 16: resolution    (vec2f)
+const NTSC_FRAGMENT = /* wgsl */ `
+struct Params {
+  ntscArtifacts: f32,
+  ntscSharpness: f32,
+  grainSeed: f32,
+  _pad: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// RGB → YIQ (NTSC colour space)
+fn rgb2yiq(c: vec3f) -> vec3f {
+  return vec3f(
+     0.299 * c.r + 0.587 * c.g + 0.114 * c.b,
+     0.596 * c.r - 0.274 * c.g - 0.322 * c.b,
+     0.211 * c.r - 0.523 * c.g + 0.312 * c.b,
+  );
+}
+
+// YIQ → RGB
+fn yiq2rgb(y: vec3f) -> vec3f {
+  return vec3f(
+    y.x + 0.956 * y.y + 0.621 * y.z,
+    y.x - 0.272 * y.y - 0.647 * y.z,
+    y.x - 1.106 * y.y + 1.703 * y.z,
+  );
+}
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let uv   = fragCoord.xy / params.resolution;
+  let texel = 1.0 / params.resolution;
+
+  // Center sample in YIQ space
+  let center = textureSample(srcTex, srcSampler, uv);
+  let yiqC   = rgb2yiq(center.rgb);
+
+  // Chroma blur: sample IQ at ±1 and ±2 texel offsets (scaled by artifact amount)
+  let blurStep = params.ntscArtifacts * 3.0 + 0.5;
+  let yiqL1 = rgb2yiq(textureSample(srcTex, srcSampler, uv - vec2f(texel.x * blurStep, 0.0)).rgb);
+  let yiqL2 = rgb2yiq(textureSample(srcTex, srcSampler, uv - vec2f(texel.x * blurStep * 2.0, 0.0)).rgb);
+  let yiqR1 = rgb2yiq(textureSample(srcTex, srcSampler, uv + vec2f(texel.x * blurStep, 0.0)).rgb);
+
+  // Weighted horizontal IQ average — bias left for the characteristic "trailing colour"
+  let iqBlurred = (
+    vec2f(yiqC.y,  yiqC.z)  * 1.0 +
+    vec2f(yiqL1.y, yiqL1.z) * 2.0 +
+    vec2f(yiqL2.y, yiqL2.z) * 1.0 +
+    vec2f(yiqR1.y, yiqR1.z) * 0.5
+  ) / 4.5;
+
+  // Mix original and blurred chroma based on artifact intensity
+  let finalIQ = mix(vec2f(yiqC.y, yiqC.z), iqBlurred, params.ntscArtifacts);
+
+  // Dot crawl: sine beat at the NTSC colour carrier frequency (~3.58 MHz).
+  // fragCoord.x drives the horizontal carrier frequency; grainSeed animates it.
+  let crawl = sin(fragCoord.x * 0.628318 + params.grainSeed * 0.4) *
+              0.04 * params.ntscArtifacts;
+
+  // Luma sharpness: unsharp-mask on Y channel when ntscSharpness > 0
+  var lumaY = yiqC.x;
+  if (params.ntscSharpness > 0.001) {
+    let yN = rgb2yiq(textureSample(srcTex, srcSampler, uv + vec2f( 0.0,    -texel.y)).rgb).x;
+    let yS = rgb2yiq(textureSample(srcTex, srcSampler, uv + vec2f( 0.0,     texel.y)).rgb).x;
+    let yE = rgb2yiq(textureSample(srcTex, srcSampler, uv + vec2f( texel.x, 0.0    )).rgb).x;
+    let yW = rgb2yiq(textureSample(srcTex, srcSampler, uv + vec2f(-texel.x, 0.0    )).rgb).x;
+    lumaY = clamp(yiqC.x * (1.0 + 4.0 * params.ntscSharpness * 0.5) - (yN + yS + yE + yW) * (params.ntscSharpness * 0.5), 0.0, 1.0);
+  }
+
+  let result = yiq2rgb(vec3f(lumaY + crawl, finalIQ));
+  return vec4f(clamp(result, vec3f(0.0), vec3f(1.0)), center.a);
+}
+`;
+
+// HDR tone mapping — applies Reinhard extended tone mapping followed by sRGB
+// gamma encoding.  Useful for games that output linear-light values > 1.0
+// (e.g. bloom-lit scenes) where a simple clamp would blow out highlights.
+//
+// Reinhard extended: tone(x) = x * (1 + x/W²) / (1 + x)
+//   W = white-point — input luminance mapped to 1.0 after tone mapping.
+// Per-channel application preserves hue better than luminance-only mapping for
+// the moderate HDR range typical of retro emulation scenes.
+//
+// Uniform layout (32 bytes):
+//   offset  0: hdrExposure   (f32 — pre-tone-map exposure multiplier)
+//   offset  4: hdrWhitePoint (f32 — Reinhard white point W)
+//   offset  8–12: _pad × 2
+//   offset 16: resolution    (vec2f)
+const HDR_FRAGMENT = /* wgsl */ `
+struct Params {
+  hdrExposure: f32,
+  hdrWhitePoint: f32,
+  _pad1: f32,
+  _pad2: f32,
+  resolution: vec2f,
+};
+
+@group(0) @binding(0) var srcTex: texture_2d<f32>;
+@group(0) @binding(1) var srcSampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+// Reinhard extended per-channel tone mapping.
+fn reinhardExtended(x: f32, w: f32) -> f32 {
+  let w2 = max(w * w, 0.0001);
+  return (x * (1.0 + x / w2)) / (1.0 + x);
+}
+
+@fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
+  let uv   = fragCoord.xy / params.resolution;
+  let raw  = textureSample(srcTex, srcSampler, uv).rgb;
+
+  // Apply exposure before tone mapping
+  let exposed = raw * max(params.hdrExposure, 0.001);
+
+  // Per-channel Reinhard extended tone mapping
+  let w = max(params.hdrWhitePoint, 0.001);
+  let tonemapped = vec3f(
+    reinhardExtended(exposed.r, w),
+    reinhardExtended(exposed.g, w),
+    reinhardExtended(exposed.b, w),
+  );
+
+  // Approximate sRGB gamma (2.2) — avoid pow() branch for values < 0.0031308
+  // by using the piecewise linear approximation:
+  //   linear  ≤ 0.0031308 → 12.92 × linear
+  //   linear  >  0.0031308 → 1.055 × linear^(1/2.4) − 0.055
+  let cutoff = vec3f(0.0031308);
+  let gamma = mix(
+    tonemapped * 12.92,
+    pow(tonemapped, vec3f(1.0 / 2.4)) * 1.055 - vec3f(0.055),
+    vec3f(f32(tonemapped.r > cutoff.r), f32(tonemapped.g > cutoff.g), f32(tonemapped.b > cutoff.b))
+  );
+
+  return vec4f(clamp(gamma, vec3f(0.0), vec3f(1.0)), 1.0);
+}
+`;
+
 interface EffectPipeline {
   pipeline: GPURenderPipeline;
   bindGroupLayout: GPUBindGroupLayout;
@@ -804,6 +1023,9 @@ export const EFFECT_LABELS: Record<PostProcessEffect, string> = {
   retro:      "Retro pixel art",
   colorgrade: "Color grading",
   taa:        "Temporal AA (TAA)",
+  pixelate:   "Pixelate",
+  ntsc:       "NTSC composite",
+  hdr:        "HDR tone mapping",
 };
 
 /**
@@ -833,6 +1055,12 @@ export function validatePostProcessConfig(config: PostProcessConfig): PostProces
     saturation:        Math.max(0, Math.min(4,   config.saturation)),
     brightness:        Math.max(-1, Math.min(1,  config.brightness)),
     taaBlend:          Math.max(0, Math.min(1,   config.taaBlend)),
+    pixelateSize:      Math.max(1, Math.min(32,  Math.round(config.pixelateSize))),
+    ntscArtifacts:     Math.max(0, Math.min(1,   config.ntscArtifacts)),
+    ntscSharpness:     Math.max(0, Math.min(1,   config.ntscSharpness)),
+    hdrExposure:       Math.max(0.1, Math.min(8, config.hdrExposure)),
+    hdrWhitePoint:     Math.max(0.1, Math.min(8, config.hdrWhitePoint)),
+    pixelPerfect:      config.pixelPerfect,
   };
 }
 
@@ -856,6 +1084,11 @@ export function adjustConfigForTier(config: PostProcessConfig): PostProcessConfi
     adjusted.fsrSharpness = 0;
     // TAA: disabled on low tier — history texture copy adds GPU overhead
     adjusted.taaBlend = 1;
+    // NTSC: reduce artifact complexity on low tier
+    adjusted.ntscArtifacts = Math.min(adjusted.ntscArtifacts, 0.4);
+    adjusted.ntscSharpness = Math.max(adjusted.ntscSharpness, 0.5);
+    // Pixelate: limit block size to reduce per-frame overhead on very low-end GPUs
+    adjusted.pixelateSize = Math.max(adjusted.pixelateSize, 2);
   } else if (tier === "medium") {
     // Reduce intensity on medium-tier devices
     const MED_TIER_MAX_BLOOM     = 0.3;
@@ -866,6 +1099,8 @@ export function adjustConfigForTier(config: PostProcessConfig): PostProcessConfi
     adjusted.fsrSharpness = Math.min(adjusted.fsrSharpness, MED_TIER_MAX_FSR);
     // TAA: cap blend on medium to reduce history influence (less ghosting risk)
     adjusted.taaBlend = Math.max(adjusted.taaBlend, 0.2);
+    // NTSC: slight artifact reduction on medium tier
+    adjusted.ntscArtifacts = Math.min(adjusted.ntscArtifacts, 0.7);
   }
   return adjusted;
 }
@@ -888,6 +1123,9 @@ export function buildEffectPipeline(
     case "retro":      fragmentCode = RETRO_FRAGMENT; break;
     case "colorgrade": fragmentCode = COLORGRADE_FRAGMENT; break;
     case "taa":        fragmentCode = TAA_FRAGMENT; break;
+    case "pixelate":   fragmentCode = PIXELATE_FRAGMENT; break;
+    case "ntsc":       fragmentCode = NTSC_FRAGMENT; break;
+    case "hdr":        fragmentCode = HDR_FRAGMENT; break;
     default:           fragmentCode = PASSTHROUGH_FRAGMENT; break;
   }
 
@@ -949,7 +1187,10 @@ export class WebGPUPostProcessor {
   private _sourceTexture: GPUTexture | null = null;
   /** History texture for TAA accumulation (previous frame snapshot). */
   private _historyTexture: GPUTexture | null = null;
+  /** Bilinear sampler — default for most effects. */
   private _sampler: GPUSampler | null = null;
+  /** Nearest-neighbour (point) sampler — used when `pixelPerfect` is true. */
+  private _nearestSampler: GPUSampler | null = null;
   private _effectPipeline: EffectPipeline | null = null;
   private _currentEffect: PostProcessEffect = "none";
   private _presentFormat: GPUTextureFormat = "bgra8unorm";
@@ -960,12 +1201,19 @@ export class WebGPUPostProcessor {
 
   /**
    * Cached bind group for the current source texture + pipeline combination.
-   * Invalidated whenever the source texture handle changes (canvas resize).
+   * Invalidated whenever the source texture handle changes (canvas resize),
+   * the history texture changes (TAA resize), or the sampler mode changes.
    * Re-creating the bind group every frame was the single largest per-frame
    * allocation; caching it brings that to zero in the steady state.
    */
   private _cachedBindGroup: GPUBindGroup | null = null;
   private _cachedBindGroupTexture: GPUTexture | null = null;
+  /**
+   * Tracks the history texture used in the cached bind group for TAA.
+   * When `_ensureHistoryTexture()` recreates the history texture on a resize,
+   * this field diverges from `_historyTexture` and the cache is invalidated.
+   */
+  private _cachedBindGroupHistoryTexture: GPUTexture | null = null;
 
   /**
    * Pre-allocated Float32Array for uniform uploads.
@@ -1013,6 +1261,15 @@ export class WebGPUPostProcessor {
   private _lastGPUFrameTimeMs: number | null = null;
   /** Whether a timer readback is already in flight. */
   private _timerReadbackPending = false;
+
+  /**
+   * Optional callback invoked when the WebGPU device is lost.
+   *
+   * The processor stops its render loop and deactivates before firing this
+   * callback. Callers can use it to re-initialise the WebGPU device and
+   * re-attach the post-processor (see `PSPEmulator.preWarmWebGPU()`).
+   */
+  onDeviceLost?: () => void;
 
   constructor(device: GPUDevice, config?: Partial<PostProcessConfig>) {
     this._device = device;
@@ -1073,6 +1330,14 @@ export class WebGPUPostProcessor {
       minFilter: "linear",
     });
 
+    // Nearest-neighbour sampler for pixel-perfect mode (pixel-art games).
+    // Created once here and reused; the bind group selects between the two
+    // based on `pixelPerfect` in the config.
+    this._nearestSampler = this._device.createSampler({
+      magFilter: "nearest",
+      minFilter: "nearest",
+    });
+
     // Recreate optional timestamp query resources on re-attach. detach()
     // releases them, and the same processor instance can be attached again.
     if (!this._querySet) {
@@ -1099,19 +1364,25 @@ export class WebGPUPostProcessor {
     this._effectPipeline?.uniformBuffer?.destroy();
     this._effectPipeline = null;
     this._sampler = null;
+    this._nearestSampler = null;
     this._invalidateBindGroupCache();
     this._destroyTimestampQuery();
   }
 
   /** Update post-processing configuration. Rebuilds the pipeline if the effect changes. */
   updateConfig(patch: Partial<PostProcessConfig>): void {
-    const prevEffect = this._config.effect;
+    const prevEffect      = this._config.effect;
+    const prevPixelPerfect = this._config.pixelPerfect;
     Object.assign(this._config, patch);
 
     if (this._config.effect !== prevEffect) {
       this._rebuildPipeline();
       // Changing the pipeline invalidates the cached bind group because the
       // bind group layout changes with the effect.
+      this._invalidateBindGroupCache();
+    } else if (this._config.pixelPerfect !== prevPixelPerfect) {
+      // Sampler switched between bilinear ↔ nearest — the bind group must be
+      // recreated because it references the sampler object directly.
       this._invalidateBindGroupCache();
     }
 
@@ -1278,12 +1549,14 @@ export class WebGPUPostProcessor {
 
   /**
    * Drop the cached bind group.
-   * Called whenever the source texture or pipeline changes so the next
-   * _renderFrame call recreates it against the current handles.
+   * Called whenever the source texture, history texture, pipeline, or sampler
+   * mode changes so the next _renderFrame call recreates it against the current
+   * handles.
    */
   private _invalidateBindGroupCache(): void {
     this._cachedBindGroup = null;
     this._cachedBindGroupTexture = null;
+    this._cachedBindGroupHistoryTexture = null;
   }
 
   /**
@@ -1292,8 +1565,11 @@ export class WebGPUPostProcessor {
    * The bind group wraps the source texture view, sampler, and uniform buffer.
    * Since none of these change between frames (only the uniform *values* change,
    * which are uploaded via writeBuffer to the same GPUBuffer), the bind group
-   * object itself can be reused indefinitely — until the source texture handle
-   * is replaced due to a canvas resize or pipeline switch.
+   * object itself can be reused indefinitely — until any of the following change:
+   *   - source texture handle (canvas resize)
+   *   - history texture handle for TAA (canvas resize)
+   *   - pipeline (effect switch)
+   *   - sampler mode (pixelPerfect toggle)
    */
   private _ensureBindGroup(): GPUBindGroup | null {
     if (!this._effectPipeline || !this._sourceTexture || !this._sampler) return null;
@@ -1303,14 +1579,25 @@ export class WebGPUPostProcessor {
     const needsHistory = this._effectPipeline.requiresHistoryTexture;
     if (needsHistory && !this._historyTexture) return null;
 
-    // Cache hit: same source texture (and same history texture for TAA)
-    if (this._cachedBindGroup && this._cachedBindGroupTexture === this._sourceTexture) {
+    // Select the appropriate sampler based on pixelPerfect mode.
+    // Nearest sampler may be absent on old attach paths — fall back to linear.
+    const sampler = (this._config.pixelPerfect && this._nearestSampler)
+      ? this._nearestSampler
+      : this._sampler;
+
+    // Cache hit: source texture, history texture (for TAA), and sampler type
+    // are all unchanged since the last bind group was built.
+    if (
+      this._cachedBindGroup &&
+      this._cachedBindGroupTexture === this._sourceTexture &&
+      (!needsHistory || this._cachedBindGroupHistoryTexture === this._historyTexture)
+    ) {
       return this._cachedBindGroup;
     }
 
     const entries: GPUBindGroupEntry[] = [
       { binding: 0, resource: this._sourceTexture.createView() },
-      { binding: 1, resource: this._sampler },
+      { binding: 1, resource: sampler },
     ];
     if (this._effectPipeline.uniformBuffer) {
       entries.push({ binding: 2, resource: { buffer: this._effectPipeline.uniformBuffer } });
@@ -1324,6 +1611,7 @@ export class WebGPUPostProcessor {
       entries,
     });
     this._cachedBindGroupTexture = this._sourceTexture;
+    this._cachedBindGroupHistoryTexture = needsHistory ? this._historyTexture : null;
     return this._cachedBindGroup;
   }
 
@@ -1555,6 +1843,30 @@ export class WebGPUPostProcessor {
         data[4] = width;
         data[5] = height;
         break;
+      case "pixelate":
+        data[0] = cfg.pixelateSize;
+        data[1] = 0;
+        data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "ntsc":
+        data[0] = cfg.ntscArtifacts;
+        data[1] = cfg.ntscSharpness;
+        data[2] = this._frameCount; // animated dot-crawl seed — changes every frame
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
+      case "hdr":
+        data[0] = cfg.hdrExposure;
+        data[1] = cfg.hdrWhitePoint;
+        data[2] = 0;
+        data[3] = 0;
+        data[4] = width;
+        data[5] = height;
+        break;
     }
 
     this._device.queue.writeBuffer(this._effectPipeline.uniformBuffer, 0, data);
@@ -1614,6 +1926,9 @@ export class WebGPUPostProcessor {
       this._stopLoop();
       this._hideOverlay();
       this._active = false;
+      // Notify the caller so they can attempt to re-acquire the device and
+      // re-attach the post-processor (e.g. PSPEmulator.preWarmWebGPU()).
+      this.onDeviceLost?.();
     }).catch(() => { /* ignore — device loss is not a recoverable error here */ });
   }
 
