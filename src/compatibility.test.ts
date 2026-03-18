@@ -115,9 +115,9 @@ describe("GameCompatibilityDb", () => {
   it("mergeRemote() ignores non-object input gracefully", () => {
     const db = new GameCompatibilityDb();
     const sizeBefore = db.size;
-    db.mergeRemote(null as unknown as Record<string, unknown>);
-    db.mergeRemote([1, 2, 3] as unknown as Record<string, unknown>);
-    db.mergeRemote("string" as unknown as Record<string, unknown>);
+    db.mergeRemote(null);
+    db.mergeRemote([1, 2, 3]);
+    db.mergeRemote("string");
     expect(db.size).toBe(sizeBefore);
   });
 
