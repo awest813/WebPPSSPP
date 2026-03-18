@@ -88,6 +88,133 @@ describe('performance', () => {
     expect(caps.gpuBenchmarkScore).toBe(0);
   });
 
+  it('benchmarkGPU returns 0 when vertex shader compilation fails', () => {
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => {
+      if (tagName === 'canvas') {
+        const mockGl = {
+          VERTEX_SHADER: 35633,
+          FRAGMENT_SHADER: 35632,
+          ARRAY_BUFFER: 34962,
+          STATIC_DRAW: 35044,
+          TRIANGLE_STRIP: 5,
+          FLOAT: 5126,
+          RGBA: 6408,
+          UNSIGNED_BYTE: 5121,
+          TEXTURE_2D: 3553,
+          TEXTURE0: 33984,
+          TEXTURE_MIN_FILTER: 10241,
+          TEXTURE_MAG_FILTER: 10240,
+          TEXTURE_WRAP_S: 10242,
+          TEXTURE_WRAP_T: 10243,
+          NEAREST: 9728,
+          CLAMP_TO_EDGE: 33071,
+          COMPILE_STATUS: 35713,
+          LINK_STATUS: 35714,
+          createShader: vi.fn(() => ({})),
+          shaderSource: vi.fn(),
+          compileShader: vi.fn(),
+          getShaderParameter: vi.fn((shader: unknown, pname: number) => {
+            // Vertex shader compile fails
+            if (pname === mockGl.COMPILE_STATUS) return false;
+            return true;
+          }),
+          createProgram: vi.fn(() => ({})),
+          attachShader: vi.fn(),
+          linkProgram: vi.fn(),
+          getProgramParameter: vi.fn(() => true),
+          useProgram: vi.fn(),
+          getUniformLocation: vi.fn(() => null),
+          uniform1i: vi.fn(),
+          createBuffer: vi.fn(() => ({})),
+          bindBuffer: vi.fn(),
+          bufferData: vi.fn(),
+          getAttribLocation: vi.fn(() => -1),
+          createTexture: vi.fn(() => null),
+          activeTexture: vi.fn(),
+          bindTexture: vi.fn(),
+          texImage2D: vi.fn(),
+          texParameteri: vi.fn(),
+          getExtension: vi.fn(() => null),
+          flush: vi.fn(),
+        };
+        return {
+          getContext: (ctx: string) => ctx === 'webgl2' ? null : mockGl,
+          width: 0,
+          height: 0,
+        } as unknown as HTMLCanvasElement;
+      }
+      return originalCreateElement(tagName, options);
+    });
+
+    const caps = detectCapabilities();
+
+    expect(caps.gpuBenchmarkScore).toBe(0);
+  });
+
+  it('benchmarkGPU returns 0 when program linking fails', () => {
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string, options?: ElementCreationOptions) => {
+      if (tagName === 'canvas') {
+        const mockGl = {
+          VERTEX_SHADER: 35633,
+          FRAGMENT_SHADER: 35632,
+          ARRAY_BUFFER: 34962,
+          STATIC_DRAW: 35044,
+          TRIANGLE_STRIP: 5,
+          FLOAT: 5126,
+          RGBA: 6408,
+          UNSIGNED_BYTE: 5121,
+          TEXTURE_2D: 3553,
+          TEXTURE0: 33984,
+          TEXTURE_MIN_FILTER: 10241,
+          TEXTURE_MAG_FILTER: 10240,
+          TEXTURE_WRAP_S: 10242,
+          TEXTURE_WRAP_T: 10243,
+          NEAREST: 9728,
+          CLAMP_TO_EDGE: 33071,
+          COMPILE_STATUS: 35713,
+          LINK_STATUS: 35714,
+          createShader: vi.fn(() => ({})),
+          shaderSource: vi.fn(),
+          compileShader: vi.fn(),
+          getShaderParameter: vi.fn(() => true),
+          createProgram: vi.fn(() => ({})),
+          attachShader: vi.fn(),
+          linkProgram: vi.fn(),
+          getProgramParameter: vi.fn((prog: unknown, pname: number) => {
+            if (pname === mockGl.LINK_STATUS) return false; // link fails
+            return true;
+          }),
+          useProgram: vi.fn(),
+          getUniformLocation: vi.fn(() => null),
+          uniform1i: vi.fn(),
+          createBuffer: vi.fn(() => ({})),
+          bindBuffer: vi.fn(),
+          bufferData: vi.fn(),
+          getAttribLocation: vi.fn(() => -1),
+          createTexture: vi.fn(() => null),
+          activeTexture: vi.fn(),
+          bindTexture: vi.fn(),
+          texImage2D: vi.fn(),
+          texParameteri: vi.fn(),
+          getExtension: vi.fn(() => null),
+          flush: vi.fn(),
+        };
+        return {
+          getContext: (ctx: string) => ctx === 'webgl2' ? null : mockGl,
+          width: 0,
+          height: 0,
+        } as unknown as HTMLCanvasElement;
+      }
+      return originalCreateElement(tagName, options);
+    });
+
+    const caps = detectCapabilities();
+
+    expect(caps.gpuBenchmarkScore).toBe(0);
+  });
+
   it('returns a valid DeviceCapabilities object on normal run', () => {
     const caps = detectCapabilities();
 
@@ -126,9 +253,11 @@ describe('performance', () => {
       createShader: vi.fn(() => ({})),
       shaderSource: vi.fn(),
       compileShader: vi.fn(),
+      getShaderParameter: vi.fn(() => true),
       createProgram: vi.fn(() => ({})),
       attachShader: vi.fn(),
       linkProgram: vi.fn(),
+      getProgramParameter: vi.fn(() => true),
       useProgram: vi.fn(),
       getUniformLocation: vi.fn(() => ({})),
       uniform1f: vi.fn(),
@@ -183,9 +312,11 @@ describe('performance', () => {
       createShader: vi.fn(() => ({})),
       shaderSource: vi.fn(),
       compileShader: vi.fn(),
+      getShaderParameter: vi.fn(() => true),
       createProgram: vi.fn(() => ({})),
       attachShader: vi.fn(),
       linkProgram: vi.fn(),
+      getProgramParameter: vi.fn(() => true),
       useProgram: vi.fn(),
       getUniformLocation: vi.fn(() => ({})),
       createBuffer: vi.fn(() => ({})),
@@ -1143,9 +1274,11 @@ describe('performance', () => {
       createShader: vi.fn(() => ({})),
       shaderSource: vi.fn(),
       compileShader: vi.fn(),
+      getShaderParameter: vi.fn(() => true),
       createProgram: vi.fn(() => ({})),
       attachShader: vi.fn(),
       linkProgram: vi.fn(),
+      getProgramParameter: vi.fn(() => true),
       useProgram: vi.fn(),
       getUniformLocation: vi.fn(() => ({})),
       uniform1f: vi.fn(),
