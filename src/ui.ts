@@ -998,7 +998,7 @@ function _wireLibraryNavigation(): void {
     if (!doMove || !cards.length) return;
 
     const focused = document.activeElement as HTMLElement | null;
-    let idx = focused ? cards.indexOf(focused) : -1;
+    const idx = focused ? cards.indexOf(focused) : -1;
 
     if (idx === -1) {
       // Nothing focused yet — focus the first card
@@ -7114,3 +7114,8 @@ export function showInfoToast(msg: string): void {
   requestAnimationFrame(() => toast.classList.add("visible"));
   setTimeout(() => { toast.classList.remove("visible"); setTimeout(() => toast.remove(), 200); }, 5000);
 }
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+/** @internal — test-only: expose showConflictResolutionDialog for isolated unit tests. */
+export const __showConflictResolutionDialogForTests = showConflictResolutionDialog;

@@ -1,13 +1,14 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT, __showConflictResolutionDialogForTests } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
 import * as archive from "./archive.js";
 import type { PSPEmulator } from "./emulator.js";
 import type { GameLibrary, GameMetadata } from "./library.js";
 import type { BiosLibrary } from "./bios.js";
-import type { SaveStateLibrary } from "./saves.js";
+import type { SaveStateLibrary, SaveStateEntry } from "./saves.js";
 import type { Settings } from "./main.js";
+import type { SyncConflict } from "./cloudSave.js";
 import { UIDirtyFlags, UIDirtyTracker, type DeviceCapabilities } from "./performance.js";
 
 function makeSettings(overrides: Partial<Settings> = {}): Settings {
@@ -3465,5 +3466,184 @@ describe("library gamepad navigation", () => {
     runRafTick();
     // Focus should not have moved
     expect(document.activeElement).toBe(cards[0]);
+  });
+});
+
+// ── showConflictResolutionDialog ──────────────────────────────────────────────
+
+describe("showConflictResolutionDialog", () => {
+  function makeConflict(localTs = 1_000_000, remoteTs = 2_000_000): SyncConflict {
+    const makeEntry = (ts: number): SaveStateEntry => ({
+      id: `entry-${ts}`,
+      gameId: "test-game",
+      gameName: "Test Game",
+      systemId: "psp",
+      slot: 2,
+      label: "",
+      timestamp: ts,
+      thumbnail: null,
+      stateData: null,
+      isAutoSave: false,
+    });
+    return {
+      local:  makeEntry(localTs),
+      remote: makeEntry(remoteTs),
+      gameId: "test-game",
+      slot:   2,
+    };
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.querySelectorAll(".confirm-overlay").forEach((el) => el.remove());
+  });
+
+  it("renders a dialog overlay with a conflict-resolution-box", () => {
+    const p = __showConflictResolutionDialogForTests(makeConflict());
+    void p; // pending promise — cleaned up by afterEach
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay");
+    expect(overlay).toBeTruthy();
+    expect(overlay!.querySelector(".conflict-resolution-box")).toBeTruthy();
+  });
+
+  it("shows the slot number and both timestamps in the dialog body", () => {
+    const conflict = makeConflict(1_000_000, 2_000_000);
+    const p = __showConflictResolutionDialogForTests(conflict);
+    void p;
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay");
+    expect(overlay!.textContent).toContain("Slot 2");
+    // Both "Local" and "Cloud" labels should appear
+    expect(overlay!.textContent).toContain("Local:");
+    expect(overlay!.textContent).toContain("Cloud:");
+  });
+
+  it("renders 'Keep Local', 'Keep Cloud', and 'Keep Newest' buttons", () => {
+    const p = __showConflictResolutionDialogForTests(makeConflict());
+    void p;
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay")!;
+    const buttons = Array.from(overlay.querySelectorAll<HTMLButtonElement>("button"));
+    const labels  = buttons.map((b) => b.textContent?.trim());
+
+    expect(labels).toContain("Keep Local");
+    expect(labels).toContain("Keep Cloud");
+    expect(labels).toContain("Keep Newest");
+  });
+
+  it('"Keep Local" button resolves the promise with "local"', async () => {
+    const promise = __showConflictResolutionDialogForTests(makeConflict());
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay")!;
+    const btnLocal = Array.from(overlay.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.includes("Keep Local"))!;
+    expect(btnLocal).toBeTruthy();
+
+    vi.useFakeTimers();
+    try {
+      btnLocal.click();
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(promise).resolves.toBe("local");
+  });
+
+  it('"Keep Cloud" button resolves the promise with "remote"', async () => {
+    const promise = __showConflictResolutionDialogForTests(makeConflict());
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay")!;
+    const btnRemote = Array.from(overlay.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.includes("Keep Cloud"))!;
+    expect(btnRemote).toBeTruthy();
+
+    vi.useFakeTimers();
+    try {
+      btnRemote.click();
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(promise).resolves.toBe("remote");
+  });
+
+  it('"Keep Newest" button resolves the promise with "newest"', async () => {
+    const promise = __showConflictResolutionDialogForTests(makeConflict());
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay")!;
+    const btnNewest = Array.from(overlay.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.includes("Keep Newest"))!;
+    expect(btnNewest).toBeTruthy();
+
+    vi.useFakeTimers();
+    try {
+      btnNewest.click();
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(promise).resolves.toBe("newest");
+  });
+
+  it("Escape key resolves the promise with 'newest'", async () => {
+    const promise = __showConflictResolutionDialogForTests(makeConflict());
+
+    expect(document.querySelector(".confirm-overlay")).toBeTruthy();
+
+    vi.useFakeTimers();
+    try {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      );
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(promise).resolves.toBe("newest");
+  });
+
+  it("backdrop click resolves the promise with 'newest'", async () => {
+    const promise = __showConflictResolutionDialogForTests(makeConflict());
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay")!;
+
+    vi.useFakeTimers();
+    try {
+      // Simulate a click directly on the overlay backdrop (not the inner box)
+      overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await expect(promise).resolves.toBe("newest");
+  });
+
+  it("dialog is removed from the DOM after resolution", async () => {
+    const promise = __showConflictResolutionDialogForTests(makeConflict());
+
+    const overlay = document.querySelector<HTMLElement>(".confirm-overlay")!;
+    const btnLocal = Array.from(overlay.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.includes("Keep Local"))!;
+
+    vi.useFakeTimers();
+    try {
+      btnLocal.click();
+      vi.advanceTimersByTime(300); // advance past 200 ms fade-out timeout
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await promise;
+    expect(document.querySelector(".conflict-resolution-box")).toBeNull();
   });
 });

@@ -3249,6 +3249,132 @@ describe('PSPEmulator', () => {
       expect(events).toHaveLength(0);
     });
   });
+
+  // ── Thermal pressure monitoring ──────────────────────────────────────────────
+
+  describe('Thermal pressure monitoring', () => {
+    it('thermalPressureState returns "unknown" before Compute Pressure API fires', () => {
+      expect(emulator.thermalPressureState).toBe('unknown');
+    });
+
+    it('onThermalPressureChange fires when the internal monitor emits a change', () => {
+      type EmuPrivate = {
+        _thermalMonitor: { onPressureChange?: (state: string, prev: string) => void };
+      };
+
+      const events: { state: string; prev: string }[] = [];
+      emulator.onThermalPressureChange = (state, prev) => events.push({ state, prev });
+
+      (emulator as unknown as EmuPrivate)._thermalMonitor.onPressureChange?.('serious', 'nominal');
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.state).toBe('serious');
+      expect(events[0]!.prev).toBe('nominal');
+    });
+
+    it('onThermalPressureChange receives multiple transitions in order', () => {
+      type EmuPrivate = {
+        _thermalMonitor: { onPressureChange?: (state: string, prev: string) => void };
+      };
+
+      const events: { state: string; prev: string }[] = [];
+      emulator.onThermalPressureChange = (state, prev) => events.push({ state, prev });
+
+      const mon = (emulator as unknown as EmuPrivate)._thermalMonitor;
+      mon.onPressureChange?.('fair',     'unknown');
+      mon.onPressureChange?.('serious',  'fair');
+      mon.onPressureChange?.('critical', 'serious');
+
+      expect(events).toHaveLength(3);
+      expect(events[0]!.state).toBe('fair');
+      expect(events[1]!.state).toBe('serious');
+      expect(events[2]!.state).toBe('critical');
+    });
+
+    it('does not throw when onThermalPressureChange is not registered', () => {
+      type EmuPrivate = {
+        _thermalMonitor: { onPressureChange?: (state: string, prev: string) => void };
+      };
+
+      expect(() => {
+        (emulator as unknown as EmuPrivate)._thermalMonitor.onPressureChange?.('critical', 'serious');
+      }).not.toThrow();
+    });
+
+    it('emits a console.warn for serious thermal pressure', () => {
+      type EmuPrivate = {
+        _thermalMonitor: { onPressureChange?: (state: string, prev: string) => void };
+      };
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      (emulator as unknown as EmuPrivate)._thermalMonitor.onPressureChange?.('serious', 'nominal');
+
+      expect(warnSpy).toHaveBeenCalledOnce();
+      expect(warnSpy.mock.calls[0]![0]).toContain('serious');
+    });
+
+    it('emits a console.warn for critical thermal pressure', () => {
+      type EmuPrivate = {
+        _thermalMonitor: { onPressureChange?: (state: string, prev: string) => void };
+      };
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      (emulator as unknown as EmuPrivate)._thermalMonitor.onPressureChange?.('critical', 'serious');
+
+      expect(warnSpy).toHaveBeenCalledOnce();
+      expect(warnSpy.mock.calls[0]![0]).toContain('critical');
+    });
+
+    it('does not emit a console.warn for nominal or fair thermal pressure', () => {
+      type EmuPrivate = {
+        _thermalMonitor: { onPressureChange?: (state: string, prev: string) => void };
+      };
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mon = (emulator as unknown as EmuPrivate)._thermalMonitor;
+      mon.onPressureChange?.('nominal', 'unknown');
+      mon.onPressureChange?.('fair',    'nominal');
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Phase 9 — startupProfiler and FPS prediction ─────────────────────────────
+
+  describe('Phase 9 — startupProfiler and FPS prediction', () => {
+    it('startupProfiler getter exposes the internal StartupProfiler', () => {
+      const profiler = emulator.startupProfiler;
+      expect(profiler).toBeTruthy();
+      expect(typeof profiler.begin).toBe('function');
+      expect(typeof profiler.end).toBe('function');
+      expect(typeof profiler.records).toBe('function');
+      expect(typeof profiler.summary).toBe('function');
+    });
+
+    it('startupProfiler.records() is empty before any launch', () => {
+      expect(emulator.startupProfiler.records()).toEqual([]);
+    });
+
+    it('startupProfiler.summary() reports zero totalMs and null slowest before any launch', () => {
+      const summary = emulator.startupProfiler.summary();
+      expect(summary.totalMs).toBe(0);
+      expect(summary.slowest).toBeNull();
+      expect(summary.records).toEqual([]);
+    });
+
+    it('_fpsPredictionFired is false on construction', () => {
+      type EmuPrivate = { _fpsPredictionFired: boolean };
+      expect((emulator as unknown as EmuPrivate)._fpsPredictionFired).toBe(false);
+    });
+
+    it('prefetchTopSystems does not throw', () => {
+      expect(() => emulator.prefetchTopSystems(2)).not.toThrow();
+    });
+
+    it('prefetchTopSystems(0) does not throw', () => {
+      expect(() => emulator.prefetchTopSystems(0)).not.toThrow();
+    });
+  });
 });
 
 // ── _loadScript race-condition guard ─────────────────────────────────────────

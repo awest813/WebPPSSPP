@@ -48,6 +48,8 @@ const EXPECTED_WARN_PATTERNS = [
   "[RetroVault] WebGPU canvas context unavailable",
   // WebGPU post-processor: render loop frame failure (tested explicitly)
   "[RetroVault] WebGPU post-process frame failed",
+  // ThermalMonitor: elevated pressure warning (tested explicitly in emulator tests)
+  "[RetroVault] Thermal pressure elevated",
 ] as const;
 
 function isExpectedWarn(args: unknown[]): boolean {
