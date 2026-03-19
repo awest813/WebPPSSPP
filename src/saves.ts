@@ -159,66 +159,6 @@ export async function verifySaveChecksum(entry: SaveStateEntry): Promise<boolean
   return computeChecksum(bytes) === entry.checksum;
 }
 
-// ── Compression ───────────────────────────────────────────────────────────────
-
-/**
- * Compress a Uint8Array with the gzip algorithm via CompressionStream.
- * Falls back to returning the original data unchanged when CompressionStream
- * is not available in the current environment (e.g., older browsers, jsdom).
- */
-export async function compressStateData(data: Uint8Array): Promise<Uint8Array> {
-  if (typeof CompressionStream === "undefined") return data;
-  try {
-    const cs     = new CompressionStream("gzip");
-    const writer = cs.writable.getWriter();
-    await writer.write(data as unknown as Uint8Array<ArrayBuffer>);
-    await writer.close();
-    return _collectStream(cs.readable);
-  } catch {
-    return data;
-  }
-}
-
-/**
- * Decompress a gzip-compressed Uint8Array via DecompressionStream.
- * Falls back to returning the original data unchanged when DecompressionStream
- * is not available or decompression fails.
- */
-export async function decompressStateData(data: Uint8Array): Promise<Uint8Array> {
-  if (typeof DecompressionStream === "undefined") return data;
-  try {
-    const ds     = new DecompressionStream("gzip");
-    const writer = ds.writable.getWriter();
-    await writer.write(data as unknown as Uint8Array<ArrayBuffer>);
-    await writer.close();
-    return _collectStream(ds.readable);
-  } catch {
-    return data;
-  }
-}
-
-async function _collectStream(readable: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  const reader = readable.getReader();
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-
 // ── Save Event Bus ────────────────────────────────────────────────────────────
 
 export type SaveEventType = "saved" | "deleted" | "migrated" | "cleared";
