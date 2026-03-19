@@ -257,11 +257,10 @@ export class BiosLibrary {
   async getPrimaryBios(systemId: string): Promise<BiosEntry | null> {
     const reqs = BIOS_REQUIREMENTS[systemId];
     if (!reqs) return null;
-    for (const r of reqs) {
-      const entry = await this.findBios(systemId, r.fileName);
-      if (entry) return entry;
-    }
-    return null;
+    const results = await Promise.all(
+      reqs.map(r => this.findBios(systemId, r.fileName))
+    );
+    return results.find(entry => entry !== null) ?? null;
   }
 
   /**
@@ -280,12 +279,15 @@ export class BiosLibrary {
    * for the given system.
    */
   async getBiosStatus(systemId: string): Promise<Map<string, boolean>> {
-    const reqs   = BIOS_REQUIREMENTS[systemId] ?? [];
+    const reqs = BIOS_REQUIREMENTS[systemId] ?? [];
+    const results = await Promise.all(
+      reqs.map(r => this.findBios(systemId, r.fileName))
+    );
+
     const status = new Map<string, boolean>();
-    for (const r of reqs) {
-      const found = await this.findBios(systemId, r.fileName);
-      status.set(r.fileName, found !== null);
-    }
+    reqs.forEach((r, i) => {
+      status.set(r.fileName, results[i] !== null);
+    });
     return status;
   }
 
@@ -301,32 +303,25 @@ export class BiosLibrary {
     const required = reqs.filter(r => r.required);
     if (required.length === 0) return true;
 
+    const results = await Promise.all(
+      required.map(r => this.findBios(systemId, r.fileName))
+    );
+
     // Group entries by their `group` key (entries without a group use their
     // fileName as a unique key so each is treated as its own requirement).
-    const groups = new Map<string, BiosRequirement[]>();
-    for (const r of required) {
-      const key = r.group ?? r.fileName;
-      const bucket = groups.get(key);
-      if (bucket) {
-        bucket.push(r);
-      } else {
-        groups.set(key, [r]);
-      }
-    }
-
     // Every group must have at least one file present.
-    // A group with a single entry (no `group` field set) effectively means
-    // "this exact file must be present".
-    // A group with multiple entries means "at least one of these files must
-    // be present" — used for systems that accept regional BIOS alternatives
-    // (e.g. Sega Saturn: JP or US/EU BIOS, not necessarily both).
-    for (const entries of groups.values()) {
-      let anyFound = false;
-      for (const e of entries) {
-        const found = await this.findBios(systemId, e.fileName);
-        if (found) { anyFound = true; break; }
+    const groups = new Map<string, boolean>();
+    required.forEach((r, i) => {
+      const key = r.group ?? r.fileName;
+      if (results[i] !== null) {
+        groups.set(key, true);
+      } else if (!groups.has(key)) {
+        groups.set(key, false);
       }
-      if (!anyFound) return false;
+    });
+
+    for (const ready of groups.values()) {
+      if (!ready) return false;
     }
     return true;
   }
