@@ -248,6 +248,7 @@ describe("WebGPUPostProcessor", () => {
 
       pp.attach(sourceCanvas, container);
       expect(pp.active).toBe(true);
+      expect(container.querySelector(".webgpu-postprocess-overlay")).toBeTruthy();
 
       // Simulate device loss — the handler should deactivate the processor
       signalLost({ reason: "destroyed", message: "GPU device was lost" });
@@ -256,6 +257,10 @@ describe("WebGPUPostProcessor", () => {
       await Promise.resolve();
 
       expect(pp.active).toBe(false);
+      expect(container.querySelector(".webgpu-postprocess-overlay")).toBeNull();
+      expect((pp as unknown as { _canvas: HTMLCanvasElement | null })._canvas).toBeNull();
+      expect((pp as unknown as { _gpuContext: GPUCanvasContext | null })._gpuContext).toBeNull();
+      expect((pp as unknown as { _sourceCanvas: HTMLCanvasElement | null })._sourceCanvas).toBeNull();
 
       pp.dispose();
       rafSpy.mockRestore();
@@ -1494,6 +1499,7 @@ describe("onDeviceLost callback", () => {
 
     expect(onDeviceLostSpy).toHaveBeenCalledOnce();
     expect(pp.active).toBe(false);
+    expect(testContainer.querySelector(".webgpu-postprocess-overlay")).toBeNull();
 
     pp.dispose();
     testContainer.remove();

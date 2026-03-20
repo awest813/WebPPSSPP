@@ -1923,9 +1923,17 @@ export class WebGPUPostProcessor {
         `[RetroVault] WebGPU device lost (reason: ${info.reason}, message: "${info.message}"). ` +
         "Post-processing render loop stopped."
       );
-      this._stopLoop();
-      this._hideOverlay();
-      this._active = false;
+      // Fully detach so the stale overlay canvas and transient GPU resources do
+      // not linger after recovery attempts. The cleanup is best-effort: even if
+      // a destroy/remove step were to fail on a lost device, the processor still
+      // transitions to an inactive state and notifies the owner.
+      try {
+        this.detach();
+      } catch {
+        this._stopLoop();
+        this._hideOverlay();
+        this._active = false;
+      }
       // Notify the caller so they can attempt to re-acquire the device and
       // re-attach the post-processor (e.g. PSPEmulator.preWarmWebGPU()).
       this.onDeviceLost?.();
