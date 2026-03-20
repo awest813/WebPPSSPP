@@ -26,12 +26,13 @@ import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsPr
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
 import { detectCapabilitiesCached, checkBatteryStatus, formatDetailedSummary, scheduleIdleTask, getResolutionCoreOptions } from "./performance.js";
+import { gameCompatibilityDb } from "./compatibility.js";
 import { buildDOM, initUI, showLanding,
          hideEjsContainer, renderLibrary, openSettingsPanel,
          buildLandingControls, showTierDowngradePrompt,
          promptAutoSaveRestore,
          resolveSystemAndAdd,
-         showError,
+         showError, showInfoToast,
          TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
 import { isTouchDevice } from "./touchControls.js";
 import { NetplayManager } from "./multiplayer.js";
@@ -386,6 +387,14 @@ function main(): void {
     currentSystemId     = systemId;
     currentGameId       = gameId ?? null;
 
+    const compatibilityEntry =
+      gameCompatibilityDb.lookup(gameId ?? "") ??
+      gameCompatibilityDb.lookup(gameName);
+
+    if (compatibilityEntry?.knownIssues?.length) {
+      showInfoToast(`Compatibility note: ${compatibilityEntry.knownIssues[0]}`);
+    }
+
     // Check for auto-save restore opportunity
     let pendingAutoRestore: Uint8Array | null = null;
     if (gameId && settings.autoSaveEnabled) {
@@ -422,7 +431,7 @@ function main(): void {
 
     // Apply per-game tier profile if no explicit override was requested
     const savedTier    = gameId ? getGameTierProfile(gameId) : null;
-    const resolvedTier = tierOverride ?? savedTier ?? undefined;
+    const resolvedTier = tierOverride ?? savedTier ?? compatibilityEntry?.tierOverride ?? undefined;
 
     // Apply per-game graphics profile overrides
     const gfxProfile = gameId ? getGameGraphicsProfile(gameId) : null;
