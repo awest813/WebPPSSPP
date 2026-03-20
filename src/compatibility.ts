@@ -86,6 +86,19 @@ const BUILTIN_COMPAT_DB: CompatibilityDb = {
     verified:     false,
   },
 
+  // N64 — titles that benefit from the more compatible GLideN64 path
+  "paper_mario": {
+    title:        "Paper Mario",
+    tierOverride: "medium",
+    knownIssues:  ["Framebuffer-heavy scenes can render incorrectly on the low tier; medium tier is recommended."],
+    verified:     true,
+  },
+  "star_wars_rogue_squadron": {
+    title:        "Star Wars: Rogue Squadron",
+    knownIssues:  ["Some effects may still render incorrectly in browser builds; try medium or higher for best results."],
+    verified:     false,
+  },
+
   // NDS — games with known DeSmuME quirks
   "pokemon_black": {
     title:        "Pokémon Black",
@@ -271,7 +284,22 @@ export class GameCompatibilityDb {
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   private _normalise(id: string): string {
-    return id.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const basename = id
+      .trim()
+      .toLowerCase()
+      .replace(/^.*[\\/]/, "")
+      .replace(/\.[a-z0-9]{1,5}$/, "");
+
+    const withoutDumpTags = basename
+      // Strip common No-Intro / scene tags such as "(USA)", "[!]", "(Rev 1)".
+      .replace(/\s*[\[(][^\])]+[\])]\s*/g, " ")
+      // Strip common multi-disc / side annotations when users launch a raw filename.
+      .replace(/\b(?:disc|disk|side)\s*[0-9a-z]+\b/g, " ")
+      .trim();
+
+    return withoutDumpTags
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
   }
 
   private _persistCustom(): void {

@@ -47,6 +47,21 @@ describe("GameCompatibilityDb", () => {
     expect(entry).not.toBeNull();
   });
 
+  it("lookup() matches ROM filenames with region tags and extensions", () => {
+    const db = new GameCompatibilityDb();
+    const entry = db.lookup("Paper Mario (USA).z64");
+    expect(entry).not.toBeNull();
+    expect(entry!.title).toBe("Paper Mario");
+    expect(entry!.tierOverride).toBe("medium");
+  });
+
+  it("lookup() ignores common dump tags in brackets", () => {
+    const db = new GameCompatibilityDb();
+    const entry = db.lookup("Star Wars - Rogue Squadron [!].n64");
+    expect(entry).not.toBeNull();
+    expect(entry!.title).toBe("Star Wars: Rogue Squadron");
+  });
+
   // ── upsert / remove ───────────────────────────────────────────────────────
 
   it("upsert() adds a new entry that is immediately findable", () => {
