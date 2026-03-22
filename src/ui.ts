@@ -1937,7 +1937,20 @@ export async function resolveSystemAndAdd(
   setLoadingSubtitle("This only takes a moment the first time");
 
   try {
-    const entry = await library.addGame(resolvedFile, system.id);
+    const entry = await withRetry(
+      () => library.addGame(resolvedFile, system.id),
+      {
+        isRetryable: isTransientImportError,
+        onRetry: (attempt, _err) => {
+          setLoadingMessage(`Saving game to library… (retry ${attempt})`);
+          logImportWarn(
+            emulatorRef,
+            settings,
+            `library.addGame failed on attempt ${attempt}; retrying…`,
+          );
+        },
+      },
+    );
     settings.lastGameName = entry.name;
     logImport(
       emulatorRef,
@@ -1955,7 +1968,11 @@ export async function resolveSystemAndAdd(
     await onLaunchGame(resolvedFile, system.id, entry.id);
   } catch (err) {
     hideLoadingOverlay();
-    showError(`Could not add game: ${err instanceof Error ? err.message : String(err)}`);
+    const errMsg = `Could not add game: ${err instanceof Error ? err.message : String(err)}`;
+    logImportWarn(emulatorRef, settings, errMsg);
+    showError(errMsg, () => {
+      void resolveSystemAndAdd(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    });
   }
 }
 
@@ -7168,7 +7185,7 @@ function friendlyErrorMessage(msg: string): string {
   return msg; // Return original if no friendly mapping found
 }
 
-export function showError(msg: string): void {
+export function showError(msg: string, onRetry?: () => void): void {
   const banner = document.getElementById("error-banner");
   const msgEl  = document.getElementById("error-message");
   if (!banner || !msgEl) return;
@@ -7195,6 +7212,19 @@ export function showError(msg: string): void {
     });
     msgEl.appendChild(document.createElement("br"));
     msgEl.appendChild(actionBtn);
+  }
+
+  // Add a Retry button when the caller provides a retry callback
+  if (onRetry) {
+    const retryBtn = document.createElement("button");
+    retryBtn.className = "error-action-btn error-retry-btn";
+    retryBtn.textContent = "↩ Retry";
+    retryBtn.addEventListener("click", () => {
+      hideError();
+      onRetry();
+    });
+    msgEl.appendChild(document.createElement("br"));
+    msgEl.appendChild(retryBtn);
   }
 
   banner.classList.add("visible");

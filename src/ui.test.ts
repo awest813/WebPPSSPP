@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT, __showConflictResolutionDialogForTests, showError, hideError } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT, __showConflictResolutionDialogForTests, showError, hideError, withRetry, isTransientImportError } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
 import * as archive from "./archive.js";
@@ -3857,5 +3857,225 @@ describe("system picker subtitle for unknown extension", () => {
     // Cancel the dialog to clean up
     document.getElementById("system-picker-close")?.click();
     await importPromise;
+  });
+});
+
+describe("isTransientImportError", () => {
+  it("returns true for TransactionInactiveError", () => {
+    const err = Object.assign(new Error("transaction error"), { name: "TransactionInactiveError" });
+    expect(isTransientImportError(err)).toBe(true);
+  });
+
+  it("returns true for AbortError", () => {
+    const err = Object.assign(new Error("aborted"), { name: "AbortError" });
+    expect(isTransientImportError(err)).toBe(true);
+  });
+
+  it("returns true for message containing 'database'", () => {
+    const err = new Error("Failed to open database");
+    expect(isTransientImportError(err)).toBe(true);
+  });
+
+  it("returns true for message containing 'network'", () => {
+    const err = new Error("network request failed");
+    expect(isTransientImportError(err)).toBe(true);
+  });
+
+  it("returns false for quota exceeded errors", () => {
+    const err = new Error("QuotaExceededError: storage quota exceeded");
+    expect(isTransientImportError(err)).toBe(false);
+  });
+
+  it("returns false for 'no space' errors", () => {
+    const err = new Error("no space left on device");
+    expect(isTransientImportError(err)).toBe(false);
+  });
+
+  it("returns false for unrelated errors", () => {
+    const err = new Error("File not found");
+    expect(isTransientImportError(err)).toBe(false);
+  });
+});
+
+describe("withRetry", () => {
+  it("returns immediately on success", async () => {
+    const op = vi.fn().mockResolvedValue("ok");
+    const result = await withRetry(op, { maxAttempts: 3 });
+    expect(result).toBe("ok");
+    expect(op).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on failure and succeeds on second attempt", async () => {
+    let calls = 0;
+    const op = vi.fn().mockImplementation(async () => {
+      calls++;
+      if (calls < 2) throw new Error("transient");
+      return "recovered";
+    });
+    const result = await withRetry(op, { maxAttempts: 3, delayMs: 0 });
+    expect(result).toBe("recovered");
+    expect(op).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws last error after all attempts are exhausted", async () => {
+    const op = vi.fn().mockRejectedValue(new Error("always fails"));
+    await expect(withRetry(op, { maxAttempts: 3, delayMs: 0 })).rejects.toThrow("always fails");
+    expect(op).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry when isRetryable returns false", async () => {
+    const op = vi.fn().mockRejectedValue(new Error("quota exceeded"));
+    await expect(
+      withRetry(op, { maxAttempts: 3, delayMs: 0, isRetryable: () => false })
+    ).rejects.toThrow("quota exceeded");
+    expect(op).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onRetry callback with attempt number and error", async () => {
+    const onRetry = vi.fn();
+    let calls = 0;
+    const op = vi.fn().mockImplementation(async () => {
+      calls++;
+      if (calls < 3) throw new Error("temp error");
+      return "done";
+    });
+    await withRetry(op, { maxAttempts: 3, delayMs: 0, onRetry });
+    expect(onRetry).toHaveBeenCalledTimes(2);
+    expect(onRetry).toHaveBeenNthCalledWith(1, 1, expect.objectContaining({ message: "temp error" }));
+    expect(onRetry).toHaveBeenNthCalledWith(2, 2, expect.objectContaining({ message: "temp error" }));
+  });
+});
+
+describe("showError — retry button", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    hideError();
+  });
+
+  it("adds a Retry button when onRetry callback is provided", () => {
+    const onRetry = vi.fn();
+    showError("Could not add game: database error", onRetry);
+
+    const retryBtn = document.querySelector<HTMLButtonElement>(".error-retry-btn");
+    expect(retryBtn).toBeTruthy();
+    expect(retryBtn!.textContent).toContain("Retry");
+  });
+
+  it("does not add a Retry button when no callback is provided", () => {
+    showError("Some error without retry");
+
+    const retryBtn = document.querySelector<HTMLButtonElement>(".error-retry-btn");
+    expect(retryBtn).toBeNull();
+  });
+
+  it("clicking the Retry button dismisses the error and invokes the callback", () => {
+    const onRetry = vi.fn();
+    showError("Could not add game: transient error", onRetry);
+
+    const retryBtn = document.querySelector<HTMLButtonElement>(".error-retry-btn")!;
+    expect(retryBtn).toBeTruthy();
+    retryBtn.click();
+
+    const banner = document.getElementById("error-banner");
+    expect(banner?.classList.contains("visible")).toBe(false);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resolveSystemAndAdd — retry on addGame failure", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    hideError();
+  });
+
+  it("retries addGame on transient errors and succeeds on second attempt", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    let addGameCalls = 0;
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn().mockImplementation(async (f: File, systemId: string) => {
+        addGameCalls++;
+        if (addGameCalls < 2) {
+          const err = Object.assign(new Error("transaction aborted"), { name: "AbortError" });
+          throw err;
+        }
+        return { id: "g1", name: "Mega Man", fileName: "megaman.nes", systemId, size: 1 };
+      }),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([1])], "megaman.nes");
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    expect(library.addGame).toHaveBeenCalledTimes(2);
+    expect(onLaunchGame).toHaveBeenCalledTimes(1);
+    // No error should be shown
+    expect(document.getElementById("error-banner")?.classList.contains("visible")).toBe(false);
+  }, 10_000);
+
+  it("shows error with Retry button after all addGame attempts are exhausted", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn().mockRejectedValue(
+        Object.assign(new Error("database locked"), { name: "AbortError" })
+      ),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([1])], "megaman.nes");
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    expect(library.addGame).toHaveBeenCalledTimes(3); // IMPORT_MAX_ATTEMPTS = 3
+    expect(onLaunchGame).not.toHaveBeenCalled();
+
+    const banner = document.getElementById("error-banner");
+    expect(banner?.classList.contains("visible")).toBe(true);
+
+    const retryBtn = document.querySelector<HTMLButtonElement>(".error-retry-btn");
+    expect(retryBtn).toBeTruthy();
+    expect(retryBtn!.textContent).toContain("Retry");
+  }, 10_000);
+
+  it("does not retry addGame for quota exceeded errors", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn().mockRejectedValue(new Error("QuotaExceededError: storage quota exceeded")),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([1])], "megaman.nes");
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+
+    // Non-retryable error — should only call addGame once
+    expect(library.addGame).toHaveBeenCalledTimes(1);
+    expect(onLaunchGame).not.toHaveBeenCalled();
+
+    const banner = document.getElementById("error-banner");
+    expect(banner?.classList.contains("visible")).toBe(true);
   });
 });

@@ -1195,6 +1195,8 @@ body {
   color: #fff;
 }
 
+.error-retry-btn { margin-left: 6px; }
+
 /* ── Modals (system picker + settings) ────────────────────── */
 .modal-backdrop {
   position: fixed;
