@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT, __showConflictResolutionDialogForTests } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, TOUCH_CONTROLS_CHANGED_EVENT, __showConflictResolutionDialogForTests, showError, hideError } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
 import * as archive from "./archive.js";
@@ -3647,5 +3647,215 @@ describe("showConflictResolutionDialog", () => {
 
     await promise;
     expect(document.querySelector(".conflict-resolution-box")).toBeNull();
+  });
+});
+
+// ── UX fixes: new-user error messages ─────────────────────────────────────────
+
+describe("showError — unrecognised file type message is concise", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    hideError();
+  });
+
+  it("showError with new concise unrecognised message contains format hints and Help reference", () => {
+    // Directly test that the new unrecognised-file-type message is concise and helpful
+    const conciseMsg =
+      `"game.xyz" isn't a recognised ROM format.\n\n` +
+      `Try a common format like .iso, .gba, .sfc, .nes, or .nds.\n` +
+      `See Settings → ❓ Help for the full list of supported formats.`;
+
+    showError(conciseMsg);
+
+    const errorText = document.getElementById("error-message")?.textContent ?? "";
+    expect(errorText).toContain(".gba");
+    expect(errorText).toContain(".nes");
+    expect(errorText).toContain("❓ Help");
+    // Should not dump the full extension list (old message was 300+ chars with all extensions)
+    expect(errorText.length).toBeLessThan(300);
+  });
+});
+
+describe("showError — BIOS error shows System Files action button", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    hideError();
+  });
+
+  it("adds an 'Open System Files' button when the error mentions bios", () => {
+    const settings = makeSettings();
+    const opts = makeOpts(settings);
+    initUI(opts);
+
+    showError("Missing bios file for PS1.");
+
+    const actionBtn = document.querySelector<HTMLButtonElement>(".error-action-btn");
+    expect(actionBtn).toBeTruthy();
+    expect(actionBtn!.textContent).toContain("System Files");
+  });
+
+  it("does not add an action button for non-BIOS errors", () => {
+    const settings = makeSettings();
+    const opts = makeOpts(settings);
+    initUI(opts);
+
+    showError("Quick save failed.");
+
+    const actionBtn = document.querySelector<HTMLButtonElement>(".error-action-btn");
+    expect(actionBtn).toBeNull();
+  });
+
+  it("clicking the action button opens the Settings panel on the bios tab", async () => {
+    const settings = makeSettings();
+    const biosLib = { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary;
+    const fullCaps: DeviceCapabilities = {
+      isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+      isSafari: false, safariVersion: null, gpuRenderer: "unknown", isSoftwareGPU: false,
+      recommendedMode: "quality", tier: "medium", deviceMemoryGB: 4, cpuCores: 4,
+      gpuBenchmarkScore: 50, prefersReducedMotion: false, webgpuAvailable: false,
+      connectionQuality: "unknown", jsHeapLimitMB: null, estimatedVRAMMB: 768,
+      gpuCaps: {
+        renderer: "unknown", vendor: "unknown", maxTextureSize: 4096, maxVertexAttribs: 16,
+        maxVaryingVectors: 30, maxRenderbufferSize: 4096, anisotropicFiltering: false,
+        maxAnisotropy: 0, floatTextures: false, halfFloatTextures: false, instancedArrays: true,
+        webgl2: true, vertexArrayObject: true, compressedTextures: false, etc2Textures: false,
+        astcTextures: false, maxColorAttachments: 4, multiDraw: false,
+      },
+    };
+    const fullLib = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      totalSize: vi.fn().mockResolvedValue(0),
+    } as unknown as GameLibrary;
+    const fullSaveLib = { count: vi.fn().mockResolvedValue(0) } as unknown as SaveStateLibrary;
+    const opts = { ...makeOpts(settings), library: fullLib, saveLibrary: fullSaveLib, biosLibrary: biosLib, deviceCaps: fullCaps };
+    initUI(opts);
+
+    showError("startup file missing");
+
+    const actionBtn = document.querySelector<HTMLButtonElement>(".error-action-btn");
+    expect(actionBtn).toBeTruthy();
+    actionBtn!.click();
+
+    await new Promise(r => setTimeout(r, 0));
+
+    const settingsPanel = document.getElementById("settings-panel");
+    expect(settingsPanel?.hidden).toBe(false);
+
+    // The bios tab panel should be visible
+    const biosPanel = document.getElementById("tab-panel-bios");
+    expect(biosPanel?.hidden).toBe(false);
+  });
+});
+
+describe("buildLandingControls — Help button is present", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  it("renders a Help button in the landing header", () => {
+    const settings = makeSettings();
+    const deviceCaps = { isLowSpec: false, isChromOS: false } as unknown as DeviceCapabilities;
+    const library = { getAllGamesMetadata: vi.fn().mockResolvedValue([]) } as unknown as GameLibrary;
+    const biosLib = {} as BiosLibrary;
+
+    buildLandingControls(settings, deviceCaps, library, biosLib, vi.fn());
+
+    const headerActions = document.getElementById("header-actions");
+    const buttons = Array.from(headerActions?.querySelectorAll("button") ?? []);
+    const helpBtn = buttons.find(b => b.textContent?.includes("Help"));
+    expect(helpBtn).toBeTruthy();
+  });
+
+  it("clicking the Help button opens Settings on the about tab", async () => {
+    const settings = makeSettings();
+    const fullCaps: DeviceCapabilities = {
+      isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
+      isSafari: false, safariVersion: null, gpuRenderer: "unknown", isSoftwareGPU: false,
+      recommendedMode: "quality", tier: "medium", deviceMemoryGB: 4, cpuCores: 4,
+      gpuBenchmarkScore: 50, prefersReducedMotion: false, webgpuAvailable: false,
+      connectionQuality: "unknown", jsHeapLimitMB: null, estimatedVRAMMB: 768,
+      gpuCaps: {
+        renderer: "unknown", vendor: "unknown", maxTextureSize: 4096, maxVertexAttribs: 16,
+        maxVaryingVectors: 30, maxRenderbufferSize: 4096, anisotropicFiltering: false,
+        maxAnisotropy: 0, floatTextures: false, halfFloatTextures: false, instancedArrays: true,
+        webgl2: true, vertexArrayObject: true, compressedTextures: false, etc2Textures: false,
+        astcTextures: false, maxColorAttachments: 4, multiDraw: false,
+      },
+    };
+    const library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      totalSize: vi.fn().mockResolvedValue(0),
+    } as unknown as GameLibrary;
+    const biosLib = { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary;
+
+    buildLandingControls(settings, fullCaps, library, biosLib, vi.fn());
+
+    const headerActions = document.getElementById("header-actions");
+    const buttons = Array.from(headerActions?.querySelectorAll("button") ?? []);
+    const helpBtn = buttons.find(b => b.textContent?.includes("Help")) as HTMLButtonElement | undefined;
+    expect(helpBtn).toBeTruthy();
+    helpBtn!.click();
+
+    await new Promise(r => setTimeout(r, 0));
+
+    const aboutPanel = document.getElementById("tab-panel-about");
+    expect(aboutPanel?.hidden).toBe(false);
+  });
+});
+
+describe("system picker subtitle for unknown extension", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows a descriptive subtitle when no extension is detected and all systems are shown", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    // File with no extension triggers the "show all systems" path
+    const file = new File([new Uint8Array([1, 2, 3])], "mystery");
+
+    const importPromise = resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+    await new Promise(r => setTimeout(r, 0));
+
+    const subtitle = document.getElementById("system-picker-subtitle");
+    expect(subtitle?.textContent).toContain("detect");
+    expect(subtitle?.textContent).not.toContain("could belong to several");
+
+    // Cancel the dialog to clean up
+    document.getElementById("system-picker-close")?.click();
+    await importPromise;
   });
 });

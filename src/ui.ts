@@ -101,6 +101,9 @@ import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 let _canInstallPWA: (() => boolean) | undefined;
 let _onInstallPWA:  (() => Promise<boolean>) | undefined;
 
+// ── Settings opener callback (set once from initUI, used by showError action buttons) ──
+let _openSettingsFn: ((tab?: string) => void) | null = null;
+
 // ── Cloud save manager (module-level singleton) ────────────────────────────────
 let _cloudManager: CloudSaveManager | null = null;
 let _initUICleanup: (() => void) | null = null;
@@ -477,6 +480,8 @@ export function initUI(opts: UIOptions): void {
 
   _canInstallPWA = canInstallPWA;
   _onInstallPWA  = onInstallPWA;
+  _openSettingsFn = (tab?: string) =>
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab as SettingsTab | undefined);
 
   // ── File drop / pick ──────────────────────────────────────────────────────
   const fileInput = el<HTMLInputElement>("#file-input");
@@ -1783,7 +1788,11 @@ export async function resolveSystemAndAdd(
         settings,
         `System detection failed for "${resolvedFile.name}". Prompting manual system selection.`,
       );
-      const picked = await pickSystem(resolvedFile.name, SYSTEMS);
+      const picked = await pickSystem(
+        resolvedFile.name,
+        SYSTEMS,
+        `We couldn't detect the console from this file. Choose the system you'd like to use:`
+      );
       if (!picked) return;
       system = picked;
       resolvedFile = inferFileForSystem(resolvedFile, picked);
@@ -1795,8 +1804,9 @@ export async function resolveSystemAndAdd(
     } else {
       hideLoadingOverlay();
       showError(
-        `Unrecognised file type: "${resolvedFile.name}".\n` +
-        `Supported extensions: ${ALL_EXTENSIONS.map(e => `.${e}`).join("  ·  ")}`
+        `"${resolvedFile.name}" isn't a recognised ROM format.\n\n` +
+        `Try a common format like .iso, .gba, .sfc, .nes, or .nds.\n` +
+        `See Settings → ❓ Help for the full list of supported formats.`
       );
       return;
     }
@@ -2148,6 +2158,16 @@ export function buildLandingControls(
     openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager);
   });
 
+  const btnHelp = make("button", {
+    class: "btn",
+    title: "Getting started guide and keyboard shortcuts",
+    "aria-label": "Open help and getting started guide",
+  });
+  btnHelp.textContent = "❓ Help";
+  btnHelp.addEventListener("click", () => {
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, netplayManager, "about");
+  });
+
   const btnMultiplayer = make("button", {
     class: "btn",
     title: "Open Multiplayer — Host or join a game with friends",
@@ -2164,6 +2184,7 @@ export function buildLandingControls(
   });
 
   container.appendChild(btnSettings);
+  container.appendChild(btnHelp);
   container.appendChild(btnMultiplayer);
   updateHeaderOverflow();
 }
@@ -7074,6 +7095,21 @@ export function showError(msg: string): void {
     if (i > 0) msgEl.appendChild(document.createElement("br"));
     msgEl.appendChild(document.createTextNode(line));
   });
+
+  // For BIOS errors, add a quick-action button that opens the System Files tab directly
+  const isBiosError = msg.toLowerCase().includes("bios") || msg.toLowerCase().includes("startup file");
+  if (isBiosError && _openSettingsFn) {
+    const actionBtn = document.createElement("button");
+    actionBtn.className = "error-action-btn";
+    actionBtn.textContent = "Open System Files →";
+    actionBtn.addEventListener("click", () => {
+      hideError();
+      _openSettingsFn!("bios");
+    });
+    msgEl.appendChild(document.createElement("br"));
+    msgEl.appendChild(actionBtn);
+  }
+
   banner.classList.add("visible");
   if (_errorDismissTimer !== null) clearTimeout(_errorDismissTimer);
   _errorDismissTimer = setTimeout(() => { hideError(); _errorDismissTimer = null; }, ERROR_DISMISS_TIMEOUT_MS);

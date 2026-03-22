@@ -1176,6 +1176,25 @@ body {
 
 .error-close:hover { opacity: 1; }
 
+.error-action-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: none;
+  border: 1.5px solid var(--c-danger);
+  border-radius: var(--radius);
+  color: var(--c-danger);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.error-action-btn:hover {
+  background: var(--c-danger);
+  color: #fff;
+}
+
 /* ── Modals (system picker + settings) ────────────────────── */
 .modal-backdrop {
   position: fixed;
