@@ -1587,6 +1587,76 @@ function logImportWarn(
   if (settings.verboseLogging) console.warn(`[RetroVault] ${message}`);
 }
 
+// ── Import retry helpers ───────────────────────────────────────────────────────
+
+/** Maximum automatic retry attempts for transient import errors. */
+const IMPORT_MAX_ATTEMPTS = 3;
+/** Base delay (ms) between auto-retry attempts; multiplied by attempt index for backoff. */
+const IMPORT_RETRY_BASE_DELAY_MS = 300;
+
+/**
+ * Returns true when the error is likely transient and worth retrying automatically.
+ * Quota / storage exhaustion errors are excluded — those require user action.
+ */
+export function isTransientImportError(err: Error): boolean {
+  const msg = err.message.toLowerCase();
+  // Quota exceeded is permanent until the user frees space — do not auto-retry.
+  if (msg.includes("quota") || msg.includes("no space") || msg.includes("storage full")) return false;
+  // IDB lock / transaction errors, network hiccups, and generic unknown errors are transient.
+  return (
+    msg.includes("transaction") ||
+    msg.includes("database") ||
+    msg.includes("network") ||
+    msg.includes("fetch") ||
+    err.name === "TransactionInactiveError" ||
+    err.name === "AbortError" ||
+    err.name === "NetworkError" ||
+    err.name === "UnknownError"
+  );
+}
+
+interface RetryOptions {
+  /** Total number of attempts (including the first). Defaults to IMPORT_MAX_ATTEMPTS. */
+  maxAttempts?: number;
+  /** Base delay between attempts in ms. Actual delay scales linearly with attempt index. */
+  delayMs?: number;
+  /** Called before each retry (attempt ≥ 2). Receives the 1-based attempt index and last error. */
+  onRetry?: (attempt: number, err: Error) => void;
+  /** Predicate deciding whether an error should trigger a retry. Defaults to always retry. */
+  isRetryable?: (err: Error) => boolean;
+}
+
+/**
+ * Runs `operation` up to `maxAttempts` times, pausing between attempts.
+ * Re-throws the last error if all attempts fail.
+ */
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: RetryOptions = {},
+): Promise<T> {
+  const {
+    maxAttempts = IMPORT_MAX_ATTEMPTS,
+    delayMs     = IMPORT_RETRY_BASE_DELAY_MS,
+    onRetry,
+    isRetryable = () => true,
+  } = options;
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (attempt >= maxAttempts) break;
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (!isRetryable(e)) break;
+      onRetry?.(attempt, e);
+      await new Promise<void>(resolve => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  throw lastError;
+}
+
 export async function resolveSystemAndAdd(
   file:          File,
   library:       GameLibrary,
