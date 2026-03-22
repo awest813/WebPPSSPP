@@ -1599,15 +1599,22 @@ export class PSPEmulator {
       );
     }
 
-    // ── Probe audio latency in parallel with blob URL creation ─────────────
+    // ── Probe audio latency in parallel with game file preparation ─────────
     // detectAudioCapabilities() is async and short; running it before we reach
     // the EJS globals section means we can use the result to override the
     // audio buffer size if the hardware reports unusually high latency.
     const audioCapabilitiesPromise = detectAudioCapabilities();
 
     try {
-      // Create blob URL directly from the Blob/File — no copy needed
-      this._blobUrl = URL.createObjectURL(opts.file);
+      // Normalise to a File object so EmulatorJS uses its direct arrayBuffer()
+      // path when loading the ROM.  Passing a File/Blob to EJS_gameUrl lets
+      // EmulatorJS skip its internal fetch() call entirely — that fetch() is
+      // unreliable on iOS Safari when a service worker is active (WebKit bug:
+      // fetching blob: URLs from a SW-controlled page can silently fail,
+      // causing games to stall in the loading screen forever).
+      const gameFile: File = opts.file instanceof File
+        ? opts.file
+        : new File([opts.file], fileName, { type: opts.file.type });
       const gameName = fileName.replace(/\.[^.]+$/, "");
 
       this._emit("onProgress", "Initialising EmulatorJS…");
@@ -1825,7 +1832,7 @@ export class PSPEmulator {
       // ── Set EJS globals ───────────────────────────────────────────────────
       window.EJS_player        = `#${this._playerId}`;
       window.EJS_core          = system.id;
-      window.EJS_gameUrl       = this._blobUrl;
+      window.EJS_gameUrl       = gameFile;
       window.EJS_gameName      = gameName;
       window.EJS_pathtodata    = EJS_CDN_BASE;
       window.EJS_startOnLoaded = true;
