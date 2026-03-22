@@ -18,6 +18,10 @@ describe('PSPEmulator', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.getElementById('test-player')?.remove();
+    // Remove any loader script left by tests that call emulator.launch().
+    // Without this, stale script[data-ejs-loader] elements can interfere
+    // with tests in other describe blocks that inspect the DOM directly.
+    document.querySelector('script[data-ejs-loader]')?.remove();
   });
 
   // ── Initial state ─────────────────────────────────────────────────────────
@@ -2554,6 +2558,10 @@ describe('PSPEmulator', () => {
     it('does not emit a large-ROM warning for a normal-sized ROM', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+      const marker = document.createElement('script');
+      marker.setAttribute('data-ejs-loader', 'true');
+      document.body.appendChild(marker);
+
       // A small GBA ROM is well under the 500 MB threshold.
       // GBA has needsThreads=false, needsWebGL2=false so pre-flight checks pass.
       const smallFile = new File(['data'], 'game.gba');
@@ -2571,6 +2579,8 @@ describe('PSPEmulator', () => {
         .map(args => args[0] as string)
         .filter(msg => typeof msg === 'string' && msg.includes('Large ROM'));
       expect(largeRomWarns).toHaveLength(0);
+
+      document.querySelector('script[data-ejs-loader]')?.remove();
     });
   });
 
@@ -2594,6 +2604,20 @@ describe('PSPEmulator', () => {
       gpuBenchmarkScore: 30, prefersReducedMotion: false,
       webgpuAvailable: false, connectionQuality: 'unknown' as const, jsHeapLimitMB: null, estimatedVRAMMB: 768,
     };
+
+    beforeEach(() => {
+      // launch() passes a File/Blob directly to EJS_gameUrl and then calls
+      // _loadScript().  The marker script causes _loadScript() to resolve
+      // immediately so tests that exercise pre- and post-load behaviour do
+      // not hang waiting for a real CDN fetch.
+      const marker = document.createElement('script');
+      marker.setAttribute('data-ejs-loader', 'true');
+      document.body.appendChild(marker);
+    });
+
+    afterEach(() => {
+      document.querySelector('script[data-ejs-loader]')?.remove();
+    });
 
     it('uses the fileName option for extension validation when provided', async () => {
       const errors: string[] = [];

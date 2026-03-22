@@ -62,7 +62,20 @@ if (typeof window === "undefined") {
   self.addEventListener("fetch", (event) => {
     const req = event.request;
 
-    // Skip non-http(s) requests (chrome-extension://, data:, etc.)
+    // ── blob: URL pass-through ────────────────────────────────────────────────
+    // On iOS Safari (WebKit), returning from the fetch event handler without
+    // calling event.respondWith() can silently drop blob: URL requests when a
+    // service worker is active.  This manifests as games that stall at the
+    // loading screen because EmulatorJS's internal fetch(blobUrl) for the ROM
+    // file never completes.  Explicitly responding to blob: requests avoids
+    // this WebKit bug while returning the data unchanged (no COI headers needed
+    // for same-origin blob URLs, but adding them is harmless).
+    if (req.url.startsWith("blob:")) {
+      event.respondWith(fetch(req));
+      return;
+    }
+
+    // Skip all other non-http(s) requests (chrome-extension://, data:, etc.)
     if (!req.url.startsWith("http")) return;
 
     // Avoid fetching with cache = "only-if-cached" on cross-origin requests,
