@@ -21,7 +21,7 @@ function makeEntry(slot: number): SaveStateEntry {
 
 describe("SaveGameService", () => {
   it("queues duplicate saves for same slot", async () => {
-    const saveState = vi.fn<[SaveStateEntry], Promise<void>>().mockResolvedValue(undefined);
+    const saveState = vi.fn<(entry: SaveStateEntry) => Promise<void>>().mockResolvedValue(undefined);
     const getState = vi.fn().mockImplementation(async (_gameId: string, slot: number) => makeEntry(slot));
     const saveLibrary = {
       saveState,
@@ -112,7 +112,7 @@ describe("SaveGameService", () => {
     const existingEntry = makeEntry(2);
     existingEntry.label = "Before Final Boss";
 
-    const saveState = vi.fn<[SaveStateEntry], Promise<void>>().mockResolvedValue(undefined);
+    const saveState = vi.fn<(entry: SaveStateEntry) => Promise<void>>().mockResolvedValue(undefined);
     const getState = vi.fn().mockImplementation(async (_gameId: string, slot: number) => {
       // First call (readback to get existing label) returns the entry with custom label.
       // Second call (readback after save) also returns it.
