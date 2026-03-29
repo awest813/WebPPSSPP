@@ -5,10 +5,11 @@
  * packages directly (mobile and desktop) and still launch games.
  *
  * Supported extraction paths:
- *   - ZIP   (native parser + DecompressionStream deflate)
- *   - 7Z    (legacy worker-based extractor bundled with the repo)
- *   - RAR   (legacy libunrar worker wrapper)
- *   - TAR   (native parser)
+ *   - ZIP   (native parser + DecompressionStream deflate; on iOS WebKit, random-access
+ *            ZIP layout + per-entry slices to avoid loading the whole archive)
+ *   - 7Z    (legacy worker — desktop only; disabled on iPhone/iPad for stability)
+ *   - RAR   (legacy libunrar worker — desktop only; disabled on iPhone/iPad)
+ *   - TAR   (native parser; streaming walk on large archives on iOS)
  *   - GZIP  (DecompressionStream gzip; auto-detects inner TAR)
  *
  * Formats detected but not currently extracted:
@@ -49,11 +50,19 @@ const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const MAX_EXTRACTED_ENTRY_BYTES = 512 * 1024 * 1024; // 512 MB
 const MAX_EXTRACTED_ENTRY_COUNT = 4096;
 
-// iOS Safari enforces a much stricter per-page memory budget (typically 1–2 GB).
-// Warn before attempting to load archives that are likely to trigger an OOM
-// crash on iOS. 800 MB is a conservative threshold that leaves headroom for
-// the browser tab's baseline memory usage and the decompressed output.
-const IOS_LARGE_ARCHIVE_WARNING_BYTES = 800 * 1024 * 1024;
+// iOS Safari enforces a strict per-tab memory budget. ZIP/TAR can be parsed
+// without holding the full archive; 7z/RAR still duplicate the archive in a
+// worker, so we keep a lower ceiling than desktop for all archive types.
+const IOS_LARGE_ARCHIVE_WARNING_BYTES = 400 * 1024 * 1024;
+
+// On iOS WebKit, use random-access ZIP parsing (EOCD + central-directory
+// slice + per-entry data slice) instead of materialising the whole archive.
+const IOS_STREAMING_ZIP_MIN_BYTES = 96 * 1024;
+
+// Yield to the event loop occasionally while inflating on iOS so WebKit is
+// less likely to watchdog-freeze the tab on large entries.
+const IOS_DECOMPRESS_YIELD_CHUNK_COUNT = 24;
+const IOS_DECOMPRESS_YIELD_BYTE_INTERVAL = 2 * 1024 * 1024;
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
@@ -200,6 +209,242 @@ function isIOSBrowser(): boolean {
   // iPadOS 13+ reports as "Macintosh" but has touch hardware.
   if (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints >= 1) return true;
   return false;
+}
+
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => {
+    const schedule = globalThis.queueMicrotask?.bind(globalThis);
+    if (schedule) {
+      schedule(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
+}
+
+/**
+ * Resolve ZIP central-directory offset and size without reading the whole
+ * archive. Expands the tail read when ZIP64 locator sits outside the first slice.
+ */
+async function resolveZipCentralDirectoryLayout(
+  zipBlob: Blob
+): Promise<{ centralDirOffset: number; centralDirSize: number } | null> {
+  const size = zipBlob.size;
+  if (size < 22) return null;
+
+  let tailBytes = Math.min(size, 70_000);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const tailStart = size - tailBytes;
+    const tailBuf = await zipBlob.slice(tailStart, size).arrayBuffer();
+    const view = new DataView(tailBuf);
+    const bytes = new Uint8Array(tailBuf);
+    const maxSearch = Math.max(0, bytes.length - 22 - 65535);
+    let eocdRel = -1;
+
+    for (let i = bytes.length - 22; i >= maxSearch; i--) {
+      if (readUint32LE(view, i) === EOCD_MAGIC) {
+        const commentLen = readUint16LE(view, i + 20);
+        if (i + 22 + commentLen === bytes.length) {
+          eocdRel = i;
+          break;
+        }
+      }
+    }
+
+    if (eocdRel < 0) return null;
+
+    const eocdOffset = tailStart + eocdRel;
+    let centralDirSize = readUint32LE(view, eocdRel + 12);
+    let centralDirOffset = readUint32LE(view, eocdRel + 16);
+
+    if (centralDirSize === 0xffffffff || centralDirOffset === 0xffffffff) {
+      const zip64LocOffset = eocdOffset - 20;
+      if (zip64LocOffset < tailStart) {
+        tailBytes = Math.min(size, size - zip64LocOffset + 64);
+        continue;
+      }
+      const locRel = zip64LocOffset - tailStart;
+      if (locRel < 0 || locRel + 20 > bytes.length) {
+        tailBytes = Math.min(size, size - zip64LocOffset + 64);
+        continue;
+      }
+      if (readUint32LE(view, locRel) === 0x07064b50) {
+        const zip64EocdOffset = Number(
+          BigInt(readUint32LE(view, locRel + 8)) |
+          (BigInt(readUint32LE(view, locRel + 12)) << 32n)
+        );
+        if (zip64EocdOffset + 56 <= size) {
+          const zip64Buf = await zipBlob.slice(zip64EocdOffset, zip64EocdOffset + 56).arrayBuffer();
+          const zv = new DataView(zip64Buf);
+          if (readUint32LE(zv, 0) === ZIP64_EOCD_MAGIC) {
+            const readUint64LE = (o: number) =>
+              Number(
+                BigInt(readUint32LE(zv, o)) |
+                (BigInt(readUint32LE(zv, o + 4)) << 32n)
+              );
+            centralDirSize = readUint64LE(40);
+            centralDirOffset = readUint64LE(48);
+          }
+        }
+      }
+    }
+
+    if (
+      centralDirOffset < 0 ||
+      centralDirSize < 0 ||
+      centralDirOffset > size ||
+      centralDirOffset + centralDirSize > size
+    ) {
+      return null;
+    }
+
+    return { centralDirOffset, centralDirSize };
+  }
+
+  return null;
+}
+
+function parseZipCentralDirectoryEntries(
+  buffer: ArrayBuffer,
+  centralDirOffset: number,
+  centralDirSize: number
+): CentralDirEntry[] {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const entries: CentralDirEntry[] = [];
+  let pos = centralDirOffset;
+  const cdEnd = centralDirOffset + centralDirSize;
+
+  while (pos < cdEnd && pos + 46 <= bytes.length) {
+    if (readUint32LE(view, pos) !== CENTRAL_DIR_MAGIC) break;
+
+    const generalPurposeFlags = readUint16LE(view, pos + 8);
+    const compressionMethod = readUint16LE(view, pos + 10);
+    let compressedSize = readUint32LE(view, pos + 20);
+    let uncompressedSize = readUint32LE(view, pos + 24);
+    const fileNameLength = readUint16LE(view, pos + 28);
+    const extraFieldLength = readUint16LE(view, pos + 30);
+    const commentLength = readUint16LE(view, pos + 32);
+    let localHeaderOffset = readUint32LE(view, pos + 42);
+
+    const nameSlice = bytes.slice(pos + 46, pos + 46 + fileNameLength);
+    const name = decodeName(nameSlice);
+
+    const needsUncompressed = uncompressedSize === 0xffffffff;
+    const needsCompressed = compressedSize === 0xffffffff;
+    const needsOffset = localHeaderOffset === 0xffffffff;
+    if (needsUncompressed || needsCompressed || needsOffset) {
+      const extraStart = pos + 46 + fileNameLength;
+      const extraBytes = bytes.slice(extraStart, extraStart + extraFieldLength);
+      const zip64 = parseZip64ExtraField(extraBytes, needsUncompressed, needsCompressed, needsOffset);
+      if (zip64.uncompressedSize !== undefined) uncompressedSize = zip64.uncompressedSize;
+      if (zip64.compressedSize !== undefined) compressedSize = zip64.compressedSize;
+      if (zip64.localHeaderOffset !== undefined) localHeaderOffset = zip64.localHeaderOffset;
+    }
+
+    entries.push({
+      name,
+      compressionMethod,
+      compressedSize,
+      uncompressedSize,
+      localHeaderOffset,
+      generalPurposeFlags,
+    });
+
+    pos += 46 + fileNameLength + extraFieldLength + commentLength;
+    if (entries.length > MAX_EXTRACTED_ENTRY_COUNT) {
+      throw new Error("ZIP archive contains too many entries to extract safely in-browser.");
+    }
+  }
+
+  return entries;
+}
+
+async function readZipLocalHeaderDataStart(zipBlob: Blob, lhBase: number): Promise<number | null> {
+  const head = await zipBlob.slice(lhBase, lhBase + 30).arrayBuffer();
+  if (head.byteLength < 30) return null;
+  const view = new DataView(head);
+  if (readUint32LE(view, 0) !== LOCAL_FILE_MAGIC) return null;
+  const fileNameLen = readUint16LE(view, 26);
+  const extraLen = readUint16LE(view, 28);
+  const dataStart = lhBase + 30 + fileNameLen + extraLen;
+  if (dataStart > zipBlob.size) return null;
+  return dataStart;
+}
+
+/** File entry in a TAR stream (header offset + payload metadata only). */
+interface TarFileRef {
+  name: string;
+  dataOffset: number;
+  size: number;
+}
+
+/**
+ * Walk a TAR blob without loading the whole archive into memory (for iOS WebKit).
+ */
+async function listTarFileRefsStreaming(tarBlob: Blob): Promise<TarFileRef[]> {
+  const refs: TarFileRef[] = [];
+  let offset = 0;
+  let zeroBlocks = 0;
+
+  while (offset + 512 <= tarBlob.size) {
+    const header = new Uint8Array(
+      await tarBlob.slice(offset, offset + 512).arrayBuffer()
+    );
+    const isZeroBlock = header.every(b => b === 0);
+    if (isZeroBlock) {
+      zeroBlocks++;
+      if (zeroBlocks >= 2) break;
+      offset += 512;
+      continue;
+    }
+    zeroBlocks = 0;
+
+    const name = tarFieldString(header, 0, 100);
+    const prefix = tarFieldString(header, 345, 500);
+    const fullName = normalizeEntryName(prefix ? `${prefix}/${name}` : name);
+    const size = tarFieldOctal(header, 124, 136);
+    const typeFlag = header[156];
+
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + size;
+    if (size < 0 || dataEnd > tarBlob.size) break;
+    if (size > MAX_EXTRACTED_ENTRY_BYTES) {
+      throw new Error(`TAR entry "${fullName}" is too large to extract in-browser.`);
+    }
+
+    const isDirectory = typeFlag === 53 || fullName.endsWith("/");
+    if (!isDirectory && fullName) {
+      refs.push({ name: fullName, dataOffset: dataStart, size });
+    }
+
+    if (refs.length > MAX_EXTRACTED_ENTRY_COUNT) {
+      throw new Error("TAR archive contains too many entries to extract safely in-browser.");
+    }
+
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+
+  return refs;
+}
+
+function selectBestRomTarRef(refs: TarFileRef[]): TarFileRef | null {
+  if (refs.length === 0) return null;
+  const ranked = refs
+    .map(ref => ({ ref, score: scoreArchiveEntry(ref.name, ref.size) }))
+    .filter(item => Number.isFinite(item.score))
+    .sort((a, b) => b.score - a.score);
+  return ranked[0]?.ref ?? null;
+}
+
+function selectTopRomTarRefs(refs: TarFileRef[], limit: number): TarFileRef[] {
+  if (refs.length === 0) return [];
+  return refs
+    .map(ref => ({ ref, score: scoreArchiveEntry(ref.name, ref.size) }))
+    .filter(item => Number.isFinite(item.score))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(1, limit))
+    .map(item => item.ref);
 }
 
 function assertArchiveSize(blob: Blob, formatLabel: string): void {
@@ -369,9 +614,15 @@ function toArchiveCandidates(entries: ArchiveEntry[]): ArchiveExtractCandidate[]
   }));
 }
 
+interface DecompressStreamOptions {
+  /** Yield to the main thread while reading output (reduces WebKit tab freezes). */
+  yieldWhileReading?: boolean;
+}
+
 async function decompressWithStream(
   format: "gzip" | "deflate-raw",
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  streamOpts?: DecompressStreamOptions
 ): Promise<Uint8Array> {
   if (typeof DecompressionStream === "undefined") {
     // Provide a targeted hint for iOS/iPadOS users who need to update.
@@ -398,6 +649,8 @@ async function decompressWithStream(
 
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let readCount = 0;
+  let sinceYield = 0;
 
   try {
     for (;;) {
@@ -408,6 +661,17 @@ async function decompressWithStream(
       total += value.length;
       if (total > MAX_EXTRACTED_ENTRY_BYTES) {
         throw new Error("Archive entry is too large to extract in-browser.");
+      }
+      if (streamOpts?.yieldWhileReading) {
+        readCount++;
+        sinceYield += value.length;
+        if (
+          readCount % IOS_DECOMPRESS_YIELD_CHUNK_COUNT === 0 ||
+          sinceYield >= IOS_DECOMPRESS_YIELD_BYTE_INTERVAL
+        ) {
+          sinceYield = 0;
+          await yieldToMain();
+        }
       }
     }
   } finally {
@@ -622,15 +886,39 @@ export async function extractFromZip(
 ): Promise<{ name: string; blob: Blob; candidates?: ArchiveExtractCandidate[] } | null> {
   assertArchiveSize(blob, "ZIP");
 
+  const ios = isIOSBrowser();
+  const useStreamingZip = ios && blob.size >= IOS_STREAMING_ZIP_MIN_BYTES;
+
+  if (useStreamingZip) {
+    const layout = await resolveZipCentralDirectoryLayout(blob);
+    if (layout) {
+      const cdBuf = await blob.slice(
+        layout.centralDirOffset,
+        layout.centralDirOffset + layout.centralDirSize
+      ).arrayBuffer();
+      const entries = parseZipCentralDirectoryEntries(
+        cdBuf,
+        0,
+        layout.centralDirSize
+      );
+      if (entries.length === 0) return null;
+      return await runZipExtractionAfterEntries(blob, entries, opts, {
+        mode: "streaming",
+        yieldInflate: ios,
+      });
+    }
+    // Fall through: rare ZIP layouts (e.g. comment longer than tail window) use full read.
+  }
+
   const buffer = await blob.arrayBuffer();
-  const view   = new DataView(buffer);
-  const bytes  = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
 
   if (!hasZipMagic(buffer)) return null;
 
   // ── Locate End-of-Central-Directory record ────────────────────────────────
   const maxSearch = Math.max(0, bytes.length - 22 - 65535);
-  let eocdOffset  = -1;
+  let eocdOffset = -1;
 
   for (let i = bytes.length - 22; i >= maxSearch; i--) {
     if (readUint32LE(view, i) === EOCD_MAGIC) {
@@ -644,7 +932,7 @@ export async function extractFromZip(
 
   if (eocdOffset < 0) return null;
 
-  let centralDirSize   = readUint32LE(view, eocdOffset + 12);
+  let centralDirSize = readUint32LE(view, eocdOffset + 12);
   let centralDirOffset = readUint32LE(view, eocdOffset + 16);
 
   // ── ZIP64 fallback ────────────────────────────────────────────────────────
@@ -661,65 +949,33 @@ export async function extractFromZip(
             BigInt(readUint32LE(view, o)) |
             (BigInt(readUint32LE(view, o + 4)) << 32n)
           );
-        centralDirSize   = readUint64LE(zip64EocdOffset + 40);
+        centralDirSize = readUint64LE(zip64EocdOffset + 40);
         centralDirOffset = readUint64LE(zip64EocdOffset + 48);
       }
     }
   }
 
-  // ── Parse central directory ───────────────────────────────────────────────
-  const entries: CentralDirEntry[] = [];
-  let pos = centralDirOffset;
-  const cdEnd = centralDirOffset + centralDirSize;
-
-  while (pos < cdEnd && pos + 46 <= bytes.length) {
-    if (readUint32LE(view, pos) !== CENTRAL_DIR_MAGIC) break;
-
-    const generalPurposeFlags = readUint16LE(view, pos + 8);
-    const compressionMethod  = readUint16LE(view, pos + 10);
-    let compressedSize       = readUint32LE(view, pos + 20);
-    let uncompressedSize     = readUint32LE(view, pos + 24);
-    const fileNameLength     = readUint16LE(view, pos + 28);
-    const extraFieldLength   = readUint16LE(view, pos + 30);
-    const commentLength      = readUint16LE(view, pos + 32);
-    let localHeaderOffset    = readUint32LE(view, pos + 42);
-
-    const nameSlice = bytes.slice(pos + 46, pos + 46 + fileNameLength);
-    const name      = decodeName(nameSlice);
-
-    // ── ZIP64 extra field: resolve 0xFFFFFFFF sentinel values ────────────────
-    // When the 32-bit fields are 0xFFFFFFFF the actual values are stored in
-    // the ZIP64 Extended Information extra field immediately after the filename.
-    const needsUncompressed  = uncompressedSize  === 0xffffffff;
-    const needsCompressed    = compressedSize    === 0xffffffff;
-    const needsOffset        = localHeaderOffset === 0xffffffff;
-    if (needsUncompressed || needsCompressed || needsOffset) {
-      const extraStart = pos + 46 + fileNameLength;
-      const extraBytes = bytes.slice(extraStart, extraStart + extraFieldLength);
-      const zip64 = parseZip64ExtraField(extraBytes, needsUncompressed, needsCompressed, needsOffset);
-      if (zip64.uncompressedSize !== undefined) uncompressedSize  = zip64.uncompressedSize;
-      if (zip64.compressedSize   !== undefined) compressedSize    = zip64.compressedSize;
-      if (zip64.localHeaderOffset !== undefined) localHeaderOffset = zip64.localHeaderOffset;
-    }
-
-    entries.push({
-      name,
-      compressionMethod,
-      compressedSize,
-      uncompressedSize,
-      localHeaderOffset,
-      generalPurposeFlags,
-    });
-
-    pos += 46 + fileNameLength + extraFieldLength + commentLength;
-    if (entries.length > MAX_EXTRACTED_ENTRY_COUNT) {
-      throw new Error("ZIP archive contains too many entries to extract safely in-browser.");
-    }
-  }
-
+  const entries = parseZipCentralDirectoryEntries(buffer, centralDirOffset, centralDirSize);
   if (entries.length === 0) return null;
 
-  // ── Choose which entry to extract ─────────────────────────────────────────
+  return await runZipExtractionAfterEntries(blob, entries, opts, {
+    mode: "buffered",
+    view,
+    bytes,
+    yieldInflate: ios,
+  });
+}
+
+type ZipExtractMode =
+  | { mode: "buffered"; view: DataView; bytes: Uint8Array; yieldInflate: boolean }
+  | { mode: "streaming"; yieldInflate: boolean };
+
+async function runZipExtractionAfterEntries(
+  zipBlob: Blob,
+  entries: CentralDirEntry[],
+  opts: ArchiveCandidateOptions,
+  zipMode: ZipExtractMode
+): Promise<{ name: string; blob: Blob; candidates?: ArchiveExtractCandidate[] } | null> {
   const files = entries.filter(e => !e.name.endsWith("/"));
   const romCandidates = files
     .filter(e => _romExtensions.has(extensionOf(e.name)))
@@ -732,6 +988,10 @@ export async function extractFromZip(
   const target = romCandidates[0]?.entry ?? null;
   if (!target) return null;
 
+  const dsOpts: DecompressStreamOptions | undefined = zipMode.yieldInflate
+    ? { yieldWhileReading: true }
+    : undefined;
+
   emitProgress({ onProgress: opts.onProgress }, {
     format: "zip",
     stage: "extract",
@@ -741,8 +1001,6 @@ export async function extractFromZip(
   });
 
   const extractZipEntry = async (entry: CentralDirEntry): Promise<ArchiveEntry | null> => {
-    // Detect password-protected entries early so we can give a clear error
-    // instead of a confusing decompression failure.
     if (entry.generalPurposeFlags & GP_FLAG_ENCRYPTED) {
       throw new Error(
         `ZIP entry "${entry.name}" is password-protected. ` +
@@ -757,8 +1015,6 @@ export async function extractFromZip(
       );
     }
 
-    // After ZIP64 extra-field parsing, a remaining 0xFFFFFFFF means the
-    // extra field was absent or truncated — the offset is genuinely unknown.
     if (entry.localHeaderOffset === 0xffffffff) {
       throw new Error(
         `ZIP64 local-header offset could not be resolved for entry "${entry.name}". ` +
@@ -767,16 +1023,30 @@ export async function extractFromZip(
     }
 
     const lhBase = entry.localHeaderOffset;
-    if (lhBase + 30 > bytes.length) return null;
-    if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;
+    let dataStart: number;
+    let compressedSlice: Uint8Array;
 
-    const lhFileNameLen = readUint16LE(view, lhBase + 26);
-    const lhExtraLen    = readUint16LE(view, lhBase + 28);
-    const dataStart     = lhBase + 30 + lhFileNameLen + lhExtraLen;
-    const dataEnd2      = dataStart + entry.compressedSize;
+    if (zipMode.mode === "buffered") {
+      const { view, bytes } = zipMode;
+      if (lhBase + 30 > bytes.length) return null;
+      if (readUint32LE(view, lhBase) !== LOCAL_FILE_MAGIC) return null;
 
-    if (dataStart > bytes.length || dataEnd2 > bytes.length) return null;
-    const compressedSlice = bytes.slice(dataStart, dataEnd2);
+      const lhFileNameLen = readUint16LE(view, lhBase + 26);
+      const lhExtraLen = readUint16LE(view, lhBase + 28);
+      dataStart = lhBase + 30 + lhFileNameLen + lhExtraLen;
+      const dataEnd2 = dataStart + entry.compressedSize;
+
+      if (dataStart > bytes.length || dataEnd2 > bytes.length) return null;
+      compressedSlice = bytes.slice(dataStart, dataEnd2);
+    } else {
+      const resolved = await readZipLocalHeaderDataStart(zipBlob, lhBase);
+      if (resolved === null) return null;
+      dataStart = resolved;
+      const dataEnd = dataStart + entry.compressedSize;
+      if (dataStart > zipBlob.size || dataEnd > zipBlob.size) return null;
+      const ab = await zipBlob.slice(dataStart, dataEnd).arrayBuffer();
+      compressedSlice = new Uint8Array(ab);
+    }
 
     let output: Uint8Array;
     if (entry.compressionMethod === COMPRESS_STORED) {
@@ -788,7 +1058,7 @@ export async function extractFromZip(
       }
       output = compressedSlice;
     } else if (entry.compressionMethod === COMPRESS_DEFLATE) {
-      output = await decompressWithStream("deflate-raw", compressedSlice);
+      output = await decompressWithStream("deflate-raw", compressedSlice, dsOpts);
       if (output.length !== entry.uncompressedSize) {
         throw new Error(
           `ZIP inflate size mismatch for "${entry.name}" (expected ${entry.uncompressedSize} bytes, got ${output.length}).`
@@ -870,6 +1140,41 @@ export async function extractFromTar(
 ): Promise<{ name: string; blob: Blob; candidates?: ArchiveExtractCandidate[] } | null> {
   assertArchiveSize(blob, "TAR");
 
+  const streamTar = isIOSBrowser() && blob.size >= IOS_STREAMING_ZIP_MIN_BYTES;
+
+  if (streamTar) {
+    const refs = await listTarFileRefsStreaming(blob);
+    const selectedRef = selectBestRomTarRef(refs);
+    if (!selectedRef) return null;
+
+    const payload = await blob.slice(
+      selectedRef.dataOffset,
+      selectedRef.dataOffset + selectedRef.size
+    ).arrayBuffer();
+    const selectedBytes = new Uint8Array(payload);
+
+    let candidates: ArchiveExtractCandidate[] | undefined;
+    if (opts.includeCandidates) {
+      const topRefs = selectTopRomTarRefs(refs, Math.max(1, opts.maxCandidates ?? 8));
+      const out: ArchiveExtractCandidate[] = [];
+      for (const ref of topRefs) {
+        const ab = await blob.slice(ref.dataOffset, ref.dataOffset + ref.size).arrayBuffer();
+        out.push({
+          name: shortNameFromPath(ref.name),
+          blob: new Blob([new Uint8Array(ab)]),
+          size: ref.size,
+        });
+      }
+      candidates = out;
+    }
+
+    return {
+      name: shortNameFromPath(selectedRef.name),
+      blob: new Blob([new Uint8Array(selectedBytes)]),
+      candidates,
+    };
+  }
+
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const entries: ArchiveEntry[] = [];
 
@@ -945,7 +1250,10 @@ export async function extractFromGzip(
   assertArchiveSize(blob, "GZIP");
 
   const compressed = new Uint8Array(await blob.arrayBuffer());
-  const decompressed = await decompressWithStream("gzip", compressed);
+  const dsOpts: DecompressStreamOptions | undefined = isIOSBrowser()
+    ? { yieldWhileReading: true }
+    : undefined;
+  const decompressed = await decompressWithStream("gzip", compressed, dsOpts);
 
   if (isTarBuffer(decompressed)) {
     return extractFromTar(new Blob([new Uint8Array(decompressed)]), opts);
@@ -1013,6 +1321,13 @@ export async function extractFromArchive(
 
     case "7z":
     case "rar": {
+      if (isIOSBrowser()) {
+        throw new Error(
+          `${format.toUpperCase()} archives are not extracted on iPhone/iPad in this browser ` +
+          "(memory limits and worker overhead make in-tab extraction unreliable). " +
+          "Please extract the archive in the Files app or on a desktop, then import the ROM file."
+        );
+      }
       assertArchiveSize(blob, format.toUpperCase());
       const archiveBytes = new Uint8Array(await blob.arrayBuffer());
       const entries = await extractWithLegacyWorker(format, archiveBytes, options);

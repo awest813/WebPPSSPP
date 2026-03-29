@@ -797,9 +797,8 @@ describe('extractFromZip', () => {
     });
 
     try {
-      // Create a blob that reports a size above the iOS warning threshold
-      // (IOS_LARGE_ARCHIVE_WARNING_BYTES = 800 MB) but passes the 2 GB hard limit.
-      const oversizedBlob = { size: 900 * 1024 * 1024 } as Blob;
+      // Above IOS_LARGE_ARCHIVE_WARNING_BYTES (400 MB on iOS) but under 2 GB hard cap.
+      const oversizedBlob = { size: 500 * 1024 * 1024 } as Blob;
       await expect(extractFromZip(oversizedBlob)).rejects.toThrow(/too large.*iPhone/i);
     } finally {
       Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
@@ -859,6 +858,28 @@ describe('extractFromZip', () => {
 // ── extractFromTar / extractFromGzip / extractFromArchive ────────────────────
 
 describe('extractFromTar', () => {
+  it('uses streaming scan on large TAR when UA is iPhone', async () => {
+    const originalUA = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      configurable: true,
+    });
+    try {
+      const padding = new Uint8Array(100 * 1024);
+      const rom = new Uint8Array([0x4e, 0x45, 0x53, 0x1a]);
+      const tarBuf = buildTar([
+        { name: 'notes.txt', data: padding },
+        { name: 'roms/game.nes', data: rom },
+      ]);
+      const result = await extractFromTar(new Blob([tarBuf]));
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe('game.nes');
+      expect(new Uint8Array(await result!.blob.arrayBuffer())).toEqual(rom);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
+    }
+  });
+
   it('extracts a ROM-like entry from TAR archives', async () => {
     const note = new TextEncoder().encode('notes');
     const rom = new Uint8Array([0x4e, 0x45, 0x53, 0x1a]); // NES header
@@ -968,7 +989,26 @@ describe('extractFromArchive', () => {
     expect(names).toContain('beta.nes');
   });
 
+  it('rejects RAR extraction on iPhone with a clear message', async () => {
+    const originalUA = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      configurable: true,
+    });
+    try {
+      const rarHeader = new Uint8Array([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00, 0x00]);
+      await expect(extractFromArchive(new Blob([rarHeader]))).rejects.toThrow(/iPhone\/iPad/);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
+    }
+  });
+
   it('returns ranked candidates for RAR archives with multiple ROM entries', async () => {
+    const originalUA = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      configurable: true,
+    });
     const originalWorker = globalThis.Worker;
     const originalCreate = URL.createObjectURL;
     const originalRevoke = URL.revokeObjectURL;
@@ -1006,6 +1046,7 @@ describe('extractFromArchive', () => {
       globalThis.Worker = originalWorker;
       URL.createObjectURL = originalCreate;
       URL.revokeObjectURL = originalRevoke;
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
     }
   });
 });
