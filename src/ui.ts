@@ -14,7 +14,7 @@
  * Keyboard shortcuts (global, while emulator is running):
  *   F5  → Quick Save slot 1
  *   F7  → Quick Load slot 1
- *   F1  → Reset
+ *   F1  → Reset (confirmation dialog — same as toolbar)
  *   Esc → Return to library
  *
  * All shortcut handlers use the capture phase and stopPropagation() so the
@@ -571,9 +571,9 @@ export function initUI(opts: UIOptions): void {
   const rotateHintEl = document.getElementById("rotate-hint");
   const updateRotateHint = () => {
     if (!rotateHintEl) return;
-    const playing  = emulator.state === "running";
+    const inGame   = emulator.state === "running" || emulator.state === "paused";
     const portrait = isPortrait();
-    rotateHintEl.classList.toggle("rotate-hint--visible", playing && portrait);
+    rotateHintEl.classList.toggle("rotate-hint--visible", inGame && portrait);
   };
   bindEvent(window, "orientationchange", updateRotateHint);
   bindEvent(window, "resize", updateRotateHint);
@@ -708,7 +708,13 @@ export function initUI(opts: UIOptions): void {
       case "F1":
         e.preventDefault();
         e.stopPropagation();
-        emulator.reset();
+        void (async () => {
+          const confirmed = await showConfirmDialog(
+            "Unsaved progress will be lost.",
+            { title: "Reset Game?", confirmLabel: "Reset", isDanger: true }
+          );
+          if (confirmed) emulator.reset();
+        })();
         break;
       case "Escape":
         e.preventDefault();
@@ -2421,6 +2427,7 @@ function buildInGameControls(
   const btnLibrary = make("button", {
     class: "btn",
     title: "Return to library (Esc)",
+    "aria-label": "Return to library",
     "data-tooltip": "Return to library (Esc)",
   });
   btnLibrary.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg> Library`;
@@ -2432,6 +2439,7 @@ function buildInGameControls(
   const btnSave = make("button", {
     class: "btn btn-group__btn",
     title: "Quick Save to slot 1 (F5)",
+    "aria-label": "Quick save to slot 1",
     "data-tooltip": "Quick Save — Slot 1 (F5)",
   });
   btnSave.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save`;
@@ -2447,6 +2455,7 @@ function buildInGameControls(
   const btnLoad = make("button", {
     class: "btn btn-group__btn",
     title: "Quick Load from slot 1 (F7)",
+    "aria-label": "Quick load from slot 1",
     "data-tooltip": "Quick Load — Slot 1 (F7)",
   });
   btnLoad.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Load`;
@@ -2462,6 +2471,8 @@ function buildInGameControls(
   btnSavesGallery.addEventListener("click", () => {
     if (saveLibrary && getCurrentGameId?.() && getCurrentGameName?.() && getCurrentSystemId?.()) {
       void openSaveGallery(emulator, saveLibrary, getCurrentGameId()!, getCurrentGameName()!, getCurrentSystemId()!);
+    } else {
+      showInfoToast("Save slots need a game from your library. Return to the library and add this title to open the gallery.");
     }
   });
 
@@ -2471,6 +2482,7 @@ function buildInGameControls(
   const btnReset = make("button", {
     class: "btn btn--danger",
     title: "Reset game (F1)",
+    "aria-label": "Reset game",
     "data-tooltip": "Reset game (F1)",
   });
   btnReset.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg> Reset`;
@@ -2486,6 +2498,7 @@ function buildInGameControls(
   const btnFPS = make("button", {
     class: settings.showFPS ? "btn btn--active" : "btn",
     title: "Toggle FPS overlay",
+    "aria-label": "Toggle frames per second overlay",
     "aria-pressed": settings.showFPS ? "true" : "false",
     "data-tooltip": "FPS Overlay",
   }, "FPS");
@@ -2703,21 +2716,23 @@ function buildInGameControls(
     });
   }
 
-  const controls: (HTMLElement | null)[] = [btnLibrary, savesGroup, btnReset, btnFPS, btnTouchToggle, btnTouch, btnTouchReset, btnGraphics, btnNetplay, volWrap];
-  for (const ctrl of controls) {
-    if (ctrl) container.appendChild(ctrl);
-  }
-
-  // "Now Playing" chip — appended last so it sits at the far right with auto margin
   const gameName = getCurrentGameName?.();
-  if (gameName) {
-    const chip = make("span", {
+  const nowPlayingChip = gameName
+    ? make("span", {
       class: "now-playing-chip",
       title: gameName,
       "aria-label": `Now playing: ${gameName}`,
-      style: "margin-left: auto",
-    }, gameName);
-    container.appendChild(chip);
+    }, gameName)
+    : null;
+
+  // Put the title chip right after Library so it stays visible on narrow screens
+  // (horizontal scroll starts from the left; far-right items are easy to miss).
+  const controls: (HTMLElement | null)[] = [
+    btnLibrary, nowPlayingChip, savesGroup, btnReset, btnFPS,
+    btnTouchToggle, btnTouch, btnTouchReset, btnGraphics, btnNetplay, volWrap,
+  ];
+  for (const ctrl of controls) {
+    if (ctrl) container.appendChild(ctrl);
   }
 
   updateHeaderOverflow();
