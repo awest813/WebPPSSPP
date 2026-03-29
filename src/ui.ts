@@ -7381,7 +7381,7 @@ export function showInfoToast(msg: string, type: "success" | "info" | "warning" 
   const icon = document.createElement("span");
   icon.className = "info-toast__icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = iconMap[type] ?? iconMap.success;
+  icon.textContent = (iconMap[type] ?? iconMap.success) as string;
   icon.style.cssText = "font-size:1rem;font-weight:800;flex-shrink:0";
 
   const text = document.createElement("span");
