@@ -3084,8 +3084,9 @@ describe("buildInGameControls Save and Load button UX", () => {
     }
 
     const headerActions = document.getElementById("header-actions")!;
-    const btnLoad = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
-      .find((b) => b.textContent?.trim().startsWith("Load") && !b.getAttribute("aria-label"));
+    const btnLoad = headerActions.querySelector<HTMLButtonElement>(
+      'button[aria-label="Quick load from slot 1"]',
+    );
     expect(btnLoad).toBeTruthy();
 
     btnLoad!.click();
@@ -3128,8 +3129,9 @@ describe("buildInGameControls Save and Load button UX", () => {
     }
 
     const headerActions = document.getElementById("header-actions")!;
-    const btnSave = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
-      .find((b) => b.textContent?.trim().startsWith("Save") && !b.getAttribute("aria-label"));
+    const btnSave = headerActions.querySelector<HTMLButtonElement>(
+      'button[aria-label="Quick save to slot 1"]',
+    );
     expect(btnSave).toBeTruthy();
 
     btnSave!.click();
@@ -3139,6 +3141,155 @@ describe("buildInGameControls Save and Load button UX", () => {
     // The error banner should be visible when the save fails.
     const errorBanner = document.getElementById("error-banner");
     expect(errorBanner?.classList.contains("visible")).toBe(true);
+  });
+});
+
+// ── In-game UI polish: rotate hint, F1 reset, save gallery feedback ───────────
+
+describe("in-game UI — rotate hint, keyboard reset, save gallery", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+    document.querySelectorAll(".confirm-overlay").forEach((el) => el.remove());
+    document.getElementById("info-toast")?.remove();
+  });
+
+  it("shows portrait rotate hint when the game is paused (not only while running)", () => {
+    const mm = vi.fn().mockImplementation((q: string) => ({
+      matches: q.includes("portrait"),
+      media: q,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.stubGlobal("matchMedia", mm);
+
+    const emulatorMock = {
+      state: "paused",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+      getCurrentGameName: () => "Test Game",
+      getCurrentSystemId: () => "psp",
+    });
+
+    window.dispatchEvent(new Event("resize"));
+    const hint = document.getElementById("rotate-hint");
+    expect(hint?.classList.contains("rotate-hint--visible")).toBe(true);
+  });
+
+  it("F1 opens the same reset confirmation as the toolbar (does not reset immediately)", async () => {
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "F1", bubbles: true, cancelable: true })
+    );
+    await new Promise((r) => requestAnimationFrame(r));
+
+    const overlay = document.querySelector(".confirm-overlay");
+    expect(overlay).toBeTruthy();
+
+    const cancelBtn = overlay?.querySelector<HTMLButtonElement>("button.btn");
+    expect(cancelBtn?.textContent).toBe("Cancel");
+    cancelBtn?.click();
+
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(emulatorMock.reset).not.toHaveBeenCalled();
+  });
+
+  it("save gallery icon shows a hint when the session has no library game id", () => {
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    const saveLibrary = {} as SaveStateLibrary;
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+      saveLibrary,
+      getCurrentGameId:   () => null,
+      getCurrentGameName: () => "Dropped ROM",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+
+    const galleryBtn = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open save state gallery"]',
+    );
+    expect(galleryBtn).toBeTruthy();
+    galleryBtn!.click();
+
+    const toast = document.getElementById("info-toast");
+    expect(toast?.textContent).toContain("library");
   });
 });
 
