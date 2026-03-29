@@ -12,7 +12,7 @@
  *   - Core preloading: <link rel="preconnect"> and prefetch hints for CDN
  *   - Per-system core prefetching: eagerly fetch both JS glue + WASM cores
  *   - WASM streaming compilation: triggers ahead-of-time compile via fetch()
- *   - Blob-direct launch: accepts Blob directly, skipping File copy overhead
+ *   - ROM hand-off: File for EJS_gameUrl (on iOS, materialises into RAM first)
  *   - Tier-aware settings: picks the right core config per hardware tier
  *   - Audio latency adaptation: tunes audio buffer based on detected HW latency
  *   - Page Visibility API: auto-pauses when tab is hidden to save resources
@@ -594,6 +594,11 @@ export class PSPEmulator {
   private _fpsPredictionFired = false;
   /** Timer ID for the per-game shader warmup window — cleared on teardown. */
   private _shaderWarmupTimerId: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The `File` passed to `EJS_gameUrl` after any iOS WebKit materialisation.
+   * Exposed so callers (e.g. tier-downgrade relaunch) reuse the same payload.
+   */
+  private _launchGameFile: File | null = null;
 
   /** When true, emit detailed debug information to the browser console. */
   verboseLogging = false;
@@ -1578,6 +1583,7 @@ export class PSPEmulator {
     }
 
     this._setState("loading");
+    this._launchGameFile = null;
     this._emit("onProgress", "Preparing game file…");
     this.logDiagnostic("system", `Launching "${fileName}" on ${opts.systemId} (${(opts.file.size / 1024 / 1024).toFixed(1)} MB)`);
 
@@ -1612,9 +1618,29 @@ export class PSPEmulator {
       // unreliable on iOS Safari when a service worker is active (WebKit bug:
       // fetching blob: URLs from a SW-controlled page can silently fail,
       // causing games to stall in the loading screen forever).
-      const gameFile: File = opts.file instanceof File
-        ? opts.file
-        : new File([opts.file], fileName, { type: opts.file.type });
+      //
+      // On iPhone/iPad, ROMs from the file picker or from IndexedDB are often
+      // backed by opaque blob/file handles. Reading them asynchronously later
+      // (after system dialogs, archive work, or a second launch) can fail or
+      // stall. Eagerly copy into a fresh in-memory File once before EJS runs.
+      let gameFile: File;
+      if (isLikelyIOS()) {
+        this._emit("onProgress", "Preparing game file for iOS…");
+        const romBuf = await opts.file.arrayBuffer();
+        gameFile = new File([romBuf], fileName, {
+          type: opts.file.type || "application/octet-stream",
+        });
+        if (this.verboseLogging) {
+          console.info(
+            "[RetroVault] iOS WebKit: materialised ROM into an in-memory File for stable reads."
+          );
+        }
+      } else {
+        gameFile = opts.file instanceof File
+          ? opts.file
+          : new File([opts.file], fileName, { type: opts.file.type });
+      }
+      this._launchGameFile = gameFile;
       const gameName = fileName.replace(/\.[^.]+$/, "");
 
       this._emit("onProgress", "Initialising EmulatorJS…");
@@ -1991,6 +2017,7 @@ export class PSPEmulator {
       }, LAUNCH_TIMEOUT_MS);
 
     } catch (err) {
+      this._launchGameFile = null;
       this._revokeBlobUrl();
       this._emitError(
         `Failed to start emulator: ${err instanceof Error ? err.message : String(err)}`
@@ -2186,6 +2213,14 @@ export class PSPEmulator {
     this._teardown();
     this._detachPostProcessor();
     this._releaseWebGPUDevice();
+  }
+
+  /**
+   * The ROM `File` last wired to EmulatorJS (`EJS_gameUrl`), after iOS-specific
+   * materialisation. Null until the first `launch()` that reaches the EJS setup.
+   */
+  getLaunchGameFile(): File | null {
+    return this._launchGameFile;
   }
 
   // ── Page Visibility ─────────────────────────────────────────────────────────
@@ -2560,6 +2595,7 @@ export class PSPEmulator {
     this._currentSystem = null;
     this._activeTier = null;
     this._activeCoreSettings = null;
+    this._launchGameFile = null;
     this._setState("idle");
   }
 

@@ -483,6 +483,14 @@ function main(): void {
       skipExtensionCheck:  !!gameId,
     });
 
+    // iOS WebKit: launch() may replace the ROM with a materialised in-memory
+    // File so tier-downgrade relaunch and other paths reuse a stable payload.
+    const materialised = emulator.getLaunchGameFile();
+    if (materialised) {
+      currentGameFile = materialised;
+      currentGameFileName = materialised.name;
+    }
+
     // After a successful launch, apply per-game post-process effect override.
     // This is done post-launch (not pre-launch) because the post-processor is
     // attached to the emulator after game start, so we override it here.

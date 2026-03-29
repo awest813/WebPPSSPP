@@ -456,6 +456,77 @@ describe('PSPEmulator', () => {
     });
   });
 
+  // ── iOS WebKit: ROM materialised before EmulatorJS reads it ───────────────
+
+  describe('iOS WebKit ROM materialisation', () => {
+    const nesCaps = {
+      deviceMemoryGB: 4,
+      cpuCores: 4,
+      gpuRenderer: 'unknown',
+      isSoftwareGPU: false,
+      isLowSpec: false,
+      isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false, safariVersion: null,
+      recommendedMode: 'quality' as const,
+      tier: 'medium' as const,
+      gpuCaps: {
+        renderer: 'unknown', vendor: 'unknown', maxTextureSize: 2048,
+        maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 2048,
+        anisotropicFiltering: false, maxAnisotropy: 0,
+        floatTextures: false, halfFloatTextures: false,
+        instancedArrays: false, webgl2: false,
+        vertexArrayObject: false, compressedTextures: false,
+        etc2Textures: false, astcTextures: false,
+        maxColorAttachments: 1, multiDraw: false,
+      },
+      gpuBenchmarkScore: 50,
+      prefersReducedMotion: false,
+      webgpuAvailable: false,
+      connectionQuality: 'unknown' as const,
+      jsHeapLimitMB: null, estimatedVRAMMB: 768,
+    };
+
+    it('copies the ROM into a fresh File on iPhone and exposes it via getLaunchGameFile()', async () => {
+      const originalUA = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+        configurable: true,
+      });
+
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      const payload = new Uint8Array([0x4e, 0x45, 0x53, 0x1a, 0x01, 0x02]);
+      const picked = new File([payload], 'game.nes');
+
+      try {
+        await emulator.launch({
+          file:            picked,
+          volume:          0.7,
+          systemId:        'nes',
+          performanceMode: 'auto',
+          deviceCaps:      nesCaps,
+        });
+      } finally {
+        Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true });
+        vi.unstubAllGlobals();
+      }
+
+      expect(emulator.state).toBe('running');
+      const materialised = emulator.getLaunchGameFile();
+      expect(materialised).not.toBeNull();
+      expect(materialised!.name).toBe('game.nes');
+      expect(materialised).not.toBe(picked);
+      const out = new Uint8Array(await materialised!.arrayBuffer());
+      expect(out).toEqual(payload);
+      expect(window.EJS_gameUrl).toBe(materialised);
+    });
+  });
+
   // ── Launch watchdog (freeze guard) ────────────────────────────────────────
 
   describe('launch watchdog', () => {
