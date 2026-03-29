@@ -814,6 +814,24 @@ export async function renderLibrary(
   const libSection   = document.getElementById("library-section");
   if (!grid || !countEl || !dropZoneEl || !libSection) return;
 
+  // Show skeleton cards if the grid is empty while we load (avoids blank flash)
+  if (grid.children.length === 0) {
+    const skeletonFrag = document.createDocumentFragment();
+    for (let i = 0; i < 8; i++) {
+      const skel = make("div", { class: "game-card game-card--skeleton", "aria-hidden": "true" });
+      const iconPlaceholder = make("div", { class: "game-card__icon" });
+      const info = make("div", { class: "game-card__info" });
+      info.append(
+        make("span", { class: "skeleton-line skeleton-line--wide" }),
+        make("span", { class: "skeleton-line skeleton-line--mid" }),
+        make("span", { class: "skeleton-line skeleton-line--short" }),
+      );
+      skel.append(iconPlaceholder, info);
+      skeletonFrag.appendChild(skel);
+    }
+    grid.appendChild(skeletonFrag);
+  }
+
   let allGames: GameMetadata[];
   try {
     allGames = await library.getAllGamesMetadata();
@@ -885,9 +903,15 @@ export async function renderLibrary(
   }
 
   const fragment = document.createDocumentFragment();
-  for (const game of displayed) {
-    fragment.appendChild(buildGameCard(game, library, settings, onLaunchGame, emulatorRef, onApplyPatch));
-  }
+  displayed.forEach((game, index) => {
+    const card = buildGameCard(game, library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+    // Stagger entrance animation — cap at 20 to avoid long initial delays for large libraries
+    if (index < 20) {
+      card.style.setProperty("--card-i", String(index));
+      card.classList.add("game-card--entering");
+    }
+    fragment.appendChild(card);
+  });
   grid.appendChild(fragment);
 }
 
@@ -1276,6 +1300,7 @@ function buildGameCard(
     );
     if (!confirmed) return;
     await library.removeGame(game.id);
+    showInfoToast(`"${game.name}" removed from library.`, "info");
     void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
   });
 
@@ -1305,6 +1330,7 @@ function buildGameCard(
         setLoadingMessage(`Applying patch to ${game.name}…`);
         await onApplyPatch(game.id, patchFile);
         hideLoadingOverlay();
+        showInfoToast(`Patch applied to "${game.name}".`, "success");
         void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
       } catch (err) {
         hideLoadingOverlay();
@@ -7341,20 +7367,22 @@ export function hideError(): void {
   document.getElementById("error-banner")?.classList.remove("visible");
 }
 
-export function showInfoToast(msg: string): void {
+export function showInfoToast(msg: string, type: "success" | "info" | "warning" | "error" = "success"): void {
   const existing = document.getElementById("info-toast");
   if (existing) existing.remove();
 
   const toast = document.createElement("div");
   toast.id = "info-toast";
-  toast.className = "info-toast";
+  toast.className = `info-toast info-toast--${type}`;
   toast.setAttribute("role", "status");
 
-  // Checkmark icon
+  // Icon varies by type
+  const iconMap: Record<string, string> = { success: "✓", info: "ℹ", warning: "⚠", error: "✕" };
   const icon = document.createElement("span");
+  icon.className = "info-toast__icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "✓";
-  icon.style.cssText = "color:var(--c-accent);font-size:1rem;font-weight:800;flex-shrink:0";
+  icon.textContent = iconMap[type] ?? iconMap.success;
+  icon.style.cssText = "font-size:1rem;font-weight:800;flex-shrink:0";
 
   const text = document.createElement("span");
   text.textContent = msg;
