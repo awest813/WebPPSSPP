@@ -32,6 +32,11 @@
   --c-gold-dim:   rgba(245, 158, 11, 0.14);
   --c-gold-glow:  rgba(245, 158, 11, 0.32);
 
+  /* Secondary accent: Cyan / Teal for secondary highlights & "info" states */
+  --c-accent-2:      #22d3ee;
+  --c-accent-2-dim:  rgba(34, 211, 238, 0.14);
+  --c-accent-2-glow: rgba(34, 211, 238, 0.32);
+
   /* Legacy aliases (kept for system color compatibility) */
   --c-joy-red:    #ef4444;
   --c-joy-blue:   #3b82f6;
@@ -84,8 +89,10 @@
   --glass-bg:     rgba(7, 7, 15, 0.94);
   --glass-border: rgba(50, 45, 90, 0.55);
 
-  /* ── Typography — Space Grotesk for technical retro feel ── */
-  font-family: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* ── Typography — Space Grotesk for body, Syne for display headings ── */
+  --font-display: "Syne", "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans:    "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
   font-size: 15px;
   color: var(--c-text);
   background: var(--c-bg);
@@ -105,13 +112,15 @@ body {
   overflow: hidden;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
-  /* Midnight vault: deep indigo spotlight top-left, amber glow bottom-right, fine dot grid */
+  /* Midnight vault: deep indigo spotlight top-left, amber glow bottom-right,
+     subtle cyan shimmer mid-right, fine dot grid */
   background-image:
-    radial-gradient(ellipse 70% 50% at 5% 2%,   rgba(139, 92, 246, 0.12) 0%, transparent 65%),
-    radial-gradient(ellipse 55% 40% at 95% 95%,  rgba(245, 158, 11, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 5% 2%,   rgba(139, 92, 246, 0.14) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 40% at 95% 95%,  rgba(245, 158, 11, 0.09) 0%, transparent 60%),
+    radial-gradient(ellipse 35% 30% at 88% 15%,  rgba(34, 211, 238, 0.05) 0%, transparent 55%),
     radial-gradient(ellipse 40% 30% at 50% 50%,  rgba(30, 20, 60, 0.20) 0%, transparent 80%),
     radial-gradient(circle, rgba(37, 37, 69, 0.55) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 100% 100%, 28px 28px;
+  background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 28px 28px;
 }
 
 /* ── Skip link ────────────────────────────────────────────── */
@@ -209,6 +218,7 @@ body {
 /* Gradient text for the brand name spans */
 .brand-long,
 .brand-short {
+  font-family: var(--font-display);
   background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 40%, var(--c-gold-h) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -288,10 +298,15 @@ body {
 }
 
 .library-title {
+  font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 800;
   color: var(--c-text);
   letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--c-text) 0%, var(--c-accent-h) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .library-count {
@@ -530,9 +545,10 @@ body {
   border-color: color-mix(in srgb, var(--sys-color, var(--c-accent)) 70%, transparent);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--sys-color, var(--c-accent)) 28%, transparent),
-    0 20px 50px rgba(0, 0, 0, 0.75),
-    0 0 50px color-mix(in srgb, var(--sys-color, var(--c-accent)) 16%, transparent);
-  transform: translateY(-8px) scale(1.03);
+    0 24px 56px rgba(0, 0, 0, 0.80),
+    0 0 60px color-mix(in srgb, var(--sys-color, var(--c-accent)) 18%, transparent);
+  transform: translateY(-9px) scale(1.04);
+  z-index: 1;
 }
 
 .game-card:active {
@@ -1381,6 +1397,7 @@ body {
 }
 
 .modal-title {
+  font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -1882,6 +1899,8 @@ body {
 .btn:disabled { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
 
 .btn--primary {
+  position: relative;
+  overflow: hidden;
   background: linear-gradient(135deg, var(--c-accent-h) 0%, var(--c-accent) 50%, color-mix(in srgb, var(--c-accent) 75%, var(--c-accent-dark)) 100%);
   border-color: var(--c-accent);
   color: #fff;
@@ -1890,6 +1909,31 @@ body {
     0 4px 20px color-mix(in srgb, var(--c-accent) 50%, transparent),
     0 1px 0 rgba(255,255,255,0.20) inset;
   font-weight: 700;
+}
+
+/* Sweeping shimmer animation on primary buttons */
+.btn--primary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.18),
+    transparent
+  );
+  transform: skewX(-15deg);
+  animation: btn-shimmer 4s ease-in-out 1.5s infinite;
+  pointer-events: none;
+}
+
+@keyframes btn-shimmer {
+  0%   { left: -100%; }
+  35%  { left: 150%; }
+  100% { left: 150%; }
 }
 
 .btn--primary:hover {
@@ -4046,8 +4090,9 @@ kbd {
 }
 
 .welcome-hero__title {
+  font-family: var(--font-display);
   font-size: clamp(1.5rem, 4.5vw, 2.1rem);
-  font-weight: 900;
+  font-weight: 800;
   /* Fallback: solid color shown when background-clip is unsupported or high-contrast mode */
   color: var(--c-text);
   letter-spacing: -0.04em;
@@ -4077,7 +4122,8 @@ kbd {
 
   .brand-long,
   .brand-short,
-  .modal-title {
+  .modal-title,
+  .library-title {
     background: none;
     -webkit-text-fill-color: unset;
     color: CanvasText;
@@ -5079,4 +5125,192 @@ kbd {
   .enp-refresh-btn {
     min-height: 44px;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MODERNIZATION — Skeleton Loading, Card Entrance Animations,
+   Toast Types, and additional polish
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Skeleton shimmer keyframe ────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* ── Skeleton game card ───────────────────────────────────── */
+.game-card--skeleton {
+  pointer-events: none;
+  cursor: default;
+  user-select: none;
+}
+
+.game-card--skeleton .game-card__icon {
+  background: linear-gradient(
+    90deg,
+    var(--c-surface2) 25%,
+    var(--c-surface3) 50%,
+    var(--c-surface2) 75%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--c-surface2) 25%,
+    var(--c-surface3) 50%,
+    var(--c-surface2) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton-line--wide  { width: 80%; }
+.skeleton-line--mid   { width: 55%; }
+.skeleton-line--short { width: 38%; height: 8px; }
+
+/* Stagger skeleton shimmer so cards don't all pulse in sync */
+.game-card--skeleton:nth-child(1)  .skeleton-line,
+.game-card--skeleton:nth-child(1)  .game-card__icon { animation-delay: 0ms; }
+.game-card--skeleton:nth-child(2)  .skeleton-line,
+.game-card--skeleton:nth-child(2)  .game-card__icon { animation-delay: 80ms; }
+.game-card--skeleton:nth-child(3)  .skeleton-line,
+.game-card--skeleton:nth-child(3)  .game-card__icon { animation-delay: 160ms; }
+.game-card--skeleton:nth-child(4)  .skeleton-line,
+.game-card--skeleton:nth-child(4)  .game-card__icon { animation-delay: 240ms; }
+.game-card--skeleton:nth-child(5)  .skeleton-line,
+.game-card--skeleton:nth-child(5)  .game-card__icon { animation-delay: 320ms; }
+.game-card--skeleton:nth-child(6)  .skeleton-line,
+.game-card--skeleton:nth-child(6)  .game-card__icon { animation-delay: 400ms; }
+.game-card--skeleton:nth-child(7)  .skeleton-line,
+.game-card--skeleton:nth-child(7)  .game-card__icon { animation-delay: 480ms; }
+.game-card--skeleton:nth-child(8)  .skeleton-line,
+.game-card--skeleton:nth-child(8)  .game-card__icon { animation-delay: 560ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .game-card--skeleton .game-card__icon,
+  .skeleton-line {
+    animation: none;
+    background: var(--c-surface2) !important;
+  }
+}
+
+/* ── Card entrance animation with per-card stagger ─────────── */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.game-card--entering {
+  animation: card-enter 0.38s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  animation-delay: calc(var(--card-i, 0) * 35ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-card--entering { animation: none; opacity: 1; }
+}
+
+/* ── Info-toast type variants ──────────────────────────────── */
+/* Default (no modifier) already defined in main .info-toast rule — accent color. */
+
+.info-toast--success {
+  background: color-mix(in srgb, var(--c-success) 12%, var(--c-surface));
+  border-color: color-mix(in srgb, var(--c-success) 45%, transparent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 16px color-mix(in srgb, var(--c-success) 18%, transparent);
+}
+
+.info-toast--info {
+  background: color-mix(in srgb, var(--c-accent-2) 12%, var(--c-surface));
+  border-color: color-mix(in srgb, var(--c-accent-2) 45%, transparent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 16px color-mix(in srgb, var(--c-accent-2) 16%, transparent);
+}
+
+.info-toast--warning {
+  background: color-mix(in srgb, var(--c-warn) 12%, var(--c-surface));
+  border-color: color-mix(in srgb, var(--c-warn) 45%, transparent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 16px color-mix(in srgb, var(--c-warn) 16%, transparent);
+}
+
+.info-toast--error {
+  background: color-mix(in srgb, var(--c-danger) 12%, var(--c-surface));
+  border-color: color-mix(in srgb, var(--c-danger) 45%, transparent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 16px color-mix(in srgb, var(--c-danger) 16%, transparent);
+}
+
+/* Icon color per toast type */
+.info-toast--success .info-toast__icon { color: var(--c-success); }
+.info-toast--info    .info-toast__icon { color: var(--c-accent-2); }
+.info-toast--warning .info-toast__icon { color: var(--c-warn); }
+.info-toast--error   .info-toast__icon { color: var(--c-danger); }
+
+/* ── System badge — subtle inner glow ──────────────────────── */
+.sys-badge {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 8px rgba(0, 0, 0, 0.20) inset;
+}
+
+/* ── Header brand — glow boost on hover ────────────────────── */
+.app-header__brand:hover svg {
+  filter: drop-shadow(0 0 18px rgba(139, 92, 246, 1.0));
+  transition: filter 0.2s ease;
+}
+
+/* ── Drop zone — brighter gradient on drag-over ────────────── */
+.drop-zone.drag-over {
+  border-color: var(--c-accent-h);
+  background: color-mix(in srgb, var(--c-accent) 10%, var(--c-surface));
+  box-shadow:
+    0 0 0 4px var(--c-accent-dim),
+    inset 0 0 60px color-mix(in srgb, var(--c-accent) 8%, transparent);
+}
+
+/* ── Card focus ring — larger, more visible ────────────────── */
+.game-card:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+/* ── Landing scrollbar ─────────────────────────────────────── */
+#landing {
+  scrollbar-color: var(--c-border-lt) transparent;
+}
+
+/* ── Welcome hero tagline — slightly more vivid ────────────── */
+.welcome-hero__tagline {
+  color: var(--c-text-dim);
+  background: linear-gradient(135deg, var(--c-text-dim) 30%, var(--c-accent-2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* Fallback */
+  color: var(--c-text-dim);
+}
+
+@media (forced-colors: active) {
+  .welcome-hero__tagline {
+    background: none;
+    -webkit-text-fill-color: unset;
+    color: CanvasText;
+  }
+}
+
+/* ── Onboarding feature cards — stronger hover glow ────────── */
+.onboarding__feature:hover {
+  border-color: color-mix(in srgb, var(--c-accent) 85%, transparent);
+  background: color-mix(in srgb, var(--c-accent) 11%, var(--c-surface));
+  transform: translateY(-5px);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.52),
+    0 0 28px var(--c-accent-dim),
+    0 0 0 1px color-mix(in srgb, var(--c-accent) 18%, transparent) inset;
 }
