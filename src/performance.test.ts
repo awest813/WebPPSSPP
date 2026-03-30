@@ -2204,11 +2204,11 @@ describe('performance', () => {
     });
 
     it('returns correct PS1 2× option', () => {
-      expect(getResolutionCoreOptions('psx', '2x')).toEqual({ beetle_psx_internal_resolution: '2x' });
+      expect(getResolutionCoreOptions('psx', '2x')).toEqual({ beetle_psx_hw_internal_resolution: '2x' });
     });
 
     it('returns correct PS1 4× option', () => {
-      expect(getResolutionCoreOptions('psx', '4x')).toEqual({ beetle_psx_internal_resolution: '4x' });
+      expect(getResolutionCoreOptions('psx', '4x')).toEqual({ beetle_psx_hw_internal_resolution: '4x' });
     });
 
     it('returns empty object for Saturn (Yabause has no resolution ladder in RetroVault)', () => {

@@ -1720,12 +1720,12 @@ export class PSPEmulator {
         }
       }
 
-      // PS1 audio adaptation: beetle_psx_cd_access_method can be forced to
+      // PS1 audio adaptation: beetle_psx_hw_cd_access_method can be forced to
       // "sync" on high-latency hardware to prevent audio desync from async
       // disc reads racing the audio output thread.
       if (audioCaps && opts.systemId === "psx" && audioCaps.suggestedBufferTier === "high") {
-        if (ejsSettings["beetle_psx_cd_access_method"] === "async") {
-          ejsSettings["beetle_psx_cd_access_method"] = "sync";
+        if (ejsSettings["beetle_psx_hw_cd_access_method"] === "async") {
+          ejsSettings["beetle_psx_hw_cd_access_method"] = "sync";
           if (this.verboseLogging) {
             console.info(
               `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
