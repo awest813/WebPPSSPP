@@ -6757,9 +6757,9 @@ function buildAboutTab(container: HTMLElement): void {
     ["F5", "Save progress (quick save)"],
     ["F7", "Load saved progress (quick load)"],
     ["F1", "Reset game"],
-    ["F9", "Open Settings"],
+    ["F9", "Open Settings (Advanced tab)"],
     ["Esc", "Return to game library"],
-    ["F3", "Developer debug info"],
+    ["F3", "Toggle on-screen debug overlay"],
   ];
 
   const shortcutList = make("div", { class: "device-info-details" });

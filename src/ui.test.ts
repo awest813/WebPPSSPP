@@ -1618,6 +1618,88 @@ describe("buildDebugTab", () => {
   });
 });
 
+describe("Help tab keyboard shortcut descriptions", () => {
+  const caps: DeviceCapabilities = {
+    isLowSpec: false,
+    isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false, safariVersion: null,
+    gpuRenderer: "unknown",
+    isSoftwareGPU: false,
+    recommendedMode: "quality",
+    tier: "medium",
+    deviceMemoryGB: 4,
+    cpuCores: 4,
+    gpuBenchmarkScore: 50,
+    prefersReducedMotion: false,
+    webgpuAvailable: false,
+    connectionQuality: "unknown",
+    jsHeapLimitMB: null,
+    estimatedVRAMMB: 768,
+    gpuCaps: {
+      renderer: "unknown",
+      vendor: "unknown",
+      maxTextureSize: 4096,
+      maxVertexAttribs: 16,
+      maxVaryingVectors: 30,
+      maxRenderbufferSize: 4096,
+      anisotropicFiltering: false,
+      maxAnisotropy: 0,
+      floatTextures: false,
+      halfFloatTextures: false,
+      instancedArrays: true,
+      webgl2: true,
+      vertexArrayObject: true,
+      compressedTextures: false,
+      etc2Textures: false,
+      astcTextures: false,
+      maxColorAttachments: 4,
+      multiDraw: false,
+    },
+  };
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  it("lists F9 as opening Settings on the Advanced tab", () => {
+    openSettingsPanel(
+      makeSettings(),
+      caps,
+      { getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "about"
+    );
+    const aboutPanel = document.getElementById("tab-panel-about")!;
+    expect(aboutPanel.textContent).toContain("F9");
+    expect(aboutPanel.textContent).toContain("Advanced tab");
+  });
+
+  it("describes F3 as toggling the on-screen debug overlay", () => {
+    openSettingsPanel(
+      makeSettings(),
+      caps,
+      { getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "about"
+    );
+    const aboutPanel = document.getElementById("tab-panel-about")!;
+    expect(aboutPanel.textContent).toContain("F3");
+    expect(aboutPanel.textContent).toContain("on-screen debug overlay");
+  });
+});
+
 // ── Settings panel close removes ESC handler ─────────────────────────────────
 
 describe("settings panel ESC handler cleanup", () => {
