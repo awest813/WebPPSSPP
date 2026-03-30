@@ -84,7 +84,8 @@ Improvements to visual fidelity and audio latency for 3D-heavy systems.
 
 Broader system support and compatibility improvements.
 
-- [x] **Additional systems**: Saturn (Beetle Saturn), Dreamcast (Flycast), MAME 2003+, Atari 7800, Lynx, Neo Geo Pocket — 6 new systems with tier-aware core options
+- [x] **Additional systems**: Saturn (Yabause via EmulatorJS `segaSaturn`), MAME 2003+, Atari 7800, Lynx, Neo Geo Pocket — tier-aware options where the upstream core exposes them
+- [ ] **Dreamcast playability**: ROM/BIOS entries remain for library workflow; in-app launch is disabled until a Dreamcast core ships on the EmulatorJS stable CDN (Flycast or equivalent). Track upstream releases before re-enabling `segaDC` launch.
 - [x] **BIOS management**: `BiosLibrary` persists BIOS blobs in IndexedDB; known requirements for PS1, Saturn, Dreamcast, Lynx; per-file status dots and upload controls
 - [x] **CHD compression**: Accepted for PS1, Saturn, and Dreamcast; cores decompress natively via libchdr WASM
 - [x] **ZIP / 7z / RAR transparency**: Pure-JS ZIP parser + libunrar.js worker; first ROM-compatible entry auto-selected; clear error for truly unsupported formats
@@ -139,6 +140,8 @@ Bug fixes, performance improvements, and quality-of-life enhancements.
 Fixes for silent bugs where the wrong PS1 core was used and keyboard shortcuts leaked into the emulator.
 
 - [x] **PS1 core fix**: All Beetle PSX HW tier options now inject `retroarch_core: "mednafen_psx_hw"` so EmulatorJS always uses Beetle PSX HW, not the default PCSX ReARMed
+- [x] **NDS core pin**: All NDS tiers inject `retroarch_core: "desmume2015"` so DeSmuME 2015 is used instead of EmulatorJS’s default melonDS ordering
+- [x] **Saturn options fix**: Saturn tiers use Yabause (`yabause_*`) options matching the core EmulatorJS loads for `segaSaturn`, replacing ineffective Beetle Saturn keys
 - [x] **Keyboard shortcut isolation**: Global keydown listener registered with `{ capture: true }`; `stopPropagation()` on matched shortcuts prevents them reaching EmulatorJS
 - [x] **Escape key default prevented**: `preventDefault()` added to Escape shortcut handler
 - [x] **F9 shortcut**: Opens Debug Settings tab regardless of emulator state
@@ -262,6 +265,7 @@ Data-driven and heuristic approaches to automatically tune emulator settings.
 ### Caching & Preloading
 
 - [x] **Intelligent core preloading**: `recordSystemLaunch()` / `getTopLaunchedSystems()` in `performance.ts`; `emulator.prefetchTopSystems(2)` called at startup in `main.ts` via `scheduleIdleTask`; tracks launch counts in `localStorage` under `rv:launchCounts`
+- [x] **CDN-accurate core prefetch**: `prefetchCore()` prefetches the same `cores/<core>-wasm.data` blobs EmulatorJS downloads (replacing stale `_libretro.js` / `.wasm` URLs that never existed on stable CDN)
 - [x] **Per-game shader warmup**: `ShaderCache.beginWarmupWindow(gameId)` / `endWarmupWindow()` open a 60-second recording window when `EJS_onGameStart` fires; any `record()` call during the window additionally persists the shader under `gameId` in the `gameWarmupPrograms` IDB store; `preCompileForGame(gameId)` pre-compiles those shaders at the start of each subsequent launch; `clearForGame()` / `countForGame()` / `loadForGame()` for management; wired into `PSPEmulator.launch()` and `_teardown()`
 - [x] **WASM compilation caching**: `WasmModuleCache` in `src/wasmCache.ts`; IndexedDB-backed `WebAssembly.Module` store; ETag/Last-Modified conditional validation; `wasmModuleCache` shared singleton
 - [x] **Capability cache TTL**: `detectCapabilitiesCached()` uses `sessionStorage` under `retrovault-devcaps-v1`; "Clear Capability Cache" button added to Debug tab in Settings

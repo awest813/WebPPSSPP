@@ -6,7 +6,7 @@
 ![Tests](https://img.shields.io/badge/tests-1050%20passing-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-18%2B-339933.svg)
 
-RetroVault is a browser-based multi-system retro emulator frontend that runs EmulatorJS cores in WebAssembly. It provides a complete, self-hostable gaming experience with ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
+RetroVault is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/) stable (`cdn.emulatorjs.org/stable`). Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
 
 ## Overview
 
@@ -43,7 +43,9 @@ Open `http://localhost:5173`.
 
 ### Emulation
 
-- **50+ systems** via EmulatorJS cores — PSP (PPSSPP), N64, PS1, NDS, GBA, SNES, NES, Sega Genesis/Saturn/Dreamcast, MAME, Atari, Neo Geo, and more
+- **Many systems** via EmulatorJS — PSP (PPSSPP), N64, PS1 (Beetle PSX HW), NDS (DeSmuME 2015), GBA, SNES, NES, Sega Genesis / Saturn (Yabause), arcade (FBNeo / MAME 2003+), Atari, Neo Geo Pocket, and more
+- **Core alignment**: NDS tier tables force `desmume2015` (EmulatorJS otherwise prefers melonDS first). Saturn uses Yabause with RetroVault-specific `yabause_*` tier presets (not Beetle Saturn).
+- **Dreamcast**: ROM types and BIOS management exist for library organisation, but **launch is disabled** because the stable EmulatorJS CDN does not ship a Dreamcast core; attempting to run a game shows a clear error instead of a failed download inside the loader.
 - **Archive support**: ZIP, 7z, and RAR files are transparently extracted before launch
 - **Soft-patch support**: Full IPS, BPS, and UPS patcher with CRC verification
 - **Multi-disc games**: `.m3u` support for PS1, Saturn, and Dreamcast with disc-picker UI
@@ -52,7 +54,7 @@ Open `http://localhost:5173`.
 ### Performance
 
 - **Hardware tier detection**: GPU benchmark + CPU/RAM heuristics classify the device as Low / Medium / High / Ultra
-- **Per-system tier tables**: 50+ optimised core-option sets for PSP, N64, PS1, NDS, Saturn, Dreamcast, and others
+- **Per-system tier tables**: optimised RetroArch core-option sets for PSP, N64, PS1, NDS, GBA, Saturn (Yabause), and others
 - **Adaptive quality**: sustained sub-25 FPS triggers an optional one-step tier downgrade with user confirmation
 - **Per-game profiles**: last stable tier saved per game ID in `localStorage`
 - **WebGPU post-processing**: CRT, sharpen, LCD, bloom, and FXAA effects with tier-aware intensity scaling
@@ -106,7 +108,7 @@ Emulator Orchestrator (src/main.ts, src/emulator.ts)
   +--> Networking (src/multiplayer.ts)
   |
   v
-EmulatorJS CDN Cores (WASM + JS)
+EmulatorJS CDN (`*-wasm.data` core blobs + loader)
 ```
 
 ### Core subsystems
@@ -307,4 +309,4 @@ This repository is licensed under the MIT License. See [`LICENSE`](LICENSE).
 
 ---
 
-> **Legal note:** This project does not distribute copyrighted games, proprietary BIOS files, or compiled emulator cores. All emulator cores are loaded at runtime from the public EmulatorJS CDN.
+> **Legal note:** This project does not distribute copyrighted games, proprietary BIOS files, or compiled emulator cores. EmulatorJS fetches core packages from the public CDN when you start a game.

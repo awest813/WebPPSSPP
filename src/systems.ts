@@ -5,7 +5,7 @@
  * definition here maps to an EmulatorJS core identifier plus metadata
  * used throughout the UI (badges, colours, performance settings).
  *
- * Performance-heavy systems (PSP / NDS / N64) now use tier-aware settings:
+ * Performance-heavy systems (PSP / NDS / N64 / Saturn) use tier-aware settings;
  * low / medium / high / ultra map to progressively heavier core options so
  * low-end devices prioritize playability while high-end devices raise quality.
  */
@@ -371,6 +371,8 @@ const N64_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
 
 const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
+    // EmulatorJS defaults to melonDS first; our tier tables target DeSmuME 2015.
+    retroarch_core: "desmume2015",
     desmume_num_cores: "1",
     desmume_cpu_mode: "interpreter",
     desmume_frameskip: "2",
@@ -385,6 +387,7 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_firmware_language: "Auto",
   },
   medium: {
+    retroarch_core: "desmume2015",
     desmume_num_cores: "2",
     desmume_cpu_mode: "jit",
     desmume_frameskip: "1",
@@ -400,6 +403,7 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_pointer_type: "touch",
   },
   high: {
+    retroarch_core: "desmume2015",
     desmume_num_cores: "2",
     desmume_cpu_mode: "jit",
     desmume_frameskip: "0",
@@ -416,6 +420,7 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_mic_mode: "internal",
   },
   ultra: {
+    retroarch_core: "desmume2015",
     // DeSmuME doesn't benefit from >2 cores; setting 4 wastes threads
     desmume_num_cores: "2",
     desmume_cpu_mode: "jit",
@@ -645,110 +650,47 @@ export function getPSXSettingsForTier(tier: PerformanceTier): Record<string, str
 }
 
 
-// ── Sega Saturn (Beetle Saturn) tier settings ─────────────────────────────────
+// ── Sega Saturn (Yabause) tier settings ───────────────────────────────────────
+//
+// EmulatorJS maps `segaSaturn` → Yabause (not Beetle Saturn). Options follow
+// libretro yabause_core_options (frameskip, HLE BIOS, expansion RAM, multitap, threads).
 
 const SATURN_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
-    beetle_saturn_resolution: "1x(native)",
-    beetle_saturn_deinterlace_method: "weave",
-    beetle_saturn_horizontal_overscan: "disabled",
-    beetle_saturn_analog_stick_deadzone: "15%",
-    beetle_saturn_region_detect: "Auto",
-    beetle_saturn_multitap_port1: "disabled",
-    beetle_saturn_multitap_port2: "disabled",
-    beetle_saturn_virtuagun_input: "disabled",
-    beetle_saturn_shared_ext: "disabled",
+    retroarch_core: "yabause",
+    yabause_frameskip: "enabled",
+    yabause_force_hle_bios: "disabled",
+    yabause_addon_cartridge: "none",
+    yabause_multitap_port1: "disabled",
+    yabause_multitap_port2: "disabled",
+    yabause_numthreads: "1",
   },
   medium: {
-    beetle_saturn_resolution: "2x",
-    beetle_saturn_deinterlace_method: "bob",
-    beetle_saturn_horizontal_overscan: "enabled",
-    beetle_saturn_analog_stick_deadzone: "15%",
-    beetle_saturn_region_detect: "Auto",
-    beetle_saturn_multitap_port1: "disabled",
-    beetle_saturn_multitap_port2: "disabled",
-    beetle_saturn_virtuagun_input: "disabled",
-    beetle_saturn_shared_ext: "disabled",
-    beetle_saturn_horizontal_blend: "enabled",
+    retroarch_core: "yabause",
+    yabause_frameskip: "disabled",
+    yabause_force_hle_bios: "disabled",
+    yabause_addon_cartridge: "none",
+    yabause_multitap_port1: "disabled",
+    yabause_multitap_port2: "disabled",
+    yabause_numthreads: "2",
   },
   high: {
-    beetle_saturn_resolution: "4x",
-    beetle_saturn_deinterlace_method: "bob",
-    beetle_saturn_horizontal_overscan: "enabled",
-    beetle_saturn_analog_stick_deadzone: "15%",
-    beetle_saturn_region_detect: "Auto",
-    beetle_saturn_multitap_port1: "disabled",
-    beetle_saturn_multitap_port2: "disabled",
-    beetle_saturn_virtuagun_input: "disabled",
-    beetle_saturn_shared_ext: "disabled",
-    beetle_saturn_horizontal_blend: "enabled",
-    beetle_saturn_auto_calc_md5: "disabled",
+    retroarch_core: "yabause",
+    yabause_frameskip: "disabled",
+    yabause_force_hle_bios: "disabled",
+    yabause_addon_cartridge: "1M_ram",
+    yabause_multitap_port1: "disabled",
+    yabause_multitap_port2: "disabled",
+    yabause_numthreads: "4",
   },
   ultra: {
-    // 8x internal resolution for crisp sprite-heavy 2D and 3D geometry
-    beetle_saturn_resolution: "8x",
-    beetle_saturn_deinterlace_method: "yadif",
-    beetle_saturn_horizontal_overscan: "enabled",
-    beetle_saturn_analog_stick_deadzone: "15%",
-    beetle_saturn_region_detect: "Auto",
-    beetle_saturn_multitap_port1: "disabled",
-    beetle_saturn_multitap_port2: "disabled",
-    beetle_saturn_virtuagun_input: "disabled",
-    beetle_saturn_shared_ext: "disabled",
-    beetle_saturn_horizontal_blend: "enabled",
-    beetle_saturn_auto_calc_md5: "disabled",
-  },
-};
-
-// ── Dreamcast (Flycast) tier settings ─────────────────────────────────────────
-
-const DREAMCAST_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
-  low: {
-    flycast_internal_resolution: "640x480",
-    flycast_anisotropic_filtering: "off",
-    flycast_pvr_texture_upscaling: "1",
-    flycast_enable_dsp: "disabled",
-    flycast_synchronous_rendering: "enabled",
-    flycast_enable_rttb: "disabled",
-    flycast_div_matching: "enabled",
-    flycast_auto_skip_frame: "enabled",
-  },
-  medium: {
-    flycast_internal_resolution: "1280x960",
-    flycast_anisotropic_filtering: "4",
-    // Medium GPUs can handle 2x texture upscaling
-    flycast_pvr_texture_upscaling: "2",
-    flycast_enable_dsp: "enabled",
-    flycast_synchronous_rendering: "enabled",
-    flycast_enable_rttb: "disabled",
-    flycast_div_matching: "enabled",
-    flycast_auto_skip_frame: "disabled",
-  },
-  high: {
-    flycast_internal_resolution: "1920x1440",
-    flycast_anisotropic_filtering: "8",
-    flycast_pvr_texture_upscaling: "2",
-    flycast_enable_dsp: "enabled",
-    flycast_synchronous_rendering: "disabled",
-    flycast_enable_rttb: "enabled",
-    flycast_div_matching: "enabled",
-    flycast_auto_skip_frame: "disabled",
-    flycast_delay_frame_swapping: "disabled",
-    flycast_alpha_sorting: "Triangle Sorting",
-  },
-  ultra: {
-    // 2560×1920 internal: 4× native Dreamcast resolution on high-end GPUs
-    flycast_internal_resolution: "2560x1920",
-    flycast_anisotropic_filtering: "16",
-    // 2x texture upscaling: 4x is excessive on DC, 2x is better balance
-    flycast_pvr_texture_upscaling: "2",
-    flycast_enable_dsp: "enabled",
-    flycast_synchronous_rendering: "disabled",
-    flycast_enable_rttb: "enabled",
-    flycast_div_matching: "enabled",
-    flycast_auto_skip_frame: "disabled",
-    flycast_delay_frame_swapping: "disabled",
-    flycast_alpha_sorting: "Triangle Sorting",
+    retroarch_core: "yabause",
+    yabause_frameskip: "disabled",
+    yabause_force_hle_bios: "disabled",
+    yabause_addon_cartridge: "4M_ram",
+    yabause_multitap_port1: "disabled",
+    yabause_multitap_port2: "disabled",
+    yabause_numthreads: "8",
   },
 };
 
@@ -956,9 +898,8 @@ export const SYSTEMS: SystemInfo[] = [
     needsWebGL2: false,
     needsBios: true,
     is3D: true,
-    qualitySettings: DREAMCAST_TIER_SETTINGS.high,
-    perfSettings: DREAMCAST_TIER_SETTINGS.low,
-    tierSettings: DREAMCAST_TIER_SETTINGS,
+    qualitySettings: {},
+    perfSettings: {},
   },
   {
     id: "mame2003",

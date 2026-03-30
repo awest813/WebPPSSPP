@@ -164,10 +164,10 @@ describe('systems performance profiles', () => {
     expect(nds?.tierSettings?.ultra?.desmume_internal_resolution).toBe('1024x768');
     expect(n64?.tierSettings?.low?.['mupen64plus-rdp-plugin']).toBe('rice');
     expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('4');
-    expect(saturn?.tierSettings?.low?.beetle_saturn_resolution).toBe('1x(native)');
-    expect(saturn?.tierSettings?.ultra?.beetle_saturn_resolution).toBe('8x');
-    expect(dc?.tierSettings?.low?.flycast_internal_resolution).toBe('640x480');
-    expect(dc?.tierSettings?.ultra?.flycast_internal_resolution).toBe('2560x1920');
+    expect(saturn?.tierSettings?.low?.retroarch_core).toBe('yabause');
+    expect(saturn?.tierSettings?.low?.yabause_frameskip).toBe('enabled');
+    expect(saturn?.tierSettings?.ultra?.yabause_addon_cartridge).toBe('4M_ram');
+    expect(dc?.tierSettings).toBeUndefined();
   });
 
   describe('PSP audio latency settings', () => {
@@ -365,12 +365,14 @@ describe('systems performance profiles', () => {
   describe('getNDSSettingsForTier', () => {
     it('returns tier settings for NDS low tier', () => {
       const settings = getNDSSettingsForTier('low');
+      expect(settings.retroarch_core).toBe('desmume2015');
       expect(settings.desmume_frameskip).toBe('2');
       expect(settings.desmume_cpu_mode).toBe('interpreter');
     });
 
     it('returns tier settings for NDS ultra tier', () => {
       const settings = getNDSSettingsForTier('ultra');
+      expect(settings.retroarch_core).toBe('desmume2015');
       expect(settings.desmume_internal_resolution).toBe('1024x768');
       expect(settings.desmume_cpu_mode).toBe('jit');
     });

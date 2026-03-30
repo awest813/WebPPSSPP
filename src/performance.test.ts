@@ -2209,12 +2209,12 @@ describe('performance', () => {
       expect(getResolutionCoreOptions('psx', '4x')).toEqual({ beetle_psx_internal_resolution: '4x' });
     });
 
-    it('returns correct Saturn 2× option', () => {
-      expect(getResolutionCoreOptions('segaSaturn', '2x')).toEqual({ beetle_saturn_resolution: '2x' });
+    it('returns empty object for Saturn (Yabause has no resolution ladder in RetroVault)', () => {
+      expect(getResolutionCoreOptions('segaSaturn', '2x')).toEqual({});
     });
 
-    it('returns correct Dreamcast 2× option', () => {
-      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({ flycast_internal_resolution: '1280x960' });
+    it('returns empty object for Dreamcast (no bundled core / resolution ladder)', () => {
+      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({});
     });
 
     it('clamps 4× to the ladder maximum when the system only has fewer steps', () => {

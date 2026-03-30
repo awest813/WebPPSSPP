@@ -10,8 +10,7 @@
  *
  * Performance enhancements:
  *   - Core preloading: <link rel="preconnect"> and prefetch hints for CDN
- *   - Per-system core prefetching: eagerly fetch both JS glue + WASM cores
- *   - WASM streaming compilation: triggers ahead-of-time compile via fetch()
+ *   - Per-system core prefetch: warm HTTP cache for EmulatorJS `*-wasm.data` blobs
  *   - ROM hand-off: File for EJS_gameUrl (on iOS, materialises into RAM first)
  *   - Tier-aware settings: picks the right core config per hardware tier
  *   - Audio latency adaptation: tunes audio buffer based on detected HW latency
@@ -140,46 +139,38 @@ export function clearWebGL2SupportCache(): void {
 }
 
 /**
- * Maps EJS core ids to their CDN core filenames for prefetching.
+ * Maps RetroVault system ids (`EJS_core`) to EmulatorJS stable CDN core blobs.
  *
- * Each 3D core entry includes both the JS glue module and the .wasm binary.
- * Prefetching both ensures they land in the browser HTTP cache before the
- * user launches a game, eliminating the largest download delay (10–30 MB).
+ * Upstream packages each core as a single compressed `*-wasm.data` archive (see
+ * `data/src/emulator.js` — `downloadGameCore`). Prefetching that file warms the
+ * HTTP cache for the same URL the loader requests after reading
+ * `cores/reports/<core>.json`. Paths are relative to `EJS_CDN_BASE`.
  *
- * The .wasm files are also eligible for WebAssembly streaming compilation
- * (triggered separately in prefetchCore) which lets the browser compile
- * the WASM ahead-of-time while it is still downloading.
+ * We prefetch the common non-legacy, non-threaded variant (`<core>-wasm.data`).
+ * EmulatorJS may still request `-thread-` or `-legacy-` variants at runtime
+ * depending on `SharedArrayBuffer` and WebGL2; those fall through as separate
+ * cache entries on first launch.
  */
-const CORE_PREFETCH_MAP: Record<string, { js: string; wasm: string }> = {
-  psp: {
-    js:   "cores/ppsspp_libretro.js",
-    wasm: "cores/ppsspp_libretro.wasm",
-  },
-  n64: {
-    js:   "cores/mupen64plus_next_libretro.js",
-    wasm: "cores/mupen64plus_next_libretro.wasm",
-  },
-  psx: {
-    js:   "cores/mednafen_psx_hw_libretro.js",
-    wasm: "cores/mednafen_psx_hw_libretro.wasm",
-  },
-  nds: {
-    js:   "cores/desmume2015_libretro.js",
-    wasm: "cores/desmume2015_libretro.wasm",
-  },
-  gba: {
-    js:   "cores/mgba_libretro.js",
-    wasm: "cores/mgba_libretro.wasm",
-  },
-  // ── Phase 3 additions ────────────────────────────────────────────────────
-  segaSaturn: {
-    js:   "cores/mednafen_saturn_libretro.js",
-    wasm: "cores/mednafen_saturn_libretro.wasm",
-  },
-  segaDC: {
-    js:   "cores/flycast_libretro.js",
-    wasm: "cores/flycast_libretro.wasm",
-  },
+const CORE_PREFETCH_MAP: Record<string, string> = {
+  psp:        "cores/ppsspp-wasm.data",
+  n64:        "cores/mupen64plus_next-wasm.data",
+  psx:        "cores/mednafen_psx_hw-wasm.data",
+  nds:        "cores/desmume2015-wasm.data",
+  gba:        "cores/mgba-wasm.data",
+  gb:         "cores/gambatte-wasm.data",
+  gbc:        "cores/gambatte-wasm.data",
+  nes:        "cores/fceumm-wasm.data",
+  snes:       "cores/snes9x-wasm.data",
+  segaMD:     "cores/genesis_plus_gx-wasm.data",
+  segaGG:     "cores/genesis_plus_gx-wasm.data",
+  segaMS:     "cores/genesis_plus_gx-wasm.data",
+  arcade:     "cores/fbneo-wasm.data",
+  segaSaturn: "cores/yabause-wasm.data",
+  mame2003:   "cores/mame2003_plus-wasm.data",
+  atari7800:  "cores/prosystem-wasm.data",
+  lynx:       "cores/handy-wasm.data",
+  ngp:        "cores/mednafen_ngp-wasm.data",
+  atari2600:  "cores/stella2014-wasm.data",
 };
 
 // ── State machine ─────────────────────────────────────────────────────────────
@@ -746,7 +737,7 @@ export class PSPEmulator {
    * When enabled, the emulator monitors FPS and fires `onDRSChange` when the
    * resolution should be stepped down (low FPS) or up (recovered FPS).
    * DRS only has effect for systems that have a resolution ladder (PSP, N64,
-   * PS1, Saturn, Dreamcast). For other systems this is a no-op.
+   * PS1). For other systems this is a no-op.
    */
   enableDRS(enabled: boolean): void {
     this._drsEnabled = enabled;
@@ -840,55 +831,28 @@ export class PSPEmulator {
   }
 
   /**
-   * Prefetch the WASM core for a specific system so it's in the browser
-   * cache before the user launches a game. This eliminates the largest
-   * download delay (10–30 MB WASM files for PSP/N64/PS1).
+   * Prefetch the EmulatorJS core blob for a specific system so it's in the
+   * browser cache before launch. Cores ship as compressed `*-wasm.data`
+   * archives on the CDN (not raw `.wasm` URLs).
    *
-   * Prefetches both the JS glue module and the .wasm binary, and additionally
-   * attempts WebAssembly streaming compilation of the .wasm so the browser
-   * can compile it ahead-of-time while it downloads — further cutting startup
-   * latency when the user eventually launches a game.
-   *
-   * Call this when the user's library contains games for a given system,
-   * or when hovering over a game card for that system.
+   * Call when the library contains games for that system or on card hover.
    */
   prefetchCore(systemId: string): void {
     if (this._prefetchedCores.has(systemId)) return;
-    const corePaths = CORE_PREFETCH_MAP[systemId];
-    if (!corePaths) return;
+    const relPath = CORE_PREFETCH_MAP[systemId];
+    if (!relPath) return;
 
     this._prefetchedCores.add(systemId);
 
-    const jsUrl   = `${EJS_CDN_BASE}${corePaths.js}`;
-    const wasmUrl = `${EJS_CDN_BASE}${corePaths.wasm}`;
+    const blobUrl = `${EJS_CDN_BASE}${relPath}`;
 
-    // Prefetch the JS glue
-    if (!document.querySelector(`link[href="${jsUrl}"]`)) {
-      const jsLink = document.createElement("link");
-      jsLink.rel = "prefetch";
-      jsLink.href = jsUrl;
-      jsLink.as = "script";
-      jsLink.crossOrigin = "anonymous";
-      document.head.appendChild(jsLink);
-    }
-
-    // Prefetch the WASM binary
-    if (!document.querySelector(`link[href="${wasmUrl}"]`)) {
-      const wasmLink = document.createElement("link");
-      wasmLink.rel = "prefetch";
-      wasmLink.href = wasmUrl;
-      wasmLink.as = "fetch";
-      wasmLink.crossOrigin = "anonymous";
-      document.head.appendChild(wasmLink);
-    }
-
-    // Attempt streaming WASM compilation: fetch + compile in parallel so the
-    // compiled module is ready before the JS glue code requests it.
-    // This is best-effort — failures are silently ignored.
-    if (typeof WebAssembly?.compileStreaming === "function") {
-      fetch(wasmUrl, { mode: "cors", credentials: "omit" })
-        .then(res => WebAssembly.compileStreaming(res))
-        .catch(() => { /* streaming compile failed — loader will compile at runtime */ });
+    if (!document.querySelector(`link[href="${blobUrl}"]`)) {
+      const link = document.createElement("link");
+      link.rel = "prefetch";
+      link.href = blobUrl;
+      link.setAttribute("as", "fetch");
+      link.crossOrigin = "anonymous";
+      document.head.appendChild(link);
     }
   }
 
@@ -1574,6 +1538,18 @@ export class PSPEmulator {
 
     if (!this._validateFileExt(fileName, system, opts.skipExtensionCheck)) return;
 
+    // Dreamcast is listed for ROM types / BIOS UX but EmulatorJS stable CDN does
+    // not ship a Flycast (or equivalent) core blob — launching would fail inside
+    // the loader with an opaque download error.
+    if (opts.systemId === "segaDC") {
+      this._emitError(
+        "Dreamcast emulation is not available in this build: the EmulatorJS stable CDN " +
+        "does not include a Dreamcast core. Remove Dreamcast titles from the library or " +
+        "watch the roadmap for upstream core support."
+      );
+      return;
+    }
+
     // ── Large ROM warning ───────────────────────────────────────────────────
     if (opts.file.size > LARGE_ROM_THRESHOLD) {
       console.warn(
@@ -1704,8 +1680,8 @@ export class PSPEmulator {
       // Bluetooth/USB audio devices (high base latency) and allows the
       // minimum buffer on DACs with very low output latency.
       //
-      // Applies to all 3D and audio-sensitive cores: PSP, N64, PS1, GBA,
-      // NDS, and Dreamcast — each exposes audio buffer or timing knobs that
+      // Applies to 3D and audio-sensitive cores: PSP, N64, PS1, GBA, and NDS —
+      // each exposes audio buffer or timing knobs that
       // benefit from hardware-aware tuning.
       const audioCaps = await audioCapabilitiesPromise;
       if (audioCaps && opts.systemId === "psp" && "ppsspp_audio_latency" in ejsSettings) {
@@ -1802,27 +1778,6 @@ export class PSPEmulator {
             console.info(
               `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
               `— disabling NDS advanced_timing to prevent audio desync.`
-            );
-          }
-        }
-      }
-
-      // Dreamcast audio adaptation: on high-latency hardware, disable DSP
-      // emulation (flycast_enable_dsp) to reduce CPU load and prevent audio
-      // underruns.  The Dreamcast DSP emulates the AICA sound chip's programmable
-      // DSP unit for reverb/chorus effects; disabling it falls back to simpler
-      // mixing that is significantly cheaper on the main thread.
-      if (audioCaps && opts.systemId === "segaDC" && audioCaps.suggestedBufferTier === "high") {
-        if (ejsSettings["flycast_enable_dsp"] === "enabled") {
-          ejsSettings["flycast_enable_dsp"] = "disabled";
-          this.logDiagnostic(
-            "audio",
-            `Dreamcast DSP disabled for high-latency audio hardware (${audioCaps.baseLatencyMs?.toFixed(1)} ms)`
-          );
-          if (this.verboseLogging) {
-            console.info(
-              `[RetroVault] Audio: high HW latency (${audioCaps.baseLatencyMs?.toFixed(1)} ms) ` +
-              `— disabling Dreamcast DSP to reduce CPU load and prevent audio underruns.`
             );
           }
         }

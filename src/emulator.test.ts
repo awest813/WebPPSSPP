@@ -292,19 +292,16 @@ describe('PSPEmulator', () => {
   });
 
   describe('prefetchCore', () => {
-    it('prefetches mGBA assets for gba system id', () => {
-      const jsUrl = `${EJS_CDN_BASE}cores/mgba_libretro.js`;
-      const wasmUrl = `${EJS_CDN_BASE}cores/mgba_libretro.wasm`;
+    it('prefetches the mGBA core blob for gba system id', () => {
+      const blobUrl = `${EJS_CDN_BASE}cores/mgba-wasm.data`;
 
       emulator.prefetchCore('gba');
 
-      const jsLink = document.head.querySelector(`link[href="${jsUrl}"]`);
-      const wasmLink = document.head.querySelector(`link[href="${wasmUrl}"]`);
+      const link = document.head.querySelector(`link[href="${blobUrl}"]`);
 
-      expect(jsLink).not.toBeNull();
-      expect(jsLink?.getAttribute('rel')).toBe('prefetch');
-      expect(wasmLink).not.toBeNull();
-      expect(wasmLink?.getAttribute('rel')).toBe('prefetch');
+      expect(link).not.toBeNull();
+      expect(link?.getAttribute('rel')).toBe('prefetch');
+      expect(link?.getAttribute('as')).toBe('fetch');
     });
   });
 
@@ -361,6 +358,58 @@ describe('PSPEmulator', () => {
 
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0]).toContain('Unknown system');
+    });
+
+    it('emits error when launching Dreamcast (no stable EmulatorJS core on CDN)', async () => {
+      const errors: string[] = [];
+      emulator.onError = (msg) => errors.push(msg);
+
+      const fakeFile = new File(['data'], 'game.gdi');
+      const fakeCaps = {
+        deviceMemoryGB: 4,
+        cpuCores: 4,
+        gpuRenderer: 'unknown',
+        isSoftwareGPU: false,
+        isLowSpec: false,
+        isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false, safariVersion: null,
+        recommendedMode: 'quality' as const,
+        tier: 'medium' as const,
+        gpuCaps: {
+          renderer: 'unknown',
+          vendor: 'unknown',
+          maxTextureSize: 2048,
+          maxVertexAttribs: 16,
+          maxVaryingVectors: 8,
+          maxRenderbufferSize: 2048,
+          anisotropicFiltering: false,
+          maxAnisotropy: 0,
+          floatTextures: false,
+          halfFloatTextures: false,
+          instancedArrays: false,
+          webgl2: false,
+          vertexArrayObject: false,
+          compressedTextures: false,
+          etc2Textures: false, astcTextures: false,
+          maxColorAttachments: 1,
+          multiDraw: false,
+        },
+        gpuBenchmarkScore: 30,
+        prefersReducedMotion: false,
+        webgpuAvailable: false,
+        connectionQuality: 'unknown' as const,
+        jsHeapLimitMB: null, estimatedVRAMMB: 768,
+      };
+
+      await emulator.launch({
+        file:            fakeFile,
+        volume:          0.7,
+        systemId:        'segaDC',
+        performanceMode: 'auto',
+        deviceCaps:      fakeCaps,
+      });
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('Dreamcast');
     });
 
     it('rejects launch while already loading', async () => {
