@@ -55,14 +55,6 @@ const RESOLUTION_LADDERS: Record<string, { key: string; values: string[] }> = {
     key: "beetle_psx_internal_resolution",
     values: ["1x(native)", "2x", "4x"],
   },
-  segaSaturn: {
-    key: "beetle_saturn_resolution",
-    values: ["1x(native)", "2x", "4x", "8x"],
-  },
-  segaDC: {
-    key: "flycast_internal_resolution",
-    values: ["640x480", "1280x960", "1920x1440", "2560x1920"],
-  },
 };
 
 /**
