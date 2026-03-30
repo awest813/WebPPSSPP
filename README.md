@@ -3,7 +3,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Vite](https://img.shields.io/badge/built%20with-Vite-646CFF.svg)
 ![TypeScript](https://img.shields.io/badge/language-TypeScript-3178C6.svg)
-![Tests](https://img.shields.io/badge/tests-1050%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-1775%20passing-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-18%2B-339933.svg)
 
 RetroVault is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/) stable (`cdn.emulatorjs.org/stable`). Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
@@ -192,7 +192,7 @@ Deploy the contents of `dist/` to any static host. See [`guide.md`](guide.md) fo
 npm test
 ```
 
-Runs the full Vitest suite (1050+ unit tests across all modules).
+Runs the full Vitest suite (1700+ unit tests across all modules).
 
 ### Manual / user testing
 
@@ -271,15 +271,16 @@ Open a GitHub issue with the output of "Copy Debug Info" from the Settings → D
 
 ## Roadmap
 
-The project follows a phased roadmap. Current focus areas (Phases 8–10):
+RetroVault tracks work in [`docs/ROADMAP.md`](docs/ROADMAP.md). Phases 1–9 are **complete** in the shipped app (emulation stack, WebGPU post-processing, DRS / FSR / TAA, per-game graphics, thermal and startup profiling, WASM and shader caching, netplay, PWA, and more). **Upcoming themes** are grouped there under *Future releases*:
 
-- FSR / TAA upscaling shaders and dynamic resolution scaling
-- Intelligent performance optimization (thermal-aware throttling, startup profiler)
-- Accessibility improvements (screen reader, high contrast, reduced motion)
-- Community features (game ratings, share configurations, compatibility reports)
-- Platform expansion (Electron wrapper, full Gamepad API, cloud save backends)
+- **Graphics & assets** — texture replacement packs, optional texture prefetch, compressed texture paths on capable GPUs
+- **Accessibility** — screen reader support, high-contrast and reduced-motion modes, colourblind-safe badges
+- **Community & saves** — ratings/notes, shareable configuration JSON, optional compatibility telemetry, more cloud save providers
+- **Platform** — Electron desktop wrapper, Android Trusted Web Activity, deeper Gamepad API (calibration, rumble, remapping)
+- **Developer experience** — plugin surface, in-game debug overlay, Playwright regression runs in CI
+- **Research / upstream** — Dreamcast launch when a stable CDN core exists, rollback netcode, WebGPU-native paths inside upstream cores
 
-Full detail: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+Performance targets and contribution expectations for roadmap-sized work stay in the same doc.
 
 ## Contributing
 

@@ -1,29 +1,74 @@
 # RetroVault Roadmap
 
-This document tracks planned improvements, experiments under investigation, and longer-term vision items.
-Entries move from *Planned* → *In Progress* → *Done* as work happens.
-
-Items within each phase are roughly ordered by expected impact.
+This document describes **what is shipped**, **what we are building next**, and **longer-term directions**. Historical phase notes stay below for contributors who need a detailed changelog-style record.
 
 ---
 
-## Project Status
+## Future releases
+
+Work is grouped by theme, not by fixed calendar versions. Items move here from investigation → implementation as priorities settle.
+
+### Next focus (near term)
+
+High-impact follow-ups that build on the current WebGPU stack, performance tooling, and library UX.
+
+| Theme | Planned work |
+|--------|----------------|
+| **Graphics & assets** | Texture replacement packs (hash-matched ZIP; PSP / N64-oriented formats); optional texture prefetch after a short gameplay profile; compressed texture paths (ETC2 / ASTC) where the device supports them |
+| **Audio** | Spatial / binaural audio as an optional AudioWorklet path, exposed in Settings |
+| **Accessibility** | Screen reader semantics (ARIA, live regions) and full keyboard paths for library, settings, and in-emulator chrome; high-contrast theme for `prefers-contrast: more`; colourblind-safe system badges; reduced-motion compliance across overlays and transitions |
+| **Quality & boot** | Continue chipping away at [performance targets](#performance-targets) (first paint, cold boot, bundle size, IDB warm-open) |
+
+### Platform & ecosystem (mid term)
+
+Broader distribution, community workflows, and save/sync options.
+
+| Theme | Planned work |
+|--------|----------------|
+| **Community** | Per-game ratings and notes; export/import of tier + graphics + control presets as JSON; optional anonymous compatibility telemetry to grow the built-in compatibility database |
+| **Cloud saves** | Additional `CloudSaveProvider` implementations (e.g. Google Drive, Dropbox) with conflict handling and optional client-side encryption |
+| **Packaging** | Electron wrapper (native FS, simpler cross-origin isolation story); Android Trusted Web Activity for installable distribution |
+| **Input** | Gamepad API depth: calibration, dual-rumble, per-game remapping with a proper mapping UI |
+
+### Developer experience
+
+| Theme | Planned work |
+|--------|----------------|
+| **Extensibility** | Stable plugin surface (ES modules) for shaders, themes, and system-specific UI |
+| **Debugging** | In-game debug overlay (core options, FPS, audio buffer, timeline) with safe runtime tweaks where supported |
+| **CI** | Headless Playwright smoke runs on representative ROMs (FPS thresholds) in automation |
+
+### Research & upstream-dependent
+
+These depend on EmulatorJS / libretro / browser evolution or substantial netcode work.
+
+| Item | Notes |
+|------|--------|
+| **Dreamcast in-app launch** | Re-enable when a stable CDN core (e.g. Flycast) is available; library and BIOS flows already exist |
+| **Rollback netplay** | Frame delay + rollback for lossy links — large scope |
+| **WebGPU-native 3D cores** | Replacing WebGL paths inside upstream cores (e.g. PPSSPP / mupen64plus-Next) — not owned by this repo alone |
+
+---
+
+## Project status (phases)
 
 | Phase | Title | Status |
 |-------|-------|--------|
-| 1 | Foundation | ✅ Complete |
-| 2 | 3D Rendering & Audio Quality | ✅ Complete |
-| 3 | Platform & Compatibility | ✅ Complete |
-| 4 | Save & State Management | ✅ Complete |
-| 5 | Mobile & PWA | ✅ Complete |
-| 5.1 | Polish & Performance | ✅ Complete |
-| 5.2 | Core Correctness & Keyboard Controls | ✅ Complete |
-| 6 | Multiplayer & Social | ✅ Complete |
-| 7 | WebGPU Native Path | ✅ Complete |
-| 7.1 | 3D Emulator Overhaul | ✅ Complete |
-| 8 | Advanced 3D Rendering & Quality | 🔄 In Progress |
-| 9 | Intelligent Performance Optimization | 🔄 In Progress |
-| 10 | Community, Accessibility & Ecosystem | 📋 Planned |
+| 1 | Foundation | Complete |
+| 2 | 3D Rendering & Audio Quality | Complete |
+| 3 | Platform & Compatibility | Complete |
+| 4 | Save & State Management | Complete |
+| 5 | Mobile & PWA | Complete |
+| 5.1 | Polish & Performance | Complete |
+| 5.2 | Core Correctness & Keyboard Controls | Complete |
+| 6 | Multiplayer & Social | Complete |
+| 7 | WebGPU Native Path | Complete |
+| 7.1 | 3D Emulator Overhaul | Complete |
+| 8 | Advanced 3D Rendering & Quality | Complete (asset/audio items → [Future releases](#future-releases)) |
+| 9 | Intelligent Performance Optimization | Complete |
+| 10 | Community, Accessibility & Ecosystem | Planned (see [Future releases](#future-releases)) |
+
+Open checkboxes inside older phase sections below are **intentionally** left unchecked until the work ships; the table above is the source of truth for phase completion.
 
 ---
 
@@ -216,18 +261,9 @@ Comprehensive overhaul of all 3D system emulators with improved tier tuning, GPU
 
 ---
 
-## Phase 8 — Advanced 3D Rendering & Quality (Next)
+## Phase 8 — Advanced 3D Rendering & Quality (Complete)
 
-Next-generation rendering improvements for the primary 3D systems.
-Phase 8 is the immediate successor to Phase 6 and builds directly on the
-WebGPU rendering pipeline completed in Phase 7/7.1.
-
-**Recommended start order:**
-1. Dynamic resolution scaling (DRS) — highest impact for low-end devices
-2. FSR 1.0 upscaling — quality improvement on all tiers
-3. Per-game graphics profiles — enables granular user control
-4. Texture replacement packs — community content
-5. TAA / audio filters — optional polish
+Major rendering features for 3D systems: upscaling, temporal stability, resolution strategy, per-game graphics, and optional audio filtering. **Remaining** texture pipeline and spatial-audio work is listed under [Future releases](#future-releases).
 
 ### Rendering Pipeline
 
@@ -250,9 +286,9 @@ WebGPU rendering pipeline completed in Phase 7/7.1.
 
 ---
 
-## Phase 9 — Intelligent Performance Optimization (In Progress)
+## Phase 9 — Intelligent Performance Optimization (Complete)
 
-Data-driven and heuristic approaches to automatically tune emulator settings.
+Data-driven and heuristic tuning: compatibility hints, thermal and memory signals, startup profiling, FPS prediction, and aggressive caching of cores, shaders, and WASM modules.
 
 ### Adaptive Tuning
 
@@ -274,7 +310,7 @@ Data-driven and heuristic approaches to automatically tune emulator settings.
 
 ## Phase 10 — Community, Accessibility & Ecosystem (Planned)
 
-Features that grow the user base and make RetroVault accessible to everyone.
+The concrete backlog for this phase is now captured in [Future releases](#future-releases). The checklist below is unchanged for traceability.
 
 ### Accessibility
 
