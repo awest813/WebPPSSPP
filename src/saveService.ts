@@ -133,7 +133,12 @@ export class SaveGameService {
         const ready = await this.waitForEmulatorReady(context, slot);
         if (!ready) return null;
 
-        this.emulator.quickSave(slot);
+        try {
+          this.emulator.quickSave(slot);
+        } catch {
+          this.emit({ status: "idle", gameId: context.gameId, slot });
+          return null;
+        }
         const stateBytes = this.emulator.readStateData(slot);
         const stateData = stateBytesToBlob(stateBytes);
         const screenshot = this.emulator.captureScreenshotAsync
