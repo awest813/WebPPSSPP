@@ -1019,7 +1019,7 @@ describe("buildMultiplayerTab", () => {
 
   it("enabling netplay shows the server section and calls onSettingsChange", () => {
     openMultiplayerTab();
-    // The Enable Netplay toggle is the first checkbox in the Multiplayer tab panel
+    // The Online play toggle is the first checkbox in the Multiplayer tab panel
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const checkbox = panel.querySelector<HTMLInputElement>("input[type=checkbox]")!;
     expect(checkbox).toBeTruthy();
@@ -1059,6 +1059,25 @@ describe("buildMultiplayerTab", () => {
 
     expect(onSettingsChange).toHaveBeenCalledWith({ netplayServerUrl: "wss://netplay.example.com" });
     expect(setServerUrl).toHaveBeenCalledWith("wss://netplay.example.com");
+  });
+
+  it("pasting a valid server URL turns on Online play when it was off", () => {
+    settings = makeSettings({ netplayEnabled: false, netplayServerUrl: "" });
+    openMultiplayerTab();
+
+    const setEnabled = vi.spyOn(mgr, "setEnabled");
+    const urlInput = document.getElementById("netplay-server-url") as HTMLInputElement;
+    urlInput.value = "wss://netplay.example.com";
+    urlInput.dispatchEvent(new Event("change"));
+
+    expect(setEnabled).toHaveBeenCalledWith(true);
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      netplayServerUrl: "wss://netplay.example.com",
+      netplayEnabled: true,
+    });
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    const checkbox = panel.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    expect(checkbox.checked).toBe(true);
   });
 
   it("invalid server URL (http://) does not call onSettingsChange", () => {
@@ -2533,11 +2552,11 @@ describe("buildMultiplayerTab — supported systems section", () => {
     expect(gameSection!.textContent).toContain("does not currently support netplay");
   });
 
-  it("intro section now uses updated title 'Online Multiplayer'", () => {
+  it("intro section uses the Online play heading", () => {
     openMultiplayerTabWith();
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const heading = panel.querySelector<HTMLElement>("h4");
-    expect(heading!.textContent).toContain("Online Multiplayer");
+    expect(heading!.textContent).toContain("Online play");
   });
 });
 
@@ -3474,7 +3493,7 @@ describe("openEasyNetplayModal", () => {
     // At least the Browse panel warning should be present
     expect(warnings.length).toBeGreaterThanOrEqual(1);
     const text = Array.from(warnings).map(w => w.textContent ?? "").join(" ");
-    expect(text).toMatch(/No server/i);
+    expect(text).toMatch(/server URL/i);
   });
 
   it("does NOT show the no-server warning when a server URL is provided", () => {
@@ -3521,7 +3540,7 @@ describe("openEasyNetplayModal", () => {
     expect(codeInput.value).toBe("AB12CD");
   });
 
-  it("join tab Join button is disabled until a code of at least 4 chars is entered", () => {
+  it("join tab Join button is disabled until the full 6-character invite code is entered", () => {
     openEasyNetplayModal({});
     const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
     const joinTab = Array.from(tabs).find(t => t.textContent?.includes("Join"))!;
@@ -3533,6 +3552,10 @@ describe("openEasyNetplayModal", () => {
     expect(joinBtn.disabled).toBe(true);
 
     codeInput.value = "AB12";
+    codeInput.dispatchEvent(new Event("input"));
+    expect(joinBtn.disabled).toBe(true);
+
+    codeInput.value = "AB12CD";
     codeInput.dispatchEvent(new Event("input"));
     expect(joinBtn.disabled).toBe(false);
   });
