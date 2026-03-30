@@ -277,7 +277,7 @@ describe('systems performance profiles', () => {
 
   // ── PSX tier settings ───────────────────────────────────────────────────
 
-  describe('PS1 (Beetle PSX) tier settings', () => {
+  describe('PS1 (Beetle PSX HW) tier settings', () => {
     it('provides tier settings for PSX', () => {
       const psx = getSystemById('psx');
       expect(psx?.tierSettings).toBeDefined();
@@ -287,43 +287,42 @@ describe('systems performance profiles', () => {
 
     it('uses native resolution on low and medium tiers', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.low?.beetle_psx_internal_resolution).toBe('1x(native)');
-      expect(psx?.tierSettings?.medium?.beetle_psx_internal_resolution).toBe('1x(native)');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
     });
 
     it('uses higher resolution on high and ultra tiers', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.high?.beetle_psx_internal_resolution).toBe('2x');
-      // Ultra tier uses 4× as the sweet spot — 8× is overkill for typical display sizes
-      expect(psx?.tierSettings?.ultra?.beetle_psx_internal_resolution).toBe('4x');
+      expect(psx?.tierSettings?.high?.beetle_psx_hw_internal_resolution).toBe('2x');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_internal_resolution).toBe('4x');
     });
 
     it('enables frame duping on low and medium tiers to save GPU cycles', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.low?.beetle_psx_frame_duping_enable).toBe('enabled');
-      expect(psx?.tierSettings?.medium?.beetle_psx_frame_duping_enable).toBe('enabled');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_frame_duping).toBe('enabled');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_frame_duping).toBe('enabled');
     });
 
     it('uses nearest filtering on low tier, bilinear on high/ultra', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.low?.beetle_psx_filter).toBe('nearest');
-      expect(psx?.tierSettings?.high?.beetle_psx_filter).toBe('bilinear');
-      expect(psx?.tierSettings?.ultra?.beetle_psx_filter).toBe('bilinear');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_filter).toBe('nearest');
+      expect(psx?.tierSettings?.high?.beetle_psx_hw_filter).toBe('bilinear');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_filter).toBe('bilinear');
     });
 
     it('getPSXSettingsForTier returns a copy of the correct tier settings', () => {
       const lowSettings = getPSXSettingsForTier('low');
-      expect(lowSettings.beetle_psx_internal_resolution).toBe('1x(native)');
-      expect(lowSettings.beetle_psx_frame_duping_enable).toBe('enabled');
+      expect(lowSettings.beetle_psx_hw_internal_resolution).toBe('1x(native)');
+      expect(lowSettings.beetle_psx_hw_frame_duping).toBe('enabled');
 
       const ultraSettings = getPSXSettingsForTier('ultra');
-      expect(ultraSettings.beetle_psx_internal_resolution).toBe('4x');
+      expect(ultraSettings.beetle_psx_hw_internal_resolution).toBe('4x');
     });
 
     it('forces Beetle PSX HW core (mednafen_psx_hw) in all tiers', () => {
       // EmulatorJS defaults to pcsx_rearmed when EJS_core="psx". The
       // retroarch_core setting overrides this to use Beetle PSX HW so that
-      // all beetle_psx_* options actually take effect.
+      // beetle_psx_hw_* options match the loaded core.
       const psx = getSystemById('psx');
       expect(psx?.tierSettings?.low?.retroarch_core).toBe('mednafen_psx_hw');
       expect(psx?.tierSettings?.medium?.retroarch_core).toBe('mednafen_psx_hw');
@@ -339,24 +338,34 @@ describe('systems performance profiles', () => {
       }
     });
 
+    it('uses valid Lightrec dynarec enum values (not "enabled")', () => {
+      const psx = getSystemById('psx');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_cpu_dynarec).toBe('disabled');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_cpu_dynarec).toBe('execute');
+      expect(psx?.tierSettings?.high?.beetle_psx_hw_cpu_dynarec).toBe('execute');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_cpu_dynarec).toBe('execute');
+    });
+
+    it('uses upstream PGXP mode strings', () => {
+      const psx = getSystemById('psx');
+      expect(psx?.tierSettings?.high?.beetle_psx_hw_pgxp_mode).toBe('memory only');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_pgxp_mode).toBe('memory + CPU');
+    });
+
     it('enables GTE overclock on high and ultra tiers only', () => {
       const psx = getSystemById('psx');
-      // Low and medium: GTE overclock disabled to conserve CPU on weaker devices
-      expect(psx?.tierSettings?.low?.beetle_psx_gte_overclock).toBe('disabled');
-      expect(psx?.tierSettings?.medium?.beetle_psx_gte_overclock).toBe('disabled');
-      // High and ultra: GTE overclock enabled — reduces polygon dropout at ≥2× resolution
-      expect(psx?.tierSettings?.high?.beetle_psx_gte_overclock).toBe('enabled');
-      expect(psx?.tierSettings?.ultra?.beetle_psx_gte_overclock).toBe('enabled');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_gte_overclock).toBe('disabled');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_gte_overclock).toBe('disabled');
+      expect(psx?.tierSettings?.high?.beetle_psx_hw_gte_overclock).toBe('enabled');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_gte_overclock).toBe('enabled');
     });
 
     it('enables analog calibration from medium tier upward', () => {
       const psx = getSystemById('psx');
-      // Low: disabled — saves a tiny bit of processing on low-spec devices
-      expect(psx?.tierSettings?.low?.beetle_psx_analog_calibration).toBe('disabled');
-      // Medium and above: enabled — corrects analog stick drift at negligible cost
-      expect(psx?.tierSettings?.medium?.beetle_psx_analog_calibration).toBe('enabled');
-      expect(psx?.tierSettings?.high?.beetle_psx_analog_calibration).toBe('enabled');
-      expect(psx?.tierSettings?.ultra?.beetle_psx_analog_calibration).toBe('enabled');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_analog_calibration).toBe('disabled');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_analog_calibration).toBe('enabled');
+      expect(psx?.tierSettings?.high?.beetle_psx_hw_analog_calibration).toBe('enabled');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_analog_calibration).toBe('enabled');
     });
   });
 

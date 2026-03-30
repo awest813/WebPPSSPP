@@ -52,8 +52,9 @@ const RESOLUTION_LADDERS: Record<string, { key: string; values: string[] }> = {
     values: ["1", "2", "4"],
   },
   psx: {
-    key: "beetle_psx_internal_resolution",
-    values: ["1x(native)", "2x", "4x"],
+    key: "beetle_psx_hw_internal_resolution",
+    // Matches Beetle PSX HW libretro steps (preset "4×" maps to index 2 = 4x).
+    values: ["1x(native)", "2x", "4x", "8x", "16x"],
   },
 };
 

@@ -507,119 +507,122 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
-// ── PS1 (Beetle PSX) tier-specific core options ───────────────────────────────
+// ── PS1 (Beetle PSX HW) tier-specific core options ────────────────────────────
+//
+// EmulatorJS loads mednafen_psx_hw with HAVE_HW, so libretro option keys use the
+// beetle_psx_hw_* prefix (see beetle-psx-libretro libretro_options.h).
 
 /**
- * Beetle PSX / mednafen-psx-hw RetroArch core options per tier.
+ * Beetle PSX HW / mednafen_psx_hw RetroArch core options per tier.
  *
  * Key options:
- *   beetle_psx_internal_resolution — Rendering resolution multiplier
- *   beetle_psx_frame_duping_enable — Repeat last frame when nothing changed (saves GPU)
- *   beetle_psx_filter              — Texture filter (nearest = fastest)
- *   beetle_psx_dither_mode         — Ordered dither to hide colour banding
- *   beetle_psx_cd_access_method    — CD-ROM emulation speed (sync = safest)
- *   beetle_psx_gte_overclock       — Overclock the Geometry Transformation Engine; reduces
- *                                    polygon dropout / lag in heavily-triangulated scenes
- *   beetle_psx_analog_calibration  — Correct analog stick drift via per-axis calibration
+ *   beetle_psx_hw_internal_resolution — GPU resolution multiplier (1x–16x)
+ *   beetle_psx_hw_frame_duping          — Repeat last frame when unchanged (saves GPU)
+ *   beetle_psx_hw_filter                  — Texture filter (nearest = fastest)
+ *   beetle_psx_hw_dither_mode           — Dither pattern (match native / internal / off)
+ *   beetle_psx_hw_cd_access_method      — Disc read model (sync = safest; async can hitch less)
+ *   beetle_psx_hw_gte_overclock         — One-cycle GTE latency (big win for 3D-heavy games)
+ *   beetle_psx_hw_analog_calibration    — DualShock analog range calibration
+ *   beetle_psx_hw_cpu_dynarec           — Lightrec dynarec: disabled | execute | …
  */
 const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
-    // Force Beetle PSX HW (mednafen_psx_hw) over the EmulatorJS default of
-    // pcsx_rearmed. All beetle_psx_* options below require this core.
+    // Force Beetle PSX HW over EmulatorJS default pcsx_rearmed so these options apply.
     retroarch_core: "mednafen_psx_hw",
-    beetle_psx_internal_resolution: "1x(native)",
-    beetle_psx_frame_duping_enable: "enabled",
-    beetle_psx_filter: "nearest",
-    beetle_psx_dither_mode: "internal",
-    beetle_psx_cd_access_method: "sync",
-    // Interpreter is slower but avoids dynarec bugs on low-spec hardware
-    beetle_psx_cpu_dynarec: "disabled",
-    beetle_psx_dynarec_invalidate: "full",
-    beetle_psx_pgxp_mode: "disabled",
-    beetle_psx_pgxp_texture: "disabled",
-    beetle_psx_pgxp_vertex: "disabled",
-    beetle_psx_analog_calibration: "disabled",
-    beetle_psx_widescreen_hack: "disabled",
-    beetle_psx_skip_deinterlacing: "enabled",
-    beetle_psx_gpu_overclock: "1x(native)",
-    beetle_psx_cd_fastload: "2x(native)",
-    // GTE overclock disabled on low — avoid the extra CPU overhead on slow devices
-    beetle_psx_gte_overclock: "disabled",
+    beetle_psx_hw_renderer: "hardware",
+    beetle_psx_hw_internal_resolution: "1x(native)",
+    beetle_psx_hw_frame_duping: "enabled",
+    beetle_psx_hw_filter: "nearest",
+    beetle_psx_hw_dither_mode: "1x(native)",
+    beetle_psx_hw_depth: "16bpp(native)",
+    beetle_psx_hw_cd_access_method: "sync",
+    beetle_psx_hw_cpu_dynarec: "disabled",
+    beetle_psx_hw_dynarec_invalidate: "full",
+    beetle_psx_hw_pgxp_mode: "disabled",
+    beetle_psx_hw_pgxp_texture: "disabled",
+    beetle_psx_hw_pgxp_vertex: "disabled",
+    beetle_psx_hw_analog_calibration: "disabled",
+    beetle_psx_hw_widescreen_hack: "disabled",
+    beetle_psx_hw_renderer_software_fb: "enabled",
+    beetle_psx_hw_gpu_overclock: "1x(native)",
+    beetle_psx_hw_cd_fastload: "2x(native)",
+    beetle_psx_hw_gte_overclock: "disabled",
+    beetle_psx_hw_mdec_yuv: "disabled",
   },
   medium: {
     retroarch_core: "mednafen_psx_hw",
-    beetle_psx_internal_resolution: "1x(native)",
-    beetle_psx_frame_duping_enable: "enabled",
-    beetle_psx_filter: "nearest",
-    // 1x(native) dithering for better accuracy than internal dithering
-    beetle_psx_dither_mode: "1x(native)",
-    beetle_psx_cd_access_method: "async",
-    beetle_psx_cpu_dynarec: "enabled",
-    beetle_psx_dynarec_invalidate: "full",
-    beetle_psx_pgxp_mode: "disabled",
-    beetle_psx_pgxp_texture: "disabled",
-    beetle_psx_pgxp_vertex: "disabled",
-    // Analog calibration corrects stick drift at negligible cost — enable from medium up
-    beetle_psx_analog_calibration: "enabled",
-    beetle_psx_widescreen_hack: "disabled",
-    beetle_psx_skip_deinterlacing: "enabled",
-    beetle_psx_gpu_overclock: "1x(native)",
-    // Medium hardware can handle faster CD access
-    beetle_psx_cd_fastload: "6x",
-    // GTE overclock disabled on medium — dynarec is fast enough without it
-    beetle_psx_gte_overclock: "disabled",
+    beetle_psx_hw_renderer: "hardware",
+    beetle_psx_hw_internal_resolution: "1x(native)",
+    beetle_psx_hw_frame_duping: "enabled",
+    beetle_psx_hw_filter: "nearest",
+    beetle_psx_hw_dither_mode: "1x(native)",
+    beetle_psx_hw_depth: "16bpp(native)",
+    beetle_psx_hw_cd_access_method: "async",
+    // "execute" = max-performance dynarec (upstream value; not "enabled")
+    beetle_psx_hw_cpu_dynarec: "execute",
+    beetle_psx_hw_dynarec_invalidate: "full",
+    beetle_psx_hw_pgxp_mode: "disabled",
+    beetle_psx_hw_pgxp_texture: "disabled",
+    beetle_psx_hw_pgxp_vertex: "disabled",
+    beetle_psx_hw_analog_calibration: "enabled",
+    beetle_psx_hw_widescreen_hack: "disabled",
+    beetle_psx_hw_renderer_software_fb: "enabled",
+    beetle_psx_hw_gpu_overclock: "1x(native)",
+    beetle_psx_hw_cd_fastload: "6x",
+    beetle_psx_hw_gte_overclock: "disabled",
+    beetle_psx_hw_mdec_yuv: "enabled",
   },
   high: {
     retroarch_core: "mednafen_psx_hw",
-    beetle_psx_internal_resolution: "2x",
-    beetle_psx_frame_duping_enable: "disabled",
-    // Bilinear filtering smooths textures at higher internal resolutions
-    beetle_psx_filter: "bilinear",
-    beetle_psx_dither_mode: "internal",
-    beetle_psx_cd_access_method: "async",
-    beetle_psx_cpu_dynarec: "enabled",
-    beetle_psx_dynarec_invalidate: "full",
-    // PGXP memory mode: fixes the wobbly polygon effect on PS1 3D geometry
-    beetle_psx_pgxp_mode: "memory",
-    beetle_psx_pgxp_texture: "enabled",
-    beetle_psx_pgxp_vertex: "enabled",
-    beetle_psx_analog_calibration: "enabled",
-    beetle_psx_widescreen_hack: "disabled",
-    beetle_psx_skip_deinterlacing: "disabled",
-    // 4x GPU overclock gives the PS1's GPU more headroom for high-res rendering
-    beetle_psx_gpu_overclock: "4x",
-    beetle_psx_cd_fastload: "6x",
-    // GTE overclock: reduces geometry transformation lag at 2× internal resolution
-    beetle_psx_gte_overclock: "enabled",
-    // Adaptive smoothing for smoother 3D rendering at higher resolutions
-    beetle_psx_adaptive_smoothing: "enabled",
-    beetle_psx_super_sampling: "disabled",
+    beetle_psx_hw_renderer: "hardware",
+    beetle_psx_hw_internal_resolution: "2x",
+    beetle_psx_hw_frame_duping: "disabled",
+    beetle_psx_hw_filter: "bilinear",
+    beetle_psx_hw_dither_mode: "internal resolution",
+    beetle_psx_hw_depth: "32bpp",
+    beetle_psx_hw_cd_access_method: "async",
+    beetle_psx_hw_cpu_dynarec: "execute",
+    beetle_psx_hw_dynarec_invalidate: "full",
+    // Upstream labels: "memory only" / "memory + CPU (Buggy)"
+    beetle_psx_hw_pgxp_mode: "memory only",
+    beetle_psx_hw_pgxp_texture: "enabled",
+    // Core docs recommend leaving vertex cache off — fewer false-positive glitches
+    beetle_psx_hw_pgxp_vertex: "disabled",
+    beetle_psx_hw_analog_calibration: "enabled",
+    beetle_psx_hw_widescreen_hack: "disabled",
+    beetle_psx_hw_renderer_software_fb: "enabled",
+    beetle_psx_hw_gpu_overclock: "4x",
+    beetle_psx_hw_cd_fastload: "6x",
+    beetle_psx_hw_gte_overclock: "enabled",
+    beetle_psx_hw_adaptive_smoothing: "enabled",
+    beetle_psx_hw_super_sampling: "disabled",
+    beetle_psx_hw_mdec_yuv: "enabled",
+    beetle_psx_hw_msaa: "2x",
   },
   ultra: {
     retroarch_core: "mednafen_psx_hw",
-    // 4x internal resolution: sweet spot for ultra — 8x is overkill for typical display sizes
-    beetle_psx_internal_resolution: "4x",
-    beetle_psx_frame_duping_enable: "disabled",
-    beetle_psx_filter: "bilinear",
-    beetle_psx_dither_mode: "internal",
-    beetle_psx_cd_access_method: "async",
-    beetle_psx_cpu_dynarec: "enabled",
-    beetle_psx_dynarec_invalidate: "full",
-    // Full PGXP: fixes 3D geometry warping and texture perspective correction
-    beetle_psx_pgxp_mode: "memory+cpu",
-    beetle_psx_pgxp_texture: "enabled",
-    beetle_psx_pgxp_vertex: "enabled",
-    beetle_psx_analog_calibration: "enabled",
-    beetle_psx_widescreen_hack: "disabled",
-    beetle_psx_skip_deinterlacing: "disabled",
-    // 8x GPU overclock: maximises rendering throughput for high-res output
-    beetle_psx_gpu_overclock: "8x",
-    beetle_psx_cd_fastload: "8x",
-    // GTE overclock: reduces geometry transformation lag for smoother animations
-    beetle_psx_gte_overclock: "enabled",
-    beetle_psx_adaptive_smoothing: "enabled",
-    // Super sampling for highest quality anti-aliasing at ultra tier
-    beetle_psx_super_sampling: "enabled",
+    beetle_psx_hw_renderer: "hardware",
+    beetle_psx_hw_internal_resolution: "4x",
+    beetle_psx_hw_frame_duping: "disabled",
+    beetle_psx_hw_filter: "bilinear",
+    beetle_psx_hw_dither_mode: "disabled",
+    beetle_psx_hw_depth: "32bpp",
+    beetle_psx_hw_cd_access_method: "async",
+    beetle_psx_hw_cpu_dynarec: "execute",
+    beetle_psx_hw_dynarec_invalidate: "full",
+    beetle_psx_hw_pgxp_mode: "memory + CPU",
+    beetle_psx_hw_pgxp_texture: "enabled",
+    beetle_psx_hw_pgxp_vertex: "disabled",
+    beetle_psx_hw_analog_calibration: "enabled",
+    beetle_psx_hw_widescreen_hack: "disabled",
+    beetle_psx_hw_renderer_software_fb: "enabled",
+    beetle_psx_hw_gpu_overclock: "8x",
+    beetle_psx_hw_cd_fastload: "8x",
+    beetle_psx_hw_gte_overclock: "enabled",
+    beetle_psx_hw_adaptive_smoothing: "enabled",
+    beetle_psx_hw_super_sampling: "enabled",
+    beetle_psx_hw_mdec_yuv: "enabled",
+    beetle_psx_hw_msaa: "4x",
   },
 };
 
