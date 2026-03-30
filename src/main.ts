@@ -22,6 +22,7 @@ import "./style.css";
 import { PSPEmulator }   from "./emulator.js";
 import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { SaveGameService } from "./saveService.js";
+import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
@@ -267,9 +268,11 @@ function main(): void {
   const library       = new GameLibrary();
   const biosLibrary   = new BiosLibrary();
   const saveLibrary   = new SaveStateLibrary();
+  const cloudSaveManager = getCloudSaveManager();
   const saveService   = new SaveGameService({
     saveLibrary,
     emulator,
+    cloudManager: cloudSaveManager,
     getCurrentGameContext: () => (currentGameId && currentSystemId)
       ? { gameId: currentGameId, gameName: settings.lastGameName ?? "Unknown", systemId: currentSystemId }
       : null,
@@ -482,6 +485,21 @@ function main(): void {
       // check so the emulator doesn't refuse to launch the file.
       skipExtensionCheck:  !!gameId,
     });
+
+    // When cloud is connected, merge remote saves into IndexedDB so F7 / gallery
+    // see the latest data without opening Sync Now first.
+    if (gameId && cloudSaveManager.isConnected()) {
+      void cloudSaveManager.syncGame(gameId, saveLibrary).then((r) => {
+        if (r.errors > 0) {
+          showInfoToast(`☁ Cloud sync had ${r.errors} error(s) — open Save States to retry.`);
+        } else if (r.pulled > 0 || r.pushed > 0) {
+          const parts: string[] = [];
+          if (r.pulled > 0) parts.push(`↓ ${r.pulled} from cloud`);
+          if (r.pushed > 0) parts.push(`↑ ${r.pushed} to cloud`);
+          showInfoToast(`☁ Saves updated · ${parts.join(" · ")}`);
+        }
+      }).catch(() => { /* best-effort — gallery Sync Now still available */ });
+    }
 
     // iOS WebKit: launch() may replace the ROM with a materialised in-memory
     // File so tier-downgrade relaunch and other paths reuse a stable payload.
@@ -702,6 +720,7 @@ function main(): void {
     library,
     biosLibrary,
     saveLibrary,
+    saveService,
     netplayManager,
     settings,
     deviceCaps,

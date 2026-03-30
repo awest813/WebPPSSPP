@@ -71,10 +71,7 @@ import {
   type SaveStateEntry,
   AUTO_SAVE_SLOT,
   MAX_SAVE_SLOTS,
-  saveStateKey,
   defaultSlotLabel,
-  createThumbnail,
-  stateBytesToBlob,
   downloadBlob,
   verifySaveChecksum,
 } from "./saves.js";
@@ -95,6 +92,7 @@ import type { EasyNetplayRoom } from "./netplay/netplayTypes.js";
 import { normaliseInviteCode } from "./netplay/signalingClient.js";
 import { checkSystemSupport } from "./netplay/compatibility.js";
 import { CloudSaveManager, WebDAVProvider, GoogleDriveProvider, DropboxProvider, pCloudProvider, type ConflictResolution, type SyncConflict, type SyncBadge } from "./cloudSave.js";
+import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 import { SaveGameService, type SaveOperationStatus } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 
@@ -105,15 +103,8 @@ let _onInstallPWA:  (() => Promise<boolean>) | undefined;
 // ── Settings opener callback (set once from initUI, used by showError action buttons) ──
 let _openSettingsFn: ((tab?: string) => void) | null = null;
 
-// ── Cloud save manager (module-level singleton) ────────────────────────────────
-let _cloudManager: CloudSaveManager | null = null;
 let _initUICleanup: (() => void) | null = null;
 export const TOUCH_CONTROLS_CHANGED_EVENT = "retrovault:touchControlsChanged";
-
-function getCloudManager(): CloudSaveManager {
-  if (!_cloudManager) _cloudManager = new CloudSaveManager();
-  return _cloudManager;
-}
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
@@ -442,6 +433,8 @@ export interface UIOptions {
   library:           GameLibrary;
   biosLibrary:       BiosLibrary;
   saveLibrary:       SaveStateLibrary;
+  /** When omitted, a SaveGameService is built from emulator + saveLibrary + game getters. */
+  saveService?:      SaveGameService;
   netplayManager?:   NetplayManager;
   settings:          Settings;
   deviceCaps:        DeviceCapabilities;
@@ -469,6 +462,20 @@ export function initUI(opts: UIOptions): void {
           onApplyPatch, onFileChosen,
           getCurrentGameId, getCurrentGameName, getCurrentSystemId,
           getTouchOverlay, canInstallPWA, onInstallPWA } = opts;
+
+  const saveService = opts.saveService ?? new SaveGameService({
+    saveLibrary,
+    cloudManager: getCloudSaveManager(),
+    emulator,
+    getCurrentGameContext: () => {
+      const gameId = getCurrentGameId?.() ?? null;
+      const gameName = getCurrentGameName?.() ?? null;
+      const systemId = getCurrentSystemId?.() ?? null;
+      return gameId && gameName && systemId
+        ? { gameId, gameName, systemId }
+        : null;
+    },
+  });
 
   const cleanupFns: Array<() => void> = [];
   const bindEvent = (
@@ -610,7 +617,7 @@ export function initUI(opts: UIOptions): void {
       openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab);
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
-      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+      saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
       getTouchOverlay, openSettingsWith, netplayManager
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
@@ -636,7 +643,7 @@ export function initUI(opts: UIOptions): void {
       openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab);
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
-      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+      saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
       getTouchOverlay, openSettingsWithResume, netplayManager
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
@@ -653,7 +660,7 @@ export function initUI(opts: UIOptions): void {
       openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, netplayManager, tab);
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
-      saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+      saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
       getTouchOverlay, openSettingsWith, netplayManager
     );
   };
@@ -695,15 +702,18 @@ export function initUI(opts: UIOptions): void {
       case "F5":
         e.preventDefault();
         e.stopPropagation();
-        void quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1)
-          .then(() => showInfoToast("Saved to Slot 1"))
-          .catch(() => showError("Quick save failed."));
+        void saveService.saveSlot(1).then((entry) => {
+          if (entry) showInfoToast("Saved to Slot 1");
+          else showError("Quick save failed — add this game to your library or wait for the core to finish starting.");
+        });
         break;
       case "F7":
         e.preventDefault();
         e.stopPropagation();
-        emulator.quickLoad(1);
-        showInfoToast("Loaded Slot 1");
+        void saveService.loadSlot(1).then((ok) => {
+          if (ok) showInfoToast("Loaded Slot 1");
+          else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
+        });
         break;
       case "F1":
         e.preventDefault();
@@ -2413,6 +2423,7 @@ function buildInGameControls(
   onSettingsChange:   (patch: Partial<Settings>) => void,
   onReturnToLibrary:  () => void,
   saveLibrary?:       SaveStateLibrary,
+  saveService?:       SaveGameService,
   getCurrentGameId?:  () => string | null,
   getCurrentGameName?: () => string | null,
   getCurrentSystemId?: () => string | null,
@@ -2444,12 +2455,13 @@ function buildInGameControls(
   });
   btnSave.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save`;
   btnSave.addEventListener("click", async () => {
-    try {
-      await quickSaveWithPersist(emulator, saveLibrary, getCurrentGameId, getCurrentGameName, getCurrentSystemId, 1);
-      showInfoToast("Saved to Slot 1");
-    } catch {
-      showError("Quick save failed.");
+    if (!saveService) {
+      showError("Save service is not available.");
+      return;
     }
+    const entry = await saveService.saveSlot(1);
+    if (entry) showInfoToast("Saved to Slot 1");
+    else showError("Quick save failed — add this game to your library or wait for the core to finish starting.");
   });
 
   const btnLoad = make("button", {
@@ -2459,7 +2471,15 @@ function buildInGameControls(
     "data-tooltip": "Quick Load — Slot 1 (F7)",
   });
   btnLoad.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Load`;
-  btnLoad.addEventListener("click", () => { emulator.quickLoad(1); showInfoToast("Loaded Slot 1"); });
+  btnLoad.addEventListener("click", async () => {
+    if (!saveService) {
+      showError("Save service is not available.");
+      return;
+    }
+    const ok = await saveService.loadSlot(1);
+    if (ok) showInfoToast("Loaded Slot 1");
+    else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
+  });
 
   const btnSavesGallery = make("button", {
     class: "btn btn-group__btn btn-group__btn--icon",
@@ -2469,8 +2489,8 @@ function buildInGameControls(
   });
   btnSavesGallery.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
   btnSavesGallery.addEventListener("click", () => {
-    if (saveLibrary && getCurrentGameId?.() && getCurrentGameName?.() && getCurrentSystemId?.()) {
-      void openSaveGallery(emulator, saveLibrary, getCurrentGameId()!, getCurrentGameName()!, getCurrentSystemId()!);
+    if (saveLibrary && saveService && getCurrentGameId?.() && getCurrentGameName?.() && getCurrentSystemId?.()) {
+      void openSaveGallery(emulator, saveLibrary, saveService, getCurrentGameId()!, getCurrentGameName()!, getCurrentSystemId()!);
     } else {
       showInfoToast("Save slots need a game from your library. Return to the library and add this title to open the gallery.");
     }
@@ -2736,53 +2756,6 @@ function buildInGameControls(
   }
 
   updateHeaderOverflow();
-}
-
-// ── Quick save with persistence helper ────────────────────────────────────────
-
-async function quickSaveWithPersist(
-  emulator:          PSPEmulator,
-  saveLibrary?:      SaveStateLibrary,
-  getCurrentGameId?: () => string | null,
-  getCurrentGameName?: () => string | null,
-  getCurrentSystemId?: () => string | null,
-  slot = 1
-): Promise<void> {
-  emulator.quickSave(slot);
-  if (saveLibrary && getCurrentGameId?.() && getCurrentGameName?.() && getCurrentSystemId?.()) {
-    await persistSaveMetadata(emulator, saveLibrary, getCurrentGameId()!, getCurrentGameName()!, getCurrentSystemId()!, slot);
-  }
-}
-
-// ── Save state helpers ────────────────────────────────────────────────────────
-
-async function persistSaveMetadata(
-  emulator:    PSPEmulator,
-  saveLibrary: SaveStateLibrary,
-  gameId:      string,
-  gameName:    string,
-  systemId:    string,
-  slot:        number
-): Promise<void> {
-  try {
-    const screenshot = await emulator.captureScreenshot();
-    const thumbnail  = screenshot ? await createThumbnail(screenshot) : null;
-    const stateBytes = emulator.readStateData(slot);
-    const stateData  = stateBytesToBlob(stateBytes);
-
-    // Preserve the user-defined label if one exists
-    const existingState = await saveLibrary.getState(gameId, slot);
-    const label = existingState?.label || defaultSlotLabel(slot);
-
-    const entry: SaveStateEntry = {
-      id: saveStateKey(gameId, slot), gameId, gameName, systemId,
-      slot, label, timestamp: Date.now(), thumbnail, stateData,
-      isAutoSave: slot === AUTO_SAVE_SLOT,
-    };
-    await saveLibrary.saveState(entry);
-  } catch {
-    // best-effort
-  }
 }
 
 // ── Cloud save bar ────────────────────────────────────────────────────────────
@@ -3269,6 +3242,7 @@ type SaveGalleryMode = "save" | "load";
 async function openSaveGallery(
   emulator:    PSPEmulator,
   saveLibrary: SaveStateLibrary,
+  saveService: SaveGameService,
   gameId:      string,
   gameName:    string,
   systemId:    string
@@ -3329,16 +3303,10 @@ async function openSaveGallery(
   let teardownCloudStatus: (() => void) | null = null;
 
   // Cloud bar (below the tabs, above the grid)
-  const cloudBar = buildCloudBar(getCloudManager(), gameId, saveLibrary);
+  const cloudMgr = getCloudSaveManager();
+  const cloudBar = buildCloudBar(cloudMgr, gameId, saveLibrary);
   box.appendChild(cloudBar.bar);
   teardownCloudStatus = cloudBar.teardown;
-
-  const saveService = new SaveGameService({
-    saveLibrary,
-    cloudManager: getCloudManager(),
-    emulator,
-    getCurrentGameContext: () => ({ gameId, gameName, systemId }),
-  });
 
   const statusBanner = make("div", { class: "save-gallery-status", role: "status", "aria-live": "polite" }, "");
   box.appendChild(statusBanner);
@@ -3592,7 +3560,7 @@ async function buildSaveSlotCard(
   }
 
   // Sync badge — shows cloud sync status for this slot
-  const cloudMgr = getCloudManager();
+  const cloudMgr = getCloudSaveManager();
   if (cloudMgr.isConnected()) {
     const badge: SyncBadge = cloudMgr.getSlotBadge(gameId, slot);
     const badgeLabels: Record<SyncBadge, string> = {

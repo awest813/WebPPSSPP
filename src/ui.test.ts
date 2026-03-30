@@ -102,7 +102,7 @@ describe("initUI listener idempotence", () => {
     document.body.innerHTML = "";
   });
 
-  it("does not duplicate global keyboard shortcut handlers on re-init", () => {
+  it("does not duplicate global keyboard shortcut handlers on re-init", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
@@ -115,6 +115,7 @@ describe("initUI listener idempotence", () => {
       prefetchCore: vi.fn(),
       quickSave: vi.fn(),
       quickLoad: vi.fn(),
+      writeStateData: vi.fn().mockReturnValue(true),
       reset: vi.fn(),
       onStateChange: null,
       onProgress: null,
@@ -123,9 +124,29 @@ describe("initUI listener idempotence", () => {
       onFPSUpdate: null,
     } as unknown as PSPEmulator;
 
+    const saveLib = {
+      getState: vi.fn(async () => ({
+        id: "game1:1",
+        gameId: "game1",
+        gameName: "Test",
+        systemId: "psp",
+        slot: 1,
+        label: "Slot 1",
+        timestamp: Date.now(),
+        thumbnail: null,
+        stateData: new Blob([new Uint8Array([1])]),
+        isAutoSave: false,
+      })),
+      saveState: vi.fn(async () => {}),
+    } as unknown as SaveStateLibrary;
+
     const opts = {
       ...makeOpts(makeSettings()),
       emulator: emulatorMock,
+      saveLibrary: saveLib,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Test",
+      getCurrentSystemId: () => "psp",
     };
 
     initUI(opts);
@@ -136,6 +157,8 @@ describe("initUI listener idempotence", () => {
       bubbles: true,
       cancelable: true,
     }));
+
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(emulatorMock.quickLoad).toHaveBeenCalledTimes(1);
     expect(emulatorMock.quickLoad).toHaveBeenCalledWith(1);
@@ -1959,7 +1982,7 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
     expect(saveLib.saveState).toHaveBeenCalledTimes(1);
   });
 
-  it("pressing F7 shows a 'Loaded Slot 1' toast", () => {
+  it("pressing F7 shows a 'Loaded Slot 1' toast", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
@@ -1971,6 +1994,7 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
       setFPSMonitorEnabled: vi.fn(),
       quickSave: vi.fn(),
       quickLoad: vi.fn(),
+      writeStateData: vi.fn().mockReturnValue(true),
       onStateChange: null,
       onProgress: null,
       onError: null,
@@ -1978,12 +2002,34 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
       onFPSUpdate: null,
     } as unknown as PSPEmulator;
 
+    const saveLib = {
+      getState: vi.fn(async () => ({
+        id: "game1:1",
+        gameId: "game1",
+        gameName: "Crisis Core",
+        systemId: "psp",
+        slot: 1,
+        label: "Slot 1",
+        timestamp: Date.now(),
+        thumbnail: null,
+        stateData: new Blob([new Uint8Array([1])]),
+        isAutoSave: false,
+      })),
+      saveState: vi.fn(async () => {}),
+    } as unknown as SaveStateLibrary;
+
     initUI({
       ...makeOpts(makeSettings()),
       emulator: emulatorMock,
+      saveLibrary: saveLib,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
     });
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "F7", bubbles: true, cancelable: true }));
+
+    await vi.advanceTimersByTimeAsync(0);
 
     const toast = document.getElementById("info-toast");
     expect(toast?.textContent).toContain("Loaded Slot 1");
@@ -3054,7 +3100,7 @@ describe("buildInGameControls Save and Load button UX", () => {
     document.getElementById("info-toast")?.remove();
   });
 
-  it("clicking Load button shows 'Loaded Slot 1' toast", () => {
+  it("clicking Load button shows 'Loaded Slot 1' toast", async () => {
     const emulatorMock = {
       state: "running",
       activeTier: "medium",
@@ -3063,6 +3109,7 @@ describe("buildInGameControls Save and Load button UX", () => {
       prefetchCore: vi.fn(),
       quickSave: vi.fn(),
       quickLoad: vi.fn(),
+      writeStateData: vi.fn().mockReturnValue(true),
       reset: vi.fn(),
       onStateChange: null,
       onProgress: null,
@@ -3071,9 +3118,24 @@ describe("buildInGameControls Save and Load button UX", () => {
       onFPSUpdate: null,
     } as unknown as PSPEmulator;
 
+    const saveState = vi.fn(async () => {});
+    const getState = vi.fn(async () => ({
+      id: "game1:1",
+      gameId: "game1",
+      gameName: "Crisis Core",
+      systemId: "psp",
+      slot: 1,
+      label: "Slot 1",
+      timestamp: Date.now(),
+      thumbnail: null,
+      stateData: new Blob([new Uint8Array([1, 2, 3])]),
+      isAutoSave: false,
+    }));
+
     initUI({
       ...makeOpts(makeSettings()),
       emulator: emulatorMock,
+      saveLibrary: { saveState, getState } as unknown as SaveStateLibrary,
       getCurrentGameId:   () => "game1",
       getCurrentGameName: () => "Crisis Core",
       getCurrentSystemId: () => "psp",
@@ -3090,13 +3152,15 @@ describe("buildInGameControls Save and Load button UX", () => {
     expect(btnLoad).toBeTruthy();
 
     btnLoad!.click();
+    await new Promise((r) => setTimeout(r, 0));
 
+    expect(emulatorMock.writeStateData).toHaveBeenCalled();
     expect(emulatorMock.quickLoad).toHaveBeenCalledWith(1);
     const toast = document.getElementById("info-toast");
     expect(toast?.textContent).toContain("Loaded Slot 1");
   });
 
-  it("Save button shows error toast when quickSaveWithPersist rejects", async () => {
+  it("Save button shows error when SaveGameService cannot persist (e.g. quickSave throws)", async () => {
     const emulatorMock = {
       state: "running",
       activeTier: "medium",
