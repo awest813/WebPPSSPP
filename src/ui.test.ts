@@ -3873,6 +3873,30 @@ describe("library gamepad navigation", () => {
     // Focus should not have moved
     expect(document.activeElement).toBe(cards[0]);
   });
+
+  it("uses webkitGetGamepads when getGamepads is unavailable", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const games = [makeGame("g1", "Alpha", "psp"), makeGame("g2", "Beta", "psp")];
+    const library = { getAllGamesMetadata: vi.fn().mockResolvedValue(games), preloadGame: vi.fn() } as unknown as GameLibrary;
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const grid  = document.getElementById("library-grid")!;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".game-card"));
+    cards[0]!.focus();
+
+    const gp = makeGamepad({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === 15, touched: i === 15, value: i === 15 ? 1 : 0 })) as GamepadButton[] });
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      getGamepads: undefined as unknown as typeof navigator.getGamepads,
+      webkitGetGamepads: () => [gp],
+    });
+
+    runRafTick();
+    expect(document.activeElement).toBe(cards[1]);
+  });
 });
 
 // ── showConflictResolutionDialog ──────────────────────────────────────────────

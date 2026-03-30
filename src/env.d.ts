@@ -8,6 +8,11 @@ import type { Settings } from "./main.js";
 import type { DeviceCapabilities } from "./performance.js";
 
 declare global {
+  interface Navigator {
+    /** Legacy WebKit gamepad enumeration (Safari & older Chromium). */
+    webkitGetGamepads?: () => (Gamepad | null)[];
+  }
+
   interface Window {
     __retrovault?: {
       emulator: PSPEmulator;

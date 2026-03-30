@@ -974,6 +974,17 @@ let _libGpRepeatTimer = 0;
 const _LIB_NAV_INITIAL_DELAY = 400; // ms before held-direction auto-repeat starts
 const _LIB_NAV_REPEAT_RATE   = 150; // ms between repeats once held
 
+/** Gamepad list matching EmulatorJS GamepadHandler (standard + legacy WebKit). */
+function _getNavigatorGamepads(): (Gamepad | null)[] {
+  if (typeof navigator.getGamepads === "function") {
+    return [...navigator.getGamepads()];
+  }
+  if (typeof navigator.webkitGetGamepads === "function") {
+    return [...navigator.webkitGetGamepads()];
+  }
+  return [];
+}
+
 /** Move focus among library game cards using arrow keys or gamepad. */
 function _wireLibraryNavigation(): void {
   if (_libraryNavWired) return;
@@ -1046,8 +1057,7 @@ function _wireLibraryNavigation(): void {
     // Skip if a modal / overlay is open
     if (document.querySelector(".confirm-overlay")) return;
 
-    const gamepads = navigator.getGamepads ? navigator.getGamepads() : ([] as (Gamepad | null)[]);
-    const gp = Array.from(gamepads).find((g): g is Gamepad => g != null);
+    const gp = _getNavigatorGamepads().find((g): g is Gamepad => g != null);
     if (!gp) return;
 
     const now = performance.now();
