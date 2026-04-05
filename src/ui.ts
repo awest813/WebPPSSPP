@@ -6547,6 +6547,8 @@ function buildDebugTab(
     const dsOpenGL     = activeCoreSettingsForNds["desmume_opengl_mode"]          ?? "—";
     const dsTiming     = activeCoreSettingsForNds["desmume_advanced_timing"]      ?? "—";
     const dsColorDepth = activeCoreSettingsForNds["desmume_color_depth"]          ?? "—";
+    const dsPointer    = activeCoreSettingsForNds["desmume_pointer_type"]         ?? "—";
+    const dsMicMode    = activeCoreSettingsForNds["desmume_mic_mode"]             ?? "—";
     ndsSection.appendChild(make("p", { class: "device-info" },
       `Active DeSmuME settings (tier: ${emulatorRef?.activeTier ?? "—"})`
     ));
@@ -6555,6 +6557,9 @@ function buildDebugTab(
     ));
     ndsSection.appendChild(make("p", { class: "device-info" },
       `OpenGL: ${dsOpenGL} | Advanced timing: ${dsTiming} | Color depth: ${dsColorDepth}`
+    ));
+    ndsSection.appendChild(make("p", { class: "device-info" },
+      `Touchscreen mode: ${dsPointer} | Mic mode: ${dsMicMode}`
     ));
   }
 

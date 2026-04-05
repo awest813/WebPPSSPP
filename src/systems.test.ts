@@ -377,6 +377,7 @@ describe('systems performance profiles', () => {
       expect(settings.retroarch_core).toBe('desmume2015');
       expect(settings.desmume_frameskip).toBe('2');
       expect(settings.desmume_cpu_mode).toBe('interpreter');
+      expect(settings.desmume_pointer_type).toBe('touch');
     });
 
     it('returns tier settings for NDS ultra tier', () => {

@@ -1571,6 +1571,7 @@ describe('PSPEmulator', () => {
       // The NDS low-tier settings must include the key DeSmuME core options
       expect(settings?.desmume_cpu_mode).toBe('interpreter');
       expect(settings?.desmume_frameskip).toBe('2');
+      expect(settings?.desmume_pointer_type).toBe('touch');
     });
 
     it('returns a defensive copy — mutations do not affect stored settings', async () => {
@@ -1613,7 +1614,7 @@ describe('PSPEmulator', () => {
       expect(window.EJS_Settings).toEqual(active);
     });
 
-    it('records an NDS performance diagnostic event with tier, cpu_mode, frameskip, resolution, timing, and color depth', async () => {
+    it('records an NDS performance diagnostic event with tier, cpu_mode, frameskip, resolution, timing, depth, and touchscreen mode', async () => {
       emulator.onError = () => {};
       (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
         async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
@@ -1637,6 +1638,9 @@ describe('PSPEmulator', () => {
       // Entry must also surface advanced_timing and color_depth for full diagnostics
       expect(ndsPerfEntry!.message).toContain('timing=');
       expect(ndsPerfEntry!.message).toContain('depth=');
+      // Touchscreen/microphone mode should be present for DS input debugging.
+      expect(ndsPerfEntry!.message).toContain('pointer=touch');
+      expect(ndsPerfEntry!.message).toContain('mic=');
     });
 
     it('does not record an NDS performance diagnostic event for non-NDS systems', async () => {
