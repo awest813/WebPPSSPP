@@ -1798,16 +1798,19 @@ export class PSPEmulator {
         const dsOpenGL     = ejsSettings["desmume_opengl_mode"]          ?? "?";
         const dsTiming     = ejsSettings["desmume_advanced_timing"]      ?? "?";
         const dsColorDepth = ejsSettings["desmume_color_depth"]          ?? "?";
+        const dsPointer    = ejsSettings["desmume_pointer_type"]         ?? "?";
+        const dsMicMode    = ejsSettings["desmume_mic_mode"]             ?? "?";
         this.logDiagnostic(
           "performance",
-          `NDS tier=${tier}: cpu=${dsCpuMode} frameskip=${dsFrameskip} res=${dsResolution} opengl=${dsOpenGL} timing=${dsTiming} depth=${dsColorDepth}`
+          `NDS tier=${tier}: cpu=${dsCpuMode} frameskip=${dsFrameskip} res=${dsResolution} opengl=${dsOpenGL} timing=${dsTiming} depth=${dsColorDepth} pointer=${dsPointer} mic=${dsMicMode}`
         );
         if (this.verboseLogging) {
           console.info(
             `[RetroVault] DS performance settings — ` +
             `cpu_mode: ${dsCpuMode}, frameskip: ${dsFrameskip}, ` +
             `resolution: ${dsResolution}, opengl: ${dsOpenGL}, ` +
-            `advanced_timing: ${dsTiming}, color_depth: ${dsColorDepth}`
+            `advanced_timing: ${dsTiming}, color_depth: ${dsColorDepth}, ` +
+            `pointer_type: ${dsPointer}, mic_mode: ${dsMicMode}`
           );
         }
       }

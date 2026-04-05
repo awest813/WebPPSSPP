@@ -1522,6 +1522,28 @@ describe("buildDebugTab", () => {
     expect(text).toContain("firmware.bin");
   });
 
+  it("NDS Status includes touchscreen and mic mode when an NDS game is active", () => {
+    const mockEmulator = makeDebugEmulator({
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "nds", name: "Nintendo DS" },
+      activeCoreSettings: {
+        desmume_cpu_mode: "jit",
+        desmume_frameskip: "1",
+        desmume_internal_resolution: "256x192",
+        desmume_opengl_mode: "disabled",
+        desmume_advanced_timing: "disabled",
+        desmume_color_depth: "16-bit",
+        desmume_pointer_type: "touch",
+        desmume_mic_mode: "internal",
+      },
+    });
+    openDebugTabWithEmulator(mockEmulator);
+    const panel = document.getElementById("tab-panel-debug")!;
+    const text = panel.textContent ?? "";
+    expect(text).toContain("Touchscreen mode: touch | Mic mode: internal");
+  });
+
   it("PS1 Status section is present in the Debug tab", () => {
     openDebugTab();
     const panel = document.getElementById("tab-panel-debug")!;

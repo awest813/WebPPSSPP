@@ -399,6 +399,8 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_gfx_txthack: "enabled",
     desmume_screens_gap: "0",
     desmume_firmware_language: "Auto",
+    // Keep stylus/touchscreen input enabled even on low-end devices.
+    desmume_pointer_type: "touch",
   },
   medium: {
     retroarch_core: "desmume2015",
