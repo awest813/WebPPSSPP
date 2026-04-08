@@ -57,6 +57,9 @@ import {
   clearCapabilitiesCache,
 } from "./performance.js";
 import {
+  type PostProcessEffect,
+} from "./webgpuPostProcess.js";
+import {
   BiosLibrary,
   BIOS_REQUIREMENTS,
 } from "./bios.js";
@@ -458,26 +461,29 @@ export function buildDOM(app: HTMLElement): void {
       <!-- EmulatorJS mount point (hidden until a game launches) -->
       <div id="ejs-container">
         <div id="ejs-player"></div>
-        <!-- FPS overlay (positioned over the game canvas) -->
-        <div id="fps-overlay" class="fps-overlay" hidden>
-          <span id="fps-current">-- FPS</span>
+        <!-- Premium In-Game Performance Overlay -->
+        <div id="fps-overlay" class="fps-overlay" hidden aria-label="Performance overlay">
+          <div class="fps-current">
+            <span id="fps-current-val" class="fps-val">--</span>
+            <span class="fps-label">FPS</span>
+          </div>
+          <div class="fps-separator"></div>
           <span id="fps-avg" class="fps-detail">avg --</span>
           <span id="fps-tier" class="fps-detail"></span>
           <span id="fps-dropped" class="fps-detail fps-warn" hidden>0 dropped</span>
-          <canvas id="fps-visualiser" class="fps-visualiser" width="120" height="32" hidden aria-hidden="true"></canvas>
+          <canvas id="fps-visualiser" class="fps-visualiser" width="60" height="18" hidden aria-hidden="true"></canvas>
         </div>
-        <!-- Developer debug overlay (toggle with F3) -->
-        <div id="dev-overlay" class="dev-overlay" hidden aria-label="Developer debug overlay" aria-live="off">
-          <div class="dev-overlay__title">🔧 Dev Overlay <kbd>F3</kbd></div>
+        <!-- High-Fidelity Developer Dashboard (F3) -->
+        <div id="dev-overlay" class="dev-overlay" hidden aria-label="System diagnostic dashboard" aria-live="off">
+          <div class="dev-overlay__title">System Diagnostic</div>
           <div class="dev-overlay__grid">
-            <span class="dev-overlay__label">FPS</span><span id="dev-fps" class="dev-overlay__value">--</span>
-            <span class="dev-overlay__label">Frame</span><span id="dev-frame-time" class="dev-overlay__value">-- ms</span>
-            <span class="dev-overlay__label">P95</span><span id="dev-p95" class="dev-overlay__value">-- ms</span>
-            <span class="dev-overlay__label">Dropped</span><span id="dev-dropped" class="dev-overlay__value">0</span>
-            <span class="dev-overlay__label">Memory</span><span id="dev-memory" class="dev-overlay__value">-- MB</span>
-            <span class="dev-overlay__label">State</span><span id="dev-state" class="dev-overlay__value">idle</span>
+            <span class="dev-overlay__label">Frame Time</span><span id="dev-ft" class="dev-overlay__value">--ms</span>
+            <span class="dev-overlay__label">Performance</span><span id="dev-fps" class="dev-overlay__value">-- FPS</span>
+            <span class="dev-overlay__label">P95 Latency</span><span id="dev-p95" class="dev-overlay__value">--ms</span>
+            <span class="dev-overlay__label">Memory</span><span id="dev-memory" class="dev-overlay__value">--MB</span>
+            <span class="dev-overlay__label">System State</span><span id="dev-state" class="dev-overlay__value">idle</span>
           </div>
-          <canvas id="dev-framegraph" class="dev-overlay__graph" width="180" height="40" aria-hidden="true"></canvas>
+          <canvas id="dev-framegraph" class="dev-overlay__graph" width="200" height="60" aria-hidden="true"></canvas>
         </div>
       </div>
 
@@ -597,11 +603,17 @@ export interface UIOptions {
   getCurrentGameId:   () => string | null;
   getCurrentGameName: () => string | null;
   getCurrentSystemId: () => string | null;
+  /** Get all current core options (libretro keys). */
+  getCurrentCoreOptions: () => Record<string, string>;
+  /** Update a specific core option at runtime. */
+  onUpdateCoreOption: (key: string, value: string) => void;
   getTouchOverlay?:   () => TouchControlsOverlay | null;
   getNetplayManager:  () => Promise<import("./multiplayer.js").NetplayManager>;
   canInstallPWA?:     () => boolean;
   onInstallPWA?:      () => Promise<boolean>;
 }
+
+export const RESTART_REQUIRED_EVENT = "retrovault:restart-required";
 
 export function initUI(opts: UIOptions): void {
   // Re-initialisation safety: remove previously registered listeners so
@@ -2730,10 +2742,13 @@ async function showInGameMenu(ctx: {
   onOpenSettings?: (tab?: SettingsTab) => void;
   getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>;
   onOpenPlayTogetherSettings?: () => void;
+  getCurrentCoreOptions?: () => Record<string, string>;
+  onUpdateCoreOption?: (key: string, value: string) => void;
 }): Promise<void> {
   if (ctx.emulator.state === "running") ctx.emulator.pause();
 
   const ac = new AbortController();
+  const signal = ac.signal;
 
   const overlay = make("div", { class: "ingame-menu-overlay" });
   document.body.appendChild(overlay);
@@ -2741,6 +2756,7 @@ async function showInGameMenu(ctx: {
   // Transition in
   requestAnimationFrame(() => overlay.classList.add("ingame-menu-overlay--visible"));
 
+  const gameId = ctx.getCurrentGameId?.() ?? "";
   const gameName = ctx.getCurrentGameName?.() ?? "Unknown Game";
   const systemId = ctx.getCurrentSystemId?.() ?? "unknown";
 
@@ -2758,13 +2774,13 @@ async function showInGameMenu(ctx: {
 
   // Sidebar
   const sidebar = make("div", { class: "ingame-menu__sidebar" });
-  sidebar.innerHTML = `<div class="ingame-menu__sidebar-title">Pause Menu</div>`;
+  sidebar.innerHTML = `<div class="ingame-menu__sidebar-title">Vault Menu</div>`;
   menu.appendChild(sidebar);
 
   const content = make("div", { class: "ingame-menu__content" });
   menu.appendChild(content);
 
-  const renderContent = (type: "saves" | "settings" | "cheats" | "multiplayer") => {
+  const renderContent = async (type: "saves" | "settings" | "multiplayer") => {
     content.innerHTML = "";
     
     // Update sidebar active state
@@ -2772,69 +2788,310 @@ async function showInGameMenu(ctx: {
     const activeBtn = sidebar.querySelector(`[data-tab="${type}"]`);
     if (activeBtn) activeBtn.classList.add("ingame-menu__sidebar-btn--active");
 
-    if (type === "saves") {
-      const header = make("div", { class: "ingame-menu__header" });
-      header.innerHTML = `
-        <h2 class="ingame-menu__game-name">${gameName}</h2>
+    const header = make("div", { class: "ingame-menu__header" });
+    header.innerHTML = `
+      <div class="ingame-menu__header-main">
+        <h2 class="ingame-menu__game-name">${_escHtml(gameName)}</h2>
         <span class="ingame-menu__system-tag">${systemId.toUpperCase()}</span>
-      `;
-      content.appendChild(header);
+      </div>
+    `;
+    content.appendChild(header);
+
+    const body = make("div", { class: "ingame-menu__body" });
+    content.appendChild(body);
+
+    if (type === "saves") {
+      const states = ctx.saveLibrary ? await ctx.saveLibrary.getStatesForGame(gameId) : [];
+      const slots = Array.from({ length: 8 }, (_, i) => i + 1);
 
       const grid = make("div", { class: "ingame-menu__saves-grid" });
-      content.appendChild(grid);
+      body.appendChild(grid);
 
-      // Render slots 1-5
-      for (let i = 1; i <= 5; i++) {
-        const card = make("div", { class: "ingame-menu__save-card" });
+      for (const slotIdx of slots) {
+        const entry = states.find(s => s.slot === slotIdx);
+        const card = make("div", { class: `ingame-menu__save-card ${entry ? "has-data" : "is-empty"}`, title: entry ? "" : "Empty Slot" });
+        
+        let thumbHtml = `<div class="ingame-menu__save-thumb-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><polyline points="16 5 21 5 21 10"/><line x1="12" y1="12" x2="21" y2="3"/></svg></div>`;
+        if (entry?.thumbnail) {
+          const url = URL.createObjectURL(entry.thumbnail);
+          thumbHtml = `<img src="${url}" class="ingame-menu__save-thumb" alt="Slot ${slotIdx}" />`;
+          // Cleanup on abort
+          signal.addEventListener("abort", () => URL.revokeObjectURL(url), { once: true });
+        }
+
         card.innerHTML = `
-          <div class="ingame-menu__save-info">
-            <span class="ingame-menu__save-slot">Slot ${i}</span>
+          <div class="ingame-menu__save-visual">
+            ${thumbHtml}
+            <div class="ingame-menu__save-badge">Slot ${slotIdx}</div>
           </div>
-          <div class="ingame-menu__save-actions"></div>
+          <div class="ingame-menu__save-details">
+            <div class="ingame-menu__save-label">${entry ? _escHtml(entry.label) : "Empty Slot"}</div>
+            <div class="ingame-menu__save-time">${entry ? formatRelativeTime(entry.timestamp) : "No data saved"}</div>
+          </div>
+          <div class="ingame-menu__save-overlay">
+            <button class="ingame-menu__save-action-btn btn-save" title="Overwrite current progress to this slot">Save</button>
+            ${entry ? `<button class="ingame-menu__save-action-btn btn-load" title="Restore this save state">Load</button>` : ""}
+          </div>
         `;
         
-        const actions = card.querySelector(".ingame-menu__save-actions")!;
-        
-        const btnSave = make("button", { class: "ingame-menu__btn ingame-menu__btn--primary" }, "Save");
-        btnSave.addEventListener("click", async () => {
+        card.querySelector(".btn-save")?.addEventListener("click", async (e) => {
+          e.stopPropagation();
           if (ctx.saveService) {
-            const entry = await ctx.saveService.saveSlot(i);
-            if (entry) showInfoToast(`Saved to Slot ${i}`);
-          }
-        }, { signal: ac.signal });
-
-        const btnLoad = make("button", { class: "ingame-menu__btn" }, "Load");
-        btnLoad.addEventListener("click", async () => {
-          if (ctx.saveService) {
-            const ok = await ctx.saveService.loadSlot(i);
-            if (ok) {
-              showInfoToast(`Loaded Slot ${i}`);
-              closeMenu();
-            } else {
-              showError(`Nothing saved in Slot ${i}`);
+            const result = await ctx.saveService.saveSlot(slotIdx);
+            if (result) {
+              showInfoToast(`Saved to Slot ${slotIdx}`, "success");
+              void renderContent("saves"); // Refresh
             }
           }
-        }, { signal: ac.signal });
+        }, { signal });
 
-        actions.append(btnSave, btnLoad);
+        card.querySelector(".btn-load")?.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (ctx.saveService) {
+            const ok = await ctx.saveService.loadSlot(slotIdx);
+            if (ok) {
+              showInfoToast(`Loaded Slot ${slotIdx}`, "success");
+              closeMenu();
+            }
+          }
+        }, { signal });
+
         grid.appendChild(card);
       }
+    } 
+    else if (type === "settings") {
+      const grid = make("div", { class: "ingame-menu__settings-grid" });
+      body.appendChild(grid);
 
-      // Quick Settings
-      const quick = make("div", { class: "ingame-menu__quick-settings" });
-      quick.innerHTML = `
-        <div class="ingame-menu__settings-pill">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a11 11 0 1 0 11 11A11 11 0 0 0 12 1zm0 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/></svg>
-          Volume: ${Math.round(ctx.settings.volume * 100)}%
+      // Volume
+      const volRow = make("div", { class: "ingame-menu__setting-item" });
+      volRow.innerHTML = `
+        <div class="ingame-menu__setting-info">
+          <div class="ingame-menu__setting-name">Master Volume</div>
         </div>
-        <div class="ingame-menu__settings-pill">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          ${ctx.settings.performanceMode.toUpperCase()}
+        <div class="ingame-menu__setting-control">
+          <input type="range" class="ingame-menu__range" min="0" max="1" step="0.05" value="${ctx.settings.volume}" />
+          <span class="ingame-menu__range-val">${Math.round(ctx.settings.volume * 100)}%</span>
         </div>
       `;
-      content.appendChild(quick);
-    } else {
-      content.innerHTML = `<div style="opacity: 0.5; padding: 40px; text-align: center;">${type.charAt(0).toUpperCase() + type.slice(1)} coming soon in this menu overhaul. Use global settings for now.</div>`;
+      const volInp = volRow.querySelector("input") as HTMLInputElement;
+      const volVal = volRow.querySelector(".ingame-menu__range-val")!;
+      volInp.addEventListener("input", () => {
+        const v = parseFloat(volInp.value);
+        volVal.textContent = `${Math.round(v * 100)}%`;
+        ctx.onSettingsChange({ volume: v });
+        ctx.emulator.setVolume(v);
+      }, { signal });
+      grid.appendChild(volRow);
+
+      // FPS Toggle
+      const fpsRow = make("div", { class: "ingame-menu__setting-item" });
+      fpsRow.innerHTML = `
+        <div class="ingame-menu__setting-info">
+          <div class="ingame-menu__setting-name">Show FPS Counter</div>
+        </div>
+        <div class="ingame-menu__setting-control">
+          <button class="ingame-menu__toggle ${ctx.settings.showFPS ? "on" : "off"}">${ctx.settings.showFPS ? "Enabled" : "Disabled"}</button>
+        </div>
+      `;
+      const fpsBtn = fpsRow.querySelector("button")!;
+      fpsBtn.addEventListener("click", () => {
+        const v = !ctx.settings.showFPS;
+        ctx.onSettingsChange({ showFPS: v });
+        ctx.emulator.setFPSMonitorEnabled(v);
+        showFPSOverlay(v, ctx.emulator, ctx.settings.showAudioVis);
+        fpsBtn.className = `ingame-menu__toggle ${v ? "on" : "off"}`;
+        fpsBtn.textContent = v ? "Enabled" : "Disabled";
+      }, { signal });
+      grid.appendChild(fpsRow);
+
+      // Performance Mode
+      const perfRow = make("div", { class: "ingame-menu__setting-item" });
+      perfRow.innerHTML = `
+        <div class="ingame-menu__setting-info">
+          <div class="ingame-menu__setting-name">Performance Profile</div>
+        </div>
+        <div class="ingame-menu__setting-control">
+          <select class="ingame-menu__select">
+            <option value="auto" ${ctx.settings.performanceMode === "auto" ? "selected" : ""}>Adaptive (Auto)</option>
+            <option value="quality" ${ctx.settings.performanceMode === "quality" ? "selected" : ""}>Quality</option>
+            <option value="performance" ${ctx.settings.performanceMode === "performance" ? "selected" : ""}>Performance (Fast)</option>
+          </select>
+        </div>
+      `;
+      const perfSel = perfRow.querySelector("select") as HTMLSelectElement;
+      perfSel.addEventListener("change", () => {
+        ctx.onSettingsChange({ performanceMode: perfSel.value as PerformanceMode });
+        showInfoToast(`Performance: ${perfSel.value === "performance" ? "Performance" : perfSel.value === "quality" ? "Quality" : "Adaptive"}`);
+      }, { signal });
+      grid.appendChild(perfRow);
+
+      // Post Process Filter
+      const fxRow = make("div", { class: "ingame-menu__setting-item" });
+      fxRow.innerHTML = `
+        <div class="ingame-menu__setting-info">
+          <div class="ingame-menu__setting-name">Visual Filter</div>
+        </div>
+        <div class="ingame-menu__setting-control">
+          <select class="ingame-menu__select">
+            <option value="none" ${ctx.settings.postProcessEffect === "none" ? "selected" : ""}>None (Raw)</option>
+            <option value="crt" ${ctx.settings.postProcessEffect === "crt" ? "selected" : ""}>CRT Simulation</option>
+            <option value="lcd" ${ctx.settings.postProcessEffect === "lcd" ? "selected" : ""}>Handheld LCD</option>
+            <option value="sharpen" ${ctx.settings.postProcessEffect === "sharpen" ? "selected" : ""}>Adaptive Sharpen</option>
+            <option value="fxaa" ${ctx.settings.postProcessEffect === "fxaa" ? "selected" : ""}>Anti-Aliasing (FXAA)</option>
+            <option value="retro" ${ctx.settings.postProcessEffect === "retro" ? "selected" : ""}>Retro Pixel-Art</option>
+          </select>
+        </div>
+      `;
+      const fxSel = fxRow.querySelector("select") as HTMLSelectElement;
+      fxSel.addEventListener("change", () => {
+        const effect = fxSel.value as PostProcessEffect;
+        ctx.onSettingsChange({ postProcessEffect: effect });
+        ctx.emulator.setPostProcessEffect(effect);
+        const text = fxSel.options[fxSel.selectedIndex]?.text ?? effect;
+        showInfoToast(`Filter: ${text}`);
+      }, { signal });
+      grid.appendChild(fxRow);
+
+      // --- 3D Core Internal Resolution ---
+      const systemInfo = getSystemById(systemId);
+      if (systemInfo?.is3D) {
+        const resolutionConfig: Record<string, { key: string, options: { label: string, value: string }[] }> = {
+          psp: {
+            key: "ppsspp_internal_resolution",
+            options: [
+              { label: "1x (PSP Native)", value: "1" },
+              { label: "2x (720p)", value: "2" },
+              { label: "3x (1080p)", value: "3" },
+              { label: "4x (2K)", value: "4" },
+              { label: "5x (4K)", value: "5" },
+            ]
+          },
+          n64: {
+            key: "mupen64plus-resolution-factor",
+            options: [
+              { label: "1x (Native)", value: "1" },
+              { label: "2x (High)", value: "2" },
+              { label: "4x (Ultra)", value: "4" },
+            ]
+          },
+          psx: {
+            key: "beetle_psx_hw_internal_resolution",
+            options: [
+              { label: "1x (Native)", value: "1x(native)" },
+              { label: "2x (HD)", value: "2x" },
+              { label: "4x (FHD)", value: "4x" },
+              { label: "8x (4K)", value: "8x" },
+            ]
+          },
+          nds: {
+            key: "desmume_internal_resolution",
+            options: [
+              { label: "256x192 (Native)", value: "256x192" },
+              { label: "512x384 (2x)", value: "512x384" },
+              { label: "1024x768 (4x)", value: "1024x768" },
+            ]
+          }
+        };
+
+        const config = resolutionConfig[systemId];
+        if (config) {
+          const currentOptions = ctx.getCurrentCoreOptions?.() ?? {};
+          const currentVal = currentOptions[config.key] || config.options[0]?.value;
+
+          const resRow = make("div", { class: "ingame-menu__setting-item" });
+          resRow.innerHTML = `
+            <div class="ingame-menu__setting-info">
+              <div class="ingame-menu__setting-name">Internal Resolution</div>
+              <div class="ingame-menu__setting-desc">Higher values increase clarity but require more GPU power.</div>
+            </div>
+            <div class="ingame-menu__setting-control">
+              <select class="ingame-menu__select">
+                ${config.options.map(opt => `<option value="${opt.value}" ${currentVal === opt.value ? "selected" : ""}>${opt.label}</option>`).join("")}
+              </select>
+            </div>
+          `;
+          const resSel = resRow.querySelector("select") as HTMLSelectElement;
+          resSel.addEventListener("change", () => {
+            const nextVal = resSel.value;
+            ctx.onUpdateCoreOption?.(config.key, nextVal);
+            showInfoToast("Resolution updated. Restart game to apply.", "warning");
+            
+            // Add a restart button if it doesn't exist yet
+            if (!content.querySelector(".btn-restart-core")) {
+              const restartBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block btn-restart-core", style: "margin-top:12px; border-color:var(--c-warn)" }, "Restart Game to Apply Changes");
+              restartBtn.addEventListener("click", () => {
+                closeMenu();
+                // Signal main.ts to restart emulator with new window.EJS_Settings
+                document.dispatchEvent(new CustomEvent(RESTART_REQUIRED_EVENT));
+              }, { signal });
+              body.appendChild(restartBtn);
+            }
+          }, { signal });
+          grid.appendChild(resRow);
+        }
+      }
+
+      // Open advanced settings
+      const advBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block", style: "margin-top:24px" }, "Open Advanced UI Settings");
+      advBtn.addEventListener("click", () => {
+        closeMenu();
+        ctx.onOpenSettings?.("display");
+      }, { signal });
+      body.appendChild(advBtn);
+    }
+    else if (type === "multiplayer") {
+      const nmPromise = ctx.getNetplayManager?.();
+      if (!nmPromise) {
+        body.innerHTML = `<div class="ingame-menu__empty-state">Netplay is not available in the current environment or for this core.</div>`;
+        return;
+      }
+
+      const nm = await nmPromise;
+      const isConfigured = nm.isActive;
+
+      const container = make("div", { class: "ingame-menu__multiplayer" });
+      body.appendChild(container);
+
+      if (!isConfigured) {
+        container.innerHTML = `
+          <div class="ingame-menu__empty-state">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;margin-bottom:16px"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <p>Multiplayer is currently disabled or unconfigured.</p>
+            <button class="ingame-menu__btn" style="margin-top:16px">Go to Multiplayer Settings</button>
+          </div>
+        `;
+        container.querySelector("button")?.addEventListener("click", () => {
+          closeMenu();
+          ctx.onOpenSettings?.("multiplayer");
+        }, { signal });
+      } else {
+        const stats = make("div", { class: "ingame-menu__netplay-status" });
+        const roomKey = nm.roomKeyFor(gameId, systemId);
+        
+        stats.innerHTML = `
+          <div class="ingame-menu__stat-card">
+            <div class="ingame-menu__stat-val">${roomDisplayNameForKey(roomKey)}</div>
+            <div class="ingame-menu__stat-label">Service Namespace</div>
+          </div>
+          <div class="ingame-menu__stat-card">
+            <div class="ingame-menu__stat-val">${nm.enabled ? "Enabled" : "Disabled"}</div>
+            <div class="ingame-menu__stat-label">Discovery Status</div>
+          </div>
+        `;
+        container.appendChild(stats);
+
+        const actions = make("div", { class: "ingame-menu__multiplayer-actions", style: "margin-top:24px" });
+        actions.innerHTML = `
+          <button class="ingame-menu__btn ingame-menu__btn--primary">Manage Play Together Room</button>
+          <p class="settings-help" style="margin-top:12px">Use the core's built-in Multiplayer interface to join specific games, or the RetroVault Play Together lobby for automatic matchmaking.</p>
+        `;
+        actions.querySelector("button")?.addEventListener("click", () => {
+          closeMenu();
+          ctx.onOpenPlayTogetherSettings?.();
+        }, { signal });
+        container.appendChild(actions);
+      }
     }
   };
 
@@ -2843,7 +3100,7 @@ async function showInGameMenu(ctx: {
       class: isDanger ? "ingame-menu__sidebar-btn ingame-menu__sidebar-btn--danger" : "ingame-menu__sidebar-btn",
       "data-tab": tab
     });
-    btn.innerHTML = `${icon} ${label}`;
+    btn.innerHTML = `${icon} <span>${label}</span>`;
     btn.addEventListener("click", () => {
       if (tab === "resume") closeMenu();
       else if (tab === "library") {
@@ -2857,23 +3114,29 @@ async function showInGameMenu(ctx: {
           }
         });
       } else {
-        renderContent(tab as Parameters<typeof renderContent>[0]);
+        void renderContent(tab as "saves" | "settings" | "multiplayer");
       }
     }, { signal: ac.signal });
     sidebar.appendChild(btn);
   };
 
-  addSideBtn("Resume", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`, "resume");
-  addSideBtn("Saves & Gallery", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`, "saves");
-  addSideBtn("Settings", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`, "settings");
-  addSideBtn("Reset Game", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>`, "reset", true);
-  addSideBtn("Back to Library", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`, "library");
+  addSideBtn("Resume", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`, "resume");
+  addSideBtn("Saves & Gallery", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`, "saves");
+  addSideBtn("Multiplayer", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`, "multiplayer");
+  addSideBtn("Quick Settings", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`, "settings");
+  addSideBtn("Restart Game", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>`, "reset", true);
+  addSideBtn("Home Console", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`, "library");
 
-  renderContent("saves");
+  void renderContent("saves");
 
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeMenu();
-  }, { signal: ac.signal });
+  }, { signal });
+
+  // Escape to close
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeMenu();
+  }, { signal, once: true });
 }
 
 // ── Cloud save bar ────────────────────────────────────────────────────────────
@@ -6080,28 +6343,25 @@ function updateDevOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
 
   if (!_uiDirtyTracker.consume(UIDirtyFlags.DEV_OVERLAY)) return;
 
-  // ── Scalar metrics ────────────────────────────────────────────────────────
+  // ── Scalar Metrics ────────────────────────────────────────────────────────
+  const ftEl     = document.getElementById("dev-ft");
   const fpsEl    = document.getElementById("dev-fps");
-  const frameEl  = document.getElementById("dev-frame-time");
   const p95El    = document.getElementById("dev-p95");
-  const dropEl   = document.getElementById("dev-dropped");
   const memEl    = document.getElementById("dev-memory");
   const stateEl  = document.getElementById("dev-state");
 
-  if (fpsEl)   fpsEl.textContent   = `${snapshot.current}`;
-  if (frameEl) frameEl.textContent = `${frameTimeMs} ms`;
-  if (p95El)   p95El.textContent   = `${snapshot.p95FrameTimeMs} ms`;
-  if (dropEl)  dropEl.textContent  = `${snapshot.droppedFrames}`;
+  if (ftEl)    ftEl.textContent    = `${frameTimeMs}ms`;
+  if (fpsEl)   fpsEl.textContent   = `${snapshot.current} FPS`;
+  if (p95El)   p95El.textContent   = `${snapshot.p95FrameTimeMs}ms`;
 
   if (memEl) {
     const perf = performance as Performance & { memory?: { usedJSHeapSize?: number } };
     const used = perf.memory?.usedJSHeapSize;
-    memEl.textContent = used ? `${Math.round(used / (1024 * 1024))} MB` : "n/a";
+    memEl.textContent = used ? `${Math.round(used / (1024 * 1024))}MB` : "n/a";
   }
 
   if (stateEl) {
     stateEl.textContent = emulator.state;
-    stateEl.className = `dev-overlay__value dev-overlay__state--${emulator.state}`;
   }
 
   // ── Frame-time mini graph ─────────────────────────────────────────────────
@@ -6150,20 +6410,24 @@ const LOW_FPS_THRESHOLD = 25;
 const LOW_FPS_TRIGGER   = 6;
 
 function updateFPSOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
-  const currentEl = document.getElementById("fps-current");
+  const valEl     = document.getElementById("fps-current-val");
   const avgEl     = document.getElementById("fps-avg");
   const tierEl    = document.getElementById("fps-tier");
   const droppedEl = document.getElementById("fps-dropped");
 
-  if (currentEl) {
-    currentEl.textContent = `${snapshot.current} FPS`;
-    currentEl.className = snapshot.current >= 50 ? "fps-good" : snapshot.current >= 30 ? "fps-ok" : "fps-bad";
+  if (valEl) {
+    valEl.textContent = `${snapshot.current}`;
+    valEl.className = `fps-val ${snapshot.current >= 50 ? "fps-good" : snapshot.current >= 30 ? "fps-ok" : "fps-bad"}`;
   }
   if (avgEl) avgEl.textContent = `avg ${snapshot.average}`;
   if (tierEl && emulator.activeTier) tierEl.textContent = formatTierLabel(emulator.activeTier);
   if (droppedEl) {
-    if (snapshot.droppedFrames > 0) { droppedEl.textContent = `${snapshot.droppedFrames} dropped`; droppedEl.hidden = false; }
-    else { droppedEl.hidden = true; }
+    if (snapshot.droppedFrames > 0) { 
+      droppedEl.textContent = `${snapshot.droppedFrames} dropped`; 
+      droppedEl.hidden = false; 
+    } else { 
+      droppedEl.hidden = true; 
+    }
   }
 
   if (snapshot.average > 0 && snapshot.average < LOW_FPS_THRESHOLD) {

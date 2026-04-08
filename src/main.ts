@@ -62,6 +62,8 @@ export interface Settings {
   touchControls:   boolean;
   /** Whether haptic feedback fires on virtual button presses (Android only). */
   hapticFeedback:  boolean;
+  /** System-specific core option overrides (libretro keys). */
+  coreOptions:     Record<string, string>;
   /**
    * Opacity of the on-screen touch buttons (0.1–1.0).
    * Lower values make the buttons more transparent so the game is easier to see.
@@ -125,6 +127,7 @@ const DEFAULT_SETTINGS: Settings = {
   audioFilterType: "none" as "none" | "lowpass" | "highpass",
   audioFilterCutoff: 10_000,
   uiMode: "auto",
+  coreOptions: {},
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -196,6 +199,9 @@ function loadSettings(): Settings {
       uiMode: (["auto", "quality", "lite"] as Array<Settings["uiMode"]>).includes(parsed.uiMode as Settings["uiMode"])
         ? (parsed.uiMode as Settings["uiMode"])
         : DEFAULT_SETTINGS.uiMode,
+      coreOptions: (typeof parsed.coreOptions === "object" && parsed.coreOptions !== null)
+        ? (parsed.coreOptions as Record<string, string>)
+        : DEFAULT_SETTINGS.coreOptions,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -379,19 +385,12 @@ async function main(): Promise<void> {
   });
 
   // 5. Wire launch handler with warmup trigger
-  let onLaunchGame: (
+  const onLaunchGame = async (
     file: File,
     systemId: string,
     gameId?: string,
     tierOverride?: PerformanceTier
-  ) => Promise<void>;
-
-  const baseOnLaunchGame = async (
-    file: File,
-    systemId: string,
-    gameId?: string,
-    tierOverride?: PerformanceTier
-  ): Promise<void> => {
+  ) => {
     // Trigger warmups if they haven't run yet
     triggerWarmups();
 
@@ -473,11 +472,11 @@ async function main(): Promise<void> {
     const resolvedTier = tierOverride ?? savedTier ?? compatibilityEntry?.tierOverride ?? undefined;
 
     const gfxProfile = gameId ? getGameGraphicsProfile(gameId) : null;
-    let coreSettingsOverride: Record<string, string> | undefined;
+    const coreSettingsOverride: Record<string, string> = { ...settings.coreOptions };
     if (gfxProfile) {
       if (gfxProfile.resolutionPreset) {
         const presetOptions = getResolutionCoreOptions(systemId, gfxProfile.resolutionPreset);
-        if (Object.keys(presetOptions).length > 0) coreSettingsOverride = presetOptions;
+        Object.assign(coreSettingsOverride, presetOptions);
       }
       if (typeof gfxProfile.drsEnabled === "boolean") emulator.enableDRS(gfxProfile.drsEnabled);
     }
@@ -559,10 +558,6 @@ async function main(): Promise<void> {
     }
   };
 
-  onLaunchGame = async (...args) => {
-    triggerWarmups();
-    return baseOnLaunchGame(...args);
-  };
 
   // 5a. Wire patch application callback (patcher lazily loaded — not in initial bundle)
   const onApplyPatch = async (gameId: string, patchFile: File): Promise<void> => {
@@ -764,10 +759,25 @@ async function main(): Promise<void> {
     getCurrentGameId:   () => currentGameId,
     getCurrentGameName: () => settings.lastGameName,
     getCurrentSystemId: () => currentSystemId,
+    getCurrentCoreOptions: () => settings.coreOptions,
+    onUpdateCoreOption: (key, value) => {
+      onSettingsChange({ coreOptions: { ...settings.coreOptions, [key]: value } });
+    },
     getTouchOverlay:    () => touchOverlay,
     getNetplayManager,
     canInstallPWA,
     onInstallPWA:       promptPWAInstall,
+  });
+
+  // Handle core restart requests (e.g. from internal resolution changes)
+  document.addEventListener("retrovault:restart-required", async () => {
+    if (currentGameId && currentSystemId) {
+      const entry = await library.getGame(currentGameId);
+      if (entry) {
+        const file = new File([entry.blob], entry.fileName, { type: entry.blob.type });
+        void onLaunchGame(file, currentSystemId, currentGameId);
+      }
+    }
   });
 
   // 8. If user returns to landing, rebuild landing header controls with a Resume button
