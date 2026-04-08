@@ -598,6 +598,7 @@ export interface UIOptions {
   getCurrentGameName: () => string | null;
   getCurrentSystemId: () => string | null;
   getTouchOverlay?:   () => TouchControlsOverlay | null;
+  getNetplayManager:  () => Promise<import("./multiplayer.js").NetplayManager>;
   canInstallPWA?:     () => boolean;
   onInstallPWA?:      () => Promise<boolean>;
 }
@@ -3248,8 +3249,33 @@ function buildPerfTab(
   gpuDetails.appendChild(make("p", { class: "device-info" }, `SharedArrayBuffer: ${typeof SharedArrayBuffer !== "undefined" ? "✓ (PSP supported)" : "✗"} · AudioWorklet: ${typeof AudioWorkletNode !== "undefined" ? "✓" : "✗"}`));
   gpuDisclosure.appendChild(gpuDetails);
   deviceSection.appendChild(gpuDisclosure);
-
   container.append(perfSection, deviceSection);
+
+  // UI Mode (Lite vs Quality)
+  const uiSection = make("div", { class: "settings-section" });
+  uiSection.appendChild(make("h4", { class: "settings-section__title" }, "UI Visual Fidelity"));
+  uiSection.appendChild(make("p", { class: "settings-help" },
+    "Adjusts the library and menu visual effects. 'Lite' mode disables blurs, heavy animations, and complex gradients " +
+    "to ensure the interface feels snappy on all devices."
+  ));
+
+  const uiModes: Array<{ value: Settings["uiMode"]; label: string; desc: string }> = [
+    { value: "auto",    label: "Auto (Recommended)",    desc: "Adapts based on device and data saver settings" },
+    { value: "quality", label: "Quality — full effects", desc: "Best visuals with blurs, animations, and high-res gradients." },
+    { value: "lite",    label: "Lite — max speed",      desc: "Minimal visuals. Disables blurs and animations for speed." },
+  ];
+
+  for (const m of uiModes) {
+    const row   = make("label", { class: "radio-row" });
+    const radio = make("input", { type: "radio", name: "ui-mode", value: m.value }) as HTMLInputElement;
+    if (settings.uiMode === m.value) radio.checked = true;
+    radio.addEventListener("change", () => { if (radio.checked) onSettingsChange({ uiMode: m.value }); });
+    const txt = make("span", { class: "radio-row__text" });
+    txt.append(make("span", { class: "radio-row__label" }, m.label), make("span", { class: "radio-row__desc" }, m.desc));
+    row.append(radio, txt);
+    uiSection.appendChild(row);
+  }
+  container.appendChild(uiSection);
 }
 
 // ── Display tab ───────────────────────────────────────────────────────────────
@@ -5293,6 +5319,21 @@ function buildDebugTab(
   envSection.appendChild(make("p", { class: "device-info" },
     `WebAssembly: ${hasWasm ? "✓ Available" : "✗ Not available"}`
   ));
+
+  if (getNetplayManager) {
+    const netplayStatus = make("p", { class: "device-info" }, "Checking Play Together status…");
+    envSection.appendChild(netplayStatus);
+    getNetplayManager().then(nm => {
+      // NetplayManager doesn't have isConnected/isEnabled, it has enabled and isActive
+      netplayStatus.textContent = nm.isActive
+        ? "Play Together: Active and configured"
+        : nm.enabled
+        ? "Play Together: Enabled but server missing"
+        : "Play Together: Disabled";
+    }).catch(() => {
+      netplayStatus.textContent = "Play Together: Error loading manager";
+    });
+  }
   envSection.appendChild(make("p", { class: "device-info" },
     `User Agent: ${navigator.userAgent}`
   ));
@@ -6311,7 +6352,6 @@ export function showInfoToast(msg: string, type: "success" | "info" | "warning" 
   icon.className = "info-toast__icon";
   icon.setAttribute("aria-hidden", "true");
   icon.textContent = (iconMap[type] ?? iconMap.success) as string;
-  icon.style.cssText = "font-size:1rem;font-weight:800;flex-shrink:0";
 
   const text = document.createElement("span");
   text.textContent = msg;
@@ -6320,13 +6360,24 @@ export function showInfoToast(msg: string, type: "success" | "info" | "warning" 
   closeBtn.className = "error-close";
   closeBtn.textContent = "✕";
   closeBtn.setAttribute("aria-label", "Dismiss");
-  closeBtn.addEventListener("click", () => { toast.classList.remove("visible"); setTimeout(() => toast.remove(), 200); });
+  closeBtn.addEventListener("click", () => {
+    toast.classList.remove("visible");
+    setTimeout(() => toast.remove(), 400);
+  });
 
   toast.append(icon, text, closeBtn);
   document.body.appendChild(toast);
 
+  // Trigger entrance
   requestAnimationFrame(() => toast.classList.add("visible"));
-  setTimeout(() => { toast.classList.remove("visible"); setTimeout(() => toast.remove(), 200); }, 5000);
+
+  // Auto-dismiss after 5 seconds
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.classList.remove("visible");
+      setTimeout(() => toast.remove(), 400);
+    }
+  }, 5000);
 }
 
 // ── Test helpers ──────────────────────────────────────────────────────────────

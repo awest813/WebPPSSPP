@@ -93,6 +93,13 @@ export interface Settings {
    * Only used when `audioFilterType` is not `"none"`. Default: 10 000 Hz.
    */
   audioFilterCutoff: number;
+  /**
+   * UI Visual Fidelity mode.
+   * `"auto"`    — default behavior (performance-dependent)
+   * `"quality"` — full blurs, animations, and high-res effects
+   * `"lite"`    — simplified UI with blurs and heavy animations disabled
+   */
+  uiMode: "auto" | "quality" | "lite";
 }
 
 const STORAGE_KEY = "retrovault-settings";
@@ -117,6 +124,7 @@ const DEFAULT_SETTINGS: Settings = {
   verboseLogging:  false,
   audioFilterType: "none" as "none" | "lowpass" | "highpass",
   audioFilterCutoff: 10_000,
+  uiMode: "auto",
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -185,6 +193,9 @@ function loadSettings(): Settings {
       audioFilterCutoff: typeof parsed.audioFilterCutoff === "number"
         ? Math.max(20, Math.min(20_000, parsed.audioFilterCutoff))
         : DEFAULT_SETTINGS.audioFilterCutoff,
+      uiMode: (["auto", "quality", "lite"] as Array<Settings["uiMode"]>).includes(parsed.uiMode as Settings["uiMode"])
+        ? (parsed.uiMode as Settings["uiMode"])
+        : DEFAULT_SETTINGS.uiMode,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -258,12 +269,24 @@ async function main(): Promise<void> {
   const navConnection = (navigator as Navigator & {
     connection?: { saveData?: boolean };
   }).connection;
-  const useLiteUI =
-    deviceCaps.isLowSpec ||
-    deviceCaps.connectionQuality === "slow" ||
-    deviceCaps.prefersReducedMotion ||
-    navConnection?.saveData === true;
-  document.documentElement.classList.toggle("lite-ui", useLiteUI);
+  
+  const updateUILite = () => {
+    let useLiteUI = false;
+    if (settings.uiMode === "lite") {
+      useLiteUI = true;
+    } else if (settings.uiMode === "quality") {
+      useLiteUI = false;
+    } else {
+      // "auto" mode logic
+      useLiteUI =
+        deviceCaps.isLowSpec ||
+        deviceCaps.connectionQuality === "slow" ||
+        deviceCaps.prefersReducedMotion ||
+        navConnection?.saveData === true;
+    }
+    document.documentElement.classList.toggle("lite-ui", useLiteUI);
+  };
+  updateUILite();
 
   // 4. Instantiate services
   const emulator      = new PSPEmulator("ejs-player");
@@ -718,6 +741,10 @@ async function main(): Promise<void> {
       } else {
         emulator.setAudioFilter(filterType, cutoff);
       }
+    }
+    // UI Mode change
+    if (patch.uiMode !== undefined) {
+      updateUILite();
     }
   };
 
