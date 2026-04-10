@@ -2215,8 +2215,12 @@ describe('performance', () => {
       expect(getResolutionCoreOptions('segaSaturn', '2x')).toEqual({});
     });
 
-    it('returns empty object for Dreamcast (no bundled core / resolution ladder)', () => {
-      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({});
+    it('returns correct Dreamcast 2× option', () => {
+      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({ reicast_internal_resolution: '1280x960' });
+    });
+
+    it('returns correct Dreamcast 4×-style option using the highest supported ladder step', () => {
+      expect(getResolutionCoreOptions('segaDC', '4x')).toEqual({ reicast_internal_resolution: '1920x1440' });
     });
 
     it('clamps 4× to the ladder maximum when the system only has fewer steps', () => {
@@ -2311,6 +2315,13 @@ describe('performance', () => {
         const ladder = getResolutionLadder('n64');
         expect(ladder).not.toBeNull();
         expect(ladder!.key).toBe('mupen64plus-resolution-factor');
+      });
+
+      it('returns the Dreamcast ladder', () => {
+        const ladder = getResolutionLadder('segaDC');
+        expect(ladder).not.toBeNull();
+        expect(ladder!.key).toBe('reicast_internal_resolution');
+        expect(ladder!.values).toEqual(['640x480', '1280x960', '1920x1440']);
       });
     });
   });
@@ -2844,6 +2855,7 @@ describe('getLaunchCounts / recordSystemLaunch / getTopLaunchedSystems', () => {
       'psx',
       'nds',
       'segaSaturn',
+      'segaDC',
     ]);
   });
 

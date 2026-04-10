@@ -2082,14 +2082,17 @@ describe('PSPEmulator', () => {
       expect(() => emulator.setVolume(2)).not.toThrow();
     });
 
-    it('applies volume to EJS_emulator when available', () => {
+    it('applies volume through the core bridge when available', () => {
       const setVolumeSpy = vi.fn();
-      (window as Window & { EJS_emulator?: { setVolume: (v: number) => void } }).EJS_emulator = {
-        setVolume: setVolumeSpy,
-      };
+      (
+        emulator as unknown as {
+          _bridge: { setVolume: (v: number) => void };
+        }
+      )._bridge = { setVolume: setVolumeSpy };
+
       emulator.setVolume(0.75);
+
       expect(setVolumeSpy).toHaveBeenCalledWith(0.75);
-      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
     });
   });
 
@@ -2594,7 +2597,7 @@ describe('PSPEmulator', () => {
       delete (window as unknown as Record<string, unknown>).EJS_biosUrl;
     });
 
-    it('sets EJS_biosUrl when biosUrl is provided', async () => {
+    it('sets EJS_biosUrl when biosUrl is provided as a string', async () => {
       emulator.onError = () => {};
       await emulator.launch({
         file:            new File(['data'], 'game.nes'),
@@ -2607,6 +2610,22 @@ describe('PSPEmulator', () => {
 
       expect((window as unknown as Record<string, unknown>).EJS_biosUrl)
         .toBe('blob:fake-bios-url');
+    });
+
+    it('sets EJS_biosUrl when biosUrl is provided as a File', async () => {
+      const biosFile = new File(['bios'], 'dreamcast-bios.zip', { type: 'application/zip' });
+
+      emulator.onError = () => {};
+      await emulator.launch({
+        file:            new File(['data'], 'game.nes'),
+        volume:          0.7,
+        systemId:        'nes',
+        performanceMode: 'auto',
+        deviceCaps:      fakeCaps,
+        biosUrl:         biosFile,
+      });
+
+      expect((window as unknown as Record<string, unknown>).EJS_biosUrl).toBe(biosFile);
     });
 
     it('does not set EJS_biosUrl when biosUrl is omitted', async () => {

@@ -1,0 +1,27 @@
+
+> retrovault@1.0.0 lint
+> eslint src
+
+
+C:\Users\allen\Music\WebPPSSPP\src\multiplayer.ts
+  263:38  warning  Unexpected any. Specify a different type      @typescript-eslint/no-explicit-any
+  263:43  warning  Unsafe member access .mark on an `any` value  @typescript-eslint/no-unsafe-member-access
+
+C:\Users\allen\Music\WebPPSSPP\src\ui.ts
+   136:5   warning  Unsafe assignment of an `any` value                                                                                                                                 @typescript-eslint/no-unsafe-assignment
+   139:5   warning  Unsafe return of a value of type `any`                                                                                                                              @typescript-eslint/no-unsafe-return
+   152:48  warning  Unsafe member access .x on an `any` value                                                                                                                           @typescript-eslint/no-unsafe-member-access
+   153:47  warning  Unsafe member access .y on an `any` value                                                                                                                           @typescript-eslint/no-unsafe-member-access
+   964:15  error    Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  1440:5   warning  '_preMuteVolume' is never reassigned. Use 'const' instead                                                                                                           prefer-const
+  1724:10  warning  'volIcon' is defined but never used. Allowed unused vars must match /^_/u                                                                                           @typescript-eslint/no-unused-vars
+  2752:5   error    Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  2766:7   error    Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  2916:9   error    Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+  2923:30  warning  Unexpected any. Specify a different type                                                                                                                            @typescript-eslint/no-explicit-any
+  3423:16  warning  'openSaveGallery' is defined but never used. Allowed unused vars must match /^_/u                                                                                   @typescript-eslint/no-unused-vars
+  4065:10  warning  'openPerGameGraphicsDialog' is defined but never used. Allowed unused vars must match /^_/u                                                                         @typescript-eslint/no-unused-vars
+
+✖ 15 problems (4 errors, 11 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

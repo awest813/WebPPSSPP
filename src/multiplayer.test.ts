@@ -142,9 +142,9 @@ describe('NetplayManager', () => {
 
   it('starts disabled with no server URL by default', () => {
     const mgr = new NetplayManager();
-    expect(mgr.enabled).toBe(false);
-    expect(mgr.serverUrl).toBe('');
-    expect(mgr.isActive).toBe(false);
+    expect(mgr.enabled).toBe(true);
+    expect(mgr.serverUrl).toBe('wss://relay.emulatorjs.org');
+    expect(mgr.isActive).toBe(true);
   });
 
   it('starts with the default public STUN ICE servers', () => {
@@ -156,6 +156,7 @@ describe('NetplayManager', () => {
   it('isActive is false when enabled but no server URL is set', () => {
     const mgr = new NetplayManager();
     mgr.setEnabled(true);
+    mgr.setServerUrl('');
     expect(mgr.isActive).toBe(false);
   });
 
@@ -271,8 +272,8 @@ describe('NetplayManager', () => {
   it('survives corrupted localStorage gracefully', () => {
     localStorage.setItem('rv:netplay', 'not-valid-json{{{');
     const mgr = new NetplayManager();
-    expect(mgr.enabled).toBe(false);
-    expect(mgr.serverUrl).toBe('');
+    expect(mgr.enabled).toBe(true);
+    expect(mgr.serverUrl).toBe('wss://relay.emulatorjs.org');
     expect(mgr.iceServers).toEqual(DEFAULT_ICE_SERVERS);
   });
 

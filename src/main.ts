@@ -23,6 +23,7 @@ import { PSPEmulator }   from "./emulator.js";
 import { scheduleAutoRestoreOnGameStart } from "./autoRestore.js";
 import { SaveGameService } from "./saveService.js";
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
+import { getNetplayManager, peekNetplayManager } from "./netplaySingleton.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsProfile } from "./library.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
@@ -309,8 +310,7 @@ async function main(): Promise<void> {
       : null,
   });
   
-  // Lazy-load NetplayManager only when first needed (Phase 5 Optimization)
-  const { getNetplayManager, peekNetplayManager } = await import("./netplaySingleton.js");
+  // NetplayManager remains lazily instantiated by the singleton helper.
   // Don't instantiate yet — getNetplayManager() will do it on demand.
 
   // Propagate verbose logging from settings into the emulator so debug
@@ -481,9 +481,9 @@ async function main(): Promise<void> {
       if (typeof gfxProfile.drsEnabled === "boolean") emulator.enableDRS(gfxProfile.drsEnabled);
     }
 
-    let biosUrl: string | undefined;
+    let biosUrl: string | File | undefined;
     try {
-      const primaryBios = await biosLibrary.getPrimaryBiosUrl(systemId);
+      const primaryBios = await biosLibrary.getLaunchBiosAsset(systemId);
       if (primaryBios) biosUrl = primaryBios;
     } catch {}
 
@@ -538,7 +538,7 @@ async function main(): Promise<void> {
         const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
         orientation.unlock?.();
       } catch { /* orientation lock not supported */ }
-      if (biosUrl) URL.revokeObjectURL(biosUrl);
+      if (typeof biosUrl === "string" && biosUrl.startsWith("blob:")) URL.revokeObjectURL(biosUrl);
     }
   };
 

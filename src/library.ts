@@ -31,6 +31,7 @@
 
 import type { PerformanceTier, ResolutionPreset } from "./performance.js";
 import type { PostProcessEffect } from "./webgpuPostProcess.js";
+import { createUuid } from "./uuid.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -124,15 +125,6 @@ function promisify<T>(req: IDBRequest<T>): Promise<T> {
 
 // ── UUID helper ───────────────────────────────────────────────────────────────
 
-function uuid(): string {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-    const r = crypto.getRandomValues(new Uint8Array(1))[0]! & 0x0f;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
 // ── Blob cache (WeakRef-based) ────────────────────────────────────────────────
 
 /**
@@ -192,7 +184,7 @@ export class GameLibrary {
   async addGame(file: File, systemId: string): Promise<GameEntry> {
     const db    = await openDB();
     const entry: GameEntry = {
-      id:           uuid(),
+      id:           createUuid(),
       name:         file.name.replace(/\.[^.]+$/, ""),
       fileName:     file.name,
       systemId,

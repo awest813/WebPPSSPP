@@ -45,7 +45,7 @@ Open `http://localhost:5173`.
 
 - **Many systems** via EmulatorJS — PSP (PPSSPP), N64, PS1 (Beetle PSX HW), NDS (DeSmuME 2015), GBA, SNES, NES, Sega Genesis / Saturn (Yabause), arcade (FBNeo / MAME 2003+), Atari, Neo Geo Pocket, and more
 - **Core alignment**: NDS tier tables force `desmume2015` (EmulatorJS otherwise prefers melonDS first). Saturn uses Yabause with RetroVault-specific `yabause_*` tier presets (not Beetle Saturn).
-- **Dreamcast**: ROM types and BIOS management exist for library organisation, but **launch is disabled** because the stable EmulatorJS CDN does not ship a Dreamcast core; attempting to run a game shows a clear error instead of a failed download inside the loader.
+- **Dreamcast**: available through an external Flycast WASM core with ROM-type and BIOS support, but it is **experimental** and still being stabilized; some games may boot slowly, glitch, or crash.
 - **Archive support**: ZIP, 7z, and RAR files are transparently extracted before launch
 - **Soft-patch support**: Full IPS, BPS, and UPS patcher with CRC verification
 - **Multi-disc games**: `.m3u` support for PS1, Saturn, and Dreamcast with disc-picker UI
@@ -278,7 +278,7 @@ RetroVault tracks work in [`docs/ROADMAP.md`](docs/ROADMAP.md). Phases 1–9 are
 - **Community & saves** — ratings/notes, shareable configuration JSON, optional compatibility telemetry, more cloud save providers
 - **Platform** — Electron desktop wrapper, Android Trusted Web Activity, deeper Gamepad API (calibration, rumble, remapping)
 - **Developer experience** — plugin surface, in-game debug overlay, Playwright regression runs in CI
-- **Research / upstream** — Dreamcast launch when a stable CDN core exists, rollback netcode, WebGPU-native paths inside upstream cores
+- **Research / upstream** — Dreamcast stabilization and eventual migration to an officially hosted stable core, rollback netcode, WebGPU-native paths inside upstream cores
 
 Performance targets and contribution expectations for roadmap-sized work stay in the same doc.
 

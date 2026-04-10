@@ -170,6 +170,8 @@ describe('systems performance profiles', () => {
     // Dreamcast uses Flycast (reicast core options)
     expect(dc?.tierSettings?.low?.reicast_frame_skipping).toBe('enabled');
     expect(dc?.tierSettings?.ultra?.reicast_internal_resolution).toBe('1920x1440');
+    expect(dc?.experimental).toBe(true);
+    expect(dc?.stabilityNotice).toContain('stabil');
   });
 
   describe('PSP audio latency settings', () => {
@@ -377,12 +379,11 @@ describe('systems performance profiles', () => {
     it('returns tier settings for NDS low tier', () => {
       const settings = getNDSSettingsForTier('low');
       expect(settings.retroarch_core).toBe('desmume2015');
+      expect(settings.desmume_num_cores).toBe('1');
       expect(settings.desmume_frameskip).toBe('2');
       expect(settings.desmume_cpu_mode).toBe('interpreter');
       expect(settings.desmume_pointer_type).toBe('touch');
-      expect(settings.desmume_motion_enabled).toBe('disabled');
-      expect(settings.desmume_gyro_enabled).toBe('disabled');
-      expect(settings.desmume_filtering).toBe('none');
+      expect(settings.desmume_color_depth).toBe('16-bit');
     });
 
     it('returns tier settings for NDS ultra tier', () => {
@@ -390,9 +391,8 @@ describe('systems performance profiles', () => {
       expect(settings.retroarch_core).toBe('desmume2015');
       expect(settings.desmume_internal_resolution).toBe('1024x768');
       expect(settings.desmume_cpu_mode).toBe('jit');
-      expect(settings.desmume_motion_enabled).toBe('enabled');
-      expect(settings.desmume_gyro_enabled).toBe('enabled');
-      expect(settings.desmume_filtering).toBe('bilinear');
+      expect(settings.desmume_num_cores).toBe('2');
+      expect(settings.desmume_color_depth).toBe('32-bit');
     });
 
     it('high tier enables advanced timing and OpenGL', () => {

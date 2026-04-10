@@ -360,6 +360,51 @@ describe('BiosLibrary.getPrimaryBiosUrl', () => {
   });
 });
 
+describe('BiosLibrary.getLaunchBiosAsset', () => {
+  let lib: BiosLibrary;
+
+  beforeEach(async () => {
+    lib = new BiosLibrary();
+    await lib.clearAll();
+  });
+
+  it('returns a blob URL string for single-BIOS systems', async () => {
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:fake-bios-url'),
+      revokeObjectURL: vi.fn(),
+    });
+
+    await lib.addBios(makeBiosFile('scph5501.bin'), 'psx');
+    const asset = await lib.getLaunchBiosAsset('psx');
+
+    expect(asset).toBe('blob:fake-bios-url');
+    vi.unstubAllGlobals();
+  });
+
+  it('returns null for Dreamcast when a required BIOS file is missing', async () => {
+    await lib.addBios(makeBiosFile('dc_boot.bin'), 'segaDC');
+    const asset = await lib.getLaunchBiosAsset('segaDC');
+    expect(asset).toBeNull();
+  });
+
+  it('returns a ZIP File for Dreamcast containing both BIOS files', async () => {
+    await lib.addBios(makeBiosFile('dc_boot.bin'), 'segaDC');
+    await lib.addBios(makeBiosFile('dc_flash.bin'), 'segaDC');
+
+    const asset = await lib.getLaunchBiosAsset('segaDC');
+    expect(asset).toBeInstanceOf(File);
+    expect((asset as File).name).toBe('dreamcast-bios.zip');
+
+    const bytes = new Uint8Array(await (asset as File).arrayBuffer());
+    expect(bytes[0]).toBe(0x50); // P
+    expect(bytes[1]).toBe(0x4b); // K
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toContain('dc/dc_boot.bin');
+    expect(text).toContain('dc/dc_flash.bin');
+  });
+});
+
 // ── getBiosStatus ─────────────────────────────────────────────────────────────
 
 describe('BiosLibrary.getBiosStatus', () => {

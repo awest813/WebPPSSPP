@@ -1,7 +1,9 @@
 // ── Known console.error suppressions ─────────────────────────────────────────
 
-const JSDOM_CANVAS_GET_CONTEXT_WARNING =
-  "Not implemented: HTMLCanvasElement's getContext() method";
+const JSDOM_CANVAS_GET_CONTEXT_WARNINGS = [
+  "Not implemented: HTMLCanvasElement's getContext() method",
+  "Not implemented: HTMLCanvasElement.prototype.getContext",
+] as const;
 
 function matchesString(arg: unknown, needle: string): boolean {
   if (typeof arg === "string") return arg.includes(needle);
@@ -17,7 +19,9 @@ function matchesString(arg: unknown, needle: string): boolean {
 }
 
 function isExpectedJsdomCanvasWarning(args: unknown[]): boolean {
-  return args.some((arg) => matchesString(arg, JSDOM_CANVAS_GET_CONTEXT_WARNING));
+  return JSDOM_CANVAS_GET_CONTEXT_WARNINGS.some((pattern) =>
+    args.some((arg) => matchesString(arg, pattern)),
+  );
 }
 
 // jsdom logs this message when the optional native `canvas` dependency is not
@@ -103,4 +107,49 @@ if (typeof window !== "undefined" && !window.matchMedia) {
       dispatchEvent: () => false,
     } as MediaQueryList),
   });
+}
+
+// Older jsdom environments may lack PointerEvent. A lightweight MouseEvent-
+// based shim is sufficient for the touch-control tests in this repo.
+if (typeof globalThis !== "undefined" && typeof globalThis.PointerEvent === "undefined") {
+  class PointerEventShim extends MouseEvent {
+    pointerId: number;
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+    }
+  }
+
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    writable: true,
+    value: PointerEventShim,
+  });
+}
+
+// Older jsdom versions used for Vitest compatibility may not implement the
+// Blob convenience readers that browser code relies on.
+if (typeof Blob !== "undefined") {
+  if (!Blob.prototype.arrayBuffer) {
+    Blob.prototype.arrayBuffer = async function (): Promise<ArrayBuffer> {
+      const reader = new FileReader();
+      return await new Promise<ArrayBuffer>((resolve, reject) => {
+        reader.onerror = () => reject(reader.error ?? new Error("Failed to read blob as ArrayBuffer"));
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.readAsArrayBuffer(this as Blob);
+      });
+    };
+  }
+
+  if (!Blob.prototype.text) {
+    Blob.prototype.text = async function (): Promise<string> {
+      const reader = new FileReader();
+      return await new Promise<string>((resolve, reject) => {
+        reader.onerror = () => reject(reader.error ?? new Error("Failed to read blob as text"));
+        reader.onload = () => resolve(String(reader.result ?? ""));
+        reader.readAsText(this as Blob);
+      });
+    };
+  }
 }
