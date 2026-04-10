@@ -77,7 +77,7 @@ import {
   SYSTEM_LINK_CAPABILITIES,
   roomDisplayNameForKey,
 } from "./multiplayerUtils.js";
-import { getNetplayManager, peekNetplayManager } from "./netplaySingleton.js";
+import { getNetplayManager, peekNetplayManager, registerNetplayInstance } from "./netplaySingleton.js";
 import { resolveNetplayRoomKey } from "./multiplayer.js"; // Stay in lazy chunk for now
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
 import type { EasyNetplayRoom } from "./netplay/netplayTypes.js";
@@ -86,6 +86,7 @@ import { checkSystemSupport } from "./netplay/compatibility.js";
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 import { SaveGameService } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
+import { ArchiveSelectionStore } from "./archiveStore.js";
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
 let _canInstallPWA: (() => boolean) | undefined;
@@ -416,7 +417,7 @@ export function buildDOM(app: HTMLElement): void {
         <div class="onboarding" id="onboarding">
           <div class="welcome-hero">
             <h2 class="welcome-hero__title">Your retro games, in your browser</h2>
-            <p class="welcome-hero__tagline">PSP · N64 · PS1 · GBA · SNES · NES and 20+ more systems — no installs, no account, just pure play</p>
+            <p class="welcome-hero__tagline">PSP · N64 · PS1 · GBA · SNES · NES · DS · Genesis and more — no installs, no account, just pure play</p>
             <div class="welcome-steps">
               <div class="welcome-step">
                 <span class="welcome-step__num" aria-hidden="true">1</span>
@@ -477,9 +478,10 @@ export function buildDOM(app: HTMLElement): void {
         <div id="dev-overlay" class="dev-overlay" hidden aria-label="System diagnostic dashboard" aria-live="off">
           <div class="dev-overlay__title">System Diagnostic</div>
           <div class="dev-overlay__grid">
-            <span class="dev-overlay__label">Frame Time</span><span id="dev-ft" class="dev-overlay__value">--ms</span>
+            <span class="dev-overlay__label">Frame Time</span><span id="dev-frame-time" class="dev-overlay__value">--ms</span>
             <span class="dev-overlay__label">Performance</span><span id="dev-fps" class="dev-overlay__value">-- FPS</span>
             <span class="dev-overlay__label">P95 Latency</span><span id="dev-p95" class="dev-overlay__value">--ms</span>
+            <span class="dev-overlay__label">Dropped</span><span id="dev-dropped" class="dev-overlay__value">0</span>
             <span class="dev-overlay__label">Memory</span><span id="dev-memory" class="dev-overlay__value">--MB</span>
             <span class="dev-overlay__label">System State</span><span id="dev-state" class="dev-overlay__value">idle</span>
           </div>
@@ -604,11 +606,13 @@ export interface UIOptions {
   getCurrentGameName: () => string | null;
   getCurrentSystemId: () => string | null;
   /** Get all current core options (libretro keys). */
-  getCurrentCoreOptions: () => Record<string, string>;
+  getCurrentCoreOptions?: () => Record<string, string>;
   /** Update a specific core option at runtime. */
-  onUpdateCoreOption: (key: string, value: string) => void;
-  getTouchOverlay?:   () => TouchControlsOverlay | null;
-  getNetplayManager:  () => Promise<import("./multiplayer.js").NetplayManager>;
+  onUpdateCoreOption?: (key: string, value: string) => void;
+  getTouchOverlay?:    () => TouchControlsOverlay | null;
+  getNetplayManager?:  () => Promise<import("./multiplayer.js").NetplayManager>;
+  /** Pre-existing NetplayManager instance — registers it as the singleton when provided (useful for tests). */
+  netplayManager?:    import("./multiplayer.js").NetplayManager;
   canInstallPWA?:     () => boolean;
   onInstallPWA?:      () => Promise<boolean>;
 }
@@ -620,6 +624,12 @@ export function initUI(opts: UIOptions): void {
   // repeated initUI() calls (tests/hot-reload) don't accumulate handlers.
   _initUICleanup?.();
   _initUICleanup = null;
+
+  // If a pre-existing NetplayManager instance is provided, register it as the
+  // global singleton so that peekNetplayManager() returns it synchronously.
+  if (opts.netplayManager) {
+    registerNetplayInstance(opts.netplayManager);
+  }
 
   const { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps,
           onLaunchGame, onSettingsChange, onReturnToLibrary,
@@ -928,6 +938,10 @@ export function initUI(opts: UIOptions): void {
   _initUICleanup = () => {
     cleanupFns.forEach((cleanup) => cleanup());
     cleanupFns.length = 0;
+    // Abort any stale in-game controls AbortController so that window/document
+    // keydown handlers registered by buildInGameControls are cleaned up too.
+    _inGameControlsAc?.abort();
+    _inGameControlsAc = null;
   };
 
   void renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
@@ -1144,7 +1158,7 @@ export async function renderLibrary(
 
   grid.innerHTML = "";
 
-  const isCinematicMode = !_librarySearchQuery && !_librarySystemFilter && _librarySortMode === "lastPlayed";
+  const isCinematicMode = !_librarySearchQuery && !_librarySystemFilter && _librarySortMode === "lastPlayed" && displayed.length >= 5;
 
   if (displayed.length === 0 && allGames.length > 0) {
     const empty = make("div", { class: "library-empty" });
@@ -2125,7 +2139,6 @@ export async function resolveSystemAndAdd(
       if (extracted) {
         const extractedCandidates = extracted.candidates ?? [];
         if (extractedCandidates.length > 1) {
-          const { ArchiveSelectionStore } = await import("./archiveStore.js");
           const savedPick = ArchiveSelectionStore.get(file.name, file.size);
           const pickedCandidate = savedPick 
             ? extractedCandidates.find(c => c.name === savedPick)
@@ -2594,9 +2607,20 @@ export function buildLandingControls(
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
   onResumeGame?:    () => void,
   saveLibrary?:     SaveStateLibrary,
-  getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>,
+  getNetplayManagerOrInstance?: (() => Promise<import("./multiplayer.js").NetplayManager>) | import("./multiplayer.js").NetplayManager,
   onOpenPlayTogetherSettings?: () => void,
 ): void {
+  // Accept either a factory function or a pre-existing instance (e.g. from tests).
+  if (typeof getNetplayManagerOrInstance !== "function" && getNetplayManagerOrInstance != null) {
+    registerNetplayInstance(getNetplayManagerOrInstance);
+  }
+  const getNetplayManager: (() => Promise<import("./multiplayer.js").NetplayManager>) | undefined =
+    typeof getNetplayManagerOrInstance === "function"
+      ? getNetplayManagerOrInstance
+      : getNetplayManagerOrInstance != null
+        ? () => Promise.resolve(getNetplayManagerOrInstance)
+        : undefined;
+
   const container = el("#header-actions");
   container.innerHTML = "";
 
@@ -2640,16 +2664,20 @@ export function buildLandingControls(
   }) as HTMLButtonElement;
   btnMultiplayer.innerHTML = `<img src="/assets/netplay_icon_premium_1775434064140.png" width="18" height="18" style="vertical-align:middle;margin-right:6px" /> Multiplayer`;
   btnMultiplayer.addEventListener("click", () => {
-    if (getNetplayManager) {
-      void getNetplayManager().then(nm => {
-        openEasyNetplayModal({
-          netplayManager: nm,
-          currentGameName:  null,
-          currentGameId:    null,
-          currentSystemId:  emulatorRef?.currentSystem?.id ?? null,
-          onOpenPlayTogetherSettings,
-        });
+    const openWith = (nm: import("./multiplayer.js").NetplayManager) => {
+      openEasyNetplayModal({
+        netplayManager: nm,
+        currentGameName:  null,
+        currentGameId:    null,
+        currentSystemId:  emulatorRef?.currentSystem?.id ?? null,
+        onOpenPlayTogetherSettings,
       });
+    };
+    const nmNow = peekNetplayManager();
+    if (nmNow) {
+      openWith(nmNow);
+    } else if (getNetplayManager) {
+      void getNetplayManager().then(openWith);
     }
   });
 
@@ -2685,7 +2713,142 @@ function buildInGameControls(
   _inGameControlsAc = new AbortController();
   const signal = _inGameControlsAc.signal;
 
-  // Menu button — the only visible control when the game is running
+  // ── Quick Save button ──────────────────────────────────────────────────────
+  if (saveService) {
+    const btnSave = make("button", {
+      class: "btn",
+      title: "Quick save (F5)",
+      "aria-label": "Quick save to slot 1",
+    }) as HTMLButtonElement;
+    btnSave.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
+    btnSave.addEventListener("click", () => {
+      void saveService.saveSlot(1).then((entry) => {
+        if (entry) showInfoToast("Saved to Slot 1");
+        else showError("Quick save failed — add this game to your library or wait for the core to finish starting.");
+      });
+    }, { signal });
+    container.append(btnSave);
+  }
+
+  // ── Quick Load button ──────────────────────────────────────────────────────
+  if (saveService) {
+    const btnLoad = make("button", {
+      class: "btn",
+      title: "Quick load (F7)",
+      "aria-label": "Quick load from slot 1",
+    }) as HTMLButtonElement;
+    btnLoad.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>`;
+    btnLoad.addEventListener("click", () => {
+      void saveService.loadSlot(1).then((ok) => {
+        if (ok) showInfoToast("Loaded Slot 1");
+        else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
+      });
+    }, { signal });
+    container.append(btnLoad);
+  }
+
+  // ── Save Gallery button ────────────────────────────────────────────────────
+  const btnGallery = make("button", {
+    class: "btn",
+    title: "Save states",
+    "aria-label": "Open save state gallery",
+  }) as HTMLButtonElement;
+  btnGallery.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
+  btnGallery.addEventListener("click", () => {
+    const gameId = getCurrentGameId?.();
+    if (!gameId) {
+      showInfoToast("Add this game to your library to save progress.", "info");
+      return;
+    }
+    void showInGameMenu({
+      emulator, settings, onSettingsChange, onReturnToLibrary,
+      saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
+      getCurrentSystemId, getTouchOverlay, onOpenSettings,
+      getNetplayManager, onOpenPlayTogetherSettings,
+    });
+  }, { signal });
+  container.append(btnGallery);
+
+  // ── Netplay button ─────────────────────────────────────────────────────────
+  if (onOpenSettings || getNetplayManager) {
+    const currentSys = getCurrentSystemId?.() ?? null;
+    const nm = peekNetplayManager();
+    const isSupported = currentSys != null && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(
+      currentSys as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number]
+    );
+    const isActive = (nm?.isActive === true) || (settings.netplayEnabled && settings.netplayServerUrl.trim().length > 0);
+    const btnNetplay = make("button", {
+      class: isActive ? "btn btn--active" : "btn",
+      title: isSupported ? "Online multiplayer" : "Multiplayer not available for this system",
+      "aria-label": "Open multiplayer",
+    }) as HTMLButtonElement;
+    btnNetplay.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Online`;
+    btnNetplay.disabled = !isSupported || !isActive;
+    btnNetplay.addEventListener("click", () => {
+      if (getNetplayManager) {
+        void getNetplayManager().then(nm => {
+          openEasyNetplayModal({
+            netplayManager: nm,
+            currentGameName:  getCurrentGameName?.() ?? null,
+            currentGameId:    getCurrentGameId?.() ?? null,
+            currentSystemId:  getCurrentSystemId?.() ?? null,
+            onOpenPlayTogetherSettings,
+          });
+        });
+      }
+    }, { signal });
+    container.append(btnNetplay);
+  }
+
+  // ── Touch controls edit/reset buttons (touch devices only) ───────────────────
+  if (isTouchDevice()) {
+    const btnEditTouch = make("button", {
+      class: "btn",
+      title: "Edit touch control layout",
+      "aria-label": "Edit touch control layout",
+    }) as HTMLButtonElement;
+    btnEditTouch.textContent = "🎮 Edit";
+    btnEditTouch.disabled = !settings.touchControls;
+    btnEditTouch.addEventListener("click", () => {
+      const overlay = getTouchOverlay?.();
+      if (overlay) {
+        overlay.setEditing(true);
+        btnResetTouch.style.display = "";
+      }
+    }, { signal });
+
+    const btnResetTouch = make("button", {
+      class: "btn",
+      title: "Reset touch control layout to defaults",
+      "aria-label": "Reset touch control layout",
+    }) as HTMLButtonElement;
+    btnResetTouch.textContent = "Reset Layout";
+    btnResetTouch.style.display = "none";
+    btnResetTouch.addEventListener("click", () => {
+      const overlay = getTouchOverlay?.();
+      if (overlay) overlay.resetToDefaults();
+    }, { signal });
+
+    container.append(btnEditTouch, btnResetTouch);
+  }
+
+  // ── Reset button ─────────────────────────────────────────────────────────────
+  const btnReset = make("button", {
+    class: "btn btn--warn",
+    title: "Reset emulator (F1)",
+    "aria-label": "Reset emulator",
+  }) as HTMLButtonElement;
+  btnReset.textContent = "↺ Reset";
+  btnReset.addEventListener("click", async () => {
+    const confirmed = await showConfirmDialog(
+      "This will restart the game from the beginning. Unsaved progress will be lost.",
+      { title: "Reset Game?", confirmLabel: "Reset", isDanger: true },
+    );
+    if (confirmed) emulator.reset();
+  }, { signal });
+  container.append(btnReset);
+
+  // ── Menu button ─────────────────────────────────────────────────────────────
   const btnMenu = make("button", {
     class: "btn btn--gradient",
     title: "Open Menu (Esc)",
@@ -2801,6 +2964,9 @@ async function showInGameMenu(ctx: {
     content.appendChild(body);
 
     if (type === "saves") {
+      // Cloud save bar
+      body.appendChild(buildCloudSaveBar());
+
       const states = ctx.saveLibrary ? await ctx.saveLibrary.getStatesForGame(gameId) : [];
       const slots = Array.from({ length: 8 }, (_, i) => i + 1);
 
@@ -2922,7 +3088,7 @@ async function showInGameMenu(ctx: {
       const perfSel = perfRow.querySelector("select") as HTMLSelectElement;
       perfSel.addEventListener("change", () => {
         ctx.onSettingsChange({ performanceMode: perfSel.value as PerformanceMode });
-        showInfoToast(`Performance: ${perfSel.value === "performance" ? "Performance" : perfSel.value === "quality" ? "Quality" : "Adaptive"}`);
+        showInfoToast(`Performance profile: ${perfSel.options[perfSel.selectedIndex]?.text ?? perfSel.value}`);
       }, { signal });
       grid.appendChild(perfRow);
 
@@ -3139,15 +3305,6 @@ async function showInGameMenu(ctx: {
   }, { signal, once: true });
 }
 
-// ── Cloud save bar ────────────────────────────────────────────────────────────
-
-/**
- * Build the cloud-save bar that sits between the gallery header and slot grid.
- * The bar renders the connection status and provides Connect / Disconnect /
- * Sync Now buttons.  It self-updates when cloudManager.onStatusChange fires.
- */
-
-
 // ── Auto-save restore prompt ──────────────────────────────────────────────────
 
 export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameId: string): Promise<boolean> {
@@ -3177,12 +3334,25 @@ export function openSettingsPanel(
   emulatorRef?:     import("./emulator.js").PSPEmulator,
   onLaunchGame?:    (file: File, systemId: string, gameId?: string) => Promise<void>,
   saveLibrary?:     SaveStateLibrary,
-  getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>,
+  getNetplayManagerOrInstance?: (() => Promise<import("./multiplayer.js").NetplayManager>) | import("./multiplayer.js").NetplayManager,
   initialTab?:      SettingsTab
 ): void {
   const panel   = document.getElementById("settings-panel")!;
   const content = document.getElementById("settings-content")!;
   const previousFocus = document.activeElement as HTMLElement | null;
+
+  // Normalise: accept either a factory function or a direct NetplayManager instance.
+  // When a direct instance is passed, register it as the global singleton so that
+  // peekNetplayManager() returns it — enabling synchronous calls in tab builders.
+  if (typeof getNetplayManagerOrInstance !== "function" && getNetplayManagerOrInstance != null) {
+    registerNetplayInstance(getNetplayManagerOrInstance);
+  }
+  const getNetplayManager: (() => Promise<import("./multiplayer.js").NetplayManager>) | undefined =
+    typeof getNetplayManagerOrInstance === "function"
+      ? getNetplayManagerOrInstance
+      : getNetplayManagerOrInstance != null
+        ? () => Promise.resolve(getNetplayManagerOrInstance)
+        : undefined;
 
   buildSettingsContent(content, settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, getNetplayManager, initialTab);
   panel.hidden = false;
@@ -5007,6 +5177,138 @@ function _renderRoomCard(
   container.appendChild(card);
 }
 
+// ── Cloud save bar ────────────────────────────────────────────────────────────
+
+/**
+ * Build the cloud-save bar shown at the top of the save-state gallery.
+ * Renders current connection status, a Connect/Disconnect button,
+ * and last-sync information.  Opens a provider selection dialog on "Connect".
+ */
+function buildCloudSaveBar(): HTMLElement {
+  const cloudManager = getCloudSaveManager();
+  const bar = make("div", { class: "cloud-bar" });
+
+  const statusSection = make("div", { class: "cloud-bar__status" });
+  const statusBody    = make("div", { class: "cloud-bar__status-body" });
+
+  const statusText = make("span", { class: "cloud-bar__status-text" });
+  const lastSync   = make("span", { class: "cloud-bar__last-sync" });
+
+  const actions = make("div", { class: "cloud-bar__actions" });
+
+  const isConnected = cloudManager.isConnected();
+
+  // Status text
+  if (isConnected) {
+    statusText.textContent = cloudManager.activeProvider.displayName;
+    statusText.classList.add("cloud-bar__status-text--ok");
+  } else {
+    statusText.textContent = "Not connected";
+  }
+
+  // Last-sync hint or timestamp
+  if (!isConnected) {
+    lastSync.textContent = "Connect to sync saves across devices";
+    lastSync.classList.add("cloud-bar__last-sync--hint");
+  } else {
+    const lastSyncAt = cloudManager.lastSyncAt;
+    lastSync.textContent = lastSyncAt
+      ? `Last sync: ${formatRelativeTime(lastSyncAt)}`
+      : "Not synced yet";
+  }
+
+  statusBody.append(statusText, lastSync);
+  statusSection.appendChild(statusBody);
+
+  // Connect / Disconnect button
+  if (isConnected) {
+    const disconnectBtn = make("button", { class: "btn btn--sm" }, "Disconnect") as HTMLButtonElement;
+    disconnectBtn.addEventListener("click", () => {
+      cloudManager.disconnect();
+      bar.replaceWith(buildCloudSaveBar());
+    });
+    actions.appendChild(disconnectBtn);
+  } else {
+    const connectBtn = make("button", { class: "btn btn--sm btn--primary" }, "☁ Connect") as HTMLButtonElement;
+    connectBtn.addEventListener("click", () => {
+      void showCloudConnectDialog().then(configured => {
+        if (configured) bar.replaceWith(buildCloudSaveBar());
+      });
+    });
+    actions.appendChild(connectBtn);
+  }
+
+  bar.append(statusSection, actions);
+  return bar;
+}
+
+/**
+ * Show the cloud-provider connection dialog.
+ * Returns true if the user successfully configured a provider.
+ */
+async function showCloudConnectDialog(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box = make("div", {
+      class: "confirm-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Cloud Connection",
+    });
+
+    const title = make("h3", { class: "confirm-box__title" }, "Connect Cloud Storage");
+    const desc  = make("p", { class: "confirm-box__body" },
+      "Choose a cloud provider to sync your save states across devices."
+    );
+
+    const providerRow = make("div", { class: "settings-input-row" });
+    const providerLabel = make("label", { class: "settings-input-label", for: "cloud-provider-sel" }, "Provider");
+    const providerSel = make("select", {
+      id:    "cloud-provider-sel",
+      class: "settings-input",
+    }) as HTMLSelectElement;
+    const providers: Array<{ value: string; label: string }> = [
+      { value: "gdrive",  label: "Google Drive" },
+      { value: "webdav",  label: "WebDAV" },
+      { value: "dropbox", label: "Dropbox" },
+      { value: "pcloud",  label: "pCloud" },
+    ];
+    for (const p of providers) {
+      const opt = document.createElement("option");
+      opt.value = p.value;
+      opt.textContent = p.label;
+      providerSel.appendChild(opt);
+    }
+    providerRow.append(providerLabel, providerSel);
+
+    const btnRow = make("div", { class: "confirm-box__actions" });
+    const cancelBtn = make("button", { class: "btn" }, "Cancel") as HTMLButtonElement;
+    const connectBtn = make("button", { class: "btn btn--primary" }, "Continue") as HTMLButtonElement;
+    btnRow.append(cancelBtn, connectBtn);
+
+    box.append(title, desc, providerRow, btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const close = (result: boolean) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    cancelBtn.addEventListener("click", () => close(false));
+    connectBtn.addEventListener("click", () => {
+      // Open settings to the cloud tab for full configuration
+      _openSettingsFn?.("library");
+      close(false);
+    });
+
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(false); }
+    };
+    document.addEventListener("keydown", onKeydown, { capture: true, once: true });
+  });
+}
+
 // ── Multiplayer tab ───────────────────────────────────────────────────────────
 
 function buildMultiplayerTab(
@@ -5019,6 +5321,14 @@ function buildMultiplayerTab(
 ): void {
   // Use peek for immediate status checks to avoid eager loading the manager
   peekNetplayManager();
+
+  // Sync-first helper: calls a method on the manager synchronously if already loaded,
+  // otherwise falls back to the async factory. This keeps tests synchronous.
+  const callNm = (fn: (m: import("./multiplayer.js").NetplayManager) => void): void => {
+    const nm = peekNetplayManager();
+    if (nm) { fn(nm); }
+    else if (getNetplayManager) { void getNetplayManager().then(fn); }
+  };
 
   // Intro section
   const introSection = make("div", { class: "settings-section" });
@@ -5056,9 +5366,7 @@ function buildMultiplayerTab(
     settings.netplayEnabled,
     (v) => {
       onSettingsChange({ netplayEnabled: v });
-      if (getNetplayManager) {
-        void getNetplayManager().then(m => m.setEnabled(v));
-      }
+      callNm(m => m.setEnabled(v));
       serverSection.hidden = !v;
       updateStatusBadge();
     }
@@ -5086,6 +5394,7 @@ function buildMultiplayerTab(
     autocomplete: "off",
     spellcheck:   "false",
   }) as HTMLInputElement;
+  urlInput.addEventListener("input", () => urlInput.setCustomValidity(""));
   urlInput.addEventListener("change", () => {
     const url = urlInput.value.trim();
     const netplayManager = peekNetplayManager();
@@ -5099,13 +5408,13 @@ function buildMultiplayerTab(
     const patch: Partial<Settings> = { netplayServerUrl: url };
     if (!settings.netplayEnabled) {
       patch.netplayEnabled = true;
-      if (getNetplayManager) void getNetplayManager().then(m => m.setEnabled(true));
+      callNm(m => m.setEnabled(true));
       serverSection.hidden = false;
       const toggleInput = introSection.querySelector<HTMLInputElement>(".toggle-row input[type=checkbox]");
       if (toggleInput) toggleInput.checked = true;
     }
     onSettingsChange(patch);
-    if (getNetplayManager) void getNetplayManager().then(m => m.setServerUrl(url));
+    callNm(m => m.setServerUrl(url));
     updateStatusBadge();
   });
   urlRow.append(urlLabel, urlInput);
@@ -5136,7 +5445,7 @@ function buildMultiplayerTab(
     }
     unameInput.setCustomValidity("");
     onSettingsChange({ netplayUsername: name });
-    if (getNetplayManager) void getNetplayManager().then(m => m.setUsername(name));
+    callNm(m => m.setUsername(name));
   });
   unameRow.append(unameLabel, unameInput);
   serverSection.appendChild(unameRow);
@@ -5181,7 +5490,7 @@ function buildMultiplayerTab(
       removeBtn.addEventListener("click", () => {
         const idx = iceServers.indexOf(srv);
         if (idx !== -1) iceServers.splice(idx, 1);
-        if (getNetplayManager) void getNetplayManager().then(m => m.setIceServers([...iceServers]));
+        callNm(m => m.setIceServers([...iceServers]));
         renderIceList();
       });
       row.appendChild(removeBtn);
@@ -5218,7 +5527,7 @@ function buildMultiplayerTab(
     }
     addInput.setCustomValidity("");
     iceServers.push({ urls: url });
-    if (getNetplayManager) void getNetplayManager().then(m => m.setIceServers([...iceServers]));
+    callNm(m => m.setIceServers([...iceServers]));
     addInput.value = "";
     renderIceList();
   });
@@ -5232,7 +5541,7 @@ function buildMultiplayerTab(
   // Reset-to-defaults button
   const resetBtn = make("button", { class: "btn settings-clear-btn" }, "Reset to defaults") as HTMLButtonElement;
   resetBtn.addEventListener("click", () => {
-    if (getNetplayManager) void getNetplayManager().then(m => m.resetIceServers());
+    callNm(m => m.resetIceServers());
     iceServers = [...DEFAULT_ICE_SERVERS];
     renderIceList();
   });
@@ -6036,7 +6345,7 @@ function buildAboutTab(container: HTMLElement): void {
   const aboutSection = make("div", { class: "settings-section" });
   aboutSection.appendChild(make("h4", { class: "settings-section__title" }, "About RetroVault"));
   aboutSection.appendChild(make("p", { class: "settings-help" },
-    "RetroVault lets you play retro games from 20+ classic systems — PSP, N64, PS1, NDS, GBA, SNES, NES and more — " +
+    "RetroVault lets you play retro games from classic systems — PSP, N64, PS1, NDS, GBA, SNES, NES, Genesis and more — " +
     "right in your browser. No installs, no account, nothing to sign up for."
   ));
   aboutSection.appendChild(make("p", { class: "settings-help" },
@@ -6344,7 +6653,7 @@ function updateDevOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
   if (!_uiDirtyTracker.consume(UIDirtyFlags.DEV_OVERLAY)) return;
 
   // ── Scalar Metrics ────────────────────────────────────────────────────────
-  const ftEl     = document.getElementById("dev-ft");
+  const ftEl     = document.getElementById("dev-frame-time");
   const fpsEl    = document.getElementById("dev-fps");
   const p95El    = document.getElementById("dev-p95");
   const memEl    = document.getElementById("dev-memory");

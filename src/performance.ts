@@ -791,8 +791,6 @@ export function optimizeChromePerformance(): void {
   const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
   if (!isChrome) return;
 
-  console.log("🚀 RetroVault: Optimizing for Chrome...");
-
   // Hint at high-performance requirements
   if (typeof performance !== "undefined" && typeof performance.mark === "function") {
     performance.mark("retrovault-boot-start");
@@ -800,7 +798,7 @@ export function optimizeChromePerformance(): void {
 
   // Check for isolation which is crucial for PSP/N64 WASM performance
   if (typeof window !== "undefined" && !window.crossOriginIsolated) {
-    console.warn("⚠️ Not cross-origin isolated! PSP/N64 performance may be severely degraded (no SharedArrayBuffer).");
+    console.warn("[RetroVault] Not cross-origin isolated — PSP/N64 performance may be degraded (no SharedArrayBuffer).");
   }
 }
 

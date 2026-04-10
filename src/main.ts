@@ -513,7 +513,10 @@ async function main(): Promise<void> {
         if (r.errors > 0) {
           showInfoToast(`☁ Cloud sync had ${r.errors} error(s) — open Save States to retry.`);
         } else if (r.pulled > 0 || r.pushed > 0) {
-          showInfoToast(`☁ Saves updated`);
+          const parts: string[] = [];
+          if (r.pulled > 0) parts.push(`↓ ${r.pulled} from cloud`);
+          if (r.pushed > 0) parts.push(`↑ ${r.pushed} to cloud`);
+          showInfoToast(`☁ Saves updated · ${parts.join(" · ")}`);
         }
       }).catch(() => {});
     }
@@ -523,25 +526,6 @@ async function main(): Promise<void> {
       currentGameFile = materialised;
       currentGameFileName = materialised.name;
     }
-
-    if (gfxProfile?.postEffect && emulator.state !== "error") {
-      emulator.updatePostProcessConfig({ effect: gfxProfile.postEffect });
-    }
-
-    if (gameId && cloudSaveManager.isConnected()) {
-      void cloudSaveManager.syncGame(gameId, saveLibrary).then((r) => {
-        if (r.errors > 0) {
-          showInfoToast(`☁ Cloud sync had ${r.errors} error(s) — open Save States to retry.`);
-        } else if (r.pulled > 0 || r.pushed > 0) {
-          const parts: string[] = [];
-          if (r.pulled > 0) parts.push(`↓ ${r.pulled} from cloud`);
-          if (r.pushed > 0) parts.push(`↑ ${r.pushed} to cloud`);
-          showInfoToast(`☁ Saves updated · ${parts.join(" · ")}`);
-        }
-      }).catch(() => {});
-    }
-
-    // Materialised file already handled above.
 
     if (gfxProfile?.postEffect && emulator.state !== "error") {
       emulator.updatePostProcessConfig({ effect: gfxProfile.postEffect });
@@ -820,7 +804,7 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", main);
 } else {
   main().catch(err => {
-  console.error("[RetroVault] Fatal startup error:", err);
-  alert("RetroVault failed to start. Check console for details.");
-});
+    console.error("[RetroVault] Fatal startup error:", err);
+    alert("RetroVault failed to start. Check console for details.");
+  });
 }
