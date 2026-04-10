@@ -7228,3 +7228,23 @@ body {
     border-radius: var(--radius-lg);
   }
 }
+
+/* Premium Icon Rendering Support */
+.hero-sys-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 8px rgba(0,0,0,0.5));
+  vertical-align: middle;
+  margin-top: -3px;
+  margin-right: 6px;
+}
+
+.row-sys-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.4));
+  vertical-align: middle;
+  margin-right: 6px;
+}

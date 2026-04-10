@@ -823,7 +823,9 @@ function buildLibraryHero(
   
   const meta = make("div", { class: "library-hero__meta" });
   const sysName = system?.shortName ?? game.systemId.toUpperCase();
-  meta.innerHTML = `<span>${systemIcon(game.systemId)} ${sysName}</span> <span>🕒 ${game.lastPlayedAt ? `Played ${formatRelativeTime(game.lastPlayedAt)}` : "Never played"}</span>`;
+  const iconOutput = systemIcon(game.systemId);
+  const iconHtml = iconOutput.includes("/assets/") ? `<img src="${iconOutput}" alt="" class="hero-sys-icon" />` : iconOutput;
+  meta.innerHTML = `<span>${iconHtml} ${sysName}</span> <span>🕒 ${game.lastPlayedAt ? `Played ${formatRelativeTime(game.lastPlayedAt)}` : "Never played"}</span>`;
   
   const actions = make("div", { class: "library-hero__actions" });
   const playBtn = make("button", { class: "btn--hero" });
@@ -854,7 +856,13 @@ function buildLibraryRow(
   
   const header = make("div", { class: "library-row__header" });
   if (systemId) {
-    const icon = make("span", { class: "library-row__icon-span" }, systemIcon(systemId));
+    const iconOutput = systemIcon(systemId);
+    const icon = make("span", { class: "library-row__icon-span" });
+    if (iconOutput.includes("/assets/")) {
+      icon.innerHTML = `<img src="${iconOutput}" alt="" class="row-sys-icon" />`;
+    } else {
+      icon.textContent = iconOutput;
+    }
     const sys = getSystemById(systemId);
     if (sys) icon.style.color = sys.color;
     header.appendChild(icon);
