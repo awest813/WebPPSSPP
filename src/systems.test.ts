@@ -167,7 +167,9 @@ describe('systems performance profiles', () => {
     expect(saturn?.tierSettings?.low?.retroarch_core).toBe('yabause');
     expect(saturn?.tierSettings?.low?.yabause_frameskip).toBe('enabled');
     expect(saturn?.tierSettings?.ultra?.yabause_addon_cartridge).toBe('4M_ram');
-    expect(dc?.tierSettings).toBeUndefined();
+    // Dreamcast uses Flycast (reicast core options)
+    expect(dc?.tierSettings?.low?.reicast_frame_skipping).toBe('enabled');
+    expect(dc?.tierSettings?.ultra?.reicast_internal_resolution).toBe('1920x1440');
   });
 
   describe('PSP audio latency settings', () => {

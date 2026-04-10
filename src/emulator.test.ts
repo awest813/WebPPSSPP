@@ -360,7 +360,10 @@ describe('PSPEmulator', () => {
       expect(errors[0]).toContain('Unknown system');
     });
 
-    it('emits error when launching Dreamcast (no stable EmulatorJS core on CDN)', async () => {
+    it('Dreamcast launch is attempted (requires WebGL2 — emits WebGL2 error in headless env)', async () => {
+      // Flycast is now a supported core. In a headless test environment WebGL2 is
+      // unavailable, so the launch fails at the WebGL2 capability check rather than
+      // with the old "Dreamcast not supported on CDN" hard block.
       const errors: string[] = [];
       emulator.onError = (msg) => errors.push(msg);
 
@@ -408,8 +411,9 @@ describe('PSPEmulator', () => {
         deviceCaps:      fakeCaps,
       });
 
+      // headless jsdom has no WebGL2 — the capability guard fires before any CDN fetch
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0]).toContain('Dreamcast');
+      expect(errors[0]).toContain('WebGL 2');
     });
 
     it('rejects launch while already loading', async () => {

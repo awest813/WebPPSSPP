@@ -17,6 +17,19 @@ import type { PerformanceTier } from "./performance.js";
 export interface SystemInfo {
   /** EmulatorJS core/system name (value of EJS_core). */
   id: string;
+  /**
+   * Override EJS_core with this value at launch time.
+   * Use when the internal system ID (id) differs from the EmulatorJS core name —
+   * e.g. id="segaDC" but EJS_core must be "flycast".
+   */
+  coreId?: string;
+  /**
+   * Absolute URL to a custom core `.data` bundle.
+   * When set, EJS_corePath is passed to EmulatorJS so the loader fetches this
+   * URL directly instead of constructing a CDN-relative path.
+   * Required for cores not hosted on the official EmulatorJS CDN (e.g. Flycast).
+   */
+  corePath?: string;
   /** Full human-readable name. */
   name: string;
   /** Short label for library badges. */
@@ -811,6 +824,75 @@ const GENESIS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
+// ── Dreamcast (Flycast / reicast) tier settings ───────────────────────────────
+
+const DREAMCAST_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    reicast_boot_to_bios:         "disabled",
+    reicast_hle_bios:             "disabled",
+    reicast_threaded_rendering:   "disabled",
+    reicast_synchronous_rendering:"disabled",
+    reicast_internal_resolution:  "640x480",
+    reicast_mipmapping:           "disabled",
+    reicast_anisotropic_filtering:"1",
+    reicast_texupscale:           "disabled",
+    reicast_enable_rttb:          "disabled",
+    reicast_enable_purupuru:      "disabled",
+    reicast_alpha_sorting:        "per-strip (fast, least accurate)",
+    reicast_delay_frame_swapping: "disabled",
+    reicast_frame_skipping:       "enabled",
+    reicast_framerate:            "normal",
+  },
+  medium: {
+    reicast_boot_to_bios:         "disabled",
+    reicast_hle_bios:             "disabled",
+    reicast_threaded_rendering:   "enabled",
+    reicast_synchronous_rendering:"disabled",
+    reicast_internal_resolution:  "640x480",
+    reicast_mipmapping:           "enabled",
+    reicast_anisotropic_filtering:"2",
+    reicast_texupscale:           "disabled",
+    reicast_enable_rttb:          "disabled",
+    reicast_enable_purupuru:      "enabled",
+    reicast_alpha_sorting:        "per-strip (fast, least accurate)",
+    reicast_delay_frame_swapping: "disabled",
+    reicast_frame_skipping:       "disabled",
+    reicast_framerate:            "normal",
+  },
+  high: {
+    reicast_boot_to_bios:         "disabled",
+    reicast_hle_bios:             "disabled",
+    reicast_threaded_rendering:   "enabled",
+    reicast_synchronous_rendering:"disabled",
+    reicast_internal_resolution:  "1280x960",
+    reicast_mipmapping:           "enabled",
+    reicast_anisotropic_filtering:"4",
+    reicast_texupscale:           "disabled",
+    reicast_enable_rttb:          "enabled",
+    reicast_enable_purupuru:      "enabled",
+    reicast_alpha_sorting:        "per-triangle (normal)",
+    reicast_delay_frame_swapping: "disabled",
+    reicast_frame_skipping:       "disabled",
+    reicast_framerate:            "normal",
+  },
+  ultra: {
+    reicast_boot_to_bios:         "disabled",
+    reicast_hle_bios:             "disabled",
+    reicast_threaded_rendering:   "enabled",
+    reicast_synchronous_rendering:"disabled",
+    reicast_internal_resolution:  "1920x1440",
+    reicast_mipmapping:           "enabled",
+    reicast_anisotropic_filtering:"8",
+    reicast_texupscale:           "2x",
+    reicast_enable_rttb:          "enabled",
+    reicast_enable_purupuru:      "enabled",
+    reicast_alpha_sorting:        "per-triangle (normal)",
+    reicast_delay_frame_swapping: "disabled",
+    reicast_frame_skipping:       "disabled",
+    reicast_framerate:            "normal",
+  },
+};
+
 // ── Supported systems ─────────────────────────────────────────────────────────
 
 export const SYSTEMS: SystemInfo[] = [
@@ -1018,16 +1100,19 @@ export const SYSTEMS: SystemInfo[] = [
   },
   {
     id: "segaDC",
+    coreId: "flycast",
+    corePath: "https://github.com/nasomers/flycast-wasm/releases/download/v1.0.0/flycast-wasm.data",
     name: "Dreamcast",
     shortName: "DC",
-    extensions: ["cdi", "gdi", "chd", "m3u"],
+    extensions: ["cdi", "gdi", "chd", "m3u", "iso", "cue", "bin", "elf"],
     color: "#e07b20",
     needsThreads: false,
-    needsWebGL2: false,
+    needsWebGL2: true,
     needsBios: true,
     is3D: true,
-    qualitySettings: {},
-    perfSettings: {},
+    qualitySettings: DREAMCAST_TIER_SETTINGS.high,
+    perfSettings: DREAMCAST_TIER_SETTINGS.low,
+    tierSettings: DREAMCAST_TIER_SETTINGS,
   },
   {
     id: "mame2003",

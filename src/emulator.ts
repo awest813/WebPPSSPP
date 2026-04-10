@@ -58,6 +58,8 @@ declare global {
     EJS_volume:        number;
     EJS_Settings?:     Record<string, string>;
     EJS_biosUrl?:      string;
+    /** Override path to the core `.data` bundle (absolute URL). Used for cores not on the CDN. */
+    EJS_corePath?:     string;
     EJS_ready?:        () => void;
     EJS_onGameStart?:  () => void;
     EJS_emulator?:     EJSEmulatorInstance;
@@ -400,6 +402,8 @@ declare global {
     EJS_volume:        number;
     EJS_Settings?:     Record<string, string>;
     EJS_biosUrl?:      string;
+    /** Override path to the core `.data` bundle (absolute URL). Used for cores not on the CDN. */
+    EJS_corePath?:     string;
     EJS_ready?:        () => void;
     EJS_onGameStart?:  () => void;
     EJS_emulator?:     EJSEmulatorInstance;
@@ -521,6 +525,7 @@ const CORE_PREFETCH_MAP: Record<string, string> = {
   segaMS:     "cores/genesis_plus_gx-wasm.data",
   arcade:     "cores/fbneo-wasm.data",
   segaSaturn: "cores/yabause-wasm.data",
+  segaDC:     "https://github.com/nasomers/flycast-wasm/releases/download/v1.0.0/flycast-wasm.data",
   mame2003:   "cores/mame2003_plus-wasm.data",
   atari7800:  "cores/prosystem-wasm.data",
   lynx:       "cores/handy-wasm.data",
@@ -1206,7 +1211,9 @@ export class PSPEmulator {
 
     this._prefetchedCores.add(systemId);
 
-    const blobUrl = `${EJS_CDN_BASE}${relPath}`;
+    // Entries starting with "https://" are absolute URLs (e.g. external WASM cores);
+    // all others are CDN-relative paths.
+    const blobUrl = relPath.startsWith("https://") ? relPath : `${EJS_CDN_BASE}${relPath}`;
 
     if (!document.querySelector(`link[href="${blobUrl}"]`)) {
       const link = document.createElement("link");
@@ -1902,18 +1909,6 @@ export class PSPEmulator {
 
     if (!this._validateFileExt(fileName, system, opts.skipExtensionCheck)) return;
 
-    // Dreamcast is listed for ROM types / BIOS UX but EmulatorJS stable CDN does
-    // not ship a Flycast (or equivalent) core blob — launching would fail inside
-    // the loader with an opaque download error.
-    if (opts.systemId === "segaDC") {
-      this._emitError(
-        "Dreamcast emulation is not available in this build: the EmulatorJS stable CDN " +
-        "does not include a Dreamcast core. Remove Dreamcast titles from the library or " +
-        "watch the roadmap for upstream core support."
-      );
-      return;
-    }
-
     // ── Large ROM warning ───────────────────────────────────────────────────
     if (opts.file.size > LARGE_ROM_THRESHOLD) {
       console.warn(
@@ -2179,13 +2174,20 @@ export class PSPEmulator {
 
       // ── Set EJS globals ───────────────────────────────────────────────────
       window.EJS_player        = `#${this._playerId}`;
-      window.EJS_core          = system.id;
+      window.EJS_core          = system.coreId ?? system.id;
       window.EJS_gameUrl       = gameFile;
       window.EJS_gameName      = gameName;
       window.EJS_pathtodata    = EJS_CDN_BASE;
       window.EJS_startOnLoaded = true;
       window.EJS_threads       = system.needsThreads;
       window.EJS_volume        = opts.volume;
+
+      // For cores not on the official CDN, point EJS at the external bundle URL.
+      if (system.corePath) {
+        window.EJS_corePath = system.corePath;
+      } else {
+        delete window.EJS_corePath;
+      }
 
       if (opts.biosUrl) {
         window.EJS_biosUrl = opts.biosUrl;
