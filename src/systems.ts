@@ -1223,3 +1223,20 @@ export function detectSystem(
 export function getSystemById(id: string): SystemInfo | undefined {
   return SYSTEM_BY_ID.get(id);
 }
+
+/**
+ * Human-readable system capabilities used across the UI for consistent
+ * messaging in cards, pickers, and settings.
+ */
+export function getSystemFeatureSummary(
+  system: SystemInfo,
+  opts: { includeExperimental?: boolean } = {},
+): string[] {
+  const { includeExperimental = true } = opts;
+  const features: string[] = [];
+  if (includeExperimental && system.experimental) features.push("Experimental");
+  if (system.is3D) features.push("3D core");
+  if (system.needsBios) features.push("BIOS");
+  if (system.needsWebGL2) features.push("WebGL 2");
+  return features;
+}

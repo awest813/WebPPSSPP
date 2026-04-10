@@ -4321,10 +4321,27 @@ describe("Dreamcast experimental messaging", () => {
 
     const pickerText = document.getElementById("system-picker-list")?.textContent ?? "";
     expect(pickerText).toContain("Dreamcast");
-    expect(pickerText).toContain("Experimental / stability in progress");
+    expect(pickerText).toContain("Experimental");
+    expect(pickerText).toContain("3D core");
+    expect(pickerText).toContain("BIOS");
+    expect(pickerText).toContain("WebGL 2");
 
     document.getElementById("system-picker-close")?.click();
     await pickPromise;
+  });
+
+  it("shows Dreamcast capability chips on library cards", async () => {
+    const library = {
+      getAllGamesMetadata: vi.fn().mockResolvedValue([makeGame("g1", "Crazy Taxi", "segaDC")]),
+    } as unknown as GameLibrary;
+
+    await renderLibrary(library, makeSettings(), vi.fn(async () => {}));
+
+    const cardText = document.querySelector(".game-card")?.textContent ?? "";
+    expect(cardText).toContain("EXP");
+    expect(cardText).toContain("3D core");
+    expect(cardText).toContain("BIOS");
+    expect(cardText).toContain("WebGL 2");
   });
 });
 

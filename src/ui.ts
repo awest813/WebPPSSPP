@@ -36,6 +36,7 @@ import {
   ALL_EXTENSIONS,
   detectSystem,
   getSystemById,
+  getSystemFeatureSummary,
   type SystemInfo,
 } from "./systems.js";
 import {
@@ -1504,6 +1505,7 @@ function buildGameCard(
     meta.append(make("span", { class: "sys-badge sys-badge--experimental", title: system.stabilityNotice ?? "Experimental support" }, "EXP"));
   }
 
+  const featureRow = buildSystemFeatureRow(system, { includeExperimental: false, max: 3, includeOnline: true });
   const played = make("div", { class: "game-card__played" },
     game.lastPlayedAt
       ? `Played ${formatRelativeTime(game.lastPlayedAt)}`
@@ -1511,7 +1513,9 @@ function buildGameCard(
   );
   if (!game.lastPlayedAt && isNew) played.classList.add("game-card__played--fresh");
 
-  info.append(name, meta, played);
+  info.append(name, meta);
+  if (featureRow) info.append(featureRow);
+  info.append(played);
 
   const btnRemove = make("button", {
     class: "game-card__remove",
@@ -1629,6 +1633,76 @@ function buildGameCard(
   card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void launch(); } });
 
   return card;
+}
+
+type SystemFeaturePill = {
+  label: string;
+  title: string;
+  tone?: "accent" | "warn" | "neutral";
+};
+
+function getSystemFeaturePills(
+  system: SystemInfo | undefined,
+  opts: { includeExperimental?: boolean; includeOnline?: boolean; max?: number } = {},
+): SystemFeaturePill[] {
+  if (!system) return [];
+
+  const { includeExperimental = true, includeOnline = false, max } = opts;
+  const pills: SystemFeaturePill[] = [];
+
+  if (includeExperimental && system.experimental) {
+    pills.push({
+      label: "Experimental",
+      title: system.stabilityNotice ?? "Support for this system is still being stabilized.",
+      tone: "warn",
+    });
+  }
+  if (system.is3D) {
+    pills.push({
+      label: "3D core",
+      title: `${system.name} uses a heavier 3D rendering core and benefits from tuned graphics settings.`,
+      tone: "accent",
+    });
+  }
+  if (system.needsBios) {
+    pills.push({
+      label: "BIOS",
+      title: `${system.name} needs system files for the best compatibility.`,
+      tone: "neutral",
+    });
+  }
+  if (system.needsWebGL2) {
+    pills.push({
+      label: "WebGL 2",
+      title: `${system.name} needs WebGL 2 support in the browser.`,
+      tone: "neutral",
+    });
+  }
+  if (includeOnline && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(system.id as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number])) {
+    pills.push({
+      label: "Online",
+      title: `${system.name} supports RetroVault online play.`,
+      tone: "accent",
+    });
+  }
+
+  return typeof max === "number" ? pills.slice(0, max) : pills;
+}
+
+function buildSystemFeatureRow(
+  system: SystemInfo | undefined,
+  opts: { includeExperimental?: boolean; includeOnline?: boolean; max?: number; className?: string } = {},
+): HTMLElement | null {
+  const pills = getSystemFeaturePills(system, opts);
+  if (pills.length === 0) return null;
+
+  const row = make("div", { class: opts.className ?? "system-feature-row" });
+  for (const pill of pills) {
+    const cls = ["system-feature-chip"];
+    if (pill.tone) cls.push(`system-feature-chip--${pill.tone}`);
+    row.appendChild(make("span", { class: cls.join(" "), title: pill.title }, pill.label));
+  }
+  return row;
 }
 
 function systemIcon(systemId: string): string {
@@ -3339,6 +3413,36 @@ function buildPerfTab(
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?:     import("./emulator.js").PSPEmulator
 ): void {
+  const activeSystem = emulatorRef?.currentSystem ?? null;
+  const activeTier = emulatorRef?.activeTier ?? null;
+  if (activeSystem) {
+    const coreSection = make("div", { class: "settings-section" });
+    coreSection.appendChild(make("h4", { class: "settings-section__title" }, "Current Core"));
+
+    const heading = make("div", { class: "settings-core-heading" });
+    heading.appendChild(make("strong", { class: "settings-core-heading__title" }, activeSystem.name));
+    const summary = getSystemFeatureSummary(activeSystem).join(" • ");
+    if (summary) {
+      heading.appendChild(make("span", { class: "settings-core-heading__meta" }, summary));
+    }
+    coreSection.appendChild(heading);
+
+    const profileBits = [
+      activeTier ? `${formatTierLabel(activeTier)} tier` : null,
+      settings.performanceMode === "auto" ? "Auto graphics mode" : `${settings.performanceMode === "performance" ? "Performance" : "Quality"} graphics mode`,
+      activeSystem.is3D ? "3D visuals tuned for heavier rendering" : "Lightweight core profile",
+    ].filter((bit): bit is string => Boolean(bit));
+    coreSection.appendChild(make("p", { class: "settings-help" }, profileBits.join(" • ")));
+
+    const featureRow = buildSystemFeatureRow(activeSystem, {
+      includeExperimental: true,
+      includeOnline: true,
+      className: "system-feature-row system-feature-row--settings",
+    });
+    if (featureRow) coreSection.appendChild(featureRow);
+    container.appendChild(coreSection);
+  }
+
   // Performance mode
   const perfSection = make("div", { class: "settings-section" });
   perfSection.appendChild(make("h4", { class: "settings-section__title" }, "Graphics Mode"));
@@ -3755,7 +3859,7 @@ function buildLibraryTab(
   for (const sys of SYSTEMS) {
     const chip = make("span", { class: "sys-chip" }, sys.shortName);
     chip.style.background = sys.color;
-    chip.title = sys.name;
+    chip.title = [sys.name, ...getSystemFeatureSummary(sys)].join(" • ");
     sysList.appendChild(chip);
   }
   sysSection.appendChild(sysList);

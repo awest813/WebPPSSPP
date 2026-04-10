@@ -1,6 +1,6 @@
 import { formatBytes, type GameMetadata } from "../library.js";
 import type { SystemInfo } from "../systems.js";
-import { getSystemById } from "../systems.js";
+import { getSystemById, getSystemFeatureSummary } from "../systems.js";
 import type { ArchiveFormat } from "../archive.js";
 import { createElement } from "./dom.js";
 
@@ -80,7 +80,8 @@ export function pickSystem(
       badge.style.background = system.color;
       const content = createElement("span", { class: "system-pick-btn__content" });
       content.appendChild(createElement("span", {}, system.name));
-      if (system.experimental) {
+      const summary = getSystemFeatureSummary(system);
+      if (summary.length > 0) {
         content.appendChild(
           createElement(
             "span",
@@ -88,7 +89,7 @@ export function pickSystem(
               class: "system-pick-btn__meta",
               title: system.stabilityNotice ?? "Experimental support",
             },
-            "Experimental / stability in progress",
+            summary.join(" • "),
           ),
         );
       }
