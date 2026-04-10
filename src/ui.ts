@@ -256,21 +256,43 @@ export function buildDOM(app: HTMLElement): void {
         <div class="onboarding" id="onboarding">
           <div class="welcome-hero">
             <h2 class="welcome-hero__title">A refined home for your retro library</h2>
-            <p class="welcome-hero__tagline">PSP, N64, PS1, GBA, SNES, NES, and 20+ more systems. Local-first, instant to launch, and designed to stay out of the way.</p>
-            <div class="welcome-steps">
-              <div class="welcome-step">
-                <span class="welcome-step__num" aria-hidden="true">1</span>
-                <span class="welcome-step__text">Drop or choose a game ROM</span>
-              </div>
-              <div class="welcome-step">
-                <span class="welcome-step__num" aria-hidden="true">2</span>
-                <span class="welcome-step__text">Pick a system if prompted</span>
-              </div>
-              <div class="welcome-step">
-                <span class="welcome-step__num" aria-hidden="true">3</span>
-                <span class="welcome-step__text">Launch and keep playing</span>
+            <p class="welcome-hero__tagline">PSP, N64, PS1, GBA, Saturn, and 20+ more. Locally-powered, cross-device ready.</p>
+            <div class="welcome-hero__badge">
+              <span class="badge-icon">✨</span> Premium Emulation Experience
+            </div>
+          </div>
+
+          <div class="onboarding__grid">
+            <div class="onboarding__card onboarding__card--main">
+              <h3>Start Your Collection</h3>
+              <p>Drop a ROM file anywhere or use the button above to add your first game.</p>
+              <div class="welcome-steps">
+                <div class="welcome-step">1. Drop your ROM</div>
+                <div class="welcome-step">2. Auto-Detection</div>
+                <div class="welcome-step">3. Play Instantly</div>
               </div>
             </div>
+            
+            <div class="onboarding__card">
+              <span class="card-icon">☁️</span>
+              <h3>Cloud Library</h3>
+              <p>Keep your entire ROM collection in the cloud. Access from any device without eating local storage.</p>
+              <button class="btn btn--outline btn--sm" id="btn-cloud-onboarding" type="button">Connect Cloud Library</button>
+            </div>
+
+            <div class="onboarding__card">
+              <span class="card-icon">🎮</span>
+              <h3>Universal Input</h3>
+              <p>Full support for DualSense, Xbox, Switch Pro, and Touch controls with zero configuration.</p>
+            </div>
+            
+            <div class="onboarding__card">
+              <span class="card-icon">⚡</span>
+              <h3>Smart Performance</h3>
+              <p>Automatically tunes internal resolution and frameskip for your specific device hardware.</p>
+            </div>
+          </div>
+        </div>
           </div>
           <div class="onboarding__features">
             <div class="onboarding__feature">
@@ -331,8 +353,13 @@ export function buildDOM(app: HTMLElement): void {
       <!-- Loading overlay -->
       <div id="loading-overlay" role="status" aria-live="polite">
         <div class="loading-spinner" aria-hidden="true"></div>
-        <p id="loading-message">Loading…</p>
-        <p id="loading-subtitle"></p>
+        <div class="loading-content">
+          <p id="loading-message">Loading…</p>
+          <p id="loading-subtitle"></p>
+          <div class="loading-progress" id="loading-progress-container" hidden>
+            <div class="loading-progress-bar" id="loading-progress-bar"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Error banner -->
@@ -1376,6 +1403,13 @@ function _wireLibraryControls(
   onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
 ): void {
   if (_libraryControlsWired) return;
+  const cloudOnboardingBtn = document.getElementById("btn-cloud-onboarding");
+  if (cloudOnboardingBtn) {
+    cloudOnboardingBtn.addEventListener("click", () => {
+      showInfoToast("Cloud Library features are currently in development. Your progress remains local for now!", "info");
+    });
+  }
+
   _libraryControlsWired = true;
 
   const searchEl = document.getElementById("library-search") as HTMLInputElement | null;
@@ -2014,6 +2048,7 @@ export async function resolveSystemAndAdd(
         : await archiveModule.extractFromArchive(file, {
             onProgress: (progress) => {
               setLoadingMessage(formatArchiveProgressMessage(progress));
+              if (progress.percent != null) setLoadingProgress(progress.percent);
             },
           });
 
@@ -6628,6 +6663,20 @@ function updateStatusDot(state: EmulatorState): void {
   if (state === "idle" || state === "error") { setStatusGame("—"); setStatusSystem("—"); setStatusTier(null); }
 }
 
+
+/** Set the current progress percent (0-100) shown on the loading overlay. Pass null to hide. */
+export function setLoadingProgress(percent: number | null): void {
+  const container = document.getElementById("loading-progress-container");
+  const bar       = document.getElementById("loading-progress-bar");
+  if (!container || !bar) return;
+  if (percent === null) {
+    container.hidden = true;
+  } else {
+    container.hidden = false;
+    bar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  }
+}
+
 // ── Visibility helpers ────────────────────────────────────────────────────────
 
 export function hideLanding(): void    { el("#landing").classList.add("hidden"); }
@@ -6635,6 +6684,7 @@ export function showLanding(): void    { el("#landing").classList.remove("hidden
 export function showLoadingOverlay(): void { document.getElementById("loading-overlay")?.classList.add("visible"); }
 export function hideLoadingOverlay(): void {
   document.getElementById("loading-overlay")?.classList.remove("visible");
+  setLoadingProgress(null);
   // Clear subtitle when hiding
   const sub = document.getElementById("loading-subtitle");
   if (sub) sub.textContent = "";
