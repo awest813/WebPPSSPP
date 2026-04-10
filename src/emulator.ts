@@ -57,7 +57,7 @@ declare global {
     EJS_threads:       boolean;
     EJS_volume:        number;
     EJS_Settings?:     Record<string, string>;
-    EJS_biosUrl?:      string;
+    EJS_biosUrl?:      string | File;
     /** Override path to the core `.data` bundle (absolute URL). Used for cores not on the CDN. */
     EJS_corePath?:     string;
     EJS_ready?:        () => void;
@@ -401,7 +401,7 @@ declare global {
     EJS_threads:       boolean;
     EJS_volume:        number;
     EJS_Settings?:     Record<string, string>;
-    EJS_biosUrl?:      string;
+    EJS_biosUrl?:      string | File;
     /** Override path to the core `.data` bundle (absolute URL). Used for cores not on the CDN. */
     EJS_corePath?:     string;
     EJS_ready?:        () => void;
@@ -843,7 +843,7 @@ export interface LaunchOptions {
    * error (unknown system, bad file extension, etc.) the emulator will not
    * have stored the URL, so the caller must perform a defensive revoke.
    */
-  biosUrl?: string;
+  biosUrl?: string | File;
   /**
    * Optional NetplayManager instance. When provided and `isActive` is true,
    * the EmulatorJS netplay globals are set so the built-in Netplay button and
@@ -882,7 +882,7 @@ export class PSPEmulator {
   private _preconnected = false;
   private _activeTier: PerformanceTier | null = null;
   private _activeCoreSettings: Record<string, string> | null = null;
-  private _biosUrl: string | null = null;
+  private _biosUrl: string | File | null = null;
   private _prefetchedCores = new Set<string>();
   private _webglPreWarmed = false;
   private _pspPipelineWarmed = false;
@@ -1920,6 +1920,9 @@ export class PSPEmulator {
     this._setState("loading");
     this._launchGameFile = null;
     this._emit("onProgress", "Preparing game file…");
+    if (system.experimental && system.stabilityNotice) {
+      this.logDiagnostic("system", `${system.name}: ${system.stabilityNotice}`);
+    }
     this.logDiagnostic("system", `Launching "${fileName}" on ${opts.systemId} (${(opts.file.size / 1024 / 1024).toFixed(1)} MB)`);
 
     // ── Startup profiler — reset and start timing the launch ────────────────
@@ -2878,12 +2881,17 @@ export class PSPEmulator {
 
     if (cachedWebGL2Support) return true;
 
+    const experimentalNotice = this._currentSystem?.experimental && this._currentSystem.stabilityNotice
+      ? `\n\n${this._currentSystem.stabilityNotice}`
+      : "";
+
     this._emitError(
       "WebGL 2 is not available in your browser.\n\n" +
       "This system requires WebGL 2 for rendering. Please:\n" +
       "• Use Chrome 58+ or Firefox 51+.\n" +
       "• Enable hardware acceleration in browser settings.\n" +
-      "• Update your GPU drivers."
+      "• Update your GPU drivers." +
+      experimentalNotice
     );
     return false;
   }
@@ -3068,10 +3076,10 @@ export class PSPEmulator {
       URL.revokeObjectURL(this._blobUrl);
       this._blobUrl = null;
     }
-    if (this._biosUrl) {
+    if (typeof this._biosUrl === "string" && this._biosUrl.startsWith("blob:")) {
       URL.revokeObjectURL(this._biosUrl);
-      this._biosUrl = null;
     }
+    this._biosUrl = null;
   }
 
   /**

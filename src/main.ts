@@ -481,9 +481,9 @@ async function main(): Promise<void> {
       if (typeof gfxProfile.drsEnabled === "boolean") emulator.enableDRS(gfxProfile.drsEnabled);
     }
 
-    let biosUrl: string | undefined;
+    let biosUrl: string | File | undefined;
     try {
-      const primaryBios = await biosLibrary.getPrimaryBiosUrl(systemId);
+      const primaryBios = await biosLibrary.getLaunchBiosAsset(systemId);
       if (primaryBios) biosUrl = primaryBios;
     } catch {}
 
@@ -538,7 +538,7 @@ async function main(): Promise<void> {
         const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
         orientation.unlock?.();
       } catch { /* orientation lock not supported */ }
-      if (biosUrl) URL.revokeObjectURL(biosUrl);
+      if (typeof biosUrl === "string" && biosUrl.startsWith("blob:")) URL.revokeObjectURL(biosUrl);
     }
   };
 

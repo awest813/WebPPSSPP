@@ -2270,7 +2270,7 @@ describe("F3 developer debug overlay", () => {
     buildDOM(app);
 
     expect(document.getElementById("dev-fps")).toBeTruthy();
-    expect(document.getElementById("dev-ft")).toBeTruthy();
+    expect(document.getElementById("dev-frame-time")).toBeTruthy();
     expect(document.getElementById("dev-p95")).toBeTruthy();
     expect(document.getElementById("dev-memory")).toBeTruthy();
     expect(document.getElementById("dev-state")).toBeTruthy();
@@ -3136,23 +3136,11 @@ describe("dialog Escape handling when emulator is running", () => {
       (emulator as unknown as { onGameStart: () => void }).onGameStart();
     }
 
-<<<<<<< HEAD
-    const headerActions = document.getElementById("header-actions")!;
-    const menuButton = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
-      .find((b) => b.getAttribute("aria-label") === "Open Menu");
-    expect(menuButton).toBeTruthy();
-    menuButton!.click();
-    await flushUI();
-
-    const btnReset = Array.from(document.querySelectorAll<HTMLButtonElement>(".ingame-menu__sidebar-btn"))
-      .find((b) => b.textContent?.includes("Restart Game"));
-=======
     // Click Reset — this opens a showConfirmDialog overlay.
     // Use aria-label to find the emulator reset button specifically, not the
     // touch-layout "Reset Layout" button which also contains "Reset" in its text.
     const headerActions = document.getElementById("header-actions")!;
     const btnReset = headerActions.querySelector<HTMLButtonElement>('[aria-label="Reset emulator"]');
->>>>>>> origin/main
     expect(btnReset).toBeTruthy();
     btnReset!.click();
 
@@ -4306,6 +4294,37 @@ describe("system picker subtitle for unknown extension", () => {
     // Cancel the dialog to clean up
     document.getElementById("system-picker-close")?.click();
     await importPromise;
+  });
+});
+
+describe("Dreamcast experimental messaging", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  it("shows the experimental Dreamcast note in the system picker", async () => {
+    const pickPromise = resolveSystemAndAdd(
+      new File([new Uint8Array([1])], "sonic.chd"),
+      {
+        findByFileName: vi.fn().mockResolvedValue(null),
+        addGame: vi.fn(),
+        getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+      } as unknown as GameLibrary,
+      makeSettings(),
+      vi.fn(async () => {}),
+    );
+
+    await new Promise(r => setTimeout(r, 0));
+
+    const pickerText = document.getElementById("system-picker-list")?.textContent ?? "";
+    expect(pickerText).toContain("Dreamcast");
+    expect(pickerText).toContain("Experimental / stability in progress");
+
+    document.getElementById("system-picker-close")?.click();
+    await pickPromise;
   });
 });
 

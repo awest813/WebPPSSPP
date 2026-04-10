@@ -796,6 +796,11 @@ body {
   text-transform: uppercase;
 }
 
+.sys-badge--experimental {
+  background: color-mix(in srgb, var(--c-warn) 80%, #6b3d00);
+  color: #fff7ea;
+}
+
 /* "NEW" badge — shown on cards added within the last 24 h */
 .game-card__new-badge {
   position: absolute;
@@ -1518,6 +1523,18 @@ body {
   cursor: pointer;
   text-align: left;
   transition: background var(--transition), border-color var(--transition), transform var(--spring-fast);
+}
+
+.system-pick-btn__content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.system-pick-btn__meta {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--c-text-dim);
 }
 
 .system-pick-btn:hover {

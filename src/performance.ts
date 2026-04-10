@@ -60,6 +60,10 @@ const RESOLUTION_LADDERS: Record<string, { key: string; values: string[] }> = {
     key: "desmume_internal_resolution",
     values: ["256x192", "512x384", "768x576", "1024x768"],
   },
+  segaDC: {
+    key: "reicast_internal_resolution",
+    values: ["640x480", "1280x960", "1920x1440"],
+  },
 };
 
 /**
@@ -2535,6 +2539,7 @@ export const HEAVY_3D_CORE_PREFETCH_ORDER: readonly string[] = [
   "psx",
   "nds",
   "segaSaturn",
+  "segaDC",
 ];
 
 /**

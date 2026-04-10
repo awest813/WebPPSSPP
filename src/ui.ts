@@ -616,7 +616,13 @@ export function initUI(opts: UIOptions): void {
     updateStatusDot(state);
     updateRotateHint();
   };
-  emulator.onProgress    = (msg)   => setLoadingMessage(msg);
+  emulator.onProgress    = (msg)   => {
+    setLoadingMessage(msg);
+    const stabilityNotice = emulator.currentSystem?.experimental
+      ? emulator.currentSystem.stabilityNotice ?? "Experimental support may be unstable."
+      : "";
+    setLoadingSubtitle(stabilityNotice);
+  };
   emulator.onError       = (msg)   => { hideLoadingOverlay(); showError(msg); };
   emulator.onGameStart = () => {
     hideLoadingOverlay();
@@ -1494,6 +1500,9 @@ function buildGameCard(
   badge.style.background = system?.color ?? "#555";
   const size = make("span", { class: "game-card__size" }, formatBytes(game.size));
   meta.append(badge, size);
+  if (system?.experimental) {
+    meta.append(make("span", { class: "sys-badge sys-badge--experimental", title: system.stabilityNotice ?? "Experimental support" }, "EXP"));
+  }
 
   const played = make("div", { class: "game-card__played" },
     game.lastPlayedAt
@@ -2654,15 +2663,11 @@ async function showInGameMenu(ctx: {
     content.appendChild(body);
 
     if (type === "saves") {
-<<<<<<< HEAD
-      const statesResult = ctx.saveLibrary ? await ctx.saveLibrary.getStatesForGame(gameId) : [];
-      const states = Array.isArray(statesResult) ? statesResult : [];
-=======
       // Cloud save bar
       body.appendChild(buildCloudSaveBar());
 
-      const states = ctx.saveLibrary ? await ctx.saveLibrary.getStatesForGame(gameId) : [];
->>>>>>> origin/main
+      const statesResult = ctx.saveLibrary ? await ctx.saveLibrary.getStatesForGame(gameId) : [];
+      const states = Array.isArray(statesResult) ? statesResult : [];
       const slots = Array.from({ length: 8 }, (_, i) => i + 1);
 
       const grid = make("div", { class: "ingame-menu__saves-grid" });
@@ -6561,6 +6566,9 @@ function friendlyErrorMessage(msg: string): string {
   }
   if (m.includes("network") || m.includes("fetch") || m.includes("failed to load")) {
     return "Couldn't load a required file. Check your internet connection and try again.";
+  }
+  if (m.includes("dreamcast") && (m.includes("experimental") || m.includes("stabil"))) {
+    return "Dreamcast support is experimental right now. Some games may boot slowly, show glitches, or crash.\n\nIf it fails, try another title, lower the load on your device, and make sure both Dreamcast BIOS files are installed.";
   }
   if (m.includes("bios") || m.includes("startup file")) {
     return "This game needs a startup file (BIOS). Go to Settings → System Files to add one.";

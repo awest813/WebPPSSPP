@@ -78,7 +78,21 @@ export function pickSystem(
       const btn = createElement("button", { class: "system-pick-btn" });
       const badge = createElement("span", { class: "sys-badge" }, system.shortName);
       badge.style.background = system.color;
-      btn.append(badge, document.createTextNode(system.name));
+      const content = createElement("span", { class: "system-pick-btn__content" });
+      content.appendChild(createElement("span", {}, system.name));
+      if (system.experimental) {
+        content.appendChild(
+          createElement(
+            "span",
+            {
+              class: "system-pick-btn__meta",
+              title: system.stabilityNotice ?? "Experimental support",
+            },
+            "Experimental / stability in progress",
+          ),
+        );
+      }
+      btn.append(badge, content);
       btn.addEventListener("click", () => close(system));
       fragment.appendChild(btn);
     }

@@ -44,7 +44,7 @@ These depend on EmulatorJS / libretro / browser evolution or substantial netcode
 
 | Item | Notes |
 |------|--------|
-| **Dreamcast in-app launch** | Re-enable when a stable CDN core (e.g. Flycast) is available; library and BIOS flows already exist |
+| **Dreamcast in-app launch** | Experimental Flycast integration is now present; focus is ongoing stability work, compatibility tuning, and eventually moving to an officially hosted stable core |
 | **Rollback netplay** | Frame delay + rollback for lossy links — large scope |
 | **WebGPU-native 3D cores** | Replacing WebGL paths inside upstream cores (e.g. PPSSPP / mupen64plus-Next) — not owned by this repo alone |
 
@@ -130,7 +130,7 @@ Improvements to visual fidelity and audio latency for 3D-heavy systems.
 Broader system support and compatibility improvements.
 
 - [x] **Additional systems**: Saturn (Yabause via EmulatorJS `segaSaturn`), MAME 2003+, Atari 7800, Lynx, Neo Geo Pocket — tier-aware options where the upstream core exposes them
-- [ ] **Dreamcast playability**: ROM/BIOS entries remain for library workflow; in-app launch is disabled until a Dreamcast core ships on the EmulatorJS stable CDN (Flycast or equivalent). Track upstream releases before re-enabling `segaDC` launch.
+- [ ] **Dreamcast playability**: in-app launch is now experimental through an external Flycast WASM core; continue stabilization, compatibility tuning, and upstream tracking before treating `segaDC` as fully stable.
 - [x] **BIOS management**: `BiosLibrary` persists BIOS blobs in IndexedDB; known requirements for PS1, Saturn, Dreamcast, Lynx; per-file status dots and upload controls
 - [x] **CHD compression**: Accepted for PS1, Saturn, and Dreamcast; cores decompress natively via libchdr WASM
 - [x] **ZIP / 7z / RAR transparency**: Pure-JS ZIP parser + libunrar.js worker; first ROM-compatible entry auto-selected; clear error for truly unsupported formats

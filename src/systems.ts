@@ -34,6 +34,10 @@ export interface SystemInfo {
   name: string;
   /** Short label for library badges. */
   shortName: string;
+  /** Whether support exists but should be presented as experimental. */
+  experimental?: boolean;
+  /** Short user-facing note about stability or support status. */
+  stabilityNotice?: string;
   /** High-fidelity glassmorphic icon asset URL. */
   iconUrl?: string;
   /** Accepted file extensions, lowercase without the leading dot. */
@@ -1104,6 +1108,8 @@ export const SYSTEMS: SystemInfo[] = [
     corePath: "https://github.com/nasomers/flycast-wasm/releases/download/v1.0.0/flycast-wasm.data",
     name: "Dreamcast",
     shortName: "DC",
+    experimental: true,
+    stabilityNotice: "Experimental: Dreamcast support is still being stabilized. Some games may boot slowly, glitch, or crash.",
     extensions: ["cdi", "gdi", "chd", "m3u", "iso", "cue", "bin", "elf"],
     color: "#e07b20",
     needsThreads: false,

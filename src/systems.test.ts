@@ -170,6 +170,8 @@ describe('systems performance profiles', () => {
     // Dreamcast uses Flycast (reicast core options)
     expect(dc?.tierSettings?.low?.reicast_frame_skipping).toBe('enabled');
     expect(dc?.tierSettings?.ultra?.reicast_internal_resolution).toBe('1920x1440');
+    expect(dc?.experimental).toBe(true);
+    expect(dc?.stabilityNotice).toContain('stabil');
   });
 
   describe('PSP audio latency settings', () => {
