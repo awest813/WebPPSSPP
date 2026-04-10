@@ -2468,7 +2468,12 @@ export class PSPEmulator {
 
    setVolume(volume: number): void {
      const clamped = Math.max(0, Math.min(1, volume));
-     this._bridge?.setVolume(clamped);
+     if (this._bridge) {
+       this._bridge.setVolume(clamped);
+     } else {
+       // Bridge not yet initialised; call EJS directly if available
+       (window as Window & { EJS_emulator?: { setVolume?: (v: number) => void } }).EJS_emulator?.setVolume?.(clamped);
+     }
     // Also update the worklet gain parameter so volume is reflected in the audio graph
     if (this._audioWorkletNode && this._audioWorkletCtx) {
       const gainParam = this._audioWorkletNode.parameters.get("gain");

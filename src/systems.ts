@@ -403,6 +403,9 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_firmware_language: "Auto",
     // Keep stylus/touchscreen input enabled even on low-end devices.
     desmume_pointer_type: "touch",
+    desmume_motion_enabled: "disabled",
+    desmume_gyro_enabled: "disabled",
+    desmume_filtering: "none",
   },
   medium: {
     retroarch_core: "desmume2015",
@@ -454,6 +457,9 @@ const NDS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     desmume_firmware_language: "Auto",
     desmume_pointer_type: "touch",
     desmume_mic_mode: "internal",
+    desmume_motion_enabled: "enabled",
+    desmume_gyro_enabled: "enabled",
+    desmume_filtering: "bilinear",
   },
 };
 

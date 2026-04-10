@@ -31,6 +31,8 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     verboseLogging: false,
     audioFilterType: "none",
     audioFilterCutoff: 10_000,
+    coreOptions: {},
+    uiMode: "auto",
     ...overrides,
   };
 }
@@ -2740,6 +2742,8 @@ describe("save gallery cloud bar UX", () => {
       currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
       setFPSMonitorEnabled: vi.fn(),
       prefetchCore: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
       quickSave: vi.fn(),
       quickLoad: vi.fn(),
       reset: vi.fn(),
@@ -3046,6 +3050,8 @@ describe("dialog Escape handling when emulator is running", () => {
       currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
       setFPSMonitorEnabled: vi.fn(),
       prefetchCore: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
       quickSave: vi.fn(),
       quickLoad: vi.fn(),
       reset: vi.fn(),
@@ -3098,9 +3104,10 @@ describe("dialog Escape handling when emulator is running", () => {
     }
 
     // Click Reset — this opens a showConfirmDialog overlay.
+    // Use aria-label to find the emulator reset button specifically, not the
+    // touch-layout "Reset Layout" button which also contains "Reset" in its text.
     const headerActions = document.getElementById("header-actions")!;
-    const btnReset = Array.from(headerActions.querySelectorAll<HTMLButtonElement>("button"))
-      .find((b) => b.textContent?.includes("Reset"));
+    const btnReset = headerActions.querySelector<HTMLButtonElement>('[aria-label="Reset emulator"]');
     expect(btnReset).toBeTruthy();
     btnReset!.click();
 
