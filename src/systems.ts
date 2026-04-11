@@ -49,6 +49,13 @@ export interface SystemInfo {
   /** Whether the core requires a WebGL 2 context. */
   needsWebGL2: boolean;
   /**
+   * How touch controls should behave on mobile.
+   * - `"overlay"`: RetroVault's virtual controls are useful for this system.
+   * - `"builtin"`: The core has its own touch-first UI, so RetroVault should
+   *   keep its overlay off by default.
+   */
+  touchControlMode?: "overlay" | "builtin";
+  /**
    * Whether this system requires a BIOS file to operate.
    * When true, RetroVault will check the BIOS store before launch.
    */
@@ -1187,6 +1194,7 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: false,
     needsWebGL2: false,
     is3D: true,
+    touchControlMode: "builtin",
     qualitySettings: NDS_TIER_SETTINGS.high,
     perfSettings: NDS_TIER_SETTINGS.low,
     tierSettings: NDS_TIER_SETTINGS,

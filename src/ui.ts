@@ -2554,6 +2554,11 @@ function buildInGameControls(
   const container = el("#header-actions");
   container.innerHTML = "";
   const currentGameName = getCurrentGameName?.()?.trim() || settings.lastGameName?.trim() || "Unknown";
+  const currentSystemId = getCurrentSystemId?.() ?? null;
+  const currentSystemInfo = currentSystemId ? getSystemById(currentSystemId) : null;
+  const touchControlsEnabled = currentSystemId
+    ? (settings.touchControlsBySystem[currentSystemId] ?? (currentSystemInfo?.touchControlMode === "builtin" ? false : settings.touchControls))
+    : settings.touchControls;
 
   const nowPlayingChip = make("div", {
     class: "now-playing-chip",
@@ -2661,7 +2666,7 @@ function buildInGameControls(
       "aria-label": "Edit touch control layout",
     }) as HTMLButtonElement;
     btnEditTouch.textContent = "🎮 Edit";
-    btnEditTouch.disabled = !settings.touchControls;
+    btnEditTouch.disabled = !touchControlsEnabled;
     btnEditTouch.addEventListener("click", () => {
       const overlay = getTouchOverlay?.();
       if (overlay) {
@@ -3714,6 +3719,13 @@ function buildDisplayTab(
   // Mobile & PWA section
   const mobileSection = make("div", { class: "settings-section" });
   mobileSection.appendChild(make("h4", { class: "settings-section__title" }, "Mobile & Touch"));
+  const activeSystem = emulatorRef?.currentSystem ?? null;
+  const activeSystemTouchControlsEnabled = activeSystem
+    ? (settings.touchControlsBySystem[activeSystem.id] ?? (activeSystem.touchControlMode === "builtin" ? false : settings.touchControls))
+    : settings.touchControls;
+  const touchControlsHelp = activeSystem?.touchControlMode === "builtin"
+    ? "This system has built-in touch controls, so RetroVault keeps its overlay off by default. Turn this on if you want RetroVault's buttons too, then use 🎮 Edit to reposition them."
+    : "RetroVault shows its on-screen buttons on touch devices when they help. Turn this off to hide them, or turn it on for systems that need an overlay you can reposition with 🎮 Edit.";
 
   const installRow = make("div", { class: "pwa-install-row" });
   const buildInstallBtn = () => {
@@ -3741,8 +3753,8 @@ function buildDisplayTab(
 
   mobileSection.appendChild(buildToggleRow(
     "On-screen buttons",
-    "Off by default on phones and tablets so core-provided controls do not overlap. Turn this on to show RetroVault's on-screen buttons, then tap the \"🎮 Edit\" button in the game toolbar to reposition them.",
-    settings.touchControls,
+    touchControlsHelp,
+    activeSystemTouchControlsEnabled,
     (v) => onSettingsChange({ touchControls: v })
   ));
 

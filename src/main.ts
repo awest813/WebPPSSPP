@@ -25,6 +25,7 @@ import { SaveGameService } from "./saveService.js";
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 import { getNetplayManager, peekNetplayManager } from "./netplaySingleton.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsProfile } from "./library.js";
+import { getSystemById } from "./systems.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
 import { detectCapabilitiesCached, formatDetailedSummary, scheduleIdleTask, getResolutionCoreOptions } from "./performance.js";
@@ -71,6 +72,8 @@ export interface Settings {
   autoSaveEnabled: boolean;
   /** Whether to show touch controls on touch-capable devices. */
   touchControls:   boolean;
+  /** Per-system touch control overrides. */
+  touchControlsBySystem: Record<string, boolean>;
   /** Whether haptic feedback fires on virtual button presses (Android only). */
   hapticFeedback:  boolean;
   /** System-specific core option overrides (libretro keys). */
@@ -128,9 +131,8 @@ const DEFAULT_SETTINGS: Settings = {
   useWebGPU:       false,
   postProcessEffect: "none" as PostProcessEffect,
   autoSaveEnabled: true,
-  // Keep touch controls opt-in on mobile so they don't compete with cores that
-  // already provide their own on-screen inputs.
-  touchControls:   false,
+  touchControls:   isTouchDevice(),
+  touchControlsBySystem: {},
   hapticFeedback:  true,
   touchOpacity:    0.85,
   touchButtonScale: 1.0,
@@ -183,6 +185,9 @@ function loadSettings(): Settings {
       touchControls: typeof parsed.touchControls === "boolean"
         ? parsed.touchControls
         : DEFAULT_SETTINGS.touchControls,
+      touchControlsBySystem: (typeof parsed.touchControlsBySystem === "object" && parsed.touchControlsBySystem !== null && !Array.isArray(parsed.touchControlsBySystem))
+        ? (parsed.touchControlsBySystem as Record<string, boolean>)
+        : DEFAULT_SETTINGS.touchControlsBySystem,
       hapticFeedback: typeof parsed.hapticFeedback === "boolean"
         ? parsed.hapticFeedback
         : DEFAULT_SETTINGS.hapticFeedback,
@@ -230,6 +235,30 @@ function saveSettings(s: Settings): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   } catch {
     showError("Could not persist settings to localStorage.");
+  }
+}
+
+function getTouchControlsDefaultForSystem(systemId: string | null, settings: Settings): boolean {
+  if (!systemId) return settings.touchControls;
+  const override = settings.touchControlsBySystem[systemId];
+  if (typeof override === "boolean") return override;
+  const system = getSystemById(systemId);
+  if (system?.touchControlMode === "builtin") return false;
+  return settings.touchControls;
+}
+
+function setTouchControlsPreferenceForSystem(
+  settings: Settings,
+  systemId: string | null,
+  enabled: boolean,
+): void {
+  if (systemId) {
+    settings.touchControlsBySystem = {
+      ...settings.touchControlsBySystem,
+      [systemId]: enabled,
+    };
+  } else {
+    settings.touchControls = enabled;
   }
 }
 
@@ -434,7 +463,7 @@ async function main(): Promise<void> {
     }
 
     // Touch controls
-    if (settings.touchControls && isTouchDevice()) {
+    if (isTouchDevice() && getTouchControlsDefaultForSystem(systemId, settings)) {
       const ejsContainer = document.getElementById("ejs-container");
       if (ejsContainer) {
         if (!touchOverlay) {
@@ -450,6 +479,8 @@ async function main(): Promise<void> {
           touchOverlay.setScale(settings.touchButtonScale);
         }
       }
+    } else {
+      touchOverlay?.hide();
     }
 
     currentGameFile     = file;
@@ -681,7 +712,6 @@ async function main(): Promise<void> {
   // emulator state (WebGPU, post-process effects, touch controls, verbose logging).
   const onSettingsChange = (patch: Partial<Settings>): void => {
     Object.assign(settings, patch);
-    saveSettings(settings);
     if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
       const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
       emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
@@ -707,10 +737,11 @@ async function main(): Promise<void> {
     // Show or hide the touch controls overlay immediately when the setting changes
     // while a game is running so the user sees the effect without relaunching.
     if (typeof patch.touchControls === "boolean") {
+      setTouchControlsPreferenceForSystem(settings, currentSystemId, patch.touchControls);
       void (async () => {
         if (!isTouchDevice()) return;
 
-        if (patch.touchControls) {
+        if (getTouchControlsDefaultForSystem(currentSystemId, settings)) {
           if (!touchOverlay && currentSystemId && (emulator.state === "running" || emulator.state === "paused")) {
             const ejsContainer = document.getElementById("ejs-container");
             if (ejsContainer) {
@@ -752,6 +783,7 @@ async function main(): Promise<void> {
     if (patch.uiMode !== undefined) {
       updateUILite();
     }
+    saveSettings(settings);
   };
 
   initUI({
