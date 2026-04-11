@@ -129,8 +129,6 @@ function promisify<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
-// ── UUID helper ───────────────────────────────────────────────────────────────
-
 // ── Blob cache (WeakRef-based) ────────────────────────────────────────────────
 
 /**

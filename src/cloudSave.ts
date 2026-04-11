@@ -948,7 +948,9 @@ export class DropboxProvider implements CloudSaveProvider {
     // Sanitise gameId for use as a Dropbox path component.  Dropbox path names
     // are case-insensitive and must not contain control characters; replacing
     // everything outside the safe alphanumeric/punctuation set avoids issues.
-    const safeId = gameId.replace(/[^a-zA-Z0-9_\-.]/g, "_");
+    const safeId = Array.from(new TextEncoder().encode(gameId))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
     return `${DropboxProvider.ROOT_FOLDER}/${safeId}/${slot}`;
   }
 
@@ -1179,7 +1181,9 @@ export class pCloudProvider implements CloudSaveProvider {
 
   /** pCloud path for a specific game + slot folder. */
   private _slotPath(gameId: string, slot: number): string {
-    const safeId = gameId.replace(/[^a-zA-Z0-9_\-.]/g, "_");
+    const safeId = Array.from(new TextEncoder().encode(gameId))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
     return `${pCloudProvider.ROOT_FOLDER}/${safeId}/${slot}`;
   }
 

@@ -215,7 +215,7 @@ export class WasmModuleCache {
       if (entry.lastModified) headers["If-Modified-Since"] = entry.lastModified;
 
       const res = await fetch(url, { method: "HEAD", headers, mode: "cors", credentials: "omit" });
-      return res.status === 304 || res.status === 200;
+      return res.status === 304;
     } catch {
       // Network error — use cached module
       return true;

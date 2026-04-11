@@ -49,6 +49,7 @@ const TEX_COPY_SRC         = 0x01;
 const TEX_RENDER_ATTACH    = 0x10;
 
 const MAP_MODE_READ = 0x0001;
+const BUFFER_QUERY_RESOLVE = 0x0200;
 
 // ── Effect types ──────────────────────────────────────────────────────────────
 
@@ -1441,7 +1442,8 @@ export class WebGPUPostProcessor {
       captureTexture.destroy();
 
       return this._pixelsToBlob(data, width, height, bytesPerRow);
-    } catch {
+    } catch (e) {
+      stagingBuffer.unmap();
       stagingBuffer.destroy();
       captureTexture.destroy();
       return null;
@@ -1956,7 +1958,7 @@ export class WebGPUPostProcessor {
       // Buffer to hold the resolved 64-bit nanosecond timestamps (2 × 8 bytes)
       this._queryResolveBuffer = this._device.createBuffer({
         size: 16,
-        usage: BUFFER_COPY_SRC | (0x0200 /* QUERY_RESOLVE */),
+        usage: BUFFER_COPY_SRC | BUFFER_QUERY_RESOLVE,
       });
 
       // Staging buffer for async CPU readback

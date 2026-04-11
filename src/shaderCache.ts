@@ -476,7 +476,12 @@ export class ShaderCache {
         const POLL_MS_HIGH   = 4;
         const pollMs = this._tier === "low" ? POLL_MS_LOW : this._tier === "medium" ? POLL_MS_MEDIUM : POLL_MS_HIGH;
 
+        const startTime = Date.now();
         const poll = () => {
+          if (Date.now() - startTime > 15000) {
+            cleanup();
+            return;
+          }
           const allDone = compiled.every(({ prog }) =>
             gl.getProgramParameter(prog, parallelExt.COMPLETION_STATUS_KHR) === true
           );
@@ -608,7 +613,12 @@ export class ShaderCache {
         const POLL_MS_HIGH   = 4;   // fast feedback on capable hardware
         const pollMs = this._tier === "low" ? POLL_MS_LOW : this._tier === "medium" ? POLL_MS_MEDIUM : POLL_MS_HIGH;
 
+        const startTime = Date.now();
         const poll = () => {
+          if (Date.now() - startTime > 15000) {
+            cleanup();
+            return;
+          }
           const allDone = compiled.every(({ prog }) =>
             gl.getProgramParameter(prog, parallelExt.COMPLETION_STATUS_KHR) === true
           );

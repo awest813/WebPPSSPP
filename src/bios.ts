@@ -336,7 +336,6 @@ export class BiosLibrary {
     const db           = await openDB();
     const normalised   = file.name.toLowerCase();
     const existing     = await this.findBios(systemId, normalised);
-    if (existing) await this.removeBios(existing.id);
 
     const entry: BiosEntry = {
       id:          createUuid(),
@@ -347,7 +346,10 @@ export class BiosLibrary {
       addedAt:     Date.now(),
       blob:        file,
     };
-    await promisify(tx(db, "readwrite").put(entry));
+
+    const store = db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME);
+    if (existing) store.delete(existing.id);
+    await promisify(store.put(entry));
     return entry;
   }
 
@@ -413,7 +415,7 @@ export class BiosLibrary {
       { path: "dc/dc_flash.bin", bytes: flashBytes },
     ]);
 
-    const zipPayload = Uint8Array.from(zipBytes);
+    const zipPayload = zipBytes.slice();
 
     return new File([zipPayload], "dreamcast-bios.zip", { type: "application/zip" });
   }

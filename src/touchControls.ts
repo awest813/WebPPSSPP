@@ -648,6 +648,10 @@ export class TouchControlsOverlay {
         playPointerId = -1;
         releaseAll();
       }
+      if (dragPointerId !== -1) {
+        dragPointerId = -1;
+        outer.style.cursor = "grab";
+      }
     });
   }
 
@@ -810,6 +814,10 @@ export class TouchControlsOverlay {
         playPointerId = -1;
         setPlayActive(false);
         releaseAll();
+      }
+      if (dragPointerId !== -1) {
+        dragPointerId = -1;
+        knob.style.transform = "translate(0, 0)";
       }
     });
   }
