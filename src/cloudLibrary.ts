@@ -26,6 +26,64 @@ export interface CloudProvider {
   getDownloadUrl(remotePath: string): Promise<string>;
 }
 
+export interface CloudLibraryConnectionConfig {
+  accessToken?: string;
+  rootFolderId?: string;
+  rootId?: string;
+  url?: string;
+  username?: string;
+  password?: string;
+  region?: "us" | "eu";
+}
+
+export function parseCloudLibraryConnectionConfig(raw: string): CloudLibraryConnectionConfig | null {
+  try {
+    return JSON.parse(raw) as CloudLibraryConnectionConfig;
+  } catch {
+    return null;
+  }
+}
+
+interface GoogleDriveListResponse {
+  files?: Array<{
+    name?: string;
+    id?: string;
+    size?: string | number;
+    mimeType?: string;
+    thumbnailLink?: string;
+  }>;
+}
+
+interface DropboxListResponse {
+  entries?: Array<{
+    name?: string;
+    path_lower?: string;
+    size?: number;
+    ".tag"?: string;
+  }>;
+}
+
+interface OneDriveListResponse {
+  value?: Array<{
+    name?: string;
+    id?: string;
+    size?: number;
+    folder?: unknown;
+  }>;
+}
+
+interface PCloudListResponse {
+  metadata?: {
+    contents?: Array<{
+      name?: string;
+      fileid?: string;
+      folderid?: string;
+      size?: number;
+      isfolder?: boolean;
+    }>;
+  };
+}
+
 // ── Google Drive Implementation ───────────────────────────────────────────────
 
 export class GoogleDriveLibraryProvider implements CloudProvider {
@@ -50,11 +108,11 @@ export class GoogleDriveLibraryProvider implements CloudProvider {
       headers: { Authorization: `Bearer ${this.accessToken}` }
     });
     if (!r.ok) throw new Error(`GDrive list failed: ${r.status}`);
-    const data = await r.json() as { files: any[] };
-    return data.files.map(f => ({
-      name: f.name,
-      path: f.id,
-      size: f.size ? parseInt(f.size) : 0,
+    const data = await r.json() as GoogleDriveListResponse;
+    return (data.files ?? []).map(f => ({
+      name: f.name ?? "Untitled",
+      path: f.id ?? "",
+      size: typeof f.size === "number" ? f.size : f.size ? Number.parseInt(String(f.size), 10) : 0,
       isDirectory: f.mimeType === "application/vnd.google-apps.folder",
       thumbnailUrl: f.thumbnailLink
     }));
@@ -93,11 +151,11 @@ export class DropboxLibraryProvider implements CloudProvider {
       body: JSON.stringify({ path: path === "/" ? "" : path })
     });
     if (!r.ok) throw new Error(`Dropbox list failed: ${r.status}`);
-    const data = await r.json() as { entries: any[] };
-    return data.entries.map(e => ({
-      name: e.name,
-      path: e.path_lower,
-      size: e.size || 0,
+    const data = await r.json() as DropboxListResponse;
+    return (data.entries ?? []).map(e => ({
+      name: e.name ?? "Untitled",
+      path: e.path_lower ?? path,
+      size: e.size ?? 0,
       isDirectory: e[".tag"] === "folder"
     }));
   }
@@ -202,11 +260,11 @@ export class OneDriveLibraryProvider implements CloudProvider {
       headers: { Authorization: `Bearer ${this.accessToken}` }
     });
     if (!r.ok) throw new Error(`OneDrive list failed: ${r.status}`);
-    const data = await r.json() as { value: any[] };
-    return data.value.map(item => ({
-      name: item.name,
-      path: item.id,
-      size: item.size || 0,
+    const data = await r.json() as OneDriveListResponse;
+    return (data.value ?? []).map(item => ({
+      name: item.name ?? "Untitled",
+      path: item.id ?? parentId,
+      size: item.size ?? 0,
       isDirectory: !!item.folder,
     }));
   }
@@ -238,13 +296,13 @@ export class pCloudLibraryProvider implements CloudProvider {
   async listFiles(folderId = "0"): Promise<CloudFile[]> {
     const r = await fetch(`${this.apiBase}/listfolder?access_token=${this.accessToken}&folderid=${folderId}`);
     if (!r.ok) throw new Error(`pCloud list failed: ${r.status}`);
-    const data = await r.json() as { metadata: { contents: any[] } };
+    const data = await r.json() as PCloudListResponse;
     if (!data.metadata) throw new Error("pCloud data error");
     
-    return data.metadata.contents.map(item => ({
-      name: item.name,
-      path: item.fileid || item.folderid,
-      size: item.size || 0,
+    return (data.metadata.contents ?? []).map(item => ({
+      name: item.name ?? "Untitled",
+      path: item.fileid || item.folderid || folderId,
+      size: item.size ?? 0,
       isDirectory: !!item.isfolder
     }));
   }
@@ -261,13 +319,21 @@ export class pCloudLibraryProvider implements CloudProvider {
 
 export function createProvider(connection: { provider: string; config: string }): CloudProvider | null {
   try {
-    const config = JSON.parse(connection.config);
+    const config = parseCloudLibraryConnectionConfig(connection.config);
+    if (!config) return null;
     switch (connection.provider) {
-      case "gdrive": return new GoogleDriveLibraryProvider(config.accessToken, config.rootFolderId);
-      case "dropbox": return new DropboxLibraryProvider(config.accessToken);
-      case "webdav": return new WebDAVLibraryProvider(config.url, config.username, config.password);
-      case "onedrive": return new OneDriveLibraryProvider(config.accessToken, config.rootId);
-      case "pcloud": return new pCloudLibraryProvider(config.accessToken, config.region);
+      case "gdrive":
+        return config.accessToken ? new GoogleDriveLibraryProvider(config.accessToken, config.rootFolderId) : null;
+      case "dropbox":
+        return config.accessToken ? new DropboxLibraryProvider(config.accessToken) : null;
+      case "webdav":
+        return config.url && config.username && config.password
+          ? new WebDAVLibraryProvider(config.url, config.username, config.password)
+          : null;
+      case "onedrive":
+        return config.accessToken ? new OneDriveLibraryProvider(config.accessToken, config.rootId) : null;
+      case "pcloud":
+        return config.accessToken ? new pCloudLibraryProvider(config.accessToken, config.region) : null;
       default: return null;
     }
   } catch { return null; }

@@ -45,6 +45,7 @@ import {
   formatRelativeTime,
   type GameMetadata,
 } from "./library.js";
+import { parseCloudLibraryConnectionConfig } from "./cloudLibrary.js";
 import {
   type DeviceCapabilities,
   type PerformanceMode,
@@ -279,8 +280,8 @@ export function buildDOM(app: HTMLElement): void {
             <div class="onboarding__card">
               <span class="card-icon">☁️</span>
               <h3>Cloud Library</h3>
-              <p>Keep your entire ROM collection in the cloud. Access from any device without eating local storage.</p>
-              <button class="btn btn--outline btn--sm" id="btn-cloud-onboarding" type="button">Connect Cloud Library</button>
+              <p>Keep your ROM collection synced in personal cloud storage and open it from any device.</p>
+              <button class="btn btn--outline btn--sm" id="btn-cloud-onboarding" type="button">Open Cloud Settings</button>
             </div>
 
             <div class="onboarding__card">
@@ -295,8 +296,7 @@ export function buildDOM(app: HTMLElement): void {
               <p>Automatically tunes internal resolution and frameskip for your specific device hardware.</p>
             </div>
           </div>
-        </div>
-          </div>
+
           <div class="onboarding__features">
             <div class="onboarding__feature">
               <span class="onboarding__feature-icon" aria-hidden="true">💾</span>
@@ -1407,7 +1407,7 @@ function _wireLibraryControls(
   const cloudOnboardingBtn = document.getElementById("btn-cloud-onboarding");
   if (cloudOnboardingBtn) {
     cloudOnboardingBtn.addEventListener("click", () => {
-      showInfoToast("Cloud Library features are currently in development. Your progress remains local for now!", "info");
+      _openSettingsFn?.("cloud");
     });
   }
 
@@ -6710,7 +6710,7 @@ function buildCloudTab(
   // Enhanced Connection Management
   if (settings.cloudLibraries.length === 0) {
     const empty = make("div", { class: "cloud-connection-empty" });
-    empty.innerHTML = `<p>You haven't connected any cloud libraries yet.</p>`;
+    empty.innerHTML = `<p>No cloud libraries are connected yet.</p><p>Open Cloud Library settings to add one.</p>`;
     list.appendChild(empty);
   } else {
     settings.cloudLibraries.forEach((conn) => {
@@ -6722,8 +6722,7 @@ function buildCloudTab(
       const actions = make("div", { class: "cloud-connection-item__actions" });
       
       const statusDot = make("span", { 
-        class: "cloud-connection-item__status", 
-        style: "margin-right:12px; font-size: 0.65rem; color: #4ade80;" 
+        class: "cloud-connection-item__status"
       }, "● CONNECTED");
       info.appendChild(statusDot);
 
@@ -6744,8 +6743,7 @@ function buildCloudTab(
 
   const addBtn = make("button", { class: "btn btn--primary", style: "margin-top:20px;", type: "button" }, "+ Connect New Library");
   addBtn.addEventListener("click", () => {
-    showInfoToast("Provider authentication modal coming soon! For now, only WebDAV is supported via manual config.", "info");
-    // Placeholder for actual modal
+    _openSettingsFn?.("cloud");
   });
 
   section.append(list, addBtn);
@@ -6764,10 +6762,11 @@ async function fetchFromCloud(game: GameMetadata, settings: Settings): Promise<B
   
   // Specific auth handling for providers that don't return pre-signed URLs
   if (conn.provider === "gdrive") {
-    const config = JSON.parse(conn.config);
-    if (config.accessToken) headers["Authorization"] = `Bearer ${config.accessToken}`;
+    const config = parseCloudLibraryConnectionConfig(conn.config);
+    if (config?.accessToken) headers["Authorization"] = `Bearer ${config.accessToken}`;
   } else if (conn.provider === "webdav") {
-    const config = JSON.parse(conn.config);
+    const config = parseCloudLibraryConnectionConfig(conn.config);
+    if (!config) throw new Error("Cloud provider could not be initialized.");
     const credentials = `${config.username}:${config.password}`;
     const utf8Bytes = new TextEncoder().encode(credentials);
     let binary = "";
@@ -6858,8 +6857,9 @@ async function syncCloudLibrary(
     // We don't need to call onSettingsChange unless we want to trigger a re-render of something specific,
     // but the library grid will re-render automatically if we invalidate/trigger it.
     // renderLibrary will be called by the next refresh cycle or we can force it.
-  } catch (e: any) {
-    showError(e.message || "Failed to sync cloud library.");
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to sync cloud library.";
+    showError(message);
   } finally {
     hideLoadingOverlay();
   }
