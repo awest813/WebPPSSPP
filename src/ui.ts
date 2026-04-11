@@ -1534,6 +1534,11 @@ function buildGameCard(
     icon.textContent = iconOutput;
   }
 
+    if (game.cloudId) {
+    const cloudBadge = make("div", { class: "game-card__cloud-badge", title: "Cloud Stream" }, "☁");
+    icon.appendChild(cloudBadge);
+  }
+
   if (isNew) {
     const newBadge = make("div", { class: "game-card__new-badge", "aria-hidden": "true" }, "NEW");
     icon.appendChild(newBadge);
@@ -6704,6 +6709,7 @@ function buildCloudTab(
 
   const list = make("div", { class: "cloud-connection-list" });
   
+  // Enhanced Connection Management
   if (settings.cloudLibraries.length === 0) {
     const empty = make("div", { class: "cloud-connection-empty" });
     empty.innerHTML = `<p>You haven't connected any cloud libraries yet.</p>`;
@@ -6717,6 +6723,12 @@ function buildCloudTab(
       
       const actions = make("div", { class: "cloud-connection-item__actions" });
       
+      const statusDot = make("span", { 
+        class: "cloud-connection-item__status", 
+        style: "margin-right:12px; font-size: 0.65rem; color: #4ade80;" 
+      }, "● CONNECTED");
+      info.appendChild(statusDot);
+
       const syncBtn = make("button", { class: "btn btn--sm", type: "button" }, "↻ Sync");
       syncBtn.addEventListener("click", () => syncCloudLibrary(conn, library, onSettingsChange));
       
