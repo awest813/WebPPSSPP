@@ -7628,3 +7628,66 @@ body {
   filter: brightness(1.2);
   box-shadow: 0 0 15px var(--c-accent-30);
 }
+
+/* ── Lite UI Overhaul: Snappy & Professional ────────── */
+.lite-ui .app-header,
+.lite-ui .status-panel,
+.lite-ui .fps-overlay,
+.lite-ui .dev-overlay,
+.lite-ui .game-card__remove,
+.lite-ui .game-card__patch,
+.lite-ui .game-card__change-sys,
+.lite-ui .perf-suggestion,
+.lite-ui .info-toast,
+.lite-ui .settings-modal-box,
+.lite-ui .modal-box,
+.lite-ui .confirm-box,
+.lite-ui .cloud-bar,
+.lite-ui .library-hero__content {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: #0f172a !important; /* Solid Slate-900 */
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.3) !important; /* Sharp solid shadow */
+}
+
+.lite-ui .game-card {
+  background: #1e293b !important; /* Solid Slate-800 */
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: none !important;
+  transition: background 0.1s ease !important;
+}
+
+.lite-ui .game-card:hover,
+.lite-ui .game-card:focus-visible {
+  background: #334155 !important; /* Solid Slate-700 */
+  border-color: var(--c-accent) !important;
+  transform: translateY(-2px) !important; /* Keep slight lift but no shadow change */
+}
+
+.lite-ui .library-hero {
+  background: #1e293b !important;
+  border-bottom: 2px solid var(--c-accent) !important;
+  box-shadow: none !important;
+}
+
+.lite-ui .btn {
+  transition: transform 0.1s ease, background 0.1s ease !important;
+}
+
+.lite-ui .animate-fade,
+.lite-ui .animate-slide-up,
+.lite-ui .animate-slide-in-right {
+  animation-duration: 0.15s !important; /* Snappy instead of off */
+  animation-timing-function: cubic-bezier(0, 0, 0.2, 1) !important;
+}
+
+.lite-ui .settings-sidebar {
+  background: #020617 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.lite-ui .settings-sidebar__item--active {
+  background: var(--c-accent) !important;
+  border-radius: 0 !important; /* Sharp corners for Lite look */
+}
