@@ -7559,3 +7559,72 @@ body {
   padding: 24px;
   border-radius: 20px;
 }
+
+/* ── Unified Cloud Styling Premium ──────────────────── */
+.cloud-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.cloud-bar__status-text {
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.cloud-bar__last-sync {
+  font-size: 0.75rem;
+  opacity: 0.5;
+  font-weight: 500;
+}
+
+.cloud-bar__status-text--ok {
+  color: #fff;
+}
+
+.cloud-connection-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cloud-connection-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+.cloud-connection-item__info strong {
+  font-size: 1rem;
+  color: var(--c-accent-50);
+}
+
+.btn-cloud-sync {
+  background: var(--c-accent);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-cloud-sync:hover {
+  filter: brightness(1.2);
+  box-shadow: 0 0 15px var(--c-accent-30);
+}
