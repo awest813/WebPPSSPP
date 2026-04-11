@@ -85,8 +85,8 @@ import type { EasyNetplayRoom } from "./netplay/netplayTypes.js";
 import { normaliseInviteCode, INVITE_CODE_LEN } from "./netplay/signalingClient.js";
 import { checkSystemSupport } from "./netplay/compatibility.js";
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
+// Cloud library types moved to lazy functions to satisfy strict TSC
 import { createProvider } from "./cloudLibrary.js";
-import type { CloudProvider, CloudFile } from "./cloudLibrary.js";
 import type { CloudLibraryConnection } from "./main.js";
 import { SaveGameService } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
@@ -2232,7 +2232,7 @@ export async function resolveSystemAndAdd(
       setLoadingMessage(`Starting ${existing.name}…`);
       setLoadingSubtitle("Getting ready to play");
       try {
-        const existingFile = toLaunchFile(existing.blob, existing.fileName);
+        const existingFile = toLaunchFile(existing.blob!, existing.fileName);
         await library.markPlayed(existing.id);
         logImport(
           emulatorRef,
@@ -2357,7 +2357,7 @@ async function handleM3UFile(
     discFileNames.map(async (fn) => {
       try {
         const entry = await library.findByFileName(fn, system.id);
-        if (entry) storedDiscs.set(fn, { id: entry.id, blob: entry.blob });
+        if (entry) storedDiscs.set(fn, { id: entry.id, blob: entry.blob! });
       } catch { /* ignore */ }
     })
   );

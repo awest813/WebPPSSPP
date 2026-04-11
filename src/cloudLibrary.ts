@@ -266,6 +266,7 @@ export class MegaLibraryProvider implements CloudProvider {
   constructor(private readonly _sessionToken: string) {}
 
   async isAvailable(): Promise<boolean> {
+    if (this._sessionToken) { /* placeholder */ }
     // Basic connectivity check for MEGA API gateway
     try {
       const r = await fetch("https://g.api.mega.co.nz/cs", { method: "POST" });
