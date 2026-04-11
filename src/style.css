@@ -7691,3 +7691,65 @@ body {
   background: var(--c-accent) !important;
   border-radius: 0 !important; /* Sharp corners for Lite look */
 }
+
+/* ── Final Cross-Mode Audit: Polish & Consistency ───── */
+
+/* 1. Global Refined Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* 2. Noise Texture for Quality UI */
+:root:not(.lite-ui) body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 9999;
+  mix-blend-mode: overlay;
+}
+
+/* 3. Cross-Mode Status Indicator Consistency */
+.cloud-connection-item__status {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(74, 222, 128, 0.1);
+  letter-spacing: 0.02em;
+}
+
+:not(.lite-ui) .cloud-connection-item__status {
+  text-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
+}
+
+.lite-ui .cloud-connection-item__status {
+  background: #064e3b !important;
+  color: #4ade80 !important;
+  font-weight: 800 !important;
+}
+
+/* 4. Settings tab active state consistency */
+.settings-tab--active {
+  box-shadow: 0 0 20px var(--c-accent-glow);
+}
+
+.lite-ui .settings-tab--active {
+  box-shadow: none !important;
+  outline: 2px solid var(--c-accent) !important;
+}
