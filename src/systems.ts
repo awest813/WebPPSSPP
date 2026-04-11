@@ -1308,7 +1308,10 @@ export const SYSTEMS: SystemInfo[] = [
     corePath: "https://github.com/nasomers/flycast-wasm/releases/download/v1.0.0/flycast-wasm.data",
     name: "Dreamcast",
     shortName: "DC",
+<<<<<<< codex/fix-test-suite-and-ui
     iconUrl: "/assets/saturn_system_icon_premium.png",
+=======
+>>>>>>> main
     experimental: true,
     stabilityNotice: "Experimental: Dreamcast support is still being stabilized. Some games may boot slowly, glitch, or crash.",
     extensions: ["cdi", "gdi", "chd", "m3u", "iso", "cue", "bin", "elf"],

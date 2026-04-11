@@ -7228,6 +7228,7 @@ body {
     border-radius: var(--radius-lg);
   }
 }
+<<<<<<< codex/fix-test-suite-and-ui
 
 /* Premium Icon Rendering Support */
 .hero-sys-icon {
@@ -7753,3 +7754,5 @@ body {
   box-shadow: none !important;
   outline: 2px solid var(--c-accent) !important;
 }
+=======
+>>>>>>> main

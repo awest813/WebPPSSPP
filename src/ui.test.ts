@@ -4330,6 +4330,7 @@ describe("Dreamcast experimental messaging", () => {
     document.getElementById("system-picker-close")?.click();
     await pickPromise;
   });
+<<<<<<< codex/fix-test-suite-and-ui
 
   it("shows Dreamcast capability chips on library cards", async () => {
     const library = {
@@ -4344,6 +4345,8 @@ describe("Dreamcast experimental messaging", () => {
     expect(cardText).toContain("BIOS");
     expect(cardText).toContain("WebGL 2");
   });
+=======
+>>>>>>> main
 });
 
 describe("isTransientImportError", () => {
