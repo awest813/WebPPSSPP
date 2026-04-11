@@ -662,7 +662,6 @@ const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     beetle_psx_hw_super_sampling: "enabled",
     beetle_psx_hw_mdec_yuv: "enabled",
     beetle_psx_hw_msaa: "4x",
-    beetle_psx_hw_negatevelopment: "enabled",
     beetle_psx_hw_enable_gpu_prim_bufs: "enabled",
     beetle_psx_hw_spu_overclock: "200",
     beetle_psx_hw_show_video_resolution: "enabled",
@@ -1182,7 +1181,7 @@ export const SYSTEMS: SystemInfo[] = [
     id: "nds",
     name: "Nintendo DS",
     shortName: "DS",
-    iconUrl: "/assets/gb_system_icon_premium_v2.png",
+    iconUrl: "/assets/nds_system_icon_premium_1775435000887.png",
     extensions: ["nds"],
     color: "#4b5d7a",
     needsThreads: false,
@@ -1308,10 +1307,7 @@ export const SYSTEMS: SystemInfo[] = [
     corePath: "https://github.com/nasomers/flycast-wasm/releases/download/v1.0.0/flycast-wasm.data",
     name: "Dreamcast",
     shortName: "DC",
-<<<<<<< codex/fix-test-suite-and-ui
-    iconUrl: "/assets/saturn_system_icon_premium.png",
-=======
->>>>>>> main
+    iconUrl: "/assets/dreamcast_system_icon_premium.png",
     experimental: true,
     stabilityNotice: "Experimental: Dreamcast support is still being stabilized. Some games may boot slowly, glitch, or crash.",
     extensions: ["cdi", "gdi", "chd", "m3u", "iso", "cue", "bin", "elf"],

@@ -55,7 +55,8 @@ export type PeerChannelState =
   | "open"
   | "closed"
   | "failed"
-  | "reconnecting";
+  | "reconnecting"
+  | "disconnected";
 
 /** A serialisable message sent over the data channel. */
 export type PeerMessage =
@@ -304,7 +305,7 @@ export class PeerDataChannel {
     this._pc.onconnectionstatechange = () => {
       const cs = this._pc?.connectionState;
       if (cs === "failed") {
-        this._handleConnectionFailure();
+        void this._handleConnectionFailure();
       } else if (cs === "disconnected") {
         this._setState("reconnecting");
       }
@@ -333,7 +334,7 @@ export class PeerDataChannel {
 
     dc.onclose = () => {
       if (this._state !== "closed" && this._state !== "failed") {
-        this._handleConnectionFailure();
+        void this._handleConnectionFailure();
       }
     };
 
@@ -362,10 +363,17 @@ export class PeerDataChannel {
     };
   }
 
-  private _handleConnectionFailure(): void {
+  private async _handleConnectionFailure(): Promise<void> {
     if (this._reconnectAttempts < this._maxReconnectAttempts) {
       this._reconnectAttempts++;
       this._setState("reconnecting");
+      try {
+        await this._pc?.restartIce();
+      } catch {
+        // ICE restart not supported or connection already gone — fall through to failed.
+        this._setState("failed");
+        this.onClose?.("Connection failed: ICE restart unsuccessful.");
+      }
     } else {
       this._setState("failed");
       this.onClose?.("Connection failed after maximum reconnect attempts.");
@@ -450,7 +458,7 @@ export class SpectatorChannel {
       this._dc = ev.channel;
 
       this._dc.onopen  = () => { this._setState("open"); this.onOpen?.(); };
-      this._dc.onclose = () => { this._setState("closed"); this.onClose?.(); };
+      this._dc.onclose = () => { this._setState("disconnected"); this.onClose?.(); };
       this._dc.onerror = (e) => {
         this.onError?.(extractRTCError(e, "Spectator data channel error"));
       };

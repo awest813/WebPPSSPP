@@ -702,11 +702,11 @@ describe("EasyNetplayManager", () => {
     expect(manager.state).toBe("idle");
   });
 
-  it("markInGame is a no-op when state is hosting (stub room)", async () => {
+  it("markInGame transitions from hosting to in_game (stub room)", async () => {
     await manager.hostRoom(hostOpts);
     expect(manager.state).toBe("hosting");
     manager.markInGame();
-    expect(manager.state).toBe("hosting");
+    expect(manager.state).toBe("in_game");
   });
 
   // ── hostRoom with empty hostName ───────────────────────────────────────────

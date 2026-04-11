@@ -109,7 +109,9 @@ export class EasyNetplayManager {
    */
   cancelPendingOperations(): void {
     this._cancelPendingRequests();
-    if ((this._state === "hosting" || this._state === "joining" || this._state === "spectating" || this._state === "reconnecting") && !this._room) {
+    if (this._state === "hosting" || this._state === "joining" || this._state === "spectating" || this._state === "reconnecting") {
+      this._room = null;
+      this._spectatorSession = null;
       this._setState("idle");
     }
   }
@@ -399,7 +401,7 @@ export class EasyNetplayManager {
 
   /** Transition to `in_game` state once EmulatorJS has started the session. */
   markInGame(): void {
-    if (this._state === "connected") {
+    if (this._state === "connected" || this._state === "hosting") {
       this._setState("in_game");
       this._diagnostics.info(MSG.sessionStarting);
     }
