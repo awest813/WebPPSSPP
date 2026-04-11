@@ -354,11 +354,11 @@ export function buildDOM(app: HTMLElement): void {
       </div>
 
       <!-- Loading overlay -->
-      <div id="loading-overlay" role="status" aria-live="polite">
+      <div id="loading-overlay" role="status" aria-live="polite" aria-hidden="true">
         <div class="loading-spinner" aria-hidden="true"></div>
         <div class="loading-content">
           <p id="loading-message">Loading…</p>
-          <p id="loading-subtitle"></p>
+          <p id="loading-subtitle" hidden></p>
           <div class="loading-progress" id="loading-progress-container" hidden>
             <div class="loading-progress-bar" id="loading-progress-bar"></div>
           </div>
@@ -415,7 +415,7 @@ export function buildDOM(app: HTMLElement): void {
         <div class="debug-console__body" id="debug-console-log"></div>
         <div class="debug-console__footer">
           <input type="text" class="debug-console__input" id="debug-console-input" 
-                 placeholder="Type a command (reset, pause, step, help)..." 
+                 placeholder="Type a command (reset, pause, step, help)…" 
                  spellcheck="false" autocomplete="off" />
         </div>
       </div>
@@ -3023,7 +3023,7 @@ async function showInGameMenu(ctx: {
             
             // Add a restart button if it doesn't exist yet
             if (!content.querySelector(".btn-restart-core")) {
-              const restartBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block btn-restart-core", style: "margin-top:12px; border-color:var(--c-warn)" }, "Restart Game to Apply Changes");
+              const restartBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block btn-restart-core" }, "Restart Game to Apply Changes");
               restartBtn.addEventListener("click", () => {
                 closeMenu();
                 // Signal main.ts to restart emulator with new window.EJS_Settings
@@ -3037,7 +3037,7 @@ async function showInGameMenu(ctx: {
       }
 
       // Open advanced settings
-      const advBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block", style: "margin-top:24px" }, "Open Advanced UI Settings");
+      const advBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block ingame-menu__btn--spaced" }, "Open Advanced UI Settings");
       advBtn.addEventListener("click", () => {
         closeMenu();
         ctx.onOpenSettings?.("display");
@@ -3085,10 +3085,10 @@ async function showInGameMenu(ctx: {
         `;
         container.appendChild(stats);
 
-        const actions = make("div", { class: "ingame-menu__multiplayer-actions", style: "margin-top:24px" });
+        const actions = make("div", { class: "ingame-menu__multiplayer-actions" });
         actions.innerHTML = `
           <button class="ingame-menu__btn ingame-menu__btn--primary">Manage Play Together Room</button>
-          <p class="settings-help" style="margin-top:12px">Use the core's built-in Multiplayer interface to join specific games, or the RetroVault Play Together lobby for automatic matchmaking.</p>
+          <p class="settings-help ingame-menu__multiplayer-help">Use the core's built-in Multiplayer interface to join specific games, or the RetroVault Play Together lobby for automatic matchmaking.</p>
         `;
         actions.querySelector("button")?.addEventListener("click", () => {
           closeMenu();
@@ -3646,9 +3646,12 @@ function buildDisplayTab(
     "Apply an audio filter to reduce harshness or rumble in emulated audio output."
   ));
 
-  const filterTypeRow = make("div", { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;" });
-  const filterTypeLabel = make("span", { style: "font-size:0.8rem;font-weight:600;flex-shrink:0;" }, "Filter type:");
-  const filterTypeSel = make("select", { class: "settings-select", style: "flex:1;min-width:130px;padding:4px 8px;font-size:0.8rem;" }) as HTMLSelectElement;
+  const filterTypeRow = make("div", { class: "settings-control-row" });
+  const filterTypeLabel = make("span", { class: "settings-control-label" }, "Filter type:");
+  const filterTypeSel = make("select", {
+    class: "settings-select settings-control-field settings-control-field--compact",
+    "aria-label": "Audio filter type",
+  }) as HTMLSelectElement;
   const filterTypeOptions: Array<[string, string]> = [
     ["none",     "None (off)"],
     ["lowpass",  "Low-pass (reduce crunch)"],
@@ -3661,19 +3664,21 @@ function buildDisplayTab(
   }
   filterTypeSel.addEventListener("change", () => {
     onSettingsChange({ audioFilterType: filterTypeSel.value as Settings["audioFilterType"] });
-    cutoffRow.style.display = filterTypeSel.value === "none" ? "none" : "";
+    cutoffRow.hidden = filterTypeSel.value === "none";
   });
   filterTypeRow.append(filterTypeLabel, filterTypeSel);
   audioSection.appendChild(filterTypeRow);
 
-  const cutoffRow = make("div", { style: `display:${settings.audioFilterType === "none" ? "none" : "flex"};align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;` });
-  const cutoffLabel = make("span", { style: "font-size:0.8rem;font-weight:600;flex-shrink:0;" }, "Cutoff frequency:");
+  const cutoffRow = make("div", { class: "settings-control-row" });
+  cutoffRow.hidden = settings.audioFilterType === "none";
+  const cutoffLabel = make("span", { class: "settings-control-label" }, "Cutoff frequency:");
   const cutoffInp = make("input", {
     type: "range", min: "1000", max: "18000", step: "500",
     value: String(settings.audioFilterCutoff),
-    style: "flex:1;min-width:120px;",
+    class: "settings-control-field",
+    "aria-label": "Audio filter cutoff frequency",
   }) as HTMLInputElement;
-  const cutoffVal = make("span", { style: "font-size:0.8rem;width:60px;text-align:right;" }, `${settings.audioFilterCutoff} Hz`);
+  const cutoffVal = make("span", { class: "settings-control-value" }, `${settings.audioFilterCutoff} Hz`);
   cutoffInp.addEventListener("input", () => {
     const hz = parseInt(cutoffInp.value, 10);
     cutoffVal.textContent = `${hz} Hz`;
@@ -3721,15 +3726,15 @@ function buildDisplayTab(
   ));
 
   // Button opacity slider
-  const opacityRow = make("div", { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;" });
-  const opacityLabel = make("span", { style: "font-size:0.8rem;font-weight:600;flex-shrink:0;min-width:120px;" }, "Button opacity:");
+  const opacityRow = make("div", { class: "settings-control-row" });
+  const opacityLabel = make("span", { class: "settings-control-label settings-control-label--wide" }, "Button opacity:");
   const opacityInp = make("input", {
     type: "range", min: "0.1", max: "1", step: "0.05",
     value: String(settings.touchOpacity ?? 0.85),
-    style: "flex:1;min-width:120px;",
+    class: "settings-control-field",
     "aria-label": "Touch button opacity",
   }) as HTMLInputElement;
-  const opacityVal = make("span", { style: "font-size:0.8rem;width:40px;text-align:right;" },
+  const opacityVal = make("span", { class: "settings-control-value settings-control-value--short" },
     `${Math.round((settings.touchOpacity ?? 0.85) * 100)}%`);
   opacityInp.addEventListener("input", () => {
     const v = parseFloat(opacityInp.value);
@@ -3740,15 +3745,15 @@ function buildDisplayTab(
   mobileSection.appendChild(opacityRow);
 
   // Button scale slider
-  const scaleRow = make("div", { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;" });
-  const scaleLabel = make("span", { style: "font-size:0.8rem;font-weight:600;flex-shrink:0;min-width:120px;" }, "Button size:");
+  const scaleRow = make("div", { class: "settings-control-row" });
+  const scaleLabel = make("span", { class: "settings-control-label settings-control-label--wide" }, "Button size:");
   const scaleInp = make("input", {
     type: "range", min: "0.5", max: "2", step: "0.1",
     value: String(settings.touchButtonScale ?? 1.0),
-    style: "flex:1;min-width:120px;",
+    class: "settings-control-field",
     "aria-label": "Touch button scale",
   }) as HTMLInputElement;
-  const scaleVal = make("span", { style: "font-size:0.8rem;width:40px;text-align:right;" },
+  const scaleVal = make("span", { class: "settings-control-value settings-control-value--short" },
     `${Math.round((settings.touchButtonScale ?? 1.0) * 100)}%`);
   scaleInp.addEventListener("input", () => {
     const v = parseFloat(scaleInp.value);
@@ -5621,9 +5626,9 @@ function buildMultiplayerTab(
     const skelFrag = document.createDocumentFragment();
     for (let i = 0; i < 3; i++) {
       const skel = make("div", { class: "netplay-lobby-skeleton" });
-      skel.appendChild(make("div", { class: "netplay-lobby-skeleton__bar", style: "flex:1" }));
-      skel.appendChild(make("div", { class: "netplay-lobby-skeleton__bar", style: "width:44px" }));
-      skel.appendChild(make("div", { class: "netplay-lobby-skeleton__bar", style: "width:36px" }));
+      skel.appendChild(make("div", { class: "netplay-lobby-skeleton__bar netplay-lobby-skeleton__bar--grow" }));
+      skel.appendChild(make("div", { class: "netplay-lobby-skeleton__bar netplay-lobby-skeleton__bar--medium" }));
+      skel.appendChild(make("div", { class: "netplay-lobby-skeleton__bar netplay-lobby-skeleton__bar--short" }));
       skelFrag.appendChild(skel);
     }
     lobbyRoomList.appendChild(skelFrag);
@@ -6278,13 +6283,12 @@ function buildAboutTab(container: HTMLElement): void {
     "Your game files and saves are stored privately in your browser. RetroVault never uploads anything."
   ));
 
-  const links = make("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
+  const links = make("div", { class: "help-links" });
   const ejsLink = make("a", {
     href: "https://emulatorjs.org",
     target: "_blank",
     rel: "noopener",
-    class: "btn",
-    style: "text-decoration:none",
+    class: "btn help-link-btn",
   }, "Powered by EmulatorJS");
   links.appendChild(ejsLink);
   aboutSection.appendChild(links);
@@ -6741,7 +6745,7 @@ function buildCloudTab(
     });
   }
 
-  const addBtn = make("button", { class: "btn btn--primary", style: "margin-top:20px;", type: "button" }, "+ Connect New Library");
+  const addBtn = make("button", { class: "btn btn--primary cloud-connection-add", type: "button" }, "+ Connect New Library");
   addBtn.addEventListener("click", () => {
     _openSettingsFn?.("cloud");
   });
@@ -6869,12 +6873,21 @@ async function syncCloudLibrary(
 
 export function hideLanding(): void    { el("#landing").classList.add("hidden"); }
 export function showLanding(): void    { el("#landing").classList.remove("hidden"); }
-export function showLoadingOverlay(): void { document.getElementById("loading-overlay")?.classList.add("visible"); }
+export function showLoadingOverlay(): void {
+  const overlay = document.getElementById("loading-overlay");
+  overlay?.classList.add("visible");
+  overlay?.setAttribute("aria-hidden", "false");
+}
 export function hideLoadingOverlay(): void {
-  document.getElementById("loading-overlay")?.classList.remove("visible");
+  const overlay = document.getElementById("loading-overlay");
+  overlay?.classList.remove("visible");
+  overlay?.setAttribute("aria-hidden", "true");
   setLoadingProgress(null);
   const sub = document.getElementById("loading-subtitle");
-  if (sub) sub.textContent = "";
+  if (sub) {
+    sub.textContent = "";
+    sub.setAttribute("hidden", "true");
+  }
 }
 export function showEjsContainer(): void  { document.getElementById("ejs-container")?.classList.add("visible"); }
 export function hideEjsContainer(): void  { document.getElementById("ejs-container")?.classList.remove("visible"); }
@@ -6890,7 +6903,13 @@ export function transitionToLibrary(): void {
 }
 export function setLoadingMessage(msg: string): void { const e = document.getElementById("loading-message"); if (e) e.textContent = msg; }
 /** Set a secondary hint shown under the loading message. Pass empty string to hide. */
-export function setLoadingSubtitle(msg: string): void { const e = document.getElementById("loading-subtitle"); if (e) e.textContent = msg; }
+export function setLoadingSubtitle(msg: string): void {
+  const e = document.getElementById("loading-subtitle");
+  if (!e) return;
+  e.textContent = msg;
+  if (msg.trim()) e.removeAttribute("hidden");
+  else e.setAttribute("hidden", "true");
+}
 export function setStatusGame(name: string): void    { const e = document.getElementById("status-game");    if (e) e.textContent = name; }
 export function setStatusSystem(name: string): void  { const e = document.getElementById("status-system");  if (e) e.textContent = name; }
 function setStatusTier(tier: PerformanceTier | null): void { const e = document.getElementById("status-tier"); if (e) e.textContent = tier ? formatTierLabel(tier) : "—"; }

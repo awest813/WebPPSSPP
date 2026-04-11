@@ -2473,6 +2473,52 @@ body {
   flex-shrink: 0;
 }
 
+.settings-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+
+.settings-control-row[hidden] {
+  display: none;
+}
+
+.settings-control-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--c-text);
+  flex-shrink: 0;
+}
+
+.settings-control-label--wide {
+  min-width: 120px;
+}
+
+.settings-control-field {
+  flex: 1;
+  min-width: 120px;
+}
+
+.settings-control-field--compact {
+  min-width: 130px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.settings-control-value {
+  width: 60px;
+  font-size: 0.8rem;
+  color: var(--c-text-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-control-value--short {
+  width: 40px;
+}
+
 .settings-input {
   flex: 1;
   padding: 7px 12px;
@@ -2488,6 +2534,46 @@ body {
 .settings-input:focus {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-accent-dim);
+}
+
+.settings-input:focus-visible {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-dim);
+}
+
+.settings-select {
+  padding: 7px 12px;
+  background: var(--c-surface2);
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--radius);
+  color: var(--c-text);
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.settings-select:focus-visible {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-dim);
+}
+
+@media (max-width: 640px) {
+  .settings-control-row {
+    align-items: stretch;
+  }
+
+  .settings-control-label,
+  .settings-control-label--wide {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .settings-control-value,
+  .settings-control-value--short {
+    width: auto;
+    min-width: 3ch;
+    margin-left: auto;
+  }
 }
 
 /* ── ICE server editable list ───────────────────────────────── */
@@ -2670,6 +2756,18 @@ body {
   );
   background-size: 200% 100%;
   animation: lobby-shimmer 1.5s ease infinite;
+}
+
+.netplay-lobby-skeleton__bar--grow {
+  flex: 1;
+}
+
+.netplay-lobby-skeleton__bar--medium {
+  width: 44px;
+}
+
+.netplay-lobby-skeleton__bar--short {
+  width: 36px;
 }
 
 /* ── Advanced ICE disclosure ───────────────────────────────── */
@@ -3672,6 +3770,11 @@ input[type="range"] {
   cursor: pointer;
 }
 
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--c-gold-h);
+  outline-offset: 3px;
+}
+
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -4252,6 +4355,16 @@ kbd {
   color: var(--c-text-dim);
   line-height: 1.55;
   padding-left: 4px;
+}
+
+.help-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.help-link-btn {
+  text-decoration: none;
 }
 
 /* ── Help tab — troubleshooting ───────────────────────────── */
@@ -5917,6 +6030,14 @@ kbd {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.ingame-menu__multiplayer-actions {
+  margin-top: 24px;
+}
+
+.ingame-menu__multiplayer-help {
+  margin-top: 12px;
+}
+
 .ingame-menu__stat-val {
   font-size: 1.25rem;
   font-weight: 800;
@@ -5975,12 +6096,25 @@ kbd {
   gap: 6px;
 }
 
+.ingame-menu__btn--block {
+  width: 100%;
+}
+
+.ingame-menu__btn--spaced {
+  margin-top: 24px;
+}
+
 .ingame-menu__btn:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
 .ingame-menu__btn--primary {
   background: var(--c-accent, #3b82f6);
+}
+
+.btn-restart-core {
+  margin-top: 12px;
+  border: 1px solid var(--c-warn);
 }
 
 .ingame-menu__btn--primary:hover {
@@ -6877,6 +7011,10 @@ body {
 .cloud-connection-item__actions {
   display: flex;
   gap: 8px;
+}
+
+.cloud-connection-add {
+  margin-top: 20px;
 }
 
 .cloud-connection-empty {
