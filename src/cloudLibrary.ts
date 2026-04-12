@@ -34,6 +34,7 @@ export interface CloudLibraryConnectionConfig {
   username?: string;
   password?: string;
   region?: "us" | "eu";
+  container?: string;
 }
 
 export function parseCloudLibraryConnectionConfig(raw: string): CloudLibraryConnectionConfig | null {
@@ -82,6 +83,15 @@ interface PCloudListResponse {
       isfolder?: boolean;
     }>;
   };
+}
+
+interface BoxFolderItemsResponse {
+  entries?: Array<{
+    id?: string;
+    name?: string;
+    size?: number;
+    type?: string;
+  }>;
 }
 
 // ── Google Drive Implementation ───────────────────────────────────────────────
@@ -316,6 +326,142 @@ export class pCloudLibraryProvider implements CloudProvider {
   }
 }
 
+// ── Blomp Implementation ─────────────────────────────────────────────────────
+
+/**
+ * CloudProvider backed by Blomp cloud storage (OpenStack Swift).
+ *
+ * Authentication uses Swift Auth v1 (username + password → X-Auth-Token +
+ * X-Storage-Url).  Listing uses the Swift container listing API with a JSON
+ * format and optional prefix + delimiter parameters to emulate a directory
+ * hierarchy.
+ */
+export class BlompLibraryProvider implements CloudProvider {
+  readonly id   = "blomp";
+  readonly name = "Blomp";
+
+  private static readonly AUTH_URL = "https://authenticate.blomp.com/v1/auth";
+
+  private _authToken:  string | null = null;
+  private _storageUrl: string | null = null;
+
+  constructor(
+    private readonly username:  string,
+    private readonly password:  string,
+    private readonly container: string = "retrovault",
+  ) {}
+
+  async isAvailable(): Promise<boolean> {
+    try {
+      const r = await fetch(BlompLibraryProvider.AUTH_URL, {
+        method:  "GET",
+        headers: { "X-Auth-User": this.username, "X-Auth-Key": this.password },
+      });
+      if (!r.ok) return false;
+      const token      = r.headers.get("X-Auth-Token");
+      const storageUrl = r.headers.get("X-Storage-Url");
+      if (!token || !storageUrl) return false;
+      this._authToken  = token;
+      this._storageUrl = storageUrl;
+      return true;
+    } catch { return false; }
+  }
+
+  async listFiles(path = ""): Promise<CloudFile[]> {
+    if (!this._authToken || !this._storageUrl) await this.isAvailable();
+    if (!this._authToken || !this._storageUrl) throw new Error("Blomp authentication failed.");
+
+    const prefix    = path && !path.endsWith("/") ? `${path}/` : path;
+    const url       = new URL(`${this._storageUrl}/${this.container}`);
+    url.searchParams.set("format", "json");
+    url.searchParams.set("delimiter", "/");
+    if (prefix) url.searchParams.set("prefix", prefix);
+
+    const r = await fetch(url.toString(), {
+      headers: { "X-Auth-Token": this._authToken },
+    });
+    if (!r.ok) throw new Error(`Blomp list failed: ${r.status}`);
+
+    const entries = await r.json() as Array<{
+      name?: string;
+      subdir?: string;
+      bytes?: number;
+    }>;
+
+    return entries.map(e => {
+      if (e.subdir !== undefined) {
+        const dirName = e.subdir.replace(/\/$/, "").split("/").pop() ?? e.subdir;
+        return { name: dirName, path: e.subdir, size: 0, isDirectory: true };
+      }
+      const objName = (e.name ?? "").split("/").pop() ?? e.name ?? "Untitled";
+      return {
+        name:        objName,
+        path:        e.name ?? "",
+        size:        e.bytes ?? 0,
+        isDirectory: false,
+      };
+    });
+  }
+
+  async getDownloadUrl(remotePath: string): Promise<string> {
+    if (!this._authToken || !this._storageUrl) await this.isAvailable();
+    if (!this._authToken || !this._storageUrl) throw new Error("Blomp authentication failed.");
+    return `${this._storageUrl}/${this.container}/${remotePath}`;
+  }
+}
+
+// ── Box Implementation ───────────────────────────────────────────────────────
+
+/**
+ * CloudProvider backed by the Box API v2.
+ *
+ * Requires an OAuth access token.  Lists files and subdirectories in a given
+ * Box folder (by folder ID).  When path is empty, lists rootFolderId.
+ */
+export class BoxLibraryProvider implements CloudProvider {
+  readonly id   = "box";
+  readonly name = "Box";
+
+  private static readonly API_BASE = "https://api.box.com/2.0";
+
+  constructor(
+    private readonly accessToken:  string,
+    private readonly rootFolderId: string = "0",
+  ) {}
+
+  async isAvailable(): Promise<boolean> {
+    try {
+      const r = await fetch(`${BoxLibraryProvider.API_BASE}/users/me`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+      return r.status === 200;
+    } catch { return false; }
+  }
+
+  async listFiles(folderId?: string): Promise<CloudFile[]> {
+    const parentId = folderId || this.rootFolderId;
+    const r = await fetch(
+      `${BoxLibraryProvider.API_BASE}/folders/${parentId}/items?fields=id,name,size,type&limit=1000`,
+      { headers: { Authorization: `Bearer ${this.accessToken}` } },
+    );
+    if (!r.ok) throw new Error(`Box list failed: ${r.status}`);
+    const data = await r.json() as BoxFolderItemsResponse;
+    return (data.entries ?? []).map(e => ({
+      name:        e.name ?? "Untitled",
+      path:        e.id  ?? parentId,
+      size:        e.size ?? 0,
+      isDirectory: e.type === "folder",
+    }));
+  }
+
+  async getDownloadUrl(fileId: string): Promise<string> {
+    // Box returns a 302 redirect for the download URL; we return the API
+    // endpoint directly so the caller can fetch it with the auth header, or
+    // the redirect can be followed by the browser.
+    return `${BoxLibraryProvider.API_BASE}/files/${fileId}/content`;
+  }
+}
+
 // ── Factory / Manager ─────────────────────────────────────────────────────────
 
 export function createProvider(connection: { provider: string; config: string }): CloudProvider | null {
@@ -337,6 +483,14 @@ export function createProvider(connection: { provider: string; config: string })
         return config.accessToken ? new OneDriveLibraryProvider(config.accessToken, config.rootId) : null;
       case "pcloud":
         return config.accessToken ? new pCloudLibraryProvider(config.accessToken, config.region) : null;
+      case "blomp":
+        return config.username && config.password
+          ? new BlompLibraryProvider(config.username, config.password, config.container)
+          : null;
+      case "box":
+        return config.accessToken
+          ? new BoxLibraryProvider(config.accessToken, config.rootFolderId ?? config.rootId)
+          : null;
       default: return null;
     }
   } catch { return null; }

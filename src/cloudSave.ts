@@ -12,6 +12,8 @@
  * - GoogleDriveProvider : Google Drive REST API v3 (OAuth access token).
  * - DropboxProvider     : Dropbox API v2 (OAuth access token).
  * - pCloudProvider      : pCloud REST API (OAuth access token, US or EU region).
+ * - BlompProvider       : Blomp cloud storage (OpenStack Swift Auth v1, username / password).
+ * - BoxProvider         : Box API v2 (OAuth access token).
  *
  * Manager
  * -------
@@ -1273,11 +1275,527 @@ export class pCloudProvider implements CloudSaveProvider {
   }
 }
 
+// ── BlompProvider ─────────────────────────────────────────────────────────────
+
+/** Timeout (ms) for Blomp authentication (Swift Auth v1). */
+const BLOMP_AUTH_TIMEOUT_MS      = 8_000;
+/** Timeout (ms) for all other Blomp object-storage operations. */
+const BLOMP_OPERATION_TIMEOUT_MS = 15_000;
+
+/**
+ * CloudSaveProvider backed by Blomp cloud storage (OpenStack Swift).
+ *
+ * Authentication uses OpenStack Swift Auth v1:
+ *   GET https://authenticate.blomp.com/v1/auth
+ *   Headers: X-Auth-User: {username}, X-Auth-Key: {password}
+ *   Response headers: X-Auth-Token, X-Storage-Url
+ *
+ * Files are stored in the specified Swift container under:
+ * ```
+ * {container}/
+ *   RetroVault/{hex(gameId)}/{slot}/manifest.json
+ *   RetroVault/{hex(gameId)}/{slot}/state.bin
+ *   RetroVault/{hex(gameId)}/{slot}/thumb.jpg
+ * ```
+ *
+ * The auth token is cached after the first successful authentication.
+ * On 401 responses the token is cleared so the next operation will
+ * re-authenticate via isAvailable().
+ */
+export class BlompProvider implements CloudSaveProvider {
+  readonly providerId  = "blomp";
+  readonly displayName = "Blomp";
+
+  private static readonly AUTH_URL    = "https://authenticate.blomp.com/v1/auth";
+  private static readonly ROOT_PREFIX = "RetroVault";
+
+  private _authToken:  string | null = null;
+  private _storageUrl: string | null = null;
+
+  constructor(
+    private readonly username:  string,
+    private readonly password:  string,
+    private readonly container: string = "retrovault",
+  ) {}
+
+  // ── CloudSaveProvider implementation ───────────────────────────────────────
+
+  async isAvailable(): Promise<boolean> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), BLOMP_AUTH_TIMEOUT_MS);
+    try {
+      const r = await fetch(BlompProvider.AUTH_URL, {
+        method:  "GET",
+        headers: { "X-Auth-User": this.username, "X-Auth-Key": this.password },
+        signal:  ctl.signal,
+      });
+      if (!r.ok) return false;
+      const token      = r.headers.get("X-Auth-Token");
+      const storageUrl = r.headers.get("X-Storage-Url");
+      if (!token || !storageUrl) return false;
+      this._authToken  = token;
+      this._storageUrl = storageUrl;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async upload(entry: SaveStateEntry): Promise<void> {
+    await this._ensureAuth();
+    const base = this._slotPath(entry.gameId, entry.slot);
+
+    // Upload binary payloads in parallel first, then write the manifest last
+    // so it only becomes visible after all data is in place.
+    const parallelUploads: Promise<void>[] = [];
+    if (entry.stateData) {
+      parallelUploads.push(this._put(`${base}/state.bin`, entry.stateData, "application/octet-stream"));
+    }
+    if (entry.thumbnail) {
+      parallelUploads.push(this._put(`${base}/thumb.jpg`, entry.thumbnail, "image/jpeg"));
+    }
+    await Promise.all(parallelUploads);
+
+    const manifest: CloudSaveManifest = {
+      gameId:    entry.gameId,
+      slot:      entry.slot,
+      timestamp: entry.timestamp,
+      checksum:  entry.checksum ?? "",
+      label:     entry.label,
+      gameName:  entry.gameName,
+      systemId:  entry.systemId,
+      version:   entry.version ?? 1,
+    };
+    await this._put(
+      `${base}/manifest.json`,
+      new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+      "application/json",
+    );
+  }
+
+  async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
+    await this._ensureAuth();
+    const base = this._slotPath(gameId, slot);
+
+    const manifestBlob = await this._get(`${base}/manifest.json`);
+    if (!manifestBlob) return null;
+
+    let manifest: CloudSaveManifest;
+    try {
+      manifest = JSON.parse(await manifestBlob.text()) as CloudSaveManifest;
+    } catch {
+      return null;
+    }
+
+    const [stateData, thumbnail] = await Promise.all([
+      this._get(`${base}/state.bin`),
+      this._get(`${base}/thumb.jpg`),
+    ]);
+
+    return {
+      id:         `${gameId}:${slot}`,
+      gameId,
+      gameName:   manifest.gameName,
+      systemId:   manifest.systemId,
+      slot:       manifest.slot,
+      label:      manifest.label,
+      timestamp:  manifest.timestamp,
+      thumbnail,
+      stateData,
+      isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    manifest.version,
+      checksum:   manifest.checksum,
+    };
+  }
+
+  async listManifests(gameId: string): Promise<CloudSaveManifest[]> {
+    await this._ensureAuth();
+    const slots = [AUTO_SAVE_SLOT, ...Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1)];
+    const results = await Promise.allSettled(
+      slots.map(async slot => {
+        const blob = await this._get(`${this._slotPath(gameId, slot)}/manifest.json`);
+        if (!blob) return null;
+        try {
+          return JSON.parse(await blob.text()) as CloudSaveManifest;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<CloudSaveManifest | null> => r.status === "fulfilled")
+      .map(r => r.value)
+      .filter((m): m is CloudSaveManifest => m !== null);
+  }
+
+  async delete(gameId: string, slot: number): Promise<void> {
+    await this._ensureAuth();
+    const base = this._slotPath(gameId, slot);
+    await Promise.allSettled([
+      this._delete(`${base}/manifest.json`),
+      this._delete(`${base}/state.bin`),
+      this._delete(`${base}/thumb.jpg`),
+    ]);
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  /** Swift object path for a specific game + slot. */
+  private _slotPath(gameId: string, slot: number): string {
+    const safeId = Array.from(new TextEncoder().encode(gameId))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+    return `${BlompProvider.ROOT_PREFIX}/${safeId}/${slot}`;
+  }
+
+  /**
+   * Ensure an auth token is available.  If not, calls isAvailable() to
+   * authenticate.  Throws with a user-facing message on failure.
+   */
+  private async _ensureAuth(): Promise<void> {
+    if (this._authToken && this._storageUrl) return;
+    const ok = await this.isAvailable();
+    if (!ok) throw new Error("Blomp authentication failed — check your username and password.");
+  }
+
+  private _objectUrl(path: string): string {
+    return `${this._storageUrl!}/${this.container}/${path}`;
+  }
+
+  private _authHeaders(): HeadersInit {
+    return { "X-Auth-Token": this._authToken! };
+  }
+
+  private async _put(path: string, content: Blob, contentType: string): Promise<void> {
+    const r = await this._timedFetch(this._objectUrl(path), {
+      method:  "PUT",
+      headers: { ...this._authHeaders(), "Content-Type": contentType },
+      body:    content,
+    });
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 403) {
+        this._authToken = null;
+        throw new Error(`Blomp authentication failed (${r.status}) — your credentials may have expired. Please reconnect.`);
+      }
+      throw new Error(`Blomp upload failed (${r.status}): ${path}`);
+    }
+  }
+
+  private async _get(path: string): Promise<Blob | null> {
+    try {
+      const r = await this._timedFetch(this._objectUrl(path), {
+        headers: this._authHeaders(),
+      });
+      if (r.status === 401 || r.status === 403) {
+        this._authToken = null;
+        throw new Error(`Blomp authentication failed (${r.status}) — your credentials may have expired. Please reconnect.`);
+      }
+      if (!r.ok) return null;
+      return r.blob();
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("authentication failed")) throw err;
+      return null;
+    }
+  }
+
+  private async _delete(path: string): Promise<void> {
+    const r = await this._timedFetch(this._objectUrl(path), {
+      method:  "DELETE",
+      headers: this._authHeaders(),
+    });
+    if (!r.ok) throw new Error(`Blomp delete failed (${r.status}): ${path}`);
+  }
+
+  private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), BLOMP_OPERATION_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+// ── BoxProvider ───────────────────────────────────────────────────────────────
+
+/** Timeout (ms) for Box availability check. */
+const BOX_AVAILABILITY_TIMEOUT_MS = 8_000;
+/** Timeout (ms) for all other Box operations. */
+const BOX_OPERATION_TIMEOUT_MS    = 15_000;
+
+/**
+ * CloudSaveProvider backed by the Box API v2.
+ *
+ * Files are stored with flat names in the specified root folder so that no
+ * sub-folder management is required:
+ * ```
+ * {rootFolderId}/
+ *   rv__{gameId}__{slot}__manifest.json
+ *   rv__{gameId}__{slot}__state.bin
+ *   rv__{gameId}__{slot}__thumb.jpg
+ * ```
+ *
+ * The access token must be obtained via OAuth 2.0 before constructing this
+ * provider.  Required Box OAuth scopes: root_readwrite (or equivalent).
+ */
+export class BoxProvider implements CloudSaveProvider {
+  readonly providerId  = "box";
+  readonly displayName = "Box";
+
+  private static readonly API_BASE    = "https://api.box.com/2.0";
+  private static readonly UPLOAD_BASE = "https://upload.box.com/api/2.0";
+
+  constructor(
+    private readonly accessToken:   string,
+    private readonly rootFolderId: string = "0",
+  ) {}
+
+  // ── CloudSaveProvider implementation ───────────────────────────────────────
+
+  private _headers(): HeadersInit {
+    return { Authorization: `Bearer ${this.accessToken}` };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), BOX_AVAILABILITY_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${BoxProvider.API_BASE}/users/me`, {
+        headers: this._headers(),
+        signal:  ctl.signal,
+      });
+      return r.status === 200;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async upload(entry: SaveStateEntry): Promise<void> {
+    // Upload state.bin and thumb.jpg in parallel first, then the manifest last.
+    const parallelUploads: Promise<void>[] = [];
+    if (entry.stateData) {
+      parallelUploads.push(this._upsertFile(
+        this._fileName(entry.gameId, entry.slot, "state.bin"),
+        entry.stateData,
+        "application/octet-stream",
+      ));
+    }
+    if (entry.thumbnail) {
+      parallelUploads.push(this._upsertFile(
+        this._fileName(entry.gameId, entry.slot, "thumb.jpg"),
+        entry.thumbnail,
+        "image/jpeg",
+      ));
+    }
+    await Promise.all(parallelUploads);
+
+    const manifest: CloudSaveManifest = {
+      gameId:    entry.gameId,
+      slot:      entry.slot,
+      timestamp: entry.timestamp,
+      checksum:  entry.checksum ?? "",
+      label:     entry.label,
+      gameName:  entry.gameName,
+      systemId:  entry.systemId,
+      version:   entry.version ?? 1,
+    };
+    await this._upsertFile(
+      this._fileName(entry.gameId, entry.slot, "manifest.json"),
+      new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+      "application/json",
+    );
+  }
+
+  async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
+    const manifestId = await this._findFileId(this._fileName(gameId, slot, "manifest.json"));
+    if (!manifestId) return null;
+
+    let manifest: CloudSaveManifest;
+    try {
+      const r = await this._timedFetch(
+        `${BoxProvider.API_BASE}/files/${manifestId}/content`,
+        { headers: this._headers() },
+      );
+      if (!r.ok) return null;
+      manifest = await r.json() as CloudSaveManifest;
+    } catch {
+      return null;
+    }
+
+    const [stateId, thumbId] = await Promise.all([
+      this._findFileId(this._fileName(gameId, slot, "state.bin")),
+      this._findFileId(this._fileName(gameId, slot, "thumb.jpg")),
+    ]);
+
+    const [stateData, thumbnail] = await Promise.all([
+      stateId
+        ? this._timedFetch(`${BoxProvider.API_BASE}/files/${stateId}/content`, { headers: this._headers() })
+            .then(r => (r.ok ? r.blob() : null))
+            .catch(() => null)
+        : Promise.resolve(null),
+      thumbId
+        ? this._timedFetch(`${BoxProvider.API_BASE}/files/${thumbId}/content`, { headers: this._headers() })
+            .then(r => (r.ok ? r.blob() : null))
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      id:         `${gameId}:${slot}`,
+      gameId,
+      gameName:   manifest.gameName,
+      systemId:   manifest.systemId,
+      slot:       manifest.slot,
+      label:      manifest.label,
+      timestamp:  manifest.timestamp,
+      thumbnail,
+      stateData,
+      isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    manifest.version,
+      checksum:   manifest.checksum,
+    };
+  }
+
+  async listManifests(gameId: string): Promise<CloudSaveManifest[]> {
+    const manifestIds = await this._findManifestFileIds(gameId);
+    const results = await Promise.allSettled(
+      Object.entries(manifestIds).map(async ([, fileId]) => {
+        const r = await this._timedFetch(
+          `${BoxProvider.API_BASE}/files/${fileId}/content`,
+          { headers: this._headers() },
+        );
+        if (!r.ok) return null;
+        try { return await r.json() as CloudSaveManifest; } catch { return null; }
+      }),
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<CloudSaveManifest | null> => r.status === "fulfilled")
+      .map(r => r.value)
+      .filter((m): m is CloudSaveManifest => m !== null);
+  }
+
+  async delete(gameId: string, slot: number): Promise<void> {
+    const suffixes = ["manifest.json", "state.bin", "thumb.jpg"];
+    await Promise.allSettled(
+      suffixes.map(async suffix => {
+        const id = await this._findFileId(this._fileName(gameId, slot, suffix));
+        if (!id) return;
+        await this._timedFetch(
+          `${BoxProvider.API_BASE}/files/${id}`,
+          { method: "DELETE", headers: this._headers() },
+        );
+      }),
+    );
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  /** Flat file name stored in the root folder. */
+  private _fileName(gameId: string, slot: number, suffix: string): string {
+    return `rv__${gameId}__${slot}__${suffix}`;
+  }
+
+  /**
+   * Find a file in the root folder by exact name.
+   * Returns the Box file ID, or null if not found.
+   */
+  private async _findFileId(name: string): Promise<string | null> {
+    try {
+      const r = await this._timedFetch(
+        `${BoxProvider.API_BASE}/folders/${this.rootFolderId}/items?fields=id,name,type&limit=1000`,
+        { headers: this._headers() },
+      );
+      if (!r.ok) return null;
+      const data = await r.json() as { entries?: { id: string; name: string; type: string }[] };
+      const match = (data.entries ?? []).find(e => e.name === name && e.type === "file");
+      return match?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Find all manifest files for a game in the root folder using a single
+   * listing request.  Returns a map of filename → Box file ID.
+   */
+  private async _findManifestFileIds(gameId: string): Promise<Record<string, string>> {
+    const prefix = `rv__${gameId}__`;
+    const suffix = `__manifest.json`;
+    try {
+      const r = await this._timedFetch(
+        `${BoxProvider.API_BASE}/folders/${this.rootFolderId}/items?fields=id,name,type&limit=1000`,
+        { headers: this._headers() },
+      );
+      if (!r.ok) return {};
+      const data = await r.json() as { entries?: { id: string; name: string; type: string }[] };
+      const out: Record<string, string> = {};
+      for (const e of data.entries ?? []) {
+        if (e.type === "file" && e.name.startsWith(prefix) && e.name.endsWith(suffix)) {
+          out[e.name] = e.id;
+        }
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Create or update (upsert) a file in the root folder using the Box upload
+   * API (multipart/form-data).  If a file with the given name already exists,
+   * its content is replaced; otherwise a new file is created.
+   */
+  private async _upsertFile(name: string, content: Blob, contentType: string): Promise<void> {
+    const existingId = await this._findFileId(name);
+
+    const attributes = existingId
+      ? JSON.stringify({ name })
+      : JSON.stringify({ name, parent: { id: this.rootFolderId } });
+
+    const form = new FormData();
+    form.append("attributes", new Blob([attributes], { type: "application/json" }));
+    form.append("file", new File([content], name, { type: contentType }));
+
+    const url = existingId
+      ? `${BoxProvider.UPLOAD_BASE}/files/${existingId}/content`
+      : `${BoxProvider.UPLOAD_BASE}/files/content`;
+
+    // Box sets Content-Type automatically when given a FormData body, so we
+    // only send the Authorization header here.
+    const r = await this._timedFetch(url, {
+      method: "POST",
+      headers: this._headers(),
+      body:   form,
+    });
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 403) {
+        throw new Error(`Box authentication failed (${r.status}) — your token may have expired. Please reconnect.`);
+      }
+      throw new Error(`Box upload failed (${r.status}): ${name}`);
+    }
+  }
+
+  private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), BOX_OPERATION_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 // ── CloudSaveManager ──────────────────────────────────────────────────────────
 
 /** Settings persisted in localStorage under "retrovault-cloud". */
 export interface CloudSaveSettings {
-  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud";
+  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box";
   autoSyncEnabled:    boolean;
   conflictResolution: ConflictResolution;
 }
@@ -1313,7 +1831,7 @@ export class CloudSaveManager {
   private _lastError:   string | null = null;
 
   /** Persisted settings */
-  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" = "null";
+  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box" = "null";
   autoSyncEnabled:    boolean           = false;
   conflictResolution: ConflictResolution = "newest";
 
@@ -1381,6 +1899,8 @@ export class CloudSaveManager {
   private static readonly GDRIVE_KEY   = "retrovault-cloud-gdrive";
   private static readonly DROPBOX_KEY  = "retrovault-cloud-dropbox";
   private static readonly PCLOUD_KEY   = "retrovault-cloud-pcloud";
+  private static readonly BLOMP_KEY    = "retrovault-cloud-blomp";
+  private static readonly BOX_KEY      = "retrovault-cloud-box";
 
   constructor() {
     this._loadSettings();
@@ -1412,7 +1932,7 @@ export class CloudSaveManager {
 
     this._provider      = provider;
     this._connected     = true;
-    this.providerId     = provider.providerId as "null" | "webdav" | "gdrive" | "dropbox" | "pcloud";
+    this.providerId     = provider.providerId as "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box";
     this._lastError     = null;
     this._saveSettings();
     this._emitStatusChange();
@@ -1719,6 +2239,71 @@ export class CloudSaveManager {
     try { localStorage.removeItem(CloudSaveManager.PCLOUD_KEY); } catch { /* ignore */ }
   }
 
+  // ── Blomp credential storage ──────────────────────────────────────────────
+
+  /** Persist Blomp username, password, and container.
+   *
+   * ⚠️  Security note: the password is stored in plaintext in localStorage,
+   * which is accessible to any JavaScript running on the same origin.
+   * Users should be aware of this risk, particularly on shared devices.
+   */
+  saveBlompConfig(username: string, password: string, container = "retrovault"): void {
+    try {
+      localStorage.setItem(CloudSaveManager.BLOMP_KEY, JSON.stringify({ username, password, container }));
+    } catch { /* quota exceeded or private-browsing restriction */ }
+  }
+
+  /** Load previously saved Blomp credentials, or null if none exist. */
+  loadBlompConfig(): { username: string; password: string; container: string } | null {
+    try {
+      const raw = localStorage.getItem(CloudSaveManager.BLOMP_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw) as { username?: string; password?: string; container?: string };
+      return {
+        username:  p.username  ?? "",
+        password:  p.password  ?? "",
+        container: p.container ?? "retrovault",
+      };
+    } catch { return null; }
+  }
+
+  /** Remove persisted Blomp credentials from localStorage. */
+  clearBlompConfig(): void {
+    try { localStorage.removeItem(CloudSaveManager.BLOMP_KEY); } catch { /* ignore */ }
+  }
+
+  // ── Box credential storage ────────────────────────────────────────────────
+
+  /** Persist Box OAuth access token and root folder ID.
+   *
+   * ⚠️  Security note: the token is stored in plaintext in localStorage.
+   * OAuth access tokens are short-lived (typically 1 hour), which limits
+   * exposure, but users should be aware on shared devices.
+   */
+  saveBoxConfig(accessToken: string, rootFolderId = "0"): void {
+    try {
+      localStorage.setItem(CloudSaveManager.BOX_KEY, JSON.stringify({ accessToken, rootFolderId }));
+    } catch { /* quota exceeded or private-browsing restriction */ }
+  }
+
+  /** Load previously saved Box access token and root folder ID, or null if none exist. */
+  loadBoxConfig(): { accessToken: string; rootFolderId: string } | null {
+    try {
+      const raw = localStorage.getItem(CloudSaveManager.BOX_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw) as { accessToken?: string; rootFolderId?: string };
+      return {
+        accessToken:   p.accessToken   ?? "",
+        rootFolderId:  p.rootFolderId  ?? "0",
+      };
+    } catch { return null; }
+  }
+
+  /** Remove persisted Box credentials from localStorage. */
+  clearBoxConfig(): void {
+    try { localStorage.removeItem(CloudSaveManager.BOX_KEY); } catch { /* ignore */ }
+  }
+
   // ── Settings persistence ────────────────────────────────────────────────────
 
   private _loadSettings(): void {
@@ -1730,7 +2315,8 @@ export class CloudSaveManager {
       // no provider is configured, matching the CloudSaveSettings type definition.
       if (p.providerId === "null" || p.providerId === "webdav" ||
           p.providerId === "gdrive" || p.providerId === "dropbox" ||
-          p.providerId === "pcloud") {
+          p.providerId === "pcloud" || p.providerId === "blomp" ||
+          p.providerId === "box") {
         this.providerId = p.providerId;
       }
       if (p.autoSyncEnabled === true) this.autoSyncEnabled = true;

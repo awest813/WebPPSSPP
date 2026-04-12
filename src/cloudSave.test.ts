@@ -6,6 +6,8 @@ import {
   GoogleDriveProvider,
   DropboxProvider,
   pCloudProvider,
+  BlompProvider,
+  BoxProvider,
   CloudSaveManager,
   type CloudSaveProvider,
   type CloudSaveManifest,
@@ -1581,5 +1583,551 @@ describe("CloudSaveManager — onConflict callback", () => {
     };
     await manager.syncGame("g1", lib);
     expect(manager.syncHistory.some(e => e.action.includes("Sync game"))).toBe(true);
+  });
+});
+
+// ── BlompProvider ─────────────────────────────────────────────────────────────
+
+describe("BlompProvider — construction", () => {
+  it("has providerId 'blomp' and a non-empty displayName", () => {
+    const p = new BlompProvider("user@example.com", "secret");
+    expect(p.providerId).toBe("blomp");
+    expect(p.displayName.length).toBeGreaterThan(0);
+  });
+
+  it("accepts a custom container name without throwing", () => {
+    const p = new BlompProvider("user@example.com", "secret", "my-games");
+    expect(p).toBeInstanceOf(BlompProvider);
+  });
+});
+
+describe("BlompProvider — isAvailable", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns true and caches token when auth endpoint responds with 200 + auth headers", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        "X-Auth-Token":   "tok-abc",
+        "X-Storage-Url":  "https://storage.blomp.com/v1/AUTH_123",
+      }),
+    }));
+    const p = new BlompProvider("user", "pass");
+    expect(await p.isAvailable()).toBe(true);
+  });
+
+  it("returns false when the server returns a non-200 status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, headers: new Headers() }));
+    const p = new BlompProvider("user", "pass");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when the auth headers are absent", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      headers: new Headers(),  // no X-Auth-Token / X-Storage-Url
+    }));
+    const p = new BlompProvider("user", "pass");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when fetch throws (network error)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const p = new BlompProvider("user", "pass");
+    expect(await p.isAvailable()).toBe(false);
+  });
+});
+
+describe("BlompProvider — upload", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  function authResponse() {
+    return {
+      ok: true, status: 200,
+      headers: new Headers({
+        "X-Auth-Token":  "tok-abc",
+        "X-Storage-Url": "https://storage.blomp.com/v1/AUTH_123",
+      }),
+    };
+  }
+
+  it("sends PUT requests for state.bin, thumb.jpg, and manifest.json", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse()) // isAvailable / _ensureAuth
+      .mockResolvedValue({ ok: true, status: 201 }); // PUT calls
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ gameId: "g1", slot: 1, stateData: new Blob(["state"]), thumbnail: new Blob(["img"]) });
+    const p = new BlompProvider("user", "pass");
+    await p.upload(entry);
+
+    const methods: string[] = mockFetch.mock.calls
+      .slice(1) // skip auth call
+      .map((c: unknown[]) => (c[1] as { method?: string }).method ?? "GET");
+    const urls: string[] = mockFetch.mock.calls
+      .slice(1)
+      .map((c: unknown[]) => c[0] as string);
+
+    expect(methods.every(m => m === "PUT")).toBe(true);
+    expect(urls.some(u => u.includes("state.bin"))).toBe(true);
+    expect(urls.some(u => u.includes("thumb.jpg"))).toBe(true);
+    expect(urls.some(u => u.includes("manifest.json"))).toBe(true);
+  });
+
+  it("throws when a PUT request fails with a non-auth error", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValue({ ok: false, status: 500 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ stateData: new Blob(["x"]), thumbnail: null });
+    const p = new BlompProvider("user", "pass");
+    await expect(p.upload(entry)).rejects.toThrow(/Blomp upload failed/);
+  });
+
+  it("throws an auth error and clears the cached token on 401", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValue({ ok: false, status: 401 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ stateData: new Blob(["x"]), thumbnail: null });
+    const p = new BlompProvider("user", "pass");
+    await expect(p.upload(entry)).rejects.toThrow(/authentication failed/);
+  });
+});
+
+describe("BlompProvider — download", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  function authResponse() {
+    return {
+      ok: true, status: 200,
+      headers: new Headers({
+        "X-Auth-Token":  "tok-abc",
+        "X-Storage-Url": "https://storage.blomp.com/v1/AUTH_123",
+      }),
+    };
+  }
+
+  it("returns null when manifest.json is not found (404)", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValue({ ok: false, status: 404 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BlompProvider("user", "pass");
+    expect(await p.download("game-1", 1)).toBeNull();
+  });
+
+  it("returns a SaveStateEntry when manifest and state exist", async () => {
+    const manifest: CloudSaveManifest = makeManifest({ gameId: "game-1", slot: 1 });
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())                                                                          // _ensureAuth
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob([JSON.stringify(manifest)]) })      // manifest.json
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob(["state"]) })                       // state.bin
+      .mockResolvedValueOnce({ ok: false, status: 404 });                                                            // thumb.jpg not found
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BlompProvider("user", "pass");
+    const result = await p.download("game-1", 1);
+
+    expect(result).not.toBeNull();
+    expect(result!.gameId).toBe("game-1");
+    expect(result!.slot).toBe(1);
+    expect(result!.stateData).not.toBeNull();
+    expect(result!.thumbnail).toBeNull();
+  });
+
+  it("propagates auth error instead of returning null on 401 manifest response", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValue({ ok: false, status: 401 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BlompProvider("user", "pass");
+    await expect(p.download("game-1", 1)).rejects.toThrow(/authentication failed/);
+  });
+});
+
+describe("BlompProvider — delete", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  function authResponse() {
+    return {
+      ok: true, status: 200,
+      headers: new Headers({
+        "X-Auth-Token":  "tok-abc",
+        "X-Storage-Url": "https://storage.blomp.com/v1/AUTH_123",
+      }),
+    };
+  }
+
+  it("sends DELETE requests for all three files via allSettled", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValue({ ok: true, status: 204 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BlompProvider("user", "pass");
+    await p.delete("game-1", 1);
+
+    const methods: string[] = mockFetch.mock.calls
+      .slice(1)
+      .map((c: unknown[]) => (c[1] as { method?: string }).method ?? "GET");
+    expect(methods.filter(m => m === "DELETE")).toHaveLength(3);
+  });
+
+  it("resolves even when individual DELETE requests fail (allSettled semantics)", async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValue({ ok: false, status: 403 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BlompProvider("user", "pass");
+    await expect(p.delete("game-1", 1)).resolves.toBeUndefined();
+  });
+});
+
+describe("CloudSaveManager — Blomp credential storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("saveBlompConfig / loadBlompConfig round-trip", () => {
+    const m = new CloudSaveManager();
+    m.saveBlompConfig("alice@example.com", "s3cr3t", "my-games");
+    const cfg = m.loadBlompConfig();
+    expect(cfg?.username).toBe("alice@example.com");
+    expect(cfg?.password).toBe("s3cr3t");
+    expect(cfg?.container).toBe("my-games");
+  });
+
+  it("loadBlompConfig uses default container when not stored", () => {
+    const m = new CloudSaveManager();
+    m.saveBlompConfig("user", "pass");
+    const cfg = m.loadBlompConfig();
+    expect(cfg?.container).toBe("retrovault");
+  });
+
+  it("clearBlompConfig removes stored credentials", () => {
+    const m = new CloudSaveManager();
+    m.saveBlompConfig("user", "pass");
+    m.clearBlompConfig();
+    expect(m.loadBlompConfig()).toBeNull();
+  });
+});
+
+describe("CloudSaveManager — persists blomp providerId", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("persists 'blomp' providerId after connecting a BlompProvider", async () => {
+    const mockProvider: CloudSaveProvider = {
+      providerId:    "blomp",
+      displayName:   "Blomp",
+      isAvailable:   vi.fn().mockResolvedValue(true),
+      upload:        vi.fn().mockResolvedValue(undefined),
+      download:      vi.fn().mockResolvedValue(null),
+      listManifests: vi.fn().mockResolvedValue([]),
+      delete:        vi.fn().mockResolvedValue(undefined),
+    };
+    const m = new CloudSaveManager();
+    await m.connect(mockProvider);
+    expect(m.providerId).toBe("blomp");
+
+    const m2 = new CloudSaveManager();
+    expect(m2.providerId).toBe("blomp");
+  });
+});
+
+// ── BoxProvider ───────────────────────────────────────────────────────────────
+
+describe("BoxProvider — construction", () => {
+  it("has providerId 'box' and a non-empty displayName", () => {
+    const p = new BoxProvider("fake-token");
+    expect(p.providerId).toBe("box");
+    expect(p.displayName.length).toBeGreaterThan(0);
+  });
+
+  it("accepts a custom rootFolderId without throwing", () => {
+    const p = new BoxProvider("tok", "12345");
+    expect(p).toBeInstanceOf(BoxProvider);
+  });
+});
+
+describe("BoxProvider — isAvailable", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns true when /users/me responds with 200", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200, ok: true }));
+    const p = new BoxProvider("tok");
+    expect(await p.isAvailable()).toBe(true);
+  });
+
+  it("returns false when status is 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 401, ok: false }));
+    const p = new BoxProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when fetch throws (network error)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const p = new BoxProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+});
+
+describe("BoxProvider — upload", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("creates files when none exist (no existing file ID)", async () => {
+    // state.bin and thumb.jpg _findFileId calls run in parallel, so both
+    // listing responses come before either upload response.
+    const mockFetch = vi.fn()
+      // folder listing for state.bin → not found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) })
+      // folder listing for thumb.jpg → not found (parallel with above)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) })
+      // upload state.bin
+      .mockResolvedValueOnce({ ok: true, status: 201 })
+      // upload thumb.jpg
+      .mockResolvedValueOnce({ ok: true, status: 201 })
+      // folder listing for manifest.json → not found (sequential)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) })
+      // upload manifest.json
+      .mockResolvedValueOnce({ ok: true, status: 201 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ gameId: "g1", slot: 1, stateData: new Blob(["state"]), thumbnail: new Blob(["img"]) });
+    const p = new BoxProvider("tok");
+    await p.upload(entry);
+
+    const urls: string[] = mockFetch.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(urls.some(u => u.includes("/files/content"))).toBe(true);
+  });
+
+  it("updates existing files via versioned upload URL", async () => {
+    // state.bin and thumb.jpg _findFileId calls run in parallel — both listings
+    // are consumed before either upload response.
+    const mockFetch = vi.fn()
+      // folder listing for state.bin → found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "sid", name: "rv__g1__1__state.bin", type: "file" }] }) })
+      // folder listing for thumb.jpg → not found (parallel)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) })
+      // update state.bin
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      // upload thumb.jpg (new)
+      .mockResolvedValueOnce({ ok: true, status: 201 })
+      // folder listing for manifest → found (sequential)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "mid", name: "rv__g1__1__manifest.json", type: "file" }] }) })
+      // update manifest.json
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const entry = makeEntry({ gameId: "g1", slot: 1, stateData: new Blob(["state"]), thumbnail: new Blob(["img"]) });
+    const p = new BoxProvider("tok");
+    await p.upload(entry);
+
+    const urls: string[] = mockFetch.mock.calls.map((c: unknown[]) => c[0] as string);
+    // Versioned upload URL contains the file ID
+    expect(urls.some(u => u.includes("/files/sid/content"))).toBe(true);
+    expect(urls.some(u => u.includes("/files/mid/content"))).toBe(true);
+  });
+
+  it("throws when an upload request fails", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) }) // _findFileId
+      .mockResolvedValueOnce({ ok: false, status: 500 }), // upload fails
+    );
+    const entry = makeEntry({ stateData: new Blob(["x"]), thumbnail: null });
+    const p = new BoxProvider("tok");
+    await expect(p.upload(entry)).rejects.toThrow(/Box upload failed/);
+  });
+
+  it("throws an auth error on 401 upload failure", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) }) // _findFileId
+      .mockResolvedValueOnce({ ok: false, status: 401 }), // upload fails
+    );
+    const entry = makeEntry({ stateData: new Blob(["x"]), thumbnail: null });
+    const p = new BoxProvider("tok");
+    await expect(p.upload(entry)).rejects.toThrow(/authentication failed/);
+  });
+});
+
+describe("BoxProvider — download", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns null when manifest file is not found", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ entries: [] }),
+    }));
+    const p = new BoxProvider("tok");
+    expect(await p.download("game-1", 1)).toBeNull();
+  });
+
+  it("returns a SaveStateEntry when manifest and state exist", async () => {
+    const manifest: CloudSaveManifest = makeManifest({ gameId: "game-1", slot: 1 });
+    const mockFetch = vi.fn()
+      // _findFileId(manifest.json) → found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "mid", name: "rv__game-1__1__manifest.json", type: "file" }] }) })
+      // download manifest
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => manifest })
+      // _findFileId(state.bin) and _findFileId(thumb.jpg) in parallel
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "sid", name: "rv__game-1__1__state.bin", type: "file" }] }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) })   // thumb not found
+      // download state.bin
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob(["state"]) });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BoxProvider("tok");
+    const result = await p.download("game-1", 1);
+
+    expect(result).not.toBeNull();
+    expect(result!.gameId).toBe("game-1");
+    expect(result!.slot).toBe(1);
+    expect(result!.stateData).not.toBeNull();
+    expect(result!.thumbnail).toBeNull();
+  });
+});
+
+describe("BoxProvider — delete", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("sends DELETE for each file that exists", async () => {
+    // All three _findFileId calls run in parallel (Promise.allSettled), so all
+    // three folder-listing responses are consumed before any DELETE call fires.
+    const mockFetch = vi.fn()
+      // folder listing 1 → manifest.json found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "mid", name: "rv__game-1__1__manifest.json", type: "file" }] }) })
+      // folder listing 2 → state.bin found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "sid", name: "rv__game-1__1__state.bin", type: "file" }] }) })
+      // folder listing 3 → thumb.jpg not found
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [] }) })
+      // DELETE manifest.json
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      // DELETE state.bin
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BoxProvider("tok");
+    await p.delete("game-1", 1);
+
+    const methods: string[] = mockFetch.mock.calls.map((c: unknown[]) => (c[1] as { method?: string }).method ?? "GET");
+    expect(methods.filter(m => m === "DELETE")).toHaveLength(2);
+  });
+
+  it("resolves even when DELETE requests fail (allSettled semantics)", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ entries: [{ id: "x", name: "f", type: "file" }] }) }),
+    );
+    const inner = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ entries: [{ id: "x", name: "f", type: "file" }] }) })
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ entries: [] }) });
+    vi.stubGlobal("fetch", inner);
+
+    const p = new BoxProvider("tok");
+    await expect(p.delete("game-1", 1)).resolves.toBeUndefined();
+  });
+});
+
+describe("BoxProvider — listManifests (batch folder scan)", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("uses a single folder listing and returns manifests for matching files", async () => {
+    const manifest1 = makeManifest({ slot: 1 });
+    const manifest2 = makeManifest({ slot: 2 });
+    const mockFetch = vi.fn()
+      // Single folder listing
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({
+          entries: [
+            { id: "m1", name: "rv__game-1__1__manifest.json", type: "file" },
+            { id: "m2", name: "rv__game-1__2__manifest.json", type: "file" },
+            { id: "s1", name: "rv__game-1__1__state.bin",     type: "file" }, // should be ignored
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => manifest1 })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => manifest2 });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new BoxProvider("tok");
+    const results = await p.listManifests("game-1");
+
+    // 3 fetch calls: 1 folder list + 2 manifest downloads
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(results).toHaveLength(2);
+    expect(results.map(m => m.slot).sort()).toEqual([1, 2]);
+  });
+
+  it("returns empty array when no manifest files exist", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ entries: [] }),
+    }));
+    const p = new BoxProvider("tok");
+    expect(await p.listManifests("game-1")).toEqual([]);
+  });
+});
+
+describe("CloudSaveManager — Box credential storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("saveBoxConfig / loadBoxConfig round-trip", () => {
+    const m = new CloudSaveManager();
+    m.saveBoxConfig("box-access-token", "98765");
+    const cfg = m.loadBoxConfig();
+    expect(cfg?.accessToken).toBe("box-access-token");
+    expect(cfg?.rootFolderId).toBe("98765");
+  });
+
+  it("loadBoxConfig uses root folder '0' when not stored", () => {
+    const m = new CloudSaveManager();
+    m.saveBoxConfig("tok");
+    const cfg = m.loadBoxConfig();
+    expect(cfg?.rootFolderId).toBe("0");
+  });
+
+  it("clearBoxConfig removes stored credentials", () => {
+    const m = new CloudSaveManager();
+    m.saveBoxConfig("tok");
+    m.clearBoxConfig();
+    expect(m.loadBoxConfig()).toBeNull();
+  });
+});
+
+describe("CloudSaveManager — persists box providerId", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("persists 'box' providerId after connecting a BoxProvider", async () => {
+    const mockProvider: CloudSaveProvider = {
+      providerId:    "box",
+      displayName:   "Box",
+      isAvailable:   vi.fn().mockResolvedValue(true),
+      upload:        vi.fn().mockResolvedValue(undefined),
+      download:      vi.fn().mockResolvedValue(null),
+      listManifests: vi.fn().mockResolvedValue([]),
+      delete:        vi.fn().mockResolvedValue(undefined),
+    };
+    const m = new CloudSaveManager();
+    await m.connect(mockProvider);
+    expect(m.providerId).toBe("box");
+
+    const m2 = new CloudSaveManager();
+    expect(m2.providerId).toBe("box");
   });
 });
