@@ -47,7 +47,7 @@ import type { PostProcessEffect } from "./webgpuPostProcess.js";
 
 export interface CloudLibraryConnection {
   id: string;
-  provider: "gdrive" | "dropbox" | "onedrive" | "pcloud" | "mega" | "webdav";
+  provider: "gdrive" | "dropbox" | "onedrive" | "pcloud" | "webdav" | "blomp" | "box";
   name: string;
   enabled: boolean;
   /** JSON-stringified provider-specific settings (tokens, URLs, etc.) */
