@@ -7343,10 +7343,29 @@ body {
   min-height: 300px;
 }
 
+.cloud-wizard-box {
+  max-width: 520px;
+  width: 100%;
+}
+
+.cloud-wizard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.cloud-wizard-error {
+  color: var(--c-danger);
+  font-size: 0.82rem;
+  margin: 4px 0 0;
+}
+
 .cloud-provider-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+  margin: 12px 0;
 }
 
 .cloud-provider-card {
@@ -7360,24 +7379,63 @@ body {
   border-radius: 12px;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  color: var(--c-text);
+  font-family: inherit;
 }
 
-.cloud-provider-card:hover {
+.cloud-provider-card:hover,
+.cloud-provider-card:focus-visible {
   background: rgba(255, 255, 255, 0.1);
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--c-accent) 50%, transparent);
+  outline: none;
+}
+
+.cloud-provider-card__icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.cloud-provider-card__label {
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .cloud-provider-card i {
   font-size: 2rem;
 }
 
-.cloud-connection-item__status {
+/* Cloud save status row in the Cloud Settings tab */
+.cloud-save-status-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-right: 12px;
-  padding: 4px 8px;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  margin-top: 10px;
+}
+
+.cloud-save-status__provider {
+  font-size: 0.88rem;
+  color: var(--c-text);
+  font-weight: 600;
+}
+
+.cloud-save-status__lastsync {
+  font-size: 0.76rem;
+  color: var(--c-text-faint);
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-connection-item__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
   border-radius: 4px;
   background: rgba(74, 222, 128, 0.1);
   color: #4ade80;
@@ -7385,18 +7443,20 @@ body {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.status--online { color: #4ade80; }
-.status--offline { color: #f87171; }
-.status--syncing { 
+.status--online  { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.status--offline { color: #f87171; background: rgba(248, 113, 113, 0.1); }
+.status--syncing {
   color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
   animation: pulse 1.5s infinite;
 }
 
 @keyframes pulse {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%   { opacity: 0.6; }
+  50%  { opacity: 1; }
   100% { opacity: 0.6; }
 }
 

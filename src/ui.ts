@@ -86,9 +86,18 @@ import type { EasyNetplayRoom } from "./netplay/netplayTypes.js";
 import { normaliseInviteCode, INVITE_CODE_LEN } from "./netplay/signalingClient.js";
 import { checkSystemSupport } from "./netplay/compatibility.js";
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
+import {
+  WebDAVProvider,
+  GoogleDriveProvider,
+  DropboxProvider,
+  pCloudProvider,
+  BlompProvider,
+  BoxProvider,
+} from "./cloudSave.js";
 // Cloud library types moved to lazy functions to satisfy strict TSC
 import { createProvider } from "./cloudLibrary.js";
 import type { CloudLibraryConnection } from "./main.js";
+import { createUuid } from "./uuid.js";
 import { SaveGameService } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 import { queryRequired as el, createElement as make } from "./ui/dom.js";
@@ -5130,6 +5139,51 @@ function _renderRoomCard(
 
 // ── Cloud save bar ────────────────────────────────────────────────────────────
 
+// ── Cloud provider metadata ───────────────────────────────────────────────────
+
+interface CloudProviderMeta {
+  id:    string;
+  label: string;
+  icon:  string;
+}
+
+/** Providers supported for cloud *save* backup. */
+const CLOUD_SAVE_PROVIDERS: CloudProviderMeta[] = [
+  { id: "gdrive",  label: "Google Drive", icon: "🗂️" },
+  { id: "dropbox", label: "Dropbox",      icon: "📦" },
+  { id: "webdav",  label: "WebDAV",       icon: "🔗" },
+  { id: "pcloud",  label: "pCloud",       icon: "🌐" },
+  { id: "blomp",   label: "Blomp",        icon: "💧" },
+  { id: "box",     label: "Box",          icon: "📫" },
+];
+
+/** Providers supported for cloud *library* sources (adds OneDrive). */
+const CLOUD_LIBRARY_PROVIDERS: CloudProviderMeta[] = [
+  { id: "gdrive",   label: "Google Drive", icon: "🗂️" },
+  { id: "dropbox",  label: "Dropbox",      icon: "📦" },
+  { id: "onedrive", label: "OneDrive",     icon: "☁️" },
+  { id: "webdav",   label: "WebDAV",       icon: "🔗" },
+  { id: "pcloud",   label: "pCloud",       icon: "🌐" },
+  { id: "blomp",    label: "Blomp",        icon: "💧" },
+  { id: "box",      label: "Box",          icon: "📫" },
+];
+
+/** Combined lookup table for display name resolution (dedupes gdrive, dropbox etc.). */
+const ALL_CLOUD_PROVIDERS: CloudProviderMeta[] = [
+  { id: "gdrive",   label: "Google Drive", icon: "🗂️" },
+  { id: "dropbox",  label: "Dropbox",      icon: "📦" },
+  { id: "onedrive", label: "OneDrive",     icon: "☁️" },
+  { id: "webdav",   label: "WebDAV",       icon: "🔗" },
+  { id: "pcloud",   label: "pCloud",       icon: "🌐" },
+  { id: "blomp",    label: "Blomp",        icon: "💧" },
+  { id: "box",      label: "Box",          icon: "📫" },
+];
+
+function getCloudProviderLabel(id: string): string {
+  return ALL_CLOUD_PROVIDERS.find(p => p.id === id)?.label ?? id;
+}
+
+
 /**
  * Build the cloud-save bar shown at the top of the save-state gallery.
  * Renders current connection status, a Connect/Disconnect button,
@@ -5201,70 +5255,241 @@ function buildCloudSaveBar(): HTMLElement {
 }
 
 /**
- * Show the cloud-provider connection dialog.
- * Returns true if the user successfully configured a provider.
+ * Two-step cloud save backup wizard.
+ *
+ * Step 1 — pick a provider from a visual grid.
+ * Step 2 — enter credentials appropriate for that provider.
+ *
+ * On success, saves credentials via CloudSaveManager helpers and calls
+ * cloudManager.connect(provider).  Returns true when connected.
  */
 async function showCloudConnectDialog(): Promise<boolean> {
+  const cloudManager = getCloudSaveManager();
+
   return new Promise((resolve) => {
     const overlay = make("div", { class: "confirm-overlay" });
     const box = make("div", {
-      class: "confirm-box",
-      role: "dialog",
+      class: "confirm-box cloud-wizard-box",
+      role:  "dialog",
       "aria-modal": "true",
-      "aria-label": "Cloud Connection",
+      "aria-label": "Connect Cloud Save Backup",
     });
-
-    const title = make("h3", { class: "confirm-box__title" }, "Connect Cloud Storage");
-    const desc  = make("p", { class: "confirm-box__body" },
-      "Choose a cloud provider to sync save states across devices. This only mirrors saves; your local ROM library still stays on this device unless you connect a cloud library source separately."
-    );
-
-    const providerRow = make("div", { class: "settings-input-row" });
-    const providerLabel = make("label", { class: "settings-input-label", for: "cloud-provider-sel" }, "Provider");
-    const providerSel = make("select", {
-      id:    "cloud-provider-sel",
-      class: "settings-input",
-      name:  "cloudProvider",
-    }) as HTMLSelectElement;
-    const providers: Array<{ value: string; label: string }> = [
-      { value: "gdrive",  label: "Google Drive" },
-      { value: "webdav",  label: "WebDAV" },
-      { value: "dropbox", label: "Dropbox" },
-      { value: "pcloud",  label: "pCloud" },
-    ];
-    for (const p of providers) {
-      const opt = document.createElement("option");
-      opt.value = p.value;
-      opt.textContent = p.label;
-      providerSel.appendChild(opt);
-    }
-    providerRow.append(providerLabel, providerSel);
-
-  const btnRow = make("div", { class: "confirm-box__actions" });
-  const cancelBtn = make("button", { class: "btn" }, "Cancel") as HTMLButtonElement;
-  const connectBtn = make("button", { class: "btn btn--primary" }, "Open Cloud Settings") as HTMLButtonElement;
-  btnRow.append(cancelBtn, connectBtn);
-
-    box.append(title, desc, providerRow, btnRow);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
 
     const close = (result: boolean) => {
-      overlay.remove();
+      document.removeEventListener("keydown", onKeydown, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
-
-    cancelBtn.addEventListener("click", () => close(false));
-    connectBtn.addEventListener("click", () => {
-      // Open settings to the cloud tab for full configuration
-      _openSettingsFn?.("cloud");
-      close(true);
-    });
 
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); close(false); }
     };
-    document.addEventListener("keydown", onKeydown, { capture: true, once: true });
+    document.addEventListener("keydown", onKeydown, { capture: true });
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(false); });
+
+    // ── Step 1: Provider picker ───────────────────────────────────────────────
+
+    const renderStep1 = () => {
+      box.innerHTML = "";
+      box.appendChild(make("h3", { class: "confirm-box__title" }, "Connect Cloud Save Backup"));
+      box.appendChild(make("p", { class: "confirm-box__body" },
+        "Choose a cloud provider to mirror save states across devices. Your local saves stay on this device; cloud backup keeps them in sync."
+      ));
+
+      const grid = make("div", { class: "cloud-provider-grid" });
+      for (const p of CLOUD_SAVE_PROVIDERS) {
+        const card = make("button", {
+          class: "cloud-provider-card",
+          type:  "button",
+          "aria-label": p.label,
+        }) as HTMLButtonElement;
+        card.appendChild(make("span", { class: "cloud-provider-card__icon" }, p.icon));
+        card.appendChild(make("span", { class: "cloud-provider-card__label" }, p.label));
+        card.addEventListener("click", () => renderStep2(p.id));
+        grid.appendChild(card);
+      }
+      box.appendChild(grid);
+
+      const actions = make("div", { class: "confirm-box__actions" });
+      const cancelBtn = make("button", { class: "btn" }, "Cancel") as HTMLButtonElement;
+      cancelBtn.addEventListener("click", () => close(false));
+      actions.appendChild(cancelBtn);
+      box.appendChild(actions);
+    };
+
+    // ── Step 2: Credential form ───────────────────────────────────────────────
+
+    const renderStep2 = (providerId: string) => {
+      box.innerHTML = "";
+      const meta = CLOUD_SAVE_PROVIDERS.find(p => p.id === providerId)!;
+      box.appendChild(make("h3", { class: "confirm-box__title" }, `Connect ${meta.label}`));
+
+      const form = make("div", { class: "cloud-wizard-form" });
+
+      type CredResult = { ok: false; error: string } | { ok: true; data: Record<string, string> };
+      let getCredentials: () => CredResult = () => ({ ok: true, data: {} });
+
+      if (providerId === "webdav") {
+        const urlRow  = make("div", { class: "settings-input-row" });
+        const urlInp  = make("input", { type: "url",  id: "csd-url",  class: "settings-input", placeholder: "https://dav.example.com/saves", autocomplete: "off" }) as HTMLInputElement;
+        urlRow.append(make("label", { class: "settings-input-label", for: "csd-url" }, "Server URL"), urlInp);
+
+        const userRow = make("div", { class: "settings-input-row" });
+        const userInp = make("input", { type: "text", id: "csd-user", class: "settings-input", placeholder: "Username", autocomplete: "username" }) as HTMLInputElement;
+        userRow.append(make("label", { class: "settings-input-label", for: "csd-user" }, "Username"), userInp);
+
+        const passRow = make("div", { class: "settings-input-row" });
+        const passInp = make("input", { type: "password", id: "csd-pass", class: "settings-input", placeholder: "Password", autocomplete: "current-password" }) as HTMLInputElement;
+        passRow.append(make("label", { class: "settings-input-label", for: "csd-pass" }, "Password"), passInp);
+
+        form.append(urlRow, userRow, passRow);
+        getCredentials = () => {
+          const url  = urlInp.value.trim();
+          const user = userInp.value.trim();
+          const pass = passInp.value;
+          if (!url)  return { ok: false, error: "Server URL is required." };
+          if (!user) return { ok: false, error: "Username is required." };
+          return { ok: true, data: { url, user, pass } };
+        };
+
+      } else if (providerId === "pcloud") {
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "csd-token", class: "settings-input", placeholder: "pCloud access token", autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "csd-token" }, "Access Token"), tokenInp);
+
+        const regionRow = make("div", { class: "settings-input-row" });
+        const regionSel = make("select", { id: "csd-region", class: "settings-input" }) as HTMLSelectElement;
+        regionSel.appendChild(Object.assign(document.createElement("option"), { value: "us", textContent: "US" }));
+        regionSel.appendChild(Object.assign(document.createElement("option"), { value: "eu", textContent: "EU" }));
+        regionRow.append(make("label", { class: "settings-input-label", for: "csd-region" }, "Region"), regionSel);
+
+        form.append(tokenRow, regionRow);
+        getCredentials = () => {
+          const token  = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required." };
+          return { ok: true, data: { token, region: regionSel.value } };
+        };
+
+      } else if (providerId === "blomp") {
+        const userRow = make("div", { class: "settings-input-row" });
+        const userInp = make("input", { type: "text", id: "csd-user", class: "settings-input", placeholder: "Blomp username", autocomplete: "username" }) as HTMLInputElement;
+        userRow.append(make("label", { class: "settings-input-label", for: "csd-user" }, "Username"), userInp);
+
+        const passRow = make("div", { class: "settings-input-row" });
+        const passInp = make("input", { type: "password", id: "csd-pass", class: "settings-input", placeholder: "Password", autocomplete: "current-password" }) as HTMLInputElement;
+        passRow.append(make("label", { class: "settings-input-label", for: "csd-pass" }, "Password"), passInp);
+
+        const containerRow = make("div", { class: "settings-input-row" });
+        const containerInp = make("input", { type: "text", id: "csd-container", class: "settings-input", placeholder: "retrovault", autocomplete: "off" }) as HTMLInputElement;
+        containerRow.append(make("label", { class: "settings-input-label", for: "csd-container" }, "Container (optional)"), containerInp);
+
+        form.append(userRow, passRow, containerRow);
+        getCredentials = () => {
+          const user      = userInp.value.trim();
+          const pass      = passInp.value;
+          const container = containerInp.value.trim() || "retrovault";
+          if (!user) return { ok: false, error: "Username is required." };
+          return { ok: true, data: { user, pass, container } };
+        };
+
+      } else if (providerId === "box") {
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "csd-token", class: "settings-input", placeholder: "Box OAuth access token", autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "csd-token" }, "Access Token"), tokenInp);
+
+        const folderRow = make("div", { class: "settings-input-row" });
+        const folderInp = make("input", { type: "text", id: "csd-folder", class: "settings-input", placeholder: "0 (root)", autocomplete: "off" }) as HTMLInputElement;
+        folderRow.append(make("label", { class: "settings-input-label", for: "csd-folder" }, "Root Folder ID (optional)"), folderInp);
+
+        form.append(tokenRow, folderRow);
+        getCredentials = () => {
+          const token    = tokenInp.value.trim();
+          const folderId = folderInp.value.trim() || "0";
+          if (!token) return { ok: false, error: "Access token is required." };
+          return { ok: true, data: { token, folderId } };
+        };
+
+      } else {
+        // gdrive, dropbox — just need an OAuth access token
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "csd-token", class: "settings-input", placeholder: `${meta.label} access token`, autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "csd-token" }, "Access Token"), tokenInp);
+        form.appendChild(tokenRow);
+        getCredentials = () => {
+          const token = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required." };
+          return { ok: true, data: { token } };
+        };
+      }
+
+      box.appendChild(form);
+
+      const errorMsg = make("p", { class: "cloud-wizard-error", "aria-live": "assertive" });
+      errorMsg.hidden = true;
+      box.appendChild(errorMsg);
+
+      const actions = make("div", { class: "confirm-box__actions" });
+      const backBtn    = make("button", { class: "btn" }, "← Back") as HTMLButtonElement;
+      const connectBtn = make("button", { class: "btn btn--primary" }, "Connect") as HTMLButtonElement;
+      actions.append(backBtn, connectBtn);
+      box.appendChild(actions);
+
+      backBtn.addEventListener("click", () => renderStep1());
+
+      connectBtn.addEventListener("click", async () => {
+        const creds = getCredentials();
+        if (!creds.ok) {
+          errorMsg.textContent = creds.error;
+          errorMsg.hidden = false;
+          return;
+        }
+        errorMsg.hidden = true;
+        connectBtn.disabled = true;
+        connectBtn.textContent = "Connecting…";
+
+        try {
+          let provider;
+          const d = creds.data;
+          if (providerId === "webdav") {
+            cloudManager.saveWebDAVConfig(d["url"]!, d["user"]!, d["pass"]!);
+            provider = new WebDAVProvider(d["url"]!, d["user"]!, d["pass"]!);
+          } else if (providerId === "gdrive") {
+            cloudManager.saveGDriveConfig(d["token"]!);
+            provider = new GoogleDriveProvider(d["token"]!);
+          } else if (providerId === "dropbox") {
+            cloudManager.saveDropboxConfig(d["token"]!);
+            provider = new DropboxProvider(d["token"]!);
+          } else if (providerId === "pcloud") {
+            cloudManager.savePCloudConfig(d["token"]!, d["region"] as "us" | "eu");
+            provider = new pCloudProvider(d["token"]!, d["region"] as "us" | "eu");
+          } else if (providerId === "blomp") {
+            cloudManager.saveBlompConfig(d["user"]!, d["pass"]!, d["container"]!);
+            provider = new BlompProvider(d["user"]!, d["pass"]!, d["container"]!);
+          } else if (providerId === "box") {
+            cloudManager.saveBoxConfig(d["token"]!, d["folderId"]!);
+            provider = new BoxProvider(d["token"]!, d["folderId"]!);
+          } else {
+            throw new Error("Unknown provider.");
+          }
+          await cloudManager.connect(provider);
+          close(true);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Connection failed.";
+          errorMsg.textContent = msg;
+          errorMsg.hidden = false;
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect";
+        }
+      });
+    };
+
+    // Kick off step 1
+    renderStep1();
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
   });
 }
 
@@ -6768,6 +6993,252 @@ export function setLoadingProgress(percent: number | null): void {
   }
 }
 
+/**
+ * Dialog wizard for adding a new cloud library source.
+ *
+ * Step 1 — pick a provider from the visual grid.
+ * Step 2 — enter a connection name and the credentials for that provider.
+ *
+ * On success, appends the new CloudLibraryConnection to settings and calls
+ * onSettingsChange so the tab re-renders.
+ */
+async function showAddCloudLibraryDialog(
+  settings:         Settings,
+  onSettingsChange: (patch: Partial<Settings>) => void,
+  rebuildTab:       () => void,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const overlay = make("div", { class: "confirm-overlay" });
+    const box = make("div", {
+      class: "confirm-box cloud-wizard-box",
+      role:  "dialog",
+      "aria-modal": "true",
+      "aria-label": "Add Cloud Library Source",
+    });
+
+    const close = () => {
+      document.removeEventListener("keydown", onKeydown, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 200);
+      resolve();
+    };
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+    };
+    document.addEventListener("keydown", onKeydown, { capture: true });
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+    // ── Step 1: Provider picker ───────────────────────────────────────────────
+
+    const renderStep1 = () => {
+      box.innerHTML = "";
+      box.appendChild(make("h3", { class: "confirm-box__title" }, "Add Cloud Library Source"));
+      box.appendChild(make("p", { class: "confirm-box__body" },
+        "Choose a cloud provider. Remote games will appear in your library alongside local files."
+      ));
+
+      const grid = make("div", { class: "cloud-provider-grid" });
+      for (const p of CLOUD_LIBRARY_PROVIDERS) {
+        const card = make("button", {
+          class: "cloud-provider-card",
+          type:  "button",
+          "aria-label": p.label,
+        }) as HTMLButtonElement;
+        card.appendChild(make("span", { class: "cloud-provider-card__icon" }, p.icon));
+        card.appendChild(make("span", { class: "cloud-provider-card__label" }, p.label));
+        card.addEventListener("click", () => renderStep2(p.id));
+        grid.appendChild(card);
+      }
+      box.appendChild(grid);
+
+      const actions = make("div", { class: "confirm-box__actions" });
+      const cancelBtn = make("button", { class: "btn" }, "Cancel") as HTMLButtonElement;
+      cancelBtn.addEventListener("click", close);
+      actions.appendChild(cancelBtn);
+      box.appendChild(actions);
+    };
+
+    // ── Step 2: Credential form ───────────────────────────────────────────────
+
+    const renderStep2 = (providerId: string) => {
+      box.innerHTML = "";
+      const meta = CLOUD_LIBRARY_PROVIDERS.find(p => p.id === providerId)!;
+      box.appendChild(make("h3", { class: "confirm-box__title" }, `${meta.icon} ${meta.label} Library`));
+
+      const form = make("div", { class: "cloud-wizard-form" });
+
+      // Connection name
+      const nameRow = make("div", { class: "settings-input-row" });
+      const nameInp = make("input", {
+        type:        "text",
+        id:          "cld-name",
+        class:       "settings-input",
+        placeholder: `My ${meta.label}`,
+        autocomplete: "off",
+      }) as HTMLInputElement;
+      nameRow.append(make("label", { class: "settings-input-label", for: "cld-name" }, "Connection name"), nameInp);
+      form.appendChild(nameRow);
+
+      type LibCredResult = { ok: false; error: string } | { ok: true; config: CloudLibraryConnection["config"] };
+      let getCredentials: () => LibCredResult = () => ({
+        ok: true,
+        config: "{}",
+      });
+
+      if (providerId === "webdav") {
+        const urlRow  = make("div", { class: "settings-input-row" });
+        const urlInp  = make("input", { type: "url",      id: "cld-url",  class: "settings-input", placeholder: "https://dav.example.com/roms", autocomplete: "off" }) as HTMLInputElement;
+        urlRow.append(make("label", { class: "settings-input-label", for: "cld-url" }, "Server URL"), urlInp);
+
+        const userRow = make("div", { class: "settings-input-row" });
+        const userInp = make("input", { type: "text",     id: "cld-user", class: "settings-input", placeholder: "Username", autocomplete: "username" }) as HTMLInputElement;
+        userRow.append(make("label", { class: "settings-input-label", for: "cld-user" }, "Username"), userInp);
+
+        const passRow = make("div", { class: "settings-input-row" });
+        const passInp = make("input", { type: "password", id: "cld-pass", class: "settings-input", placeholder: "Password", autocomplete: "current-password" }) as HTMLInputElement;
+        passRow.append(make("label", { class: "settings-input-label", for: "cld-pass" }, "Password"), passInp);
+
+        form.append(urlRow, userRow, passRow);
+        getCredentials = () => {
+          const url  = urlInp.value.trim();
+          const user = userInp.value.trim();
+          const pass = passInp.value;
+          if (!url)  return { ok: false, error: "Server URL is required.", config: "{}" };
+          if (!user) return { ok: false, error: "Username is required.", config: "{}" };
+          return { ok: true, config: JSON.stringify({ url, username: user, password: pass }) };
+        };
+
+      } else if (providerId === "pcloud") {
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "cld-token", class: "settings-input", placeholder: "pCloud access token", autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "cld-token" }, "Access Token"), tokenInp);
+
+        const regionRow = make("div", { class: "settings-input-row" });
+        const regionSel = make("select", { id: "cld-region", class: "settings-input" }) as HTMLSelectElement;
+        regionSel.appendChild(Object.assign(document.createElement("option"), { value: "us", textContent: "US" }));
+        regionSel.appendChild(Object.assign(document.createElement("option"), { value: "eu", textContent: "EU" }));
+        regionRow.append(make("label", { class: "settings-input-label", for: "cld-region" }, "Region"), regionSel);
+
+        form.append(tokenRow, regionRow);
+        getCredentials = () => {
+          const token  = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required.", config: "{}" };
+          return { ok: true, config: JSON.stringify({ accessToken: token, region: regionSel.value }) };
+        };
+
+      } else if (providerId === "blomp") {
+        const userRow = make("div", { class: "settings-input-row" });
+        const userInp = make("input", { type: "text",     id: "cld-user",      class: "settings-input", placeholder: "Blomp username", autocomplete: "username" }) as HTMLInputElement;
+        userRow.append(make("label", { class: "settings-input-label", for: "cld-user" }, "Username"), userInp);
+
+        const passRow = make("div", { class: "settings-input-row" });
+        const passInp = make("input", { type: "password", id: "cld-pass",      class: "settings-input", placeholder: "Password", autocomplete: "current-password" }) as HTMLInputElement;
+        passRow.append(make("label", { class: "settings-input-label", for: "cld-pass" }, "Password"), passInp);
+
+        const containerRow = make("div", { class: "settings-input-row" });
+        const containerInp = make("input", { type: "text", id: "cld-container", class: "settings-input", placeholder: "retrovault", autocomplete: "off" }) as HTMLInputElement;
+        containerRow.append(make("label", { class: "settings-input-label", for: "cld-container" }, "Container (optional)"), containerInp);
+
+        form.append(userRow, passRow, containerRow);
+        getCredentials = () => {
+          const user = userInp.value.trim();
+          if (!user) return { ok: false, error: "Username is required.", config: "{}" };
+          const container = containerInp.value.trim() || "retrovault";
+          return { ok: true, config: JSON.stringify({ username: user, password: passInp.value, container }) };
+        };
+
+      } else if (providerId === "onedrive") {
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "cld-token",  class: "settings-input", placeholder: "OneDrive access token", autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "cld-token" }, "Access Token"), tokenInp);
+
+        const rootRow = make("div", { class: "settings-input-row" });
+        const rootInp = make("input", { type: "text", id: "cld-rootid", class: "settings-input", placeholder: "root (optional)", autocomplete: "off" }) as HTMLInputElement;
+        rootRow.append(make("label", { class: "settings-input-label", for: "cld-rootid" }, "Root Folder ID (optional)"), rootInp);
+
+        form.append(tokenRow, rootRow);
+        getCredentials = () => {
+          const token = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required.", config: "{}" };
+          return { ok: true, config: JSON.stringify({ accessToken: token, rootId: rootInp.value.trim() || undefined }) };
+        };
+
+      } else if (providerId === "box") {
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "cld-token",  class: "settings-input", placeholder: "Box OAuth access token", autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "cld-token" }, "Access Token"), tokenInp);
+
+        const folderRow = make("div", { class: "settings-input-row" });
+        const folderInp = make("input", { type: "text", id: "cld-folder", class: "settings-input", placeholder: "0 (root)", autocomplete: "off" }) as HTMLInputElement;
+        folderRow.append(make("label", { class: "settings-input-label", for: "cld-folder" }, "Root Folder ID (optional)"), folderInp);
+
+        form.append(tokenRow, folderRow);
+        getCredentials = () => {
+          const token = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required.", config: "{}" };
+          return { ok: true, config: JSON.stringify({ accessToken: token, rootFolderId: folderInp.value.trim() || "0" }) };
+        };
+
+      } else {
+        // gdrive, dropbox
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "cld-token", class: "settings-input", placeholder: `${meta.label} access token`, autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "cld-token" }, "Access Token"), tokenInp);
+        form.appendChild(tokenRow);
+        getCredentials = () => {
+          const token = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required.", config: "{}" };
+          return { ok: true, config: JSON.stringify({ accessToken: token }) };
+        };
+      }
+
+      box.appendChild(form);
+
+      const errorMsg = make("p", { class: "cloud-wizard-error", "aria-live": "assertive" });
+      errorMsg.hidden = true;
+      box.appendChild(errorMsg);
+
+      const actions = make("div", { class: "confirm-box__actions" });
+      const backBtn  = make("button", { class: "btn" }, "← Back") as HTMLButtonElement;
+      const saveBtn  = make("button", { class: "btn btn--primary" }, "Add Source") as HTMLButtonElement;
+      actions.append(backBtn, saveBtn);
+      box.appendChild(actions);
+
+      backBtn.addEventListener("click", () => renderStep1());
+
+      saveBtn.addEventListener("click", () => {
+        const creds = getCredentials();
+        if (!creds.ok) {
+          errorMsg.textContent = creds.error;
+          errorMsg.hidden = false;
+          return;
+        }
+        errorMsg.hidden = true;
+
+        const connName = nameInp.value.trim() || meta.label;
+        const newConn: CloudLibraryConnection = {
+          id:       createUuid(),
+          provider: providerId as CloudLibraryConnection["provider"],
+          name:     connName,
+          enabled:  true,
+          config:   creds.config,
+        };
+
+        onSettingsChange({ cloudLibraries: [...settings.cloudLibraries, newConn] });
+        rebuildTab();
+        close();
+      });
+    };
+
+    // Kick off step 1
+    renderStep1();
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+  });
+}
+
 
 function buildCloudTab(
   container:        HTMLElement,
@@ -6787,7 +7258,6 @@ function buildCloudTab(
     <div class="cloud-storage-card__eyebrow">Cloud saves</div>
     <h5 class="cloud-storage-card__title">Mirror progress, keep local ownership</h5>
     <p class="cloud-storage-card__body">Save states stay in your browser first. When cloud backup is connected, RetroVault mirrors those local saves to the provider you chose.</p>
-    <div class="cloud-storage-card__note">Connect this from any game's Saves &amp; Gallery screen.</div>
   `;
 
   const libraryCard = make("div", { class: "cloud-storage-card" });
@@ -6795,11 +7265,61 @@ function buildCloudTab(
     <div class="cloud-storage-card__eyebrow">Cloud library</div>
     <h5 class="cloud-storage-card__title">Add remote games next to local ROMs</h5>
     <p class="cloud-storage-card__body">Remote games are indexed as their own entries, so they can sit alongside files stored on this device without replacing them.</p>
-    <div class="cloud-storage-card__note">Use a cloud source to sync playable files into the library.</div>
   `;
 
   overview.append(saveCard, libraryCard);
   section.appendChild(overview);
+
+  // ── Cloud save backup section ───────────────────────────────────────────────
+
+  const cloudManager = getCloudSaveManager();
+  const saveSection = make("div", { class: "cloud-library-section" });
+  saveSection.appendChild(make("h5", { class: "cloud-library-section__title" }, "Cloud Save Backup"));
+
+  const buildSaveStatus = () => {
+    const statusRow = make("div", { class: "cloud-save-status-row" });
+
+    if (cloudManager.isConnected()) {
+      const provLabel = getCloudProviderLabel(cloudManager.providerId);
+      const statusDot = make("span", { class: "cloud-connection-item__status status--online" }, "● Connected");
+      const provName  = make("span", { class: "cloud-save-status__provider" }, `${provLabel} backup active`);
+      const lastSync  = cloudManager.lastSyncAt
+        ? make("span", { class: "cloud-save-status__lastsync" }, `Last sync: ${formatRelativeTime(cloudManager.lastSyncAt)}`)
+        : make("span", { class: "cloud-save-status__lastsync" }, "Saves will be mirrored after your next game save.");
+      const disconnectBtn = make("button", { class: "btn btn--sm", type: "button" }, "Disconnect") as HTMLButtonElement;
+      disconnectBtn.addEventListener("click", () => {
+        cloudManager.disconnect();
+        saveSection.innerHTML = "";
+        saveSection.appendChild(make("h5", { class: "cloud-library-section__title" }, "Cloud Save Backup"));
+        saveSection.appendChild(buildSaveStatus());
+      });
+      statusRow.append(statusDot, provName, lastSync, disconnectBtn);
+    } else {
+      const hint = make("p", { class: "settings-help" },
+        "Save states live in your browser. Connect a cloud provider to keep them backed up and accessible on other devices."
+      );
+      const connectBtn = make("button", { class: "btn btn--primary", type: "button" }, "☁ Connect Cloud Backup") as HTMLButtonElement;
+      connectBtn.addEventListener("click", () => {
+        void showCloudConnectDialog().then(connected => {
+          if (connected) {
+            saveSection.innerHTML = "";
+            saveSection.appendChild(make("h5", { class: "cloud-library-section__title" }, "Cloud Save Backup"));
+            saveSection.appendChild(buildSaveStatus());
+          }
+        });
+      });
+      statusRow.append(hint, connectBtn);
+    }
+
+    return statusRow;
+  };
+
+  saveSection.appendChild(buildSaveStatus());
+  section.appendChild(saveSection);
+
+  // ── Cloud library sources section ──────────────────────────────────────────
+
+  const rebuildTab = () => buildCloudTab(container, settings, library, onSettingsChange);
 
   const list = make("div", { class: "cloud-connection-list" });
 
@@ -6807,34 +7327,47 @@ function buildCloudTab(
   librarySection.appendChild(make("h5", { class: "cloud-library-section__title" }, "Cloud Library Sources"));
   librarySection.appendChild(make("p", { class: "settings-help" }, "Connect a provider below to stream or import remote games into your local library view."));
 
-  // Enhanced Connection Management
   if (settings.cloudLibraries.length === 0) {
     const empty = make("div", { class: "cloud-connection-empty" });
-    empty.innerHTML = `<p>No cloud library sources are connected yet.</p><p>Your local library still works normally. Add a cloud source to browse remote games alongside it.</p>`;
+    empty.innerHTML = `<p>No cloud library sources connected yet.</p><p>Your local library still works normally. Add a cloud source to browse remote games alongside it.</p>`;
     list.appendChild(empty);
   } else {
     settings.cloudLibraries.forEach((conn) => {
-      const item = make("div", { class: "cloud-connection-item" });
-      const info = make("div", { class: "cloud-connection-item__info" });
+      const item   = make("div", { class: "cloud-connection-item" });
+      const info   = make("div", { class: "cloud-connection-item__info" });
       info.appendChild(make("strong", {}, conn.name));
-      info.appendChild(make("span", {}, conn.provider.toUpperCase()));
-      
-      const actions = make("div", { class: "cloud-connection-item__actions" });
-      
-      const statusDot = make("span", {
-        class: "cloud-connection-item__status"
-      }, "● READY");
+      info.appendChild(make("span", {}, getCloudProviderLabel(conn.provider)));
+
+      const statusDot = make("span", { class: "cloud-connection-item__status" }, "● Checking…");
       info.appendChild(statusDot);
 
-      const syncBtn = make("button", { class: "btn btn--sm", type: "button" }, "↻ Sync Source");
+      // Async availability check — update badge once resolved
+      const provider = createProvider(conn);
+      if (provider) {
+        provider.isAvailable().then(ok => {
+          statusDot.textContent = ok ? "● Ready" : "● Unavailable";
+          statusDot.className   = `cloud-connection-item__status ${ok ? "status--online" : "status--offline"}`;
+        }).catch(() => {
+          statusDot.textContent = "● Unavailable";
+          statusDot.className   = "cloud-connection-item__status status--offline";
+        });
+      } else {
+        statusDot.textContent = "● Config error";
+        statusDot.className   = "cloud-connection-item__status status--offline";
+      }
+
+      const actions = make("div", { class: "cloud-connection-item__actions" });
+
+      const syncBtn = make("button", { class: "btn btn--sm", type: "button" }, "↻ Sync");
       syncBtn.addEventListener("click", () => syncCloudLibrary(conn, library, onSettingsChange));
-      
+
       const removeBtn = make("button", { class: "btn btn--sm btn--danger", type: "button" }, "Remove");
       removeBtn.addEventListener("click", () => {
         const filtered = settings.cloudLibraries.filter(c => c.id !== conn.id);
         onSettingsChange({ cloudLibraries: filtered });
+        rebuildTab();
       });
-      
+
       actions.append(syncBtn, removeBtn);
       item.append(info, actions);
       list.appendChild(item);
@@ -6843,7 +7376,7 @@ function buildCloudTab(
 
   const addBtn = make("button", { class: "btn btn--primary cloud-connection-add", type: "button" }, "+ Connect New Source");
   addBtn.addEventListener("click", () => {
-    _openSettingsFn?.("cloud");
+    void showAddCloudLibraryDialog(settings, onSettingsChange, rebuildTab);
   });
 
   librarySection.append(list, addBtn);
