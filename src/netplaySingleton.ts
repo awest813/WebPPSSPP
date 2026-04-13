@@ -26,7 +26,8 @@ export function peekNetplayManager(): import("./multiplayer.js").NetplayManager 
  * Register a pre-existing NetplayManager instance as the singleton.
  * Useful for tests and for wiring an externally-created manager into
  * the global singleton so that peekNetplayManager() returns it.
+ * Pass null to clear the singleton (e.g. for test teardown).
  */
-export function registerNetplayInstance(mgr: import("./multiplayer.js").NetplayManager): void {
+export function registerNetplayInstance(mgr: import("./multiplayer.js").NetplayManager | null): void {
   _instance = mgr;
 }

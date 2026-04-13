@@ -1024,7 +1024,7 @@ describe("buildMultiplayerTab", () => {
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
-    registerNetplayInstance(null as unknown as NetplayManager);
+    registerNetplayInstance(null);
   });
 
   it("server section is hidden when netplay is disabled by default", () => {
