@@ -632,7 +632,7 @@ describe("resolveSystemAndAdd mobile/import fallbacks", () => {
     expect(library.addGame).toHaveBeenCalledTimes(1);
   });
 
-  it.skip("shows archive entry picker when extraction yields multiple candidates", async () => {
+  it("shows archive entry picker when extraction yields multiple candidates", async () => {
     const candidateA = {
       name: "alpha.nes",
       blob: new Blob([new Uint8Array([0xaa])]),
@@ -2141,7 +2141,7 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
     expect(saveLib.saveState).toHaveBeenCalledTimes(1);
   });
 
-  it.skip("pressing F7 shows a 'Loaded Slot 1' toast", async () => {
+  it("pressing F7 shows a 'Loaded Slot 1' toast", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
@@ -2171,7 +2171,7 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
         label: "Slot 1",
         timestamp: Date.now(),
         thumbnail: null,
-        stateData: new Blob([new Uint8Array([1])]),
+        stateData: { arrayBuffer: async () => new Uint8Array([1]).buffer } as Blob,
         isAutoSave: false,
       })),
       saveState: vi.fn(async () => {}),
@@ -2188,7 +2188,8 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "F7", bubbles: true, cancelable: true }));
 
-    await flushUI(20);
+    // Drain the microtask queue for each async step in loadSlot
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     const toast = document.getElementById("info-toast");
     expect(toast?.textContent).toContain("Loaded Slot 1");
@@ -2781,7 +2782,7 @@ describe("settings panel focus trap cleanup", () => {
 
 // ── Cloud save gallery UX ─────────────────────────────────────────────────────
 
-describe.skip("save gallery cloud bar UX", () => {
+describe("save gallery cloud bar UX", () => {
   function makeRunningEmulator() {
     return {
       state: "running",
@@ -3276,7 +3277,7 @@ describe("buildInGameControls Save and Load button UX", () => {
     document.getElementById("info-toast")?.remove();
   });
 
-  it.skip("clicking Load button shows 'Loaded Slot 1' toast", async () => {
+  it("clicking Load button shows 'Loaded Slot 1' toast", async () => {
     const emulatorMock = {
       state: "running",
       activeTier: "medium",
@@ -3347,7 +3348,7 @@ describe("buildInGameControls Save and Load button UX", () => {
     expect(toast?.textContent).toContain("Loaded Slot 1");
   });
 
-  it.skip("Save button shows error when SaveGameService cannot persist (e.g. quickSave throws)", async () => {
+  it("Save button shows error when SaveGameService cannot persist (e.g. quickSave throws)", async () => {
     const emulatorMock = {
       state: "running",
       activeTier: "medium",
@@ -3508,7 +3509,7 @@ describe("in-game UI — rotate hint, keyboard reset, save gallery", () => {
     expect(emulatorMock.reset).not.toHaveBeenCalled();
   });
 
-  it.skip("save gallery icon shows a hint when the session has no library game id", () => {
+  it("save gallery icon shows a hint when the session has no library game id", () => {
     const emulatorMock = {
       state: "running",
       activeTier: "medium",
@@ -3791,7 +3792,7 @@ describe("library keyboard navigation", () => {
     expect((document.activeElement as HTMLElement)?.querySelector(".game-card__name")?.textContent?.trim()).toBe("Beta");
   });
 
-  it.skip("ArrowLeft moves focus back from second card to first", async () => {
+  it("ArrowLeft moves focus back from second card to first", async () => {
     await setupLibraryWithGames([
       makeGame("g1", "Alpha", "psp"),
       makeGame("g2", "Beta",  "psp"),
@@ -3827,7 +3828,7 @@ describe("library keyboard navigation", () => {
     expect(document.activeElement).toBe(alphaCard);
   });
 
-  it.skip("Home moves focus to the first card", async () => {
+  it("Home moves focus to the first card", async () => {
     await setupLibraryWithGames([
       makeGame("g1", "Alpha", "psp"),
       makeGame("g2", "Beta",  "psp"),

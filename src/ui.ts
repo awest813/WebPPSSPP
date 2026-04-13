@@ -150,6 +150,8 @@ const _CTRL_SVG_MINI = `<svg width="12" height="12" viewBox="0 0 28 28" fill="no
   <circle cx="17.5" cy="14" r="1.1" fill="currentColor" stroke="none"/>
 </svg>`;
 
+const _LOGO_FALLBACK_SVG = `<svg class="brand-logo" width="36" height="36" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="RetroVault" role="img"><rect x="2" y="7" width="24" height="14" rx="7"/><rect x="7" y="12.5" width="5" height="3" rx="1" fill="currentColor" stroke="none"/><rect x="8.5" y="11" width="2" height="6" rx="1" fill="currentColor" stroke="none"/><circle cx="20" cy="12.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="22.5" cy="14" r="1.1" fill="currentColor" stroke="none"/><circle cx="20" cy="15.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="14" r="1.1" fill="currentColor" stroke="none"/></svg>`;
+
 export function buildDOM(app: HTMLElement): void {
   // Reset module-level state that is tied to DOM nodes created below
   if (_librarySearchDebounce !== null) {
@@ -440,6 +442,14 @@ export function buildDOM(app: HTMLElement): void {
       </div>
     </footer>
   `;
+
+  const brandLogoImg = app.querySelector<HTMLImageElement>(".brand-logo");
+  if (brandLogoImg) {
+    brandLogoImg.onerror = () => {
+      brandLogoImg.insertAdjacentHTML("afterend", _LOGO_FALLBACK_SVG);
+      brandLogoImg.remove();
+    };
+  }
 }
 
 // ── Public init ───────────────────────────────────────────────────────────────
@@ -2648,6 +2658,10 @@ function buildInGameControls(
   }) as HTMLButtonElement;
   btnGallery.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`;
   btnGallery.addEventListener("click", () => {
+    if (!getCurrentGameId?.()) {
+      showInfoToast("Add this game to your library to use save states.", "info");
+      return;
+    }
     void showInGameMenu({
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
@@ -2902,6 +2916,8 @@ async function showInGameMenu(ctx: {
             if (result) {
               showInfoToast(`Saved to Slot ${slotIdx}`, "success");
               void renderContent("saves"); // Refresh
+            } else {
+              showError("Save failed — the emulator may still be starting up, or the game state is unavailable. Please try again.");
             }
           }
         }, { signal });
@@ -5254,12 +5270,12 @@ function buildCloudSaveBar(): HTMLElement {
     statusText.textContent = `${cloudManager.activeProvider.displayName} backup`;
     statusText.classList.add("cloud-bar__status-text--ok");
   } else {
-    statusText.textContent = "Cloud backup off";
+    statusText.textContent = "Not connected";
   }
 
   // Last-sync hint or timestamp
   if (!isConnected) {
-    lastSync.textContent = "Local saves stay on this device until you connect a cloud provider.";
+    lastSync.textContent = "Connect to sync saves across devices";
     lastSync.classList.add("cloud-bar__last-sync--hint");
   } else {
     const lastSyncAt = cloudManager.lastSyncAt;
@@ -5311,7 +5327,7 @@ async function showCloudConnectDialog(): Promise<boolean> {
       class: "confirm-box cloud-wizard-box",
       role:  "dialog",
       "aria-modal": "true",
-      "aria-label": "Connect Cloud Save Backup",
+      "aria-label": "Cloud Connection",
     });
 
     const close = (result: boolean) => {
@@ -5336,24 +5352,23 @@ async function showCloudConnectDialog(): Promise<boolean> {
         "Choose a cloud provider to mirror save states across devices. Your local saves stay on this device; cloud backup keeps them in sync."
       ));
 
-      const grid = make("div", { class: "cloud-provider-grid" });
+      const providerRow = make("div", { class: "settings-input-row" });
+      const providerSel = make("select", { id: "csd-provider", class: "settings-input" }) as HTMLSelectElement;
       for (const p of CLOUD_SAVE_PROVIDERS) {
-        const card = make("button", {
-          class: "cloud-provider-card",
-          type:  "button",
-          "aria-label": p.label,
-        }) as HTMLButtonElement;
-        card.appendChild(make("span", { class: "cloud-provider-card__icon" }, p.icon));
-        card.appendChild(make("span", { class: "cloud-provider-card__label" }, p.label));
-        card.addEventListener("click", () => renderStep2(p.id));
-        grid.appendChild(card);
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = `${p.icon} ${p.label}`;
+        providerSel.appendChild(opt);
       }
-      box.appendChild(grid);
+      providerRow.append(make("label", { class: "settings-input-label", for: "csd-provider" }, "Provider"), providerSel);
+      box.appendChild(providerRow);
 
       const actions = make("div", { class: "confirm-box__actions" });
       const cancelBtn = make("button", { class: "btn" }, "Cancel") as HTMLButtonElement;
+      const nextBtn   = make("button", { class: "btn btn--primary" }, "Next →") as HTMLButtonElement;
       cancelBtn.addEventListener("click", () => close(false));
-      actions.appendChild(cancelBtn);
+      nextBtn.addEventListener("click", () => renderStep2(providerSel.value));
+      actions.append(cancelBtn, nextBtn);
       box.appendChild(actions);
     };
 
