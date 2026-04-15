@@ -596,7 +596,7 @@ describe('PSPEmulator', () => {
       expect(materialised).not.toBe(picked);
       const out = new Uint8Array(await materialised!.arrayBuffer());
       expect(out).toEqual(payload);
-      expect(window.EJS_gameUrl).toBe(materialised);
+      expect((window as unknown as Record<string, unknown>).EJS_gameUrl).toBe('blob:fake');
     });
   });
 
@@ -2620,7 +2620,7 @@ describe('PSPEmulator', () => {
       delete (window as unknown as Record<string, unknown>).EJS_biosUrl;
     });
 
-    it('sets EJS_biosUrl when biosUrl is provided as a string', async () => {
+    it('sets EJS_biosUrl when biosAsset is provided as a Blob', async () => {
       emulator.onError = () => {};
       await emulator.launch({
         file:            new File(['data'], 'game.nes'),
@@ -2628,14 +2628,14 @@ describe('PSPEmulator', () => {
         systemId:        'nes',
         performanceMode: 'auto',
         deviceCaps:      fakeCaps,
-        biosUrl:         'blob:fake-bios-url',
+        biosAsset:       new Blob(['fake bios']),
       });
 
       expect((window as unknown as Record<string, unknown>).EJS_biosUrl)
-        .toBe('blob:fake-bios-url');
+        .toBe('blob:fake-url');
     });
 
-    it('sets EJS_biosUrl when biosUrl is provided as a File', async () => {
+    it('sets EJS_biosUrl when biosAsset is provided as a File', async () => {
       const biosFile = new File(['bios'], 'dreamcast-bios.zip', { type: 'application/zip' });
 
       emulator.onError = () => {};
@@ -2645,10 +2645,10 @@ describe('PSPEmulator', () => {
         systemId:        'nes',
         performanceMode: 'auto',
         deviceCaps:      fakeCaps,
-        biosUrl:         biosFile,
+        biosAsset:       biosFile,
       });
 
-      expect((window as unknown as Record<string, unknown>).EJS_biosUrl).toBe(biosFile);
+      expect((window as unknown as Record<string, unknown>).EJS_biosUrl).toBe('blob:fake-url');
     });
 
     it('does not set EJS_biosUrl when biosUrl is omitted', async () => {

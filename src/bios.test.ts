@@ -18,7 +18,7 @@
  *   - BIOS_REQUIREMENTS structure validation
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   BiosLibrary,
   BIOS_REQUIREMENTS,
@@ -323,9 +323,9 @@ describe('BiosLibrary.getPrimaryBios', () => {
   });
 });
 
-// ── getPrimaryBiosUrl ─────────────────────────────────────────────────────────
+// ── getPrimaryBiosBlob ─────────────────────────────────────────────────────────
 
-describe('BiosLibrary.getPrimaryBiosUrl', () => {
+describe('BiosLibrary.getPrimaryBiosBlob', () => {
   let lib: BiosLibrary;
 
   beforeEach(async () => {
@@ -334,28 +334,19 @@ describe('BiosLibrary.getPrimaryBiosUrl', () => {
   });
 
   it('returns null when no BIOS is stored', async () => {
-    const url = await lib.getPrimaryBiosUrl('psx');
+    const url = await lib.getPrimaryBiosBlob('psx');
     expect(url).toBeNull();
   });
 
-  it('returns a string URL when a BIOS is present', async () => {
-    vi.stubGlobal('URL', {
-      ...URL,
-      createObjectURL: vi.fn(() => 'blob:fake-bios-url'),
-      revokeObjectURL: vi.fn(),
-    });
-
+  it('returns a Blob when a BIOS is present', async () => {
     await lib.addBios(makeBiosFile('scph5501.bin'), 'psx');
 
-    const url = await lib.getPrimaryBiosUrl('psx');
-    expect(typeof url).toBe('string');
-    expect(url!.length).toBeGreaterThan(0);
-
-    vi.unstubAllGlobals();
+    const blob = await lib.getPrimaryBiosBlob('psx');
+    expect(blob).toBeTruthy();
   });
 
   it('returns null for an unknown system id', async () => {
-    const url = await lib.getPrimaryBiosUrl('notASystem');
+    const url = await lib.getPrimaryBiosBlob('notASystem');
     expect(url).toBeNull();
   });
 });
@@ -368,18 +359,11 @@ describe('BiosLibrary.getLaunchBiosAsset', () => {
     await lib.clearAll();
   });
 
-  it('returns a blob URL string for single-BIOS systems', async () => {
-    vi.stubGlobal('URL', {
-      ...URL,
-      createObjectURL: vi.fn(() => 'blob:fake-bios-url'),
-      revokeObjectURL: vi.fn(),
-    });
-
+  it('returns a Blob for single-BIOS systems', async () => {
     await lib.addBios(makeBiosFile('scph5501.bin'), 'psx');
     const asset = await lib.getLaunchBiosAsset('psx');
 
-    expect(asset).toBe('blob:fake-bios-url');
-    vi.unstubAllGlobals();
+    expect(asset).toBeTruthy();
   });
 
   it('returns null for Dreamcast when a required BIOS file is missing', async () => {

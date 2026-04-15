@@ -39,7 +39,7 @@ export interface BiosEntry {
 }
 
 export type BiosMetadata = Omit<BiosEntry, "blob">;
-export type LaunchBiosAsset = string | File;
+export type LaunchBiosAsset = Blob;
 
 export interface BiosRequirement {
   /** Canonical lowercase filename the core expects. */
@@ -378,15 +378,10 @@ export class BiosLibrary {
     return results.find(entry => entry !== null) ?? null;
   }
 
-  /**
-   * Create a temporary blob URL for the primary BIOS of a system.
-   * Returns null if no BIOS is stored.
-   * The caller MUST call URL.revokeObjectURL(url) when it is no longer needed.
-   */
-  async getPrimaryBiosUrl(systemId: string): Promise<string | null> {
+  async getPrimaryBiosBlob(systemId: string): Promise<Blob | null> {
     const entry = await this.getPrimaryBios(systemId);
     if (!entry) return null;
-    return URL.createObjectURL(entry.blob);
+    return entry.blob;
   }
 
   /**
@@ -398,7 +393,7 @@ export class BiosLibrary {
    */
   async getLaunchBiosAsset(systemId: string): Promise<LaunchBiosAsset | null> {
     if (systemId !== "segaDC") {
-      return this.getPrimaryBiosUrl(systemId);
+      return this.getPrimaryBiosBlob(systemId);
     }
 
     const boot = await this.findBios(systemId, "dc_boot.bin");

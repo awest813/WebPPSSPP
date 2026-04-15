@@ -536,10 +536,10 @@ async function main(): Promise<void> {
       if (typeof gfxProfile.drsEnabled === "boolean") emulator.enableDRS(gfxProfile.drsEnabled);
     }
 
-    let biosUrl: string | File | undefined;
+    let biosAsset: Blob | undefined;
     try {
       const primaryBios = await biosLibrary.getLaunchBiosAsset(systemId);
-      if (primaryBios) biosUrl = primaryBios;
+      if (primaryBios) biosAsset = primaryBios;
     } catch {}
 
     const nm = peekNetplayManager();
@@ -557,7 +557,7 @@ async function main(): Promise<void> {
       deviceCaps,
       tierOverride:        resolvedTier,
       coreSettingsOverride,
-      biosUrl,
+      biosAsset,
       netplayManager: peekNetplayManager() ?? undefined,
       gameId,
       skipExtensionCheck:  !!gameId,
@@ -593,7 +593,6 @@ async function main(): Promise<void> {
         const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
         orientation.unlock?.();
       } catch { /* orientation lock not supported */ }
-      if (typeof biosUrl === "string" && biosUrl.startsWith("blob:")) URL.revokeObjectURL(biosUrl);
     }
 
     launchLock = false;

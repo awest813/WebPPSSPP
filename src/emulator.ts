@@ -836,13 +836,11 @@ export interface LaunchOptions {
    */
   coreSettingsOverride?: Record<string, string>;
   /**
-   * Blob URL for the system BIOS file (e.g. PS1 SCPH-5501, Saturn BIOS).
-   * Set EJS_biosUrl when provided. The emulator takes ownership of revoking
-   * this URL when the session ends. If the launch fails due to a preflight
-   * error (unknown system, bad file extension, etc.) the emulator will not
-   * have stored the URL, so the caller must perform a defensive revoke.
+   * Raw Blob/File for the system BIOS (e.g. PS1 SCPH-5501, Saturn BIOS).
+   * The emulator will create a temporary Object URL for EmulatorJS to read,
+   * completely managing its lifecycle and tearing it down automatically to prevent leaks.
    */
-  biosUrl?: string | File;
+  biosAsset?: Blob;
   /**
    * Optional NetplayManager instance. When provided and `isActive` is true,
    * the EmulatorJS netplay globals are set so the built-in Netplay button and
@@ -2215,9 +2213,11 @@ export class PSPEmulator {
       }
 
       // ── Set EJS globals ───────────────────────────────────────────────────
+      this._revokeBlobUrl();
+      this._blobUrl = URL.createObjectURL(gameFile);
       window.EJS_player        = `#${this._playerId}`;
       window.EJS_core          = system.coreId ?? system.id;
-      window.EJS_gameUrl       = gameFile;
+      window.EJS_gameUrl       = this._blobUrl;
       window.EJS_gameName      = gameName;
       window.EJS_pathtodata    = EJS_CDN_BASE;
       window.EJS_startOnLoaded = true;
@@ -2231,9 +2231,9 @@ export class PSPEmulator {
         delete window.EJS_corePath;
       }
 
-      if (opts.biosUrl) {
-        window.EJS_biosUrl = opts.biosUrl;
-        this._biosUrl      = opts.biosUrl;
+      if (opts.biosAsset instanceof Blob) {
+        this._biosUrl = URL.createObjectURL(opts.biosAsset);
+        window.EJS_biosUrl = this._biosUrl;
       } else {
         delete window.EJS_biosUrl;
         this._biosUrl = null;
