@@ -204,7 +204,7 @@ export function buildDOM(app: HTMLElement): void {
     <!-- ── Header ── -->
     <header class="app-header">
       <div class="app-header__brand">
-        <img src="/assets/logo_premium.png" alt="RetroVault" class="brand-logo" width="36" height="36" />
+        <img src="/assets/logo_premium.png" alt="RetroVault" class="brand-logo" width="36" height="36" decoding="async" fetchpriority="high" draggable="false" />
         <span class="brand-long">RetroVault</span>
         <span class="brand-short" aria-hidden="true">RV</span>
       </div>
