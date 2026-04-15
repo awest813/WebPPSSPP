@@ -2188,24 +2188,28 @@ export class PSPEmulator {
       // core, so no audio hardware adaptation is applied (unlike PSP/N64/PS1/
       // GBA/NDS).
       if (opts.systemId === "segaDC") {
-        const dcRes        = ejsSettings["reicast_internal_resolution"]  ?? "?";
-        const dcThreaded   = ejsSettings["reicast_threaded_rendering"]   ?? "?";
-        const dcMipmap     = ejsSettings["reicast_mipmapping"]           ?? "?";
-        const dcAF         = ejsSettings["reicast_anisotropic_filtering"] ?? "?";
-        const dcTexUp      = ejsSettings["reicast_texupscale"]           ?? "?";
-        const dcRttb       = ejsSettings["reicast_enable_rttb"]          ?? "?";
-        const dcAlpha      = ejsSettings["reicast_alpha_sorting"]        ?? "?";
-        const dcFrameskip  = ejsSettings["reicast_frame_skipping"]       ?? "?";
+        const dcResolution         = ejsSettings["reicast_internal_resolution"]   ?? "?";
+        const dcThreaded           = ejsSettings["reicast_threaded_rendering"]    ?? "?";
+        const dcMipmap             = ejsSettings["reicast_mipmapping"]            ?? "?";
+        const dcAnisotropic        = ejsSettings["reicast_anisotropic_filtering"] ?? "?";
+        const dcTexUpscale         = ejsSettings["reicast_texupscale"]            ?? "?";
+        const dcEnableRttb         = ejsSettings["reicast_enable_rttb"]           ?? "?";
+        const dcAlphaSorting       = ejsSettings["reicast_alpha_sorting"]         ?? "?";
+        const dcFrameSkipping      = ejsSettings["reicast_frame_skipping"]        ?? "?";
         this.logDiagnostic(
           "performance",
-          `DC tier=${tier}: res=${dcRes} threaded=${dcThreaded} mipmap=${dcMipmap} af=${dcAF} texup=${dcTexUp} rttb=${dcRttb} alpha=${dcAlpha} frameskip=${dcFrameskip}`
+          `DC tier=${tier}: ` +
+          `res=${dcResolution} threaded=${dcThreaded} mipmap=${dcMipmap} ` +
+          `af=${dcAnisotropic} texup=${dcTexUpscale} rttb=${dcEnableRttb} ` +
+          `alpha=${dcAlphaSorting} frameskip=${dcFrameSkipping}`
         );
         if (this.verboseLogging) {
           console.info(
             `[RetroVault] Dreamcast performance settings — ` +
-            `resolution: ${dcRes}, threaded_rendering: ${dcThreaded}, mipmapping: ${dcMipmap}, ` +
-            `anisotropic_filtering: ${dcAF}, texupscale: ${dcTexUp}, rttb: ${dcRttb}, ` +
-            `alpha_sorting: ${dcAlpha}, frame_skipping: ${dcFrameskip}`
+            `resolution: ${dcResolution}, threaded_rendering: ${dcThreaded}, ` +
+            `mipmapping: ${dcMipmap}, anisotropic_filtering: ${dcAnisotropic}, ` +
+            `texupscale: ${dcTexUpscale}, enable_rttb: ${dcEnableRttb}, ` +
+            `alpha_sorting: ${dcAlphaSorting}, frame_skipping: ${dcFrameSkipping}`
           );
         }
       }
