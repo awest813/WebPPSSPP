@@ -912,7 +912,7 @@ function buildLibraryHero(
   const sysName = system?.shortName ?? game.systemId.toUpperCase();
   const iconOutput = systemIcon(game.systemId);
   const iconHtml = iconOutput.includes("/assets/") ? `<img src="${iconOutput}" alt="" class="hero-sys-icon" />` : iconOutput;
-  meta.innerHTML = `<span>${iconHtml} ${sysName}</span> <span>🕒 ${game.lastPlayedAt ? `Played ${formatRelativeTime(game.lastPlayedAt)}` : "Never played"}</span>`;
+  meta.innerHTML = `<span>${iconHtml} ${_escHtml(sysName)}</span> <span>🕒 ${game.lastPlayedAt ? `Played ${formatRelativeTime(game.lastPlayedAt)}` : "Never played"}</span>`;
   
   const actions = make("div", { class: "library-hero__actions" });
   const playBtn = make("button", { class: "btn--hero" });
@@ -1277,7 +1277,7 @@ export async function renderLibrary(
         if ("requestIdleCallback" in window) {
           (window as unknown as ExtendedWindow).requestIdleCallback(processNext, { timeout: 100 });
         } else {
-          setTimeout(processNext, 16);
+          setTimeout(processNext, FRAME_TIME_MS);
         }
       }
     };
@@ -1285,7 +1285,7 @@ export async function renderLibrary(
     if ("requestIdleCallback" in window) {
       (window as unknown as ExtendedWindow).requestIdleCallback(processNext, { timeout: 100 });
     } else {
-      setTimeout(processNext, 32);
+      setTimeout(processNext, STEP_FRAME_MS);
     }
   }
 }
@@ -2000,6 +2000,14 @@ const OVERLAY_FADE_DELAY_MS = 200;
 const PERF_SUGGESTION_FADE_DELAY_MS = 300;
 const TOAST_REMOVE_DELAY_MS = 400;
 
+// ── Performance & Network Constants ──────────────────────────────────────────
+const LATENCY_GOOD_THRESHOLD_MS = 80;
+const LATENCY_WARN_THRESHOLD_MS = 200;
+const FILE_SIZE_DECIMALS = 1;
+const FRAME_TIME_MS = 16;
+const STEP_FRAME_MS = 32;
+const PERF_SUGGESTION_AUTO_DISMISS_MS = 10_000;
+
 function trapFocus(container: HTMLElement, e: KeyboardEvent): void {
   if (e.key !== "Tab") return;
   const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => !el.closest("[hidden]"));
@@ -2224,7 +2232,7 @@ export async function resolveSystemAndAdd(
   logImport(
     emulatorRef,
     settings,
-    `Received file "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)} MB)`,
+    `Received file "${file.name}" (${(file.size / 1024 / 1024).toFixed(FILE_SIZE_DECIMALS)} MB)`,
   );
 
   // Mobile file pickers may strip/mangle extensions. Sniff archive signatures
@@ -2341,7 +2349,7 @@ export async function resolveSystemAndAdd(
           emulatorRef,
           settings,
           `${extracted.format.toUpperCase()} extraction succeeded: "${resolvedFile.name}" ` +
-          `(${(resolvedFile.size / 1024 / 1024).toFixed(1)} MB)`,
+          `(${(resolvedFile.size / 1024 / 1024).toFixed(FILE_SIZE_DECIMALS)} MB)`,
         );
       } else {
         hideLoadingOverlay();
@@ -5110,7 +5118,7 @@ function _buildBrowsePanel(
       cardMeta.appendChild(make("span", { class: "enp-room-card__players" }, `${room.playerCount}/${room.maxPlayers} players`));
       if (room.latencyMs !== undefined) {
         const ping = Math.round(room.latencyMs);
-        const pingCls = ping <= 80 ? "good" : ping <= 200 ? "warn" : "bad";
+        const pingCls = ping <= LATENCY_GOOD_THRESHOLD_MS ? "good" : ping <= LATENCY_WARN_THRESHOLD_MS ? "warn" : "bad";
         cardMeta.appendChild(make("span", { class: `enp-room-card__ping enp-room-card__ping--${pingCls}` }, `${ping} ms`));
       }
       card.appendChild(cardMeta);
@@ -6218,7 +6226,7 @@ function buildMultiplayerTab(
       let latencyEl: HTMLElement | null = null;
       if (room.latencyMs !== undefined) {
         const ms = Math.round(room.latencyMs);
-        const latencyVariant = ms <= 80 ? "good" : ms <= 200 ? "warn" : "bad";
+        const latencyVariant = ms <= LATENCY_GOOD_THRESHOLD_MS ? "good" : ms <= LATENCY_WARN_THRESHOLD_MS ? "warn" : "bad";
         latencyEl = make("span", {
           class: `netplay-lobby-latency netplay-lobby-latency--${latencyVariant}`,
           title: "Round-trip latency",
@@ -7310,7 +7318,7 @@ function showPerfSuggestion(): void {
 
   const dismiss = () => { toast.classList.add("perf-suggestion--hiding"); setTimeout(() => toast.remove(), PERF_SUGGESTION_FADE_DELAY_MS); };
   toast.querySelector(".perf-suggestion__close")?.addEventListener("click", dismiss);
-  setTimeout(dismiss, 10_000);
+  setTimeout(dismiss, PERF_SUGGESTION_AUTO_DISMISS_MS);
   requestAnimationFrame(() => toast.classList.add("perf-suggestion--visible"));
 }
 
