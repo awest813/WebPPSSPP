@@ -1541,7 +1541,8 @@ function _wireLibraryControls(
   settings: Settings,
   onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
   emulatorRef?: PSPEmulator,
-  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>,
+  onSettingsChange?: (patch: Partial<Settings>) => void
 ): void {
   if (_libraryControlsWired) return;
   const cloudOnboardingBtn = document.getElementById("btn-cloud-onboarding");
@@ -1632,7 +1633,7 @@ function _wireLibraryControls(
     btn.addEventListener("click", () => {
       const layout = btn.getAttribute("data-layout") as Settings["libraryLayout"];
       if (layout) {
-        onSettingsChange({ libraryLayout: layout });
+        onSettingsChange?.({ libraryLayout: layout });
         _scheduleLibraryRender(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
       }
     });
