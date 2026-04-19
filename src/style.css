@@ -21,11 +21,12 @@
   --c-border-lt:  #3d3d52;
 
   /* Primary accent: Steel Blue — classic 2000s cool tech */
-  --c-accent:      #4a7fc0;
-  --c-accent-h:    #6699d8;
-  --c-accent-dark: #182840;
-  --c-accent-dim:  rgba(74, 127, 192, 0.15);
-  --c-accent-glow: rgba(74, 127, 192, 0.30);
+  --c-accent:       #4a7fc0;
+  --c-accent-h:     #6699d8;
+  --c-accent-light: #8ab4e8;
+  --c-accent-dark:  #182840;
+  --c-accent-dim:   rgba(74, 127, 192, 0.15);
+  --c-accent-glow:  rgba(74, 127, 192, 0.30);
 
   /* Secondary accent: Antique Bronze / Muted Gold */
   --c-gold:       #b89040;
@@ -53,9 +54,11 @@
   --c-text:       #dcdce8;
   --c-text-dim:   #848499;
   --c-text-faint: #545468;
+  --c-text-muted: #696978;
 
   /* ── Shape & Sizing ── */
   --radius:       8px;
+  --radius-sm:    5px;
   --radius-lg:    13px;
   --radius-xl:    18px;
   --radius-pill:  999px;
@@ -83,6 +86,7 @@
   /* ── Shadows ── */
   --shadow:       0 20px 60px rgba(0, 0, 0, 0.85);
   --shadow-sm:    0 4px 18px rgba(0, 0, 0, 0.55);
+  --shadow-lg:    0 32px 80px rgba(0, 0, 0, 0.90);
   --shadow-card:  0 4px 16px rgba(0, 0, 0, 0.65);
   --shadow-lift:  0 14px 40px rgba(0, 0, 0, 0.75);
 
@@ -93,6 +97,7 @@
   /* ── Typography — Exo 2 for display headings, Inter for body ── */
   --font-display: "Exo 2", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-sans:    "Inter", system-ui, -apple-system, "Segoe UI", "Trebuchet MS", sans-serif;
+  --font-mono:    "SF Mono", "Fira Code", "JetBrains Mono", "Consolas", monospace;
   font-family: var(--font-sans);
   font-size: 15px;
   color: var(--c-text);
@@ -1972,12 +1977,16 @@ body {
 }
 
 .status-dot.idle    { background: var(--c-text-faint); }
-.status-dot.loading { background: var(--c-gold); animation: pulse 1s ease-in-out infinite; }
+.status-dot.loading { background: var(--c-gold); animation: pulse-dot 1s ease-in-out infinite; }
 .status-dot.running { background: var(--c-success); box-shadow: 0 0 8px var(--c-success); }
 .status-dot.paused  { background: var(--c-accent); box-shadow: 0 0 8px var(--c-accent-glow); }
 .status-dot.error   { background: var(--c-danger); }
 
-@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.85); } }
+/* Canonical opacity-fade pulse used by sync indicators, badges, waiting states */
+@keyframes pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+/* Scale + fade variant for loading status dots */
+@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.85); } }
 
 /* ── Shared button base ───────────────────────────────────── */
 .btn {
@@ -2236,54 +2245,6 @@ body {
   pointer-events: none;
 }
 
-.dev-overlay__title {
-  font-size: 0.65rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--c-accent);
-  margin-bottom: 18px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.dev-overlay__title::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, var(--c-accent-glow), transparent);
-}
-
-.dev-overlay__grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 10px 20px;
-  margin-bottom: 24px;
-}
-
-.dev-overlay__label {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 500;
-}
-
-.dev-overlay__value {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-align: right;
-  color: white;
-}
-
-.dev-overlay__graph {
-  display: block;
-  width: 100%;
-  height: 60px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
 .dev-overlay[hidden] { display: none; }
 
 .dev-overlay__title {
@@ -2295,6 +2256,13 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.dev-overlay__title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, var(--c-border-lt), transparent);
 }
 
 .dev-overlay__title kbd {
@@ -5247,11 +5215,6 @@ kbd {
   animation:   pulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 0.6; }
-  50%       { opacity: 1; }
-}
-
 .enp-leave-btn {
   margin-top: 10px;
   width:      100%;
@@ -5399,7 +5362,7 @@ kbd {
 /* Auto-refresh countdown label */
 .enp-refresh-countdown {
   font-size:   0.75rem;
-  color:       var(--c-text-muted, #888);
+  color:       var(--c-text-muted);
   align-self:  center;
   white-space: nowrap;
 }
@@ -5421,7 +5384,7 @@ kbd {
 
 /* Spectating room card variant */
 .enp-active-room--spectating .enp-active-room__waiting {
-  color:       var(--c-text-muted, #888);
+  color:       var(--c-text-muted);
   font-style:  italic;
 }
 
@@ -5926,6 +5889,10 @@ kbd {
   box-shadow: inset 2px 0 0 var(--c-accent);
 }
 
+.ingame-menu__sidebar-btn--active svg {
+  opacity: 1;
+}
+
 .ingame-menu__sidebar-btn--danger:hover {
   background: color-mix(in srgb, var(--c-danger) 10%, transparent);
   color: var(--c-danger);
@@ -6400,27 +6367,13 @@ kbd {
 }
 
 .ingame-menu__btn--primary:hover {
-  background: var(--c-accent-light, #2563eb);
+  background: var(--c-accent-light);
   box-shadow: 0 4px 12px var(--c-accent-glow);
 }
 
 .ingame-menu__sidebar-btn:hover svg {
   transform: translateX(2px);
   opacity: 1;
-}
-
-.ingame-menu__sidebar-btn--active {
-  background: var(--c-accent, #3b82f6);
-  color: white;
-}
-
-.ingame-menu__sidebar-btn--active svg {
-  opacity: 1;
-}
-
-.ingame-menu__sidebar-btn--danger:hover {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
 }
 
 /* Mobile Overrides */
@@ -6724,6 +6677,7 @@ kbd {
   --c-border-lt: rgba(180, 198, 227, 0.28);
   --c-accent: #7c8cff;
   --c-accent-h: #a7b3ff;
+  --c-accent-light: #c0caff;
   --c-accent-dim: rgba(124, 140, 255, 0.14);
   --c-accent-glow: rgba(124, 140, 255, 0.22);
   --c-gold: #d7b46a;
@@ -6736,8 +6690,10 @@ kbd {
   --c-text: #f4f7fb;
   --c-text-dim: #a3afc2;
   --c-text-faint: #758198;
+  --c-text-muted: #8e9baf;
   --shadow: 0 20px 48px rgba(0, 0, 0, 0.38);
   --shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.22);
+  --shadow-lg: 0 32px 80px rgba(0, 0, 0, 0.55);
   --shadow-card: 0 12px 28px rgba(0, 0, 0, 0.20);
   --shadow-lift: 0 22px 44px rgba(0, 0, 0, 0.24);
   --glass-bg: rgba(8, 11, 18, 0.72);
@@ -7117,7 +7073,7 @@ body {
 
 .drop-zone__label {
   font-size: 1.15rem;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--c-text);
 }
@@ -7342,7 +7298,7 @@ body {
   margin: 0 0 8px;
   font-family: var(--font-display);
   font-size: 1.02rem;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: -0.015em;
   color: var(--c-text);
 }
@@ -7957,12 +7913,6 @@ body {
   animation: pulse 1.5s infinite;
 }
 
-@keyframes pulse {
-  0%   { opacity: 0.6; }
-  50%  { opacity: 1; }
-  100% { opacity: 0.6; }
-}
-
 .settings-section--premium {
   background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
   border: 1px solid rgba(255,255,255,0.05);
@@ -8055,13 +8005,15 @@ body {
   background-clip: content-box;
 }
 
-/* 2. Noise Texture for Quality UI */
+/* 2. Subtle CSS grain overlay — no external dependency */
 :root:not(.lite-ui) body::after {
   content: "";
   position: fixed;
   inset: 0;
-  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
-  opacity: 0.03;
+  /* SVG-based noise pattern generated inline */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  opacity: 0.025;
   pointer-events: none;
   z-index: 9999;
   mix-blend-mode: overlay;
