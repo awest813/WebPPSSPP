@@ -199,11 +199,6 @@ export function buildDOM(app: HTMLElement): void {
   const touchUI = isTouchDevice();
 
   app.innerHTML = `
-    <div class="bokeh-container" aria-hidden="true">
-      <div class="bokeh" style="width:400px;height:400px;top:10%;left:5%;animation-duration:20s"></div>
-      <div class="bokeh" style="width:300px;height:300px;top:60%;left:80%;animation-duration:25s;background:var(--c-gold-glow)"></div>
-      <div class="bokeh" style="width:500px;height:500px;top:40%;left:40%;animation-duration:30s;background:var(--c-accent-2-glow)"></div>
-    </div>
     <!-- Skip navigation link for keyboard users -->
     <a class="skip-link" href="#landing">Skip to content</a>
 

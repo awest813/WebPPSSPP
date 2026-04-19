@@ -91,7 +91,7 @@
   --glass-border: rgba(55, 55, 75, 0.50);
 
   /* ── Typography — Exo 2 for display headings, Inter for body ── */
-  --font-display: "Exo 2", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Exo 2", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-sans:    "Inter", system-ui, -apple-system, "Segoe UI", "Trebuchet MS", sans-serif;
   font-family: var(--font-sans);
   font-size: 15px;
@@ -8229,9 +8229,6 @@ body {
    Dark Chrome 2000s UI — Override Block
    Strips neon decoration, adds metallic / glossy polish.
    ============================================================ */
-
-/* Hide animated bokeh blobs — clean dark background instead */
-.bokeh-container { display: none !important; }
 
 /* ── Modal box: dark chrome glass panel ─────────────────── */
 .modal-box {
