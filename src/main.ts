@@ -45,6 +45,8 @@ optimizeChromePerformance();
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
 import type { PostProcessEffect } from "./webgpuPostProcess.js";
 
+const APP_NAME = "RetroOasis";
+
 export interface CloudLibraryConnection {
   id: string;
   provider: "gdrive" | "dropbox" | "onedrive" | "pcloud" | "webdav" | "blomp" | "box";
@@ -415,7 +417,7 @@ async function main(): Promise<void> {
     if (warmupsTriggered) return;
     warmupsTriggered = true;
 
-    console.info("[RetroVault] Play intent detected — triggering heavy warmups...");
+    console.info(`[${APP_NAME}] Play intent detected — triggering heavy warmups...`);
     
     // Defer blocking GPU warm-up work to idle time so it does not delay the
     // current interaction frame.
@@ -632,7 +634,7 @@ async function main(): Promise<void> {
     if (!updatedEntry) throw new Error("Game not found in library");
 
     console.info(
-      `[RetroVault] Patch applied: "${patchFile.name}" → "${entry.name}" ` +
+      `[${APP_NAME}] Patch applied: "${patchFile.name}" → "${entry.name}" ` +
       `(${entry.size} → ${updatedEntry.size} bytes)`
     );
   };
@@ -710,7 +712,7 @@ async function main(): Promise<void> {
     touchOverlay?.hide();
 
     transitionToLibrary();
-    document.title = "RetroVault";
+    document.title = APP_NAME;
 
     void renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
     document.dispatchEvent(new CustomEvent("retrovault:returnToLibrary"));
@@ -850,7 +852,7 @@ async function main(): Promise<void> {
   // 9. Dev helpers
   if (import.meta.env.DEV) {
     window.__retrovault = { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps };
-    console.info("[RetroVault] Dev mode. Access `window.__retrovault` in the console.");
+    console.info(`[${APP_NAME}] Dev mode. Access \`window.__retrovault\` in the console.`);
     console.info("Device capabilities:", deviceCaps);
     console.info(`Hardware tier: ${deviceCaps.tier} (GPU score: ${deviceCaps.gpuBenchmarkScore}/100)`);
     console.info(formatDetailedSummary(deviceCaps));
@@ -861,7 +863,7 @@ async function main(): Promise<void> {
   setTimeout(() => {
     if (!self.crossOriginIsolated) {
       console.warn(
-        "[RetroVault] Page is NOT cross-origin isolated.\n" +
+        `[${APP_NAME}] Page is NOT cross-origin isolated.\n` +
         "SharedArrayBuffer is unavailable — PSP (PPSSPP) games will fail.\n" +
         "Other systems (NES, SNES, GBA, etc.) are not affected.\n" +
         "Ensure coi-serviceworker.js is registered and the page has been reloaded."
@@ -874,7 +876,7 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", main);
 } else {
   main().catch(err => {
-    console.error("[RetroVault] Fatal startup error:", err);
-    alert("RetroVault failed to start. Check console for details.");
+    console.error(`[${APP_NAME}] Fatal startup error:`, err);
+    alert(`${APP_NAME} failed to start. Check console for details.`);
   });
 }

@@ -1,7 +1,7 @@
 {
-  "name": "RetroVault",
-  "short_name": "RetroVault",
-  "description": "Play retro games in your browser. Your library is stored locally.",
+  "name": "RetroOasis",
+  "short_name": "RetroOasis",
+  "description": "A polished browser arcade for your retro library. Games and saves stay local by default.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f1117",

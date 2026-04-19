@@ -53,6 +53,8 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     audioFilterType: "none",
     audioFilterCutoff: 10_000,
     uiMode: "auto",
+    libraryLayout: "grid",
+    libraryGrouped: true,
     coreOptions: {},
   };
   return {
@@ -60,6 +62,8 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
 
     ...overrides,
     uiMode: overrides.uiMode ?? settings.uiMode,
+    libraryLayout: overrides.libraryLayout ?? settings.libraryLayout,
+    libraryGrouped: overrides.libraryGrouped ?? settings.libraryGrouped,
     coreOptions: overrides.coreOptions ?? settings.coreOptions,
   };
 }
@@ -232,9 +236,9 @@ describe("buildDOM", () => {
     buildDOM(app);
 
     const onboarding = app.querySelector("#onboarding");
-    expect(onboarding?.textContent).toMatch(/Add a game to begin/i);
-    expect(onboarding?.textContent).toMatch(/What to do next/i);
-    expect(onboarding?.textContent).toMatch(/Play and save locally/i);
+    expect(onboarding?.textContent).toMatch(/Build your calm little arcade/i);
+    expect(onboarding?.textContent).toMatch(/Quiet start, fast launch/i);
+    expect(onboarding?.textContent).toMatch(/Play with local saves/i);
   });
 
   it("hides onboarding when the library is not empty", async () => {

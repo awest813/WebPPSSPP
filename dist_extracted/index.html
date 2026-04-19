@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>RetroVault</title>
+    <meta name="description"
+          content="Play retro games in your browser — PSP, NES, SNES, GBA, N64 and more. Bring your own ROMs; your library is stored locally on your device." />
+    <meta name="theme-color" content="#0b0b14" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RetroVault" />
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="./manifest.json" />
+
+    <!-- Preconnect to EmulatorJS CDN for faster game launches -->
+    <link rel="preconnect" href="https://cdn.emulatorjs.org" crossorigin />
+    <link rel="dns-prefetch" href="https://cdn.emulatorjs.org" />
+
+    <!-- Space Grotesk (body) + Syne (display headings) — modern retro feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+
+    <!--
+      coi-serviceworker.js injects Cross-Origin-Isolation headers (COOP + COEP)
+      via a service worker. This is required for SharedArrayBuffer, which the
+      PPSSPP (PSP) core needs. Other systems (NES, SNES, GBA, etc.) work fine
+      without it. The Vite dev server sets the headers directly.
+    -->
+    <script src="./coi-serviceworker.js"></script>
+    <script type="module" crossorigin src="./assets/index-BCUmKRsl.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/tools-BWt8PM1j.js">
+    <link rel="modulepreload" crossorigin href="./assets/multiplayer-CvKRpu9T.js">
+    <link rel="modulepreload" crossorigin href="./assets/saves-C-okLB1y.js">
+    <link rel="modulepreload" crossorigin href="./assets/touch-CPUvqkaa.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-BE-171o3.css">
+  </head>
+  <body>
+    <!--
+      #app is where the TypeScript UI mounts at runtime.
+      Structure (built by buildDOM() in ui.ts):
+
+        #app
+          header.app-header
+          main.app-main
+            section#landing        ← library grid + drop zone
+            div#ejs-container      ← EmulatorJS mount (hidden until game loads)
+            div#loading-overlay    ← spinner during boot
+            div#error-banner       ← dismissible error
+            div#system-picker      ← modal for ambiguous file extensions
+            div#settings-panel     ← performance / library settings
+          footer.app-footer
+    -->
+    <div id="app"></div>
+
+    <!-- Vite entry point -->
+  </body>
+</html>
