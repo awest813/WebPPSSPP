@@ -131,7 +131,8 @@ export function getDropboxAppKey(): string {
  * Launch the Google Drive OAuth popup and return the access token.
  *
  * Uses the OAuth 2.0 implicit grant flow:
- * - Scope: `https://www.googleapis.com/auth/drive.appdata` (hidden app folder)
+ * - Scope: `drive.appdata` (hidden app folder for saves) and `drive.file`
+ *   (files created/opened by the app, used by the cloud library feature)
  * - response_type: token
  *
  * @throws Error if the popup is blocked, the user cancels, or a timeout occurs.
