@@ -4238,12 +4238,6 @@ kbd.kbd--inline {
   .save-gallery-grid { grid-template-columns: 1fr; }
 }
 
-/* ── Game card selection ring (keyboard focus) ─────────────── */
-.game-card:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 3px;
-}
-
 /* ── Patch confirm overlay ─────────────────────────────────── */
 .patch-confirm-box {
   width: min(92vw, 440px);
@@ -4420,7 +4414,11 @@ kbd.kbd--inline {
 .game-card__change-sys,
 .save-slot-card__edit-btn,
 .perf-suggestion__close,
-.cloud-bar__auto-label {
+.cloud-bar__auto-label,
+.ingame-menu__sidebar-btn,
+.ingame-menu__btn,
+.ingame-menu__save-action-btn,
+.ingame-menu__toggle {
   touch-action: manipulation;
 }
 
@@ -5689,27 +5687,6 @@ kbd.kbd--inline {
   }
 }
 
-/* ── Card entrance animation with per-card stagger ─────────── */
-@keyframes card-enter {
-  from {
-    opacity: 0;
-    transform: translateY(14px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.game-card--entering {
-  animation: card-enter 0.38s cubic-bezier(0.34, 1.4, 0.64, 1) both;
-  animation-delay: calc(var(--card-i, 0) * 35ms);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .game-card--entering { animation: none; opacity: 1; }
-}
-
 /* ── Info-toast type variants ──────────────────────────────── */
 /* Default (no modifier) already defined in main .info-toast rule — accent color. */
 
@@ -6423,7 +6400,10 @@ kbd.kbd--inline {
 
 .ingame-menu__toggle:focus-visible,
 .ingame-menu__range:focus-visible,
-.ingame-menu__select:focus-visible {
+.ingame-menu__select:focus-visible,
+.ingame-menu__sidebar-btn:focus-visible,
+.ingame-menu__btn:focus-visible,
+.ingame-menu__save-action-btn:focus-visible {
   outline: 2px solid var(--c-gold-h);
   outline-offset: 2px;
 }
@@ -6564,17 +6544,25 @@ kbd.kbd--inline {
 @media (max-width: 768px) {
   .ingame-menu {
     grid-template-columns: 1fr;
-    height: 100vh;
+    height: 100dvh;
+    height: 100vh; /* fallback */
     width: 100%;
     border-radius: 0;
+    grid-template-rows: auto 1fr;
   }
   
   .ingame-menu__sidebar {
     flex-direction: row;
     overflow-x: auto;
-    padding: 12px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 12px 12px 12px calc(12px + var(--safe-left));
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .ingame-menu__sidebar::-webkit-scrollbar {
+    display: none;
   }
   
   .ingame-menu__sidebar-title {
@@ -6584,10 +6572,12 @@ kbd.kbd--inline {
   .ingame-menu__sidebar-btn {
     padding: 8px 16px;
     white-space: nowrap;
+    min-height: 44px;
   }
   
   .ingame-menu__content {
-    padding: 24px;
+    padding: 20px 20px calc(20px + var(--safe-bottom));
+    overflow-y: auto;
   }
 }
 
@@ -6680,7 +6670,7 @@ kbd.kbd--inline {
 }
 
 .library-section__rows {
-  display: flex !important;
+  display: flex;
   flex-direction: column;
   gap: 48px;
 }
@@ -8703,3 +8693,50 @@ body {
   animation: api-key-spin 0.7s linear infinite;
 }
 @keyframes api-key-spin { to { transform: rotate(360deg); } }
+
+/* ── Accessibility: prefers-reduced-motion overrides ────────── */
+/* Covers in-game menu transitions, library entrance animations, */
+/* hero fade-in, and miscellaneous entry effects not already     */
+/* handled above.                                                */
+@media (prefers-reduced-motion: reduce) {
+  /* In-game menu — disable backdrop slide and scale transitions */
+  .ingame-menu-overlay,
+  .ingame-menu {
+    transition: none;
+  }
+
+  /* Library hero — disable entrance animation and parallax bg scale */
+  .library-hero {
+    animation: none;
+  }
+
+  .library-hero:hover .library-hero__bg {
+    transform: none;
+  }
+
+  /* Library row/hero entrance animation — replace blur+slide with instant show */
+  .game-card--entering,
+  .library-hero--entering,
+  .library-row--entering {
+    animation: none;
+    opacity: 1;
+    filter: none;
+  }
+
+  /* Brand logo hover — skip rotate/scale transform */
+  .app-header__brand:hover .brand-logo,
+  .app-header__brand:active .brand-logo {
+    transform: none;
+  }
+
+  /* Cloud connection hover — skip translateY lift */
+  .cloud-connection-item:hover {
+    transform: none;
+  }
+
+  /* Cloud provider card hover — skip lift */
+  .cloud-provider-card:hover,
+  .cloud-provider-card:focus-visible {
+    transform: none;
+  }
+}
