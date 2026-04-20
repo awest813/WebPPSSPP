@@ -204,11 +204,10 @@ export class PeerDataChannel {
     if (!this._dc || this._dc.readyState !== "open") {
       throw new Error("Data channel is not open.");
     }
-    if (typeof data === "string") {
-      this._dc.send(data);
-    } else {
-      this._dc.send(data);
-    }
+    // RTCDataChannel.send() accepts string, ArrayBuffer, and typed array views.
+    // The union type is narrowed via the cast so newer TS overload resolution
+    // picks the correct signature without redundant branching.
+    (this._dc as { send(data: string | ArrayBuffer): void }).send(data);
   }
 
   /**
