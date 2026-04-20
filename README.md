@@ -1,4 +1,4 @@
-# RetroVault
+# RetroOasis
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Vite](https://img.shields.io/badge/built%20with-Vite-646CFF.svg)
@@ -6,11 +6,11 @@
 ![Tests](https://img.shields.io/badge/tests-1775%20passing-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-18%2B-339933.svg)
 
-RetroVault is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/) stable (`cdn.emulatorjs.org/stable`). Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
+RetroOasis is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/) stable (`cdn.emulatorjs.org/stable`). Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
 
 ## Overview
 
-RetroVault is designed for users who want a polished, self-hostable retro gaming experience in the browser without running a backend server.
+RetroOasis is designed for users who want a polished, self-hostable retro gaming experience in the browser without running a backend server.
 
 It solves the practical problems that raw EmulatorJS integrations leave to app developers:
 
@@ -31,8 +31,8 @@ It solves the practical problems that raw EmulatorJS integrations leave to app d
 ## Quick Start
 
 ```bash
-git clone https://github.com/awest813/WebPPSSPP.git
-cd WebPPSSPP
+git clone https://github.com/awest813/RetroOasis.git
+cd RetroOasis
 npm install
 npm run dev
 ```
@@ -44,7 +44,7 @@ Open `http://localhost:5173`.
 ### Emulation
 
 - **Many systems** via EmulatorJS — PSP (PPSSPP), N64, PS1 (Beetle PSX HW), NDS (DeSmuME 2015), GBA, SNES, NES, Sega Genesis / Saturn (Yabause), arcade (FBNeo / MAME 2003+), Atari, Neo Geo Pocket, and more
-- **Core alignment**: NDS tier tables force `desmume2015` (EmulatorJS otherwise prefers melonDS first). Saturn uses Yabause with RetroVault-specific `yabause_*` tier presets (not Beetle Saturn).
+- **Core alignment**: NDS tier tables force `desmume2015` (EmulatorJS otherwise prefers melonDS first). Saturn uses Yabause with RetroOasis-specific `yabause_*` tier presets (not Beetle Saturn).
 - **Dreamcast**: available through an external Flycast WASM core with ROM-type and BIOS support, but it is **experimental** and still being stabilized; some games may boot slowly, glitch, or crash.
 - **Archive support**: ZIP, 7z, and RAR files are transparently extracted before launch
 - **Soft-patch support**: Full IPS, BPS, and UPS patcher with CRC verification
@@ -71,7 +71,7 @@ Open `http://localhost:5173`.
 
 ### Platform & Mobile
 
-- **PWA**: combined COI + PWA service worker; app-shell caching; "Install RetroVault" button
+- **PWA**: combined COI + PWA service worker; app-shell caching; "Install RetroOasis" button
 - **Touch controls**: 12 draggable virtual buttons with per-orientation layouts and haptic feedback
 - **Orientation lock**: `screen.orientation.lock("landscape-primary")` on game launch
 - **iOS Safari**: `credentialless` COEP for CDN compatibility on Safari 17+ / iOS 17+
@@ -92,20 +92,20 @@ See [`docs/NETPLAY.md`](docs/NETPLAY.md) for the full setup guide.
 User
   |
   v
-UI Layer (src/ui.ts, src/style.css)
+UI Layer (src/ui.ts, src/ui/, src/style.css)
   |
-  +--> Library + Assets (src/library.ts, src/archive.ts, src/patcher.ts)
+  +--> Library + Assets (src/library.ts, src/archive.ts, src/patcher.ts, src/cloudLibrary.ts)
   |
-  +--> Saves / BIOS / Cloud (src/saves.ts, src/bios.ts, src/cloudSave.ts, src/autoRestore.ts)
+  +--> Saves / BIOS / Cloud (src/saves.ts, src/saveService.ts, src/bios.ts, src/cloudSave.ts, src/autoRestore.ts)
   |
   v
 Emulator Orchestrator (src/main.ts, src/emulator.ts)
   |
   +--> Performance / Tier Logic (src/performance.ts, src/systems.ts)
   |
-  +--> Optional Post-Process (src/webgpuPostProcess.ts, src/shaderCache.ts)
+  +--> Optional Post-Process (src/webgpuPostProcess.ts, src/shaderCache.ts, src/wasmCache.ts)
   |
-  +--> Networking (src/multiplayer.ts)
+  +--> Networking (src/multiplayer.ts, src/netplay/)
   |
   v
 EmulatorJS CDN (`*-wasm.data` core blobs + loader)
@@ -116,12 +116,13 @@ EmulatorJS CDN (`*-wasm.data` core blobs + loader)
 | Subsystem | Files |
 |-----------|-------|
 | Engine / orchestration | `src/main.ts`, `src/emulator.ts` |
-| UI / overlays | `src/ui.ts`, `src/style.css`, `src/touchControls.ts` |
-| Persistence | `src/saves.ts`, `src/bios.ts`, `src/library.ts` |
+| UI / overlays | `src/ui.ts`, `src/ui/`, `src/style.css`, `src/touchControls.ts` |
+| Persistence | `src/saves.ts`, `src/saveService.ts`, `src/bios.ts`, `src/library.ts` |
 | Performance / tier | `src/performance.ts`, `src/systems.ts` |
-| Rendering (post-process) | `src/webgpuPostProcess.ts`, `src/shaderCache.ts` |
+| Rendering (post-process) | `src/webgpuPostProcess.ts`, `src/shaderCache.ts`, `src/wasmCache.ts` |
 | ROM tools | `src/archive.ts`, `src/patcher.ts` |
-| Networking | `src/multiplayer.ts`, `src/cloudSave.ts` |
+| Networking | `src/multiplayer.ts`, `src/netplay/`, `src/cloudSave.ts` |
+| Cloud library | `src/cloudLibrary.ts`, `src/cloudSaveSingleton.ts` |
 
 For a detailed map, see [`docs/ARCHITECTURE_MAP.md`](docs/ARCHITECTURE_MAP.md).
 
@@ -129,14 +130,17 @@ For a detailed map, see [`docs/ARCHITECTURE_MAP.md`](docs/ARCHITECTURE_MAP.md).
 
 ```text
 src/                  TypeScript application source and unit tests
+src/ui/               UI component modules (extracted from ui.ts during ongoing refactor)
+src/netplay/          Netplay subsystem (EasyNetplay, signalling, diagnostics)
 public/               Static assets (service worker, PWA manifest, audio worklet)
-docs/                 Project documentation (roadmap, architecture, guides)
+docs/                 Project documentation (architecture, netplay, performance)
 data/                 Vendor EmulatorJS assets and localisation files
 tools/                Utility scripts (aliases, parsers, doctor)
 minify/               Minification tooling
 index.html            App entry point
 vite.config.ts        Dev / build configuration
 vitest.config.ts      Test runner configuration
+ROADMAP.md            Planned improvements and upcoming work
 guide.md              Static-host deployment guide
 ```
 
@@ -151,8 +155,8 @@ guide.md              Static-host deployment guide
 ### Clone and install
 
 ```bash
-git clone https://github.com/awest813/WebPPSSPP.git
-cd WebPPSSPP
+git clone https://github.com/awest813/RetroOasis.git
+cd RetroOasis
 npm install
 ```
 
@@ -227,7 +231,7 @@ npm run lint
 
 The PSP core (PPSSPP) requires `SharedArrayBuffer`, which requires cross-origin isolation headers (`COOP: same-origin` + `COEP: require-corp`).
 
-RetroVault handles this automatically in two ways:
+RetroOasis handles this automatically in two ways:
 
 | Environment | Mechanism |
 |-------------|-----------|
@@ -271,16 +275,22 @@ Open a GitHub issue with the output of "Copy Debug Info" from the Settings → D
 
 ## Roadmap
 
-RetroVault tracks work in [`docs/ROADMAP.md`](docs/ROADMAP.md). Phases 1–9 are **complete** in the shipped app (emulation stack, WebGPU post-processing, DRS / FSR / TAA, per-game graphics, thermal and startup profiling, WASM and shader caching, netplay, PWA, and more). **Upcoming themes** are grouped there under *Future releases*:
+RetroOasis tracks planned work in [`ROADMAP.md`](ROADMAP.md). Current priorities are:
 
-- **Graphics & assets** — texture replacement packs, optional texture prefetch, compressed texture paths on capable GPUs
-- **Accessibility** — screen reader support, high-contrast and reduced-motion modes, colourblind-safe badges
-- **Community & saves** — ratings/notes, shareable configuration JSON, optional compatibility telemetry, more cloud save providers
-- **Platform** — Electron desktop wrapper, Android Trusted Web Activity, deeper Gamepad API (calibration, rumble, remapping)
-- **Developer experience** — plugin surface, in-game debug overlay, Playwright regression runs in CI
-- **Research / upstream** — Dreamcast stabilization and eventual migration to an officially hosted stable core, rollback netcode, WebGPU-native paths inside upstream cores
+**Technical Debt & Modernisation**
 
-Performance targets and contribution expectations for roadmap-sized work stay in the same doc.
+- **Architectural componentization** — `ui.ts` (~7000 lines) is being split into a feature-based module system. `src/ui/` already contains extracted UI components; further extraction into `src/modules/` is planned.
+- **State management** — Introducing a centralised `RetroOasisStore` with an Observer pattern to replace prop-drilling and prevent unnecessary full-page re-renders.
+- **Testing & CI** — Moving toward Playwright integration tests for critical user journeys (Add ROM → Play → Save → Cloud Sync) alongside the existing Vitest unit suite.
+
+**Netplay & Online UX Overhaul**
+
+- **Visual lobby browser** — Replace raw IP entry with a room-grid UI showing the game being played, player counts, and region-based latency.
+- **"Play Together" share links** — Instant session invitations via deep-link URL that auto-launch the emulator and load the correct game.
+- **In-game social overlay** — Non-intrusive chat, ping radar, and desync-protection indicator accessible during gameplay.
+- **Advanced networking** — Full STUN/TURN NAT punching and rollback netplay depth controls for supported cores.
+
+See [`ROADMAP.md`](ROADMAP.md) for the full phase-by-phase breakdown.
 
 ## Contributing
 
