@@ -6214,6 +6214,13 @@ kbd.kbd--inline {
   color: rgba(255, 255, 255, 0.9);
 }
 
+.ingame-menu__setting-desc {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
 .ingame-menu__setting-control {
   display: flex;
   align-items: center;
