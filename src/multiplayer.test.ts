@@ -174,7 +174,8 @@ describe('NetplayManager', () => {
 
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('n64');
     expect(mgr.isSupportedForSystem('n64')).toBe(true);
-    expect(mgr.isSupportedForSystem('nes')).toBe(false);
+    expect(mgr.isSupportedForSystem('nes')).toBe(true);
+    expect(mgr.isSupportedForSystem('psx')).toBe(false);
   });
 
   it('isSupportedForSystem includes psp', () => {
@@ -713,14 +714,17 @@ describe('resolveNetplayRoomKey', () => {
     expect(roomDisplayNameForKey('custom_room_key')).toBe('custom_room_key');
   });
 
-  it('supports link-capable handheld systems, n64, and psp; blocks unsupported examples', () => {
+  it('supports link-capable handheld systems, n64, psp, nes, snes, and sega systems; blocks unsupported examples', () => {
     expect(SYSTEM_LINK_CAPABILITIES.gbc).toBe(true);
     expect(SYSTEM_LINK_CAPABILITIES.gba).toBe(true);
     expect(SYSTEM_LINK_CAPABILITIES.nds).toBe(true);
     expect(SYSTEM_LINK_CAPABILITIES.n64).toBe(true);
     expect(SYSTEM_LINK_CAPABILITIES.psp).toBe(true);
-    expect(SYSTEM_LINK_CAPABILITIES.nes).toBe(false);
-    expect(SYSTEM_LINK_CAPABILITIES.snes).toBe(false);
+    expect(SYSTEM_LINK_CAPABILITIES.nes).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.snes).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.segaMD).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.segaMS).toBe(true);
+    expect(SYSTEM_LINK_CAPABILITIES.segaGG).toBe(true);
   });
 
   it('uses canonical fallback hashing for unknown titles', () => {
@@ -918,14 +922,17 @@ describe('resolveNetplayRoomKey — system ID validation', () => {
     expect(key).not.toBe('pokemon_gen1');
   });
 
-  it('NETPLAY_SUPPORTED_SYSTEM_IDS includes gba, gbc, nds, n64, psp but not nes/snes/psx', () => {
+  it('NETPLAY_SUPPORTED_SYSTEM_IDS includes gba, gbc, nds, n64, psp, nes, snes, and sega systems, but not psx', () => {
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gba');
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('gbc');
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('nds');
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('n64');
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('psp');
-    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).not.toContain('nes');
-    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).not.toContain('snes');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('nes');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('snes');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('segaMD');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('segaMS');
+    expect(NETPLAY_SUPPORTED_SYSTEM_IDS).toContain('segaGG');
     expect(NETPLAY_SUPPORTED_SYSTEM_IDS).not.toContain('psx');
   });
 });

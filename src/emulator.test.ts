@@ -2566,13 +2566,13 @@ describe('PSPEmulator', () => {
 
       emulator.onError = () => {};
       await emulator.launch({
-        file:           new File(['data'], 'game.nes'),
+        file:           new File(['data'], 'game.bin'),
         volume:         0.7,
-        systemId:       'nes',
+        systemId:       'psx',
         performanceMode:'auto',
         deviceCaps:     fakeCaps,
         netplayManager: mgr,
-        gameId:         'nes-game-test',
+        gameId:         'psx-game-test',
       });
 
       expect(window.EJS_netplayServer).toBeUndefined();

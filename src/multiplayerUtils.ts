@@ -9,17 +9,23 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
-export const NETPLAY_SUPPORTED_SYSTEM_IDS = ["n64", "psp", "nds", "gba", "gbc", "gb"] as const;
+export const NETPLAY_SUPPORTED_SYSTEM_IDS = [
+  "n64", "psp", "nds", "gba", "gbc", "gb",
+  "nes", "snes", "segaMD", "segaMS", "segaGG",
+] as const;
 
 export const SYSTEM_LINK_CAPABILITIES: Record<string, boolean> = {
-  nes: false,
-  snes: false,
-  n64: true,
-  psp: true,
-  gb: true,
-  gbc: true,
-  gba: true,
-  nds: true,
+  nes:    true,    // FCEUmm supports 2–4 player netplay
+  snes:   true,    // Snes9x supports 2–5 player netplay
+  n64:    true,
+  psp:    true,
+  gb:     true,
+  gbc:    true,
+  gba:    true,
+  nds:    true,
+  segaMD: true,    // Genesis Plus GX supports 2-player netplay
+  segaMS: true,    // Sega Master System via Genesis Plus GX
+  segaGG: true,    // Game Gear via Genesis Plus GX
 };
 
 export const ROOM_KEY_DISPLAY_NAMES: Record<string, string> = {

@@ -108,10 +108,10 @@ describe("checkSystemSupport", () => {
     expect(checkSystemSupport("gba").compatible).toBe(true);
   });
 
-  it("returns compatible=false for nes", () => {
+  it("returns compatible=true for nes", () => {
     const result = checkSystemSupport("nes");
-    expect(result.compatible).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.compatible).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
   it("returns compatible=false for an unknown system", () => {
@@ -119,9 +119,9 @@ describe("checkSystemSupport", () => {
     expect(result.compatible).toBe(false);
   });
 
-  it("error message includes the system name", () => {
-    const result = checkSystemSupport("nes");
-    expect(result.errors[0]).toContain("NES");
+  it("error message includes the system name for an unknown system", () => {
+    const result = checkSystemSupport("atari");
+    expect(result.errors[0]).toContain("ATARI");
   });
 });
 
@@ -410,7 +410,7 @@ describe("EasyNetplayManager", () => {
   it("fails with error event for unsupported system", async () => {
     const errors: string[] = [];
     manager.onEvent(ev => { if (ev.type === "error") errors.push(ev.code); });
-    await manager.hostRoom({ ...hostOpts, systemId: "nes" });
+    await manager.hostRoom({ ...hostOpts, systemId: "psx" });
     expect(errors).toContain("unsupported_system");
     expect(manager.state).toBe("failed");
   });
