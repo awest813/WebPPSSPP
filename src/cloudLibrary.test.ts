@@ -179,17 +179,10 @@ describe("GoogleDriveLibraryProvider — listFiles", () => {
     expect(await new GoogleDriveLibraryProvider("tok").listFiles()).toEqual([]);
   });
 
-  it("escapes single quotes in folder ID to prevent query injection", async () => {
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true, status: 200, json: async () => ({ files: [] }),
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-
-    await new GoogleDriveLibraryProvider("tok").listFiles("it's a test");
-    const [url] = fetchSpy.mock.calls[0] as [string];
-    // The escaped single quote should be present, not a raw unescaped one.
-    expect(decodeURIComponent(url)).not.toContain("'it's a test'");
-    expect(decodeURIComponent(url)).toContain("it\\'s a test");
+  it("rejects folder IDs with unsafe characters", async () => {
+    await expect(
+      new GoogleDriveLibraryProvider("tok").listFiles("it's a test")
+    ).rejects.toThrow(/Invalid Google Drive folder ID/);
   });
 });
 

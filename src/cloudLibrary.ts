@@ -119,10 +119,13 @@ export class GoogleDriveLibraryProvider implements CloudProvider {
 
   async listFiles(folderId?: string): Promise<CloudFile[]> {
     const parentId = folderId || this.rootFolderId || "root";
-    // Escape backslashes first, then single quotes, to prevent query injection
-    // via sequences like \' that would leave a raw quote after only escaping quotes.
-    const safeId = parentId.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const q = encodeURIComponent(`'${safeId}' in parents and trashed = false`);
+    // Google Drive folder IDs are alphanumeric with hyphens and underscores.
+    // Reject anything that doesn't match to prevent query injection in the
+    // Drive API query language.  The special value "root" is always allowed.
+    if (parentId !== "root" && !/^[\w-]+$/.test(parentId)) {
+      throw new Error("Invalid Google Drive folder ID");
+    }
+    const q = encodeURIComponent(`'${parentId}' in parents and trashed = false`);
     const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,size,mimeType,thumbnailLink)`, {
       headers: { Authorization: `Bearer ${this.accessToken}` }
     });
