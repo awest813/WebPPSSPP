@@ -124,6 +124,7 @@ import {
   showGamePickerDialog as showGamePickerDialogImpl,
   showArchiveEntryPickerDialog as showArchiveEntryPickerDialogImpl,
   showMultiDiscPicker as showMultiDiscPickerImpl,
+  showCoverArtPickerDialog as showCoverArtPickerDialogImpl,
   isTopmostOverlay,
 } from "./ui/modals.js";
 import {
@@ -1702,12 +1703,16 @@ function buildGameCard(
   icon.setAttribute("aria-hidden", "true");
   icon.style.background = `linear-gradient(135deg, ${sysColor}33, ${sysColor}11)`;
 
+  // System icon (emoji or image) wrapped in a span so CSS can hide it when cover art is shown
+  const sysIconWrap = make("span", { class: "game-card__sys-icon", "aria-hidden": "true" });
   const iconOutput = systemIcon(game.systemId);
   if (iconOutput.includes("/assets/")) {
-    icon.innerHTML = `<img src="${iconOutput}" alt="" class="sys-icon-img" />`;
+    const sysImg = make("img", { src: iconOutput, alt: "", class: "sys-icon-img" });
+    sysIconWrap.appendChild(sysImg);
   } else {
-    icon.textContent = iconOutput;
+    sysIconWrap.textContent = iconOutput;
   }
+  icon.appendChild(sysIconWrap);
 
   if (game.cloudId) {
     const cloudBadge = make("div", { class: "game-card__cloud-badge", title: "Cloud Stream" }, "☁");
@@ -1717,6 +1722,32 @@ function buildGameCard(
   if (isNew) {
     const newBadge = make("div", { class: "game-card__new-badge", "aria-hidden": "true" }, "NEW");
     icon.appendChild(newBadge);
+  }
+
+  // Cover art: local blob takes precedence over remote thumbnailUrl
+  let coverArtObjectUrl: string | null = null;
+  const coverArtImg = make("img", {
+    alt: "",
+    class: "game-card__cover-art",
+    draggable: "false",
+  }) as HTMLImageElement;
+
+  const applyCoverArt = (src: string) => {
+    coverArtImg.src = src;
+    icon.classList.add("game-card__icon--has-art");
+    if (!icon.contains(coverArtImg)) {
+      icon.insertBefore(coverArtImg, icon.firstChild);
+    }
+  };
+
+  if (game.hasCoverArt) {
+    void library.getCoverArt(game.id).then((blob) => {
+      if (!blob) return;
+      coverArtObjectUrl = URL.createObjectURL(blob);
+      applyCoverArt(coverArtObjectUrl);
+    });
+  } else if (game.thumbnailUrl) {
+    applyCoverArt(game.thumbnailUrl);
   }
 
   const info = make("div", { class: "game-card__info" });
@@ -1837,9 +1868,86 @@ function buildGameCard(
   const playBtn     = make("div", { class: "game-card__play-btn" }, "▶");
   playOverlay.appendChild(playBtn);
 
+  // ── Cover art button ───────────────────────────────────────────────────────
+  const btnArt = make("button", {
+    class: "game-card__art-btn",
+    title: game.hasCoverArt || game.thumbnailUrl ? "Change cover art" : "Set cover art",
+    "aria-label": game.hasCoverArt || game.thumbnailUrl
+      ? `Change cover art for ${game.name}`
+      : `Set cover art for ${game.name}`,
+  }, "🖼");
+
+  btnArt.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const result = await showCoverArtPickerDialog(
+      game.name,
+      !!(game.hasCoverArt || game.thumbnailUrl),
+    );
+    if (result === null) return;
+
+    try {
+      if (result.type === "remove") {
+        await library.setCoverArt(game.id, null);
+        if (coverArtObjectUrl) {
+          URL.revokeObjectURL(coverArtObjectUrl);
+          coverArtObjectUrl = null;
+        }
+        icon.classList.remove("game-card__icon--has-art");
+        coverArtImg.remove();
+        showInfoToast(`Cover art removed for "${game.name}".`, "info");
+        game.hasCoverArt = false;
+        btnArt.title = "Set cover art";
+        btnArt.setAttribute("aria-label", `Set cover art for ${game.name}`);
+
+      } else if (result.type === "file") {
+        await library.setCoverArt(game.id, result.blob);
+        if (coverArtObjectUrl) URL.revokeObjectURL(coverArtObjectUrl);
+        coverArtObjectUrl = URL.createObjectURL(result.blob);
+        if (!icon.contains(coverArtImg)) applyCoverArt(coverArtObjectUrl);
+        else coverArtImg.src = coverArtObjectUrl;
+        showInfoToast(`Cover art set for "${game.name}".`, "success");
+        game.hasCoverArt = true;
+        btnArt.title = "Change cover art";
+        btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+
+      } else if (result.type === "url") {
+        // Fetch the image to validate it and store locally as a blob.
+        // createImageBitmap() verifies the blob is a decodable image regardless
+        // of what the Content-Type header claims, preventing non-image blobs
+        // from being stored.
+        let fetchedBlob: Blob;
+        try {
+          const resp = await fetch(result.url, { mode: "cors" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          fetchedBlob = await resp.blob();
+          // Validate that the blob is actually a decodable image
+          const bitmap = await createImageBitmap(fetchedBlob);
+          bitmap.close();
+        } catch (fetchErr) {
+          showError(
+            `Could not fetch image from that URL: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}. ` +
+            "Try downloading the image to your device and uploading it instead."
+          );
+          return;
+        }
+        await library.setCoverArt(game.id, fetchedBlob);
+        if (coverArtObjectUrl) URL.revokeObjectURL(coverArtObjectUrl);
+        coverArtObjectUrl = URL.createObjectURL(fetchedBlob);
+        if (!icon.contains(coverArtImg)) applyCoverArt(coverArtObjectUrl);
+        else coverArtImg.src = coverArtObjectUrl;
+        showInfoToast(`Cover art set for "${game.name}".`, "success");
+        game.hasCoverArt = true;
+        btnArt.title = "Change cover art";
+        btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+      }
+    } catch (err) {
+      showError(`Cover art update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+
   card.append(icon, info);
   if (patchInput && btnPatch) card.append(patchInput, btnPatch);
-  card.append(btnChangeSystem, btnFav, btnRemove, playOverlay);
+  card.append(btnArt, btnChangeSystem, btnFav, btnRemove, playOverlay);
 
   let preloadTriggered = false;
   const triggerPreload = () => {
@@ -2584,6 +2692,10 @@ function showArchiveEntryPickerDialog(
   candidates: Array<{ name: string; blob: Blob; size: number }>
 ): Promise<{ name: string; blob: Blob; size: number } | null> {
   return showArchiveEntryPickerDialogImpl(format, candidates);
+}
+
+function showCoverArtPickerDialog(gameName: string, hasExistingArt: boolean): ReturnType<typeof showCoverArtPickerDialogImpl> {
+  return showCoverArtPickerDialogImpl(gameName, hasExistingArt);
 }
 
 async function handleM3UFile(

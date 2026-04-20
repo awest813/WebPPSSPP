@@ -2490,16 +2490,18 @@ body {
      Expand to 40 px for closer compliance with Apple HIG 44pt minimum tap target. */
   .game-card__remove,
   .game-card__patch,
-  .game-card__change-sys {
+  .game-card__change-sys,
+  .game-card__art-btn {
     opacity: 1;
     width: 40px;
     height: 40px;
     font-size: 1rem;
   }
 
-  /* Offset patch/change-sys to stay clear of the now-larger remove button */
+  /* Offset patch/change-sys/art-btn to stay clear of the now-larger remove button */
   .game-card__patch { left: 6px; top: 6px; }
   .game-card__change-sys { top: 50px; left: 6px; }
+  .game-card__art-btn { top: 94px; left: 6px; }
 
   /* Save slot edit button — always visible on touch */
   .save-slot-card__edit-btn { opacity: 1; }
@@ -3121,7 +3123,96 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 
 .game-card__change-sys:focus-visible { opacity: 1; outline: 2px solid var(--c-success); outline-offset: 2px; }
 
-/* ── BIOS management UI ────────────────────────────────────── */
+/* ── Game card — cover art button ──────────────────────────── */
+.game-card__art-btn {
+  position: absolute;
+  top: 68px;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(180, 120, 255, 0.18);
+  color: #c084fc;
+  font-size: 0.75rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition), transform var(--spring-fast);
+  z-index: 2;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.game-card:hover .game-card__art-btn,
+.game-card:focus-within .game-card__art-btn { opacity: 1; }
+
+.game-card__art-btn:hover {
+  background: rgba(180, 120, 255, 0.35);
+  transform: scale(1.1);
+}
+
+.game-card__art-btn:focus-visible { opacity: 1; outline: 2px solid #c084fc; outline-offset: 2px; }
+
+/* ── Game card — cover art image ────────────────────────────── */
+.game-card__icon--has-art {
+  background: var(--c-surface3) !important;
+}
+
+.game-card__cover-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  border-radius: 0;
+}
+
+/* Dim the underlying system icon when cover art is present */
+.game-card__icon--has-art .game-card__sys-icon {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Cover art picker modal ─────────────────────────────────── */
+.cover-art-box {
+  max-width: 420px;
+}
+
+.cover-art-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.cover-art-btn {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.cover-art-url-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border-lt);
+  background: var(--c-surface2);
+  color: var(--c-text);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.cover-art-url-input:focus {
+  border-color: var(--c-accent);
+}
+
+
 .bios-grid { display: flex; flex-direction: column; gap: 14px; }
 
 .bios-system {

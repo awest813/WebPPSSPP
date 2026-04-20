@@ -329,3 +329,117 @@ export function showMultiDiscPicker(discFileNames: string[]): Promise<Map<string
     });
   });
 }
+
+export type CoverArtPickResult =
+  | { type: "file"; blob: Blob }
+  | { type: "url"; url: string }
+  | { type: "remove" }
+  | null;
+
+/**
+ * Modal dialog that lets the user set or remove cover art for a game.
+ *
+ * Returns:
+ *   { type: "file", blob }  — user picked a local image file
+ *   { type: "url", url }    — user entered an image URL
+ *   { type: "remove" }      — user wants to remove existing art
+ *   null                    — cancelled
+ */
+export function showCoverArtPickerDialog(
+  gameName: string,
+  hasExistingArt: boolean,
+): Promise<CoverArtPickResult> {
+  return new Promise((resolve) => {
+    const overlay = createElement("div", { class: "confirm-overlay" });
+    const box = createElement("div", {
+      class: "confirm-box cover-art-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": `Set Cover Art for ${gameName}`,
+    });
+
+    box.appendChild(createElement("h3", { class: "confirm-title" }, "Set Cover Art"));
+    box.appendChild(createElement("p", { class: "confirm-body" },
+      `Choose an image to use as cover art for "${gameName}".`,
+    ));
+
+    // ── File upload section ──────────────────────────────────────────────────
+    const fileSection = createElement("div", { class: "cover-art-section" });
+    const fileInput = createElement("input", {
+      type: "file",
+      accept: "image/jpeg,image/png,image/webp,image/gif,image/avif",
+      "aria-label": "Upload image file",
+      style: "display:none",
+    }) as HTMLInputElement;
+    const btnFile = createElement("button", { class: "btn btn--primary cover-art-btn" }, "📁 Upload Image File");
+    btnFile.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      close({ type: "file", blob: file });
+    });
+    fileSection.append(fileInput, btnFile);
+
+    // ── URL section ─────────────────────────────────────────────────────────
+    const urlSection = createElement("div", { class: "cover-art-section" });
+    const urlInput = createElement("input", {
+      type: "url",
+      placeholder: "https://example.com/cover.jpg",
+      "aria-label": "Image URL",
+      class: "cover-art-url-input",
+    }) as HTMLInputElement;
+    const btnUrl = createElement("button", { class: "btn cover-art-btn" }, "🔗 Use Image URL");
+    btnUrl.addEventListener("click", () => {
+      const url = urlInput.value.trim();
+      if (!url) { urlInput.focus(); return; }
+      close({ type: "url", url });
+    });
+    urlInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); btnUrl.click(); }
+    });
+    urlSection.append(urlInput, btnUrl);
+
+    box.append(fileSection, urlSection);
+
+    // ── Footer ───────────────────────────────────────────────────────────────
+    const footer = createElement("div", { class: "confirm-footer" });
+    const btnCancel = createElement("button", { class: "btn" }, "Cancel");
+    footer.appendChild(btnCancel);
+
+    if (hasExistingArt) {
+      const btnRemove = createElement("button", { class: "btn btn--danger-filled" }, "🗑 Remove Art");
+      btnRemove.addEventListener("click", () => close({ type: "remove" }));
+      footer.appendChild(btnRemove);
+    }
+
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    let closed = false;
+    const close = (result: CoverArtPickResult) => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onEsc, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 180);
+      resolve(result);
+    };
+
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isTopmostOverlay(overlay)) {
+        e.preventDefault();
+        e.stopPropagation();
+        close(null);
+      }
+    };
+    btnCancel.addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", onEsc, { capture: true });
+
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      btnFile.focus();
+    });
+  });
+}

@@ -91,8 +91,9 @@ describe('GameLibrary.getAllGamesMetadata', () => {
     expect(games.length).toBeGreaterThan(0);
 
     for (const game of games) {
-      // GameMetadata should not have a `blob` property
+      // GameMetadata should not have a `blob` or `coverArtBlob` property
       expect('blob' in game).toBe(false);
+      expect('coverArtBlob' in game).toBe(false);
       // But must have the standard metadata fields
       expect(typeof game.id).toBe('string');
       expect(typeof game.name).toBe('string');

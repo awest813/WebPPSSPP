@@ -53,16 +53,20 @@ export interface GameEntry {
   thumbnailUrl?: string;
   /** Whether the game is marked as a favorite. */
   isFavorite?: boolean;
+  /** User-provided cover art image blob (stored locally in IDB). */
+  coverArtBlob?: Blob | null;
+  /** True when a local cover art blob is present — available in metadata without loading the blob. */
+  hasCoverArt?: boolean;
 }
 
 /**
- * GameEntry without the ROM blob — used for library listing.
+ * GameEntry without ROM blob or cover art blob — used for library listing.
  *
- * Fetching only metadata (no blob) via a cursor avoids deserializing
+ * Fetching only metadata (no blobs) via a cursor avoids deserializing
  * potentially large Blob objects when rendering the library grid, which
  * is a meaningful win on low-memory devices (Chromebooks, budget phones).
  */
-export type GameMetadata = Omit<GameEntry, "blob">;
+export type GameMetadata = Omit<GameEntry, "blob" | "coverArtBlob">;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -472,7 +476,8 @@ export class GameLibrary {
             const cursor = req.result;
             if (cursor) {
               const entry = cursor.value as GameEntry;
-              const { blob: _blob, ...meta } = entry;
+              const { blob: _blob, coverArtBlob: _art, ...meta } = entry;
+              meta.hasCoverArt = entry.coverArtBlob != null;
               results.push(meta);
               cursor.continue();
             } else {
@@ -518,6 +523,32 @@ export class GameLibrary {
     const entry = await promisify<GameEntry | undefined>(tx(db, "readonly").get(id));
     if (!entry) return;
     entry.isFavorite = isFavorite;
+    await promisify(tx(db, "readwrite").put(entry));
+    invalidateMetadataCache();
+  }
+
+  /**
+   * Get the locally stored cover art blob for a game.
+   * Returns null when no cover art has been set.
+   */
+  async getCoverArt(id: string): Promise<Blob | null> {
+    const db = await openDB();
+    const result = await promisify<GameEntry | undefined>(tx(db, "readonly").get(id));
+    return result?.coverArtBlob ?? null;
+  }
+
+  /**
+   * Set or remove locally stored cover art for a game.
+   *
+   * @param id    Game id.
+   * @param blob  Cover art image blob, or null to remove existing art.
+   */
+  async setCoverArt(id: string, blob: Blob | null): Promise<void> {
+    const db = await openDB();
+    const entry = await promisify<GameEntry | undefined>(tx(db, "readonly").get(id));
+    if (!entry) return;
+    entry.coverArtBlob = blob;
+    entry.hasCoverArt  = blob != null;
     await promisify(tx(db, "readwrite").put(entry));
     invalidateMetadataCache();
   }
