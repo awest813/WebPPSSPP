@@ -27,6 +27,17 @@ describe("parseCloudLibraryConnectionConfig", () => {
   it("returns null for empty string", () => {
     expect(parseCloudLibraryConnectionConfig("")).toBeNull();
   });
+
+  it("returns null for a JSON array", () => {
+    expect(parseCloudLibraryConnectionConfig('[1,2,3]')).toBeNull();
+  });
+
+  it("returns null for a JSON primitive", () => {
+    expect(parseCloudLibraryConnectionConfig('"just a string"')).toBeNull();
+    expect(parseCloudLibraryConnectionConfig("42")).toBeNull();
+    expect(parseCloudLibraryConnectionConfig("true")).toBeNull();
+    expect(parseCloudLibraryConnectionConfig("null")).toBeNull();
+  });
 });
 
 // ── createProvider ─────────────────────────────────────────────────────────────
@@ -166,6 +177,19 @@ describe("GoogleDriveLibraryProvider — listFiles", () => {
       ok: true, status: 200, json: async () => ({ files: [] }),
     }));
     expect(await new GoogleDriveLibraryProvider("tok").listFiles()).toEqual([]);
+  });
+
+  it("escapes single quotes in folder ID to prevent query injection", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ files: [] }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await new GoogleDriveLibraryProvider("tok").listFiles("it's a test");
+    const [url] = fetchSpy.mock.calls[0] as [string];
+    // The escaped single quote should be present, not a raw unescaped one.
+    expect(decodeURIComponent(url)).not.toContain("'it's a test'");
+    expect(decodeURIComponent(url)).toContain("it\\'s a test");
   });
 });
 
@@ -470,6 +494,14 @@ describe("pCloudLibraryProvider — getDownloadUrl", () => {
   it("throws when the link request fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 400 }));
     await expect(new pCloudLibraryProvider("tok").getDownloadUrl("bad")).rejects.toThrow(/pCloud link failed/);
+  });
+
+  it("throws when the hosts array is empty", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ path: "/file.rom", hosts: [] }),
+    }));
+    await expect(new pCloudLibraryProvider("tok").getDownloadUrl("123")).rejects.toThrow(/missing host/);
   });
 });
 
