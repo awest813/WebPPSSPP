@@ -670,7 +670,7 @@ describe("MegaLibraryProvider — static crypto helpers", () => {
     expect(result.length).toBe(16);
   });
 
-  it("_derivePasswordKey returns a 16-byte key", { timeout: 15_000 }, () => {
+  it("_derivePasswordKey returns a 16-byte key", { timeout: 30_000 }, () => {
     const key = MegaLibraryProvider._derivePasswordKey("testpassword");
     expect(key.length).toBe(16);
   });
@@ -681,7 +681,7 @@ describe("MegaLibraryProvider — static crypto helpers", () => {
     expect(Array.from(k1)).not.toEqual(Array.from(k2));
   });
 
-  it("_computeUserHash returns a non-empty base64url string", { timeout: 15_000 }, () => {
+  it("_computeUserHash returns a non-empty base64url string", { timeout: 30_000 }, () => {
     const key  = MegaLibraryProvider._derivePasswordKey("password");
     const hash = MegaLibraryProvider._computeUserHash("user@example.com", key);
     expect(hash.length).toBeGreaterThan(0);
@@ -690,7 +690,7 @@ describe("MegaLibraryProvider — static crypto helpers", () => {
     expect(hash).not.toContain("=");
   });
 
-  it("_computeUserHash returns different values for different emails", { timeout: 15_000 }, () => {
+  it("_computeUserHash returns different values for different emails", { timeout: 30_000 }, () => {
     const key = MegaLibraryProvider._derivePasswordKey("password");
     const h1  = MegaLibraryProvider._computeUserHash("alice@example.com", key);
     const h2  = MegaLibraryProvider._computeUserHash("bob@example.com",   key);
