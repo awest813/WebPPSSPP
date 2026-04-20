@@ -7853,6 +7853,47 @@ body {
   font-size: 2rem;
 }
 
+/* ── OAuth sign-in button and divider ──────────────────────────────────────── */
+.oauth-signin-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.oauth-signin-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.oauth-signin-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.oauth-divider__line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.oauth-divider__text {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+}
+
 /* Cloud save status row in the Cloud Settings tab */
 .cloud-save-status-row {
   display: flex;

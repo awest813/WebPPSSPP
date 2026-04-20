@@ -98,6 +98,16 @@ import {
 // Cloud library types moved to lazy functions to satisfy strict TSC
 import { createProvider } from "./cloudLibrary.js";
 import type { CloudLibraryConnection } from "./main.js";
+import {
+  isGoogleOAuthConfigured,
+  isDropboxOAuthConfigured,
+  startGoogleOAuth,
+  startDropboxOAuth,
+  getGoogleClientId,
+  getDropboxAppKey,
+  setGoogleClientId,
+  setDropboxAppKey,
+} from "./oauthPopup.js";
 import { createUuid } from "./uuid.js";
 import { SaveGameService } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
@@ -5347,6 +5357,63 @@ function getCloudProviderLabel(id: string): string {
   return ALL_CLOUD_PROVIDERS.find(p => p.id === id)?.label ?? id;
 }
 
+/**
+ * Append an OAuth "Sign in with…" button + divider to `container` for the given
+ * provider, if OAuth is configured.  On success the resulting access token is
+ * written into `tokenInput`.  Errors are shown in `errorEl` (lazily resolved so
+ * it can be created after this call).
+ *
+ * @returns true if the OAuth UI was added, false otherwise.
+ */
+function appendOAuthSignInButton(opts: {
+  providerId: string;
+  providerLabel: string;
+  container: HTMLElement;
+  tokenInput: HTMLInputElement;
+  getErrorEl: () => HTMLElement;
+}): boolean {
+  const oauthAvailable =
+    (opts.providerId === "gdrive" && isGoogleOAuthConfigured()) ||
+    (opts.providerId === "dropbox" && isDropboxOAuthConfigured());
+
+  if (!oauthAvailable) return false;
+
+  const oauthRow = make("div", { class: "settings-input-row oauth-signin-row" });
+  const oauthBtn = make("button", {
+    class: "btn btn--primary oauth-signin-btn",
+    type: "button",
+  }, `Sign in with ${opts.providerLabel}`) as HTMLButtonElement;
+  oauthRow.appendChild(oauthBtn);
+  opts.container.appendChild(oauthRow);
+
+  const divider = make("div", { class: "oauth-divider" });
+  divider.appendChild(make("span", { class: "oauth-divider__line" }));
+  divider.appendChild(make("span", { class: "oauth-divider__text" }, "or paste a token"));
+  divider.appendChild(make("span", { class: "oauth-divider__line" }));
+  opts.container.appendChild(divider);
+
+  oauthBtn.addEventListener("click", async () => {
+    oauthBtn.disabled = true;
+    oauthBtn.textContent = "Waiting for sign-in…";
+    try {
+      const result = opts.providerId === "gdrive"
+        ? await startGoogleOAuth()
+        : await startDropboxOAuth();
+      opts.tokenInput.value = result.accessToken;
+      oauthBtn.textContent = "✓ Signed in";
+    } catch (err) {
+      oauthBtn.disabled = false;
+      oauthBtn.textContent = `Sign in with ${opts.providerLabel}`;
+      const msg = err instanceof Error ? err.message : "OAuth sign-in failed.";
+      const errorEl = opts.getErrorEl();
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+    }
+  });
+
+  return true;
+}
+
 
 /**
  * Build the cloud-save bar shown at the top of the save-state gallery.
@@ -5608,10 +5675,19 @@ function showCloudConnectDialog(): Promise<boolean> {
         };
 
       } else {
-        // gdrive, dropbox — just need an OAuth access token
+        // gdrive, dropbox — OAuth sign-in button + manual access token fallback
         const tokenRow = make("div", { class: "settings-input-row" });
         const tokenInp = make("input", { type: "text", id: "csd-token", class: "settings-input", placeholder: `${meta.label} access token`, autocomplete: "off" }) as HTMLInputElement;
         tokenRow.append(make("label", { class: "settings-input-label", for: "csd-token" }, "Access Token"), tokenInp);
+
+        appendOAuthSignInButton({
+          providerId,
+          providerLabel: meta.label,
+          container: form,
+          tokenInput: tokenInp,
+          getErrorEl: () => errorMsg,
+        });
+
         form.appendChild(tokenRow);
         getCredentials = () => {
           const token = tokenInp.value.trim();
@@ -7283,10 +7359,19 @@ function showAddCloudLibraryDialog(
         };
 
       } else {
-        // gdrive, dropbox
+        // gdrive, dropbox — OAuth sign-in button + manual access token fallback
         const tokenRow = make("div", { class: "settings-input-row" });
         const tokenInp = make("input", { type: "text", id: "cld-token", class: "settings-input", placeholder: `${meta.label} access token`, autocomplete: "off" }) as HTMLInputElement;
         tokenRow.append(make("label", { class: "settings-input-label", for: "cld-token" }, "Access Token"), tokenInp);
+
+        appendOAuthSignInButton({
+          providerId,
+          providerLabel: meta.label,
+          container: form,
+          tokenInput: tokenInp,
+          getErrorEl: () => errorMsg,
+        });
+
         form.appendChild(tokenRow);
         getCredentials = () => {
           const token = tokenInp.value.trim();
@@ -7484,6 +7569,51 @@ function buildCloudTab(
 
   librarySection.append(list, addBtn);
   section.append(librarySection);
+
+  // ── OAuth App Keys section ────────────────────────────────────────────────
+  // Lets the deployer / power-user configure OAuth client IDs so the
+  // "Sign in with…" button appears in the provider dialogs above.
+
+  const oauthSection = make("div", { class: "cloud-library-section" });
+  oauthSection.appendChild(make("h5", { class: "cloud-library-section__title" }, "OAuth App Keys (optional)"));
+  oauthSection.appendChild(make("p", { class: "settings-help" },
+    "If you have your own Google or Dropbox OAuth app, paste the client ID / app key here. " +
+    "This enables a \"Sign in with…\" button so you can authenticate with one click instead of pasting tokens manually."
+  ));
+
+  const gIdRow = make("div", { class: "settings-input-row" });
+  const gIdInp = make("input", {
+    type: "text",
+    id: "oauth-google-client-id",
+    class: "settings-input",
+    placeholder: "Google OAuth Client ID",
+    autocomplete: "off",
+  }) as HTMLInputElement;
+  gIdInp.value = getGoogleClientId();
+  gIdRow.append(make("label", { class: "settings-input-label", for: "oauth-google-client-id" }, "Google Client ID"), gIdInp);
+
+  const dbKeyRow = make("div", { class: "settings-input-row" });
+  const dbKeyInp = make("input", {
+    type: "text",
+    id: "oauth-dropbox-app-key",
+    class: "settings-input",
+    placeholder: "Dropbox App Key",
+    autocomplete: "off",
+  }) as HTMLInputElement;
+  dbKeyInp.value = getDropboxAppKey();
+  dbKeyRow.append(make("label", { class: "settings-input-label", for: "oauth-dropbox-app-key" }, "Dropbox App Key"), dbKeyInp);
+
+  const oauthSaveBtn = make("button", { class: "btn btn--sm", type: "button" }, "Save Keys") as HTMLButtonElement;
+  oauthSaveBtn.addEventListener("click", () => {
+    setGoogleClientId(gIdInp.value);
+    setDropboxAppKey(dbKeyInp.value);
+    oauthSaveBtn.textContent = "✓ Saved";
+    setTimeout(() => { oauthSaveBtn.textContent = "Save Keys"; }, 1500);
+  });
+
+  oauthSection.append(gIdRow, dbKeyRow, oauthSaveBtn);
+  section.appendChild(oauthSection);
+
   container.appendChild(section);
 }
 
