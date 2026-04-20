@@ -1703,20 +1703,41 @@ function buildGameCard(
   icon.setAttribute("aria-hidden", "true");
   icon.style.background = `linear-gradient(135deg, ${sysColor}33, ${sysColor}11)`;
 
+  // System icon (emoji or image) wrapped in a span so CSS can hide it when cover art is shown
+  const sysIconWrap = make("span", { class: "game-card__sys-icon", "aria-hidden": "true" });
+  const iconOutput = systemIcon(game.systemId);
+  if (iconOutput.includes("/assets/")) {
+    const sysImg = make("img", { src: iconOutput, alt: "", class: "sys-icon-img" });
+    sysIconWrap.appendChild(sysImg);
+  } else {
+    sysIconWrap.textContent = iconOutput;
+  }
+  icon.appendChild(sysIconWrap);
+
+  if (game.cloudId) {
+    const cloudBadge = make("div", { class: "game-card__cloud-badge", title: "Cloud Stream" }, "☁");
+    icon.appendChild(cloudBadge);
+  }
+
+  if (isNew) {
+    const newBadge = make("div", { class: "game-card__new-badge", "aria-hidden": "true" }, "NEW");
+    icon.appendChild(newBadge);
+  }
+
   // Cover art: local blob takes precedence over remote thumbnailUrl
   let coverArtObjectUrl: string | null = null;
   const coverArtImg = make("img", {
     alt: "",
     class: "game-card__cover-art",
     draggable: "false",
-    loading: "lazy",
   }) as HTMLImageElement;
 
   const applyCoverArt = (src: string) => {
     coverArtImg.src = src;
     icon.classList.add("game-card__icon--has-art");
-    // Keep system icon markup in place but hidden via CSS so badge overlays stay
-    icon.insertBefore(coverArtImg, icon.firstChild);
+    if (!icon.contains(coverArtImg)) {
+      icon.insertBefore(coverArtImg, icon.firstChild);
+    }
   };
 
   if (game.hasCoverArt) {
@@ -1727,23 +1748,6 @@ function buildGameCard(
     });
   } else if (game.thumbnailUrl) {
     applyCoverArt(game.thumbnailUrl);
-  }
-
-  const iconOutput = systemIcon(game.systemId);
-  if (iconOutput.includes("/assets/")) {
-    icon.innerHTML += `<img src="${iconOutput}" alt="" class="sys-icon-img" />`;
-  } else {
-    icon.appendChild(document.createTextNode(iconOutput));
-  }
-
-  if (game.cloudId) {
-    const cloudBadge = make("div", { class: "game-card__cloud-badge", title: "Cloud Stream" }, "☁");
-    icon.appendChild(cloudBadge);
-  }
-
-  if (isNew) {
-    const newBadge = make("div", { class: "game-card__new-badge", "aria-hidden": "true" }, "NEW");
-    icon.appendChild(newBadge);
   }
 
   const info = make("div", { class: "game-card__info" });
@@ -1907,14 +1911,18 @@ function buildGameCard(
         btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
 
       } else if (result.type === "url") {
-        // Fetch the image to validate it and store locally as a blob
+        // Fetch the image to validate it and store locally as a blob.
+        // createImageBitmap() verifies the blob is a decodable image regardless
+        // of what the Content-Type header claims, preventing non-image blobs
+        // from being stored.
         let fetchedBlob: Blob;
         try {
           const resp = await fetch(result.url, { mode: "cors" });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const ct = resp.headers.get("content-type") ?? "";
-          if (!ct.startsWith("image/")) throw new Error("URL does not point to an image.");
           fetchedBlob = await resp.blob();
+          // Validate that the blob is actually a decodable image
+          const bitmap = await createImageBitmap(fetchedBlob);
+          bitmap.close();
         } catch (fetchErr) {
           showError(
             `Could not fetch image from that URL: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}. ` +

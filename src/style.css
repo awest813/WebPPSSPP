@@ -3173,8 +3173,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 }
 
 /* Dim the underlying system icon when cover art is present */
-.game-card__icon--has-art .sys-icon-img,
-.game-card__icon--has-art > :not(.game-card__cover-art):not(.game-card__cloud-badge):not(.game-card__new-badge) {
+.game-card__icon--has-art .game-card__sys-icon {
   opacity: 0;
   pointer-events: none;
 }
