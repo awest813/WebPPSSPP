@@ -1,5 +1,5 @@
 /* ============================================================
-   RetroVault — Dark Chrome UI Design System v3
+   RetroOasis — Dark Chrome UI Design System v3
    2000s elegant: charcoal base, steel-blue & bronze accents,
    glossy surfaces, refined metallic detail.
    ============================================================ */
@@ -49,6 +49,7 @@
   --c-danger:     #c84040;
   --c-warn:       #b89040;
   --c-success:    #3a9a60;
+  --c-fav:        #f43f5e; /* favorites / star / heart highlight */
 
   /* Text hierarchy */
   --c-text:       #dcdce8;
@@ -278,7 +279,7 @@ body {
 
 .app-header__brand svg {
   color: var(--c-accent);
-  filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.9));
+  filter: drop-shadow(0 0 12px var(--c-accent));
   flex-shrink: 0;
 }
 
@@ -434,9 +435,9 @@ body {
 }
 
 .library-fav-filter.active {
-  color: #f43f5e !important;
-  background: rgba(244, 63, 94, 0.1) !important;
-  border-color: rgba(244, 63, 94, 0.3) !important;
+  color: var(--c-fav) !important;
+  background: color-mix(in srgb, var(--c-fav) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--c-fav) 30%, transparent) !important;
 }
 
 .library-search-wrap {
@@ -1293,7 +1294,7 @@ body {
   word-break: break-word;
   align-items: flex-start;
   gap: 12px;
-  box-shadow: 0 6px 24px rgba(232, 64, 64, 0.2), 0 0 0 1px rgba(232, 64, 64, 0.08);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--c-danger) 20%, transparent), 0 0 0 1px color-mix(in srgb, var(--c-danger) 8%, transparent);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   transition: transform 0.2s var(--spring), opacity 0.2s ease;
@@ -3013,7 +3014,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   box-shadow:
     var(--shadow),
     0 0 0 1px rgba(255,255,255,0.06) inset,
-    0 0 60px rgba(139, 92, 246, 0.05);
+    0 0 60px color-mix(in srgb, var(--c-accent) 5%, transparent);
   width: min(92vw, 380px);
   padding: 26px;
   display: flex;
@@ -3098,7 +3099,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   height: 26px;
   border-radius: 50%;
   border: none;
-  background: rgba(48, 209, 88, 0.18);
+  background: color-mix(in srgb, var(--c-success) 18%, transparent);
   color: var(--c-success);
   font-size: 0.85rem;
   line-height: 1;
@@ -3117,7 +3118,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 .game-card:focus-within .game-card__change-sys { opacity: 1; }
 
 .game-card__change-sys:hover {
-  background: rgba(48, 209, 88, 0.35);
+  background: color-mix(in srgb, var(--c-success) 35%, transparent);
   transform: scale(1.1);
 }
 
@@ -3132,8 +3133,8 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   height: 26px;
   border-radius: 50%;
   border: none;
-  background: rgba(180, 120, 255, 0.18);
-  color: #c084fc;
+  background: color-mix(in srgb, var(--c-gold) 18%, transparent);
+  color: var(--c-gold-h);
   font-size: 0.75rem;
   line-height: 1;
   display: flex;
@@ -3151,11 +3152,11 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 .game-card:focus-within .game-card__art-btn { opacity: 1; }
 
 .game-card__art-btn:hover {
-  background: rgba(180, 120, 255, 0.35);
+  background: color-mix(in srgb, var(--c-gold) 35%, transparent);
   transform: scale(1.1);
 }
 
-.game-card__art-btn:focus-visible { opacity: 1; outline: 2px solid #c084fc; outline-offset: 2px; }
+.game-card__art-btn:focus-visible { opacity: 1; outline: 2px solid var(--c-gold-h); outline-offset: 2px; }
 
 /* ── Game card — cover art image ────────────────────────────── */
 .game-card__icon--has-art {
@@ -3199,17 +3200,19 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 .cover-art-url-input {
   width: 100%;
   padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border-lt);
+  border-radius: var(--radius);
+  border: 1.5px solid var(--c-border);
   background: var(--c-surface2);
   color: var(--c-text);
   font-size: 0.85rem;
   outline: none;
-  transition: border-color var(--transition);
+  transition: border-color var(--transition), box-shadow var(--transition);
+  font-family: inherit;
 }
 
 .cover-art-url-input:focus {
   border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-dim);
 }
 
 /* Candidate picker — grid of cover thumbnails returned by auto-fetch. */
@@ -3313,14 +3316,14 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
 
 .bios-required {
   font-size: 0.72rem; font-weight: 700;
-  background: rgba(232, 64, 64, 0.15); color: var(--c-danger);
-  border: 1px solid rgba(232, 64, 64, 0.32);
+  background: color-mix(in srgb, var(--c-danger) 15%, transparent); color: var(--c-danger);
+  border: 1px solid color-mix(in srgb, var(--c-danger) 32%, transparent);
   border-radius: var(--radius-pill); padding: 1px 7px; white-space: nowrap;
 }
 
 .bios-optional {
   font-size: 0.72rem; font-weight: 600;
-  background: rgba(139, 144, 168, 0.14); color: var(--c-text-dim);
+  background: color-mix(in srgb, var(--c-text-dim) 14%, transparent); color: var(--c-text-dim);
   border: 1px solid var(--c-border);
   border-radius: var(--radius-pill); padding: 1px 7px; white-space: nowrap;
 }
@@ -5460,12 +5463,12 @@ kbd.kbd--inline {
   text-transform: uppercase;
   flex-shrink:   0;
 }
-.enp-room-card__badge--local  { background: rgba(48, 209, 88, 0.15);  color: var(--c-success); }
-.enp-room-card__badge--open   { background: rgba(0, 180, 230, 0.12);  color: var(--c-accent);  }
-.enp-room-card__badge--full   { background: rgba(232, 64, 64, 0.12);  color: var(--c-danger);  }
-.enp-room-card__badge--locked { background: rgba(255, 159, 10, 0.12); color: var(--c-warn);    }
+.enp-room-card__badge--local  { background: color-mix(in srgb, var(--c-success) 15%, transparent); color: var(--c-success); }
+.enp-room-card__badge--open   { background: color-mix(in srgb, var(--c-accent)  12%, transparent); color: var(--c-accent);  }
+.enp-room-card__badge--full   { background: color-mix(in srgb, var(--c-danger)  12%, transparent); color: var(--c-danger);  }
+.enp-room-card__badge--locked { background: color-mix(in srgb, var(--c-warn)    12%, transparent); color: var(--c-warn);    }
 .enp-room-card__badge--incompat {
-  background: rgba(232, 64, 64, 0.12);
+  background: color-mix(in srgb, var(--c-danger) 12%, transparent);
   color: var(--c-danger);
   border: 1px solid color-mix(in srgb, var(--c-danger) 40%, transparent);
 }
@@ -5747,7 +5750,7 @@ kbd.kbd--inline {
 
 /* ── Header brand — glow boost on hover ────────────────────── */
 .app-header__brand:hover svg {
-  filter: drop-shadow(0 0 18px rgba(139, 92, 246, 1.0));
+  filter: drop-shadow(0 0 18px var(--c-accent-h));
   transition: filter 0.2s ease;
 }
 
