@@ -75,7 +75,7 @@ export const MSG = {
   // Connection lifecycle
   signalingConnecting:  "Connecting to Play Together server…",
   signalingConnected:   "Connected to Play Together server",
-  signalingLost:        "Connection to the Play Together server lost — trying again",
+  signalingLost:        "Connection to the Play Together server was lost.",
   signalingFailed:      "Couldn't reach the Play Together server. Check the server URL in settings.",
 
   // Room lifecycle
@@ -91,7 +91,7 @@ export const MSG = {
   peerConnecting:       "Connecting to player…",
   peerConnected:        "Player connected! Starting game…",
   peerDisconnected:     "Player disconnected",
-  waitingForPlayer:     "Waiting for Player 2…",
+  waitingForPlayer:     "Waiting for another player…",
 
   // Compatibility
   gameMismatch:         "Game versions may not match — make sure you and your friend have the same ROM.",

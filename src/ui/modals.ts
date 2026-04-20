@@ -173,7 +173,10 @@ export function showGamePickerDialog(
       if (e.target === overlay) close(null);
     });
     document.addEventListener("keydown", onKey, { capture: true });
-    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      cancelBtn.focus();
+    });
   });
 }
 
@@ -240,7 +243,10 @@ export function showArchiveEntryPickerDialog(
 
     overlay.appendChild(box);
     document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      btnCancel.focus();
+    });
   });
 }
 
@@ -313,6 +319,9 @@ export function showMultiDiscPicker(discFileNames: string[]): Promise<Map<string
       if (e.target === overlay) close(null);
     });
     document.addEventListener("keydown", onKey, { capture: true });
-    requestAnimationFrame(() => overlay.classList.add("confirm-overlay--visible"));
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      btnCancel.focus();
+    });
   });
 }
