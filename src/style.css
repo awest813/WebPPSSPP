@@ -3212,6 +3212,59 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   border-color: var(--c-accent);
 }
 
+/* Candidate picker — grid of cover thumbnails returned by auto-fetch. */
+.cover-art-candidate-box {
+  max-width: 640px;
+}
+
+.cover-art-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 12px 0 14px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.cover-art-candidate {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px;
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface2);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.cover-art-candidate:hover,
+.cover-art-candidate:focus-visible {
+  border-color: var(--c-accent);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.cover-art-candidate__img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: var(--c-surface);
+  border-radius: var(--radius-sm);
+}
+
+.cover-art-candidate__label {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 
 .bios-grid { display: flex; flex-direction: column; gap: 14px; }
 

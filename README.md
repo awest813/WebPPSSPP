@@ -65,6 +65,7 @@ Open `http://localhost:5173`.
 
 - **ROM library**: drag-and-drop import, IndexedDB blob storage, metadata cache
 - **BIOS management**: per-file status display, upload controls, and `EJS_biosUrl` wiring
+- **Cover art auto-fetch**: one-click online lookup against the community [cover-art-collection](https://github.com/ramiabraham/cover-art-collection); per-game picker plus a toolbar "Fetch covers" bulk action for all games missing art
 - **Save-state gallery**: 5-slot gallery with 160×120 JPEG thumbnails, timestamps, and export/import
 - **Auto-save on close**: saves to slot 0 on tab close/hide; offers crash-recovery restore on next launch
 - **Cloud save sync**: WebDAV adapter with conflict resolution; extensible provider interface
@@ -316,6 +317,7 @@ This repository is licensed under the MIT License. See [`LICENSE`](LICENSE).
 - [PPSSPP](https://www.ppsspp.org/) — PSP emulation core
 - [Vite](https://vitejs.dev/) — build tooling
 - [Vitest](https://vitest.dev/) — test runner
+- [ramiabraham/cover-art-collection](https://github.com/ramiabraham/cover-art-collection) — community-maintained cover art used by the auto-fetch feature
 - The libretro / RetroArch core communities that power the underlying emulation
 
 ---

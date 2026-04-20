@@ -333,6 +333,7 @@ export function showMultiDiscPicker(discFileNames: string[]): Promise<Map<string
 export type CoverArtPickResult =
   | { type: "file"; blob: Blob }
   | { type: "url"; url: string }
+  | { type: "auto" }
   | { type: "remove" }
   | null;
 
@@ -399,7 +400,20 @@ export function showCoverArtPickerDialog(
     });
     urlSection.append(urlInput, btnUrl);
 
-    box.append(fileSection, urlSection);
+    // ── Auto-fetch section ───────────────────────────────────────────────────
+    // Triggers an online search against the community cover-art-collection.
+    // The caller runs the provider + candidate picker; this dialog only
+    // signals the intent so that all network logic stays in the UI layer.
+    const autoSection = createElement("div", { class: "cover-art-section" });
+    const btnAuto = createElement(
+      "button",
+      { class: "btn cover-art-btn" },
+      "🔍 Auto-fetch from online",
+    );
+    btnAuto.addEventListener("click", () => close({ type: "auto" }));
+    autoSection.appendChild(btnAuto);
+
+    box.append(fileSection, urlSection, autoSection);
 
     // ── Footer ───────────────────────────────────────────────────────────────
     const footer = createElement("div", { class: "confirm-footer" });
@@ -440,6 +454,108 @@ export function showCoverArtPickerDialog(
     requestAnimationFrame(() => {
       overlay.classList.add("confirm-overlay--visible");
       btnFile.focus();
+    });
+  });
+}
+
+// ── Cover art candidate picker ───────────────────────────────────────────────
+
+/**
+ * One item shown by the candidate picker. Mirrors the subset of
+ * `CoverArtCandidate` the UI needs — the modal is deliberately kept free of
+ * network / provider dependencies so it can be reused by future providers.
+ */
+export interface CoverArtCandidateDisplay {
+  title: string;
+  imageUrl: string;
+  sourceName: string;
+  score: number;
+}
+
+/**
+ * Modal dialog showing up to N candidate covers returned by a provider.
+ * Resolves with the selected candidate's `imageUrl`, or `null` when the
+ * user cancels / chooses "None of these".
+ */
+export function showCoverArtCandidatePicker(
+  gameName: string,
+  candidates: CoverArtCandidateDisplay[],
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = createElement("div", { class: "confirm-overlay" });
+    const box = createElement("div", {
+      class: "confirm-box cover-art-box cover-art-candidate-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": `Choose cover art for ${gameName}`,
+    });
+
+    box.appendChild(createElement("h3", { class: "confirm-title" }, "Choose a cover"));
+    box.appendChild(createElement(
+      "p",
+      { class: "confirm-body" },
+      candidates.length === 0
+        ? `No online matches were found for "${gameName}". Try uploading an image file instead.`
+        : `Pick the best match for "${gameName}". Images come from the community cover-art-collection on GitHub.`,
+    ));
+
+    let closed = false;
+    const close = (result: string | null): void => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onEsc, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => overlay.remove(), 180);
+      resolve(result);
+    };
+
+    if (candidates.length > 0) {
+      const grid = createElement("div", { class: "cover-art-candidate-grid" });
+      for (const c of candidates) {
+        const card = createElement("button", {
+          class: "cover-art-candidate",
+          type: "button",
+          title: `${c.title} (${Math.round(c.score * 100)}% match, ${c.sourceName})`,
+          "aria-label": `Use cover "${c.title}" from ${c.sourceName}`,
+        });
+        const img = createElement("img", {
+          class: "cover-art-candidate__img",
+          alt: "",
+          loading: "lazy",
+          src: c.imageUrl,
+        }) as HTMLImageElement;
+        // Fall back to a neutral label if the thumbnail fails to load.
+        img.addEventListener("error", () => { img.style.opacity = "0.35"; });
+        const label = createElement("span", { class: "cover-art-candidate__label" }, c.title);
+        card.append(img, label);
+        card.addEventListener("click", () => close(c.imageUrl));
+        grid.appendChild(card);
+      }
+      box.appendChild(grid);
+    }
+
+    const footer = createElement("div", { class: "confirm-footer" });
+    const btnCancel = createElement("button", { class: "btn" }, "Cancel");
+    btnCancel.addEventListener("click", () => close(null));
+    footer.appendChild(btnCancel);
+    box.appendChild(footer);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === "Escape" && isTopmostOverlay(overlay)) {
+        e.preventDefault();
+        e.stopPropagation();
+        close(null);
+      }
+    };
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", onEsc, { capture: true });
+
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      btnCancel.focus();
     });
   });
 }

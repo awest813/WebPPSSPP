@@ -125,8 +125,16 @@ import {
   showArchiveEntryPickerDialog as showArchiveEntryPickerDialogImpl,
   showMultiDiscPicker as showMultiDiscPickerImpl,
   showCoverArtPickerDialog as showCoverArtPickerDialogImpl,
+  showCoverArtCandidatePicker,
   isTopmostOverlay,
 } from "./ui/modals.js";
+import {
+  GitHubCoverArtProvider,
+  fetchAndValidateCoverArt,
+  listGamesMissingCoverArt,
+  AUTO_APPLY_CONFIDENCE_THRESHOLD,
+  type CoverArtCandidate,
+} from "./coverArt.js";
 import {
   buildAboutTab as buildAboutTabContent,
   buildBiosTab as buildBiosTabContent,
@@ -171,6 +179,15 @@ let _settingsPanelEscHandler: ((e: KeyboardEvent) => void) | null = null;
 let _settingsPanelFocusTrap: ((e: KeyboardEvent) => void) | null = null;
 let _settingsPanelSearchShortcutHandler: ((e: KeyboardEvent) => void) | null = null;
 let _settingsTabBarRo: ResizeObserver | null = null;
+
+// Lazily-instantiated cover-art provider. Creating the provider is free, but
+// we defer it so the default export surface of this module stays pure and so
+// tests can reach into `_coverArtProvider` if they ever need to override it.
+let _coverArtProvider: GitHubCoverArtProvider | null = null;
+function getCoverArtProvider(): GitHubCoverArtProvider {
+  if (!_coverArtProvider) _coverArtProvider = new GitHubCoverArtProvider();
+  return _coverArtProvider;
+}
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
@@ -300,6 +317,11 @@ export function buildDOM(app: HTMLElement): void {
               <button class="btn btn--ghost library-controls__reset" id="library-controls-reset"
                       type="button" hidden aria-label="Reset all library filters">
                 Reset
+              </button>
+              <button class="btn btn--ghost library-controls__fetch-covers" id="library-fetch-covers"
+                      type="button" aria-label="Fetch missing cover art from online"
+                      title="Fetch missing cover art from online">
+                🔍 Fetch covers
               </button>
             </div>
           </div>
@@ -1009,6 +1031,105 @@ function _resetLibraryFilters(
   _scheduleLibraryRender(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
 }
 
+// Tracks an in-flight bulk fetch so repeated clicks cancel instead of stacking.
+let _bulkCoverArtController: AbortController | null = null;
+
+/**
+ * Bulk "Fetch covers" action: iterates over games missing cover art, runs
+ * the provider with limited concurrency, and auto-applies candidates whose
+ * confidence score meets AUTO_APPLY_CONFIDENCE_THRESHOLD. Lower-confidence
+ * matches are skipped so the user can still resolve them manually.
+ *
+ * Clicking the toolbar button while a run is in progress cancels it.
+ */
+async function _runBulkCoverArtFetch(
+  library: GameLibrary,
+  settings: Settings,
+  onLaunchGame: (file: File, systemId: string, gameId?: string) => Promise<void>,
+  emulatorRef?: PSPEmulator,
+  onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>,
+  button?: HTMLButtonElement,
+): Promise<void> {
+  // Toggle-cancel semantics: a second click aborts the in-flight batch.
+  if (_bulkCoverArtController) {
+    _bulkCoverArtController.abort();
+    _bulkCoverArtController = null;
+    return;
+  }
+
+  const all = await library.getAllGamesMetadata();
+  const missing = listGamesMissingCoverArt(all);
+  if (missing.length === 0) {
+    showInfoToast("All games already have cover art.", "info");
+    return;
+  }
+
+  const controller = new AbortController();
+  _bulkCoverArtController = controller;
+  if (button) {
+    button.textContent = "✕ Cancel fetch";
+    button.setAttribute("aria-label", "Cancel cover art fetch");
+  }
+
+  const provider = getCoverArtProvider();
+  const CONCURRENCY = 4;
+  let applied = 0;
+  let skipped = 0;
+  let cursor = 0;
+
+  showInfoToast(`Fetching covers for ${missing.length} games…`, "info");
+
+  const worker = async (): Promise<void> => {
+    while (!controller.signal.aborted) {
+      const i = cursor++;
+      if (i >= missing.length) return;
+      const game = missing[i]!;
+      try {
+        const candidates = await provider.search(game.name, game.systemId, {
+          limit: 1,
+          signal: controller.signal,
+        });
+        const best = candidates[0];
+        if (!best || best.score < AUTO_APPLY_CONFIDENCE_THRESHOLD) {
+          skipped++;
+          continue;
+        }
+        const blob = await fetchAndValidateCoverArt(best.imageUrl, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        await library.setCoverArt(game.id, blob);
+        applied++;
+      } catch {
+        // Skip individual failures; don't abort the whole batch.
+        skipped++;
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, missing.length) }, () => worker()));
+  } finally {
+    _bulkCoverArtController = null;
+    if (button) {
+      button.textContent = "🔍 Fetch covers";
+      button.setAttribute("aria-label", "Fetch missing cover art from online");
+    }
+  }
+
+  if (controller.signal.aborted) {
+    showInfoToast(`Cover fetch cancelled — ${applied} applied so far.`, "warning");
+  } else if (applied === 0) {
+    showInfoToast(`No high-confidence matches found (${skipped} skipped).`, "info");
+  } else {
+    showInfoToast(
+      `Fetched ${applied} cover${applied === 1 ? "" : "s"}${skipped > 0 ? ` — ${skipped} needs manual review` : ""}.`,
+      "success",
+    );
+  }
+
+  // Re-render so freshly-fetched covers appear in the grid.
+  void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
+}
+
 interface ExtendedWindow extends Window {
   requestIdleCallback(callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, options?: { timeout: number }): number;
 }
@@ -1576,6 +1697,13 @@ function _wireLibraryControls(
     });
   }
 
+  const fetchCoversBtn = document.getElementById("library-fetch-covers") as HTMLButtonElement | null;
+  if (fetchCoversBtn) {
+    fetchCoversBtn.addEventListener("click", () => {
+      void _runBulkCoverArtFetch(library, settings, onLaunchGame, emulatorRef, onApplyPatch, fetchCoversBtn);
+    });
+  }
+
   if (searchEl) {
     searchEl.addEventListener("input", () => {
       _librarySearchQuery = searchEl.value;
@@ -1903,6 +2031,47 @@ function buildGameCard(
         await library.setCoverArt(game.id, result.blob);
         if (coverArtObjectUrl) URL.revokeObjectURL(coverArtObjectUrl);
         coverArtObjectUrl = URL.createObjectURL(result.blob);
+        if (!icon.contains(coverArtImg)) applyCoverArt(coverArtObjectUrl);
+        else coverArtImg.src = coverArtObjectUrl;
+        showInfoToast(`Cover art set for "${game.name}".`, "success");
+        game.hasCoverArt = true;
+        btnArt.title = "Change cover art";
+        btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+
+      } else if (result.type === "auto") {
+        // ── Auto-fetch: query the provider, let the user pick, then store ──
+        const provider = getCoverArtProvider();
+        let candidates: CoverArtCandidate[] = [];
+        try {
+          candidates = await provider.search(game.name, game.systemId, { limit: 6 });
+        } catch (err) {
+          showError(`Cover art search failed: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        const pickedUrl = await showCoverArtCandidatePicker(
+          game.name,
+          candidates.map((c) => ({
+            title: c.title,
+            imageUrl: c.imageUrl,
+            sourceName: c.sourceName,
+            score: c.score,
+          })),
+        );
+        if (!pickedUrl) return;
+
+        let fetchedBlob: Blob;
+        try {
+          fetchedBlob = await fetchAndValidateCoverArt(pickedUrl);
+        } catch (fetchErr) {
+          showError(
+            `Could not download the selected cover: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}. ` +
+            "Try again or upload an image file instead.",
+          );
+          return;
+        }
+        await library.setCoverArt(game.id, fetchedBlob);
+        if (coverArtObjectUrl) URL.revokeObjectURL(coverArtObjectUrl);
+        coverArtObjectUrl = URL.createObjectURL(fetchedBlob);
         if (!icon.contains(coverArtImg)) applyCoverArt(coverArtObjectUrl);
         else coverArtImg.src = coverArtObjectUrl;
         showInfoToast(`Cover art set for "${game.name}".`, "success");
