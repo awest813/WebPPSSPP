@@ -132,16 +132,21 @@ import {
   GitHubCoverArtProvider,
   LibretroCoverArtProvider,
   ChainedCoverArtProvider,
+  RawgCoverArtProvider,
+  MobyGamesCoverArtProvider,
   fetchAndValidateCoverArt,
   listGamesMissingCoverArt,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
   type CoverArtCandidate,
   type CoverArtProvider,
+  type ApiKeyedProvider,
 } from "./coverArt.js";
 import {
   buildAboutTab as buildAboutTabContent,
   buildBiosTab as buildBiosTabContent,
+  buildApiKeysTab as buildApiKeysTabContent,
 } from "./ui/settingsTabs.js";
+import { ApiKeyStore, DEFAULT_API_KEY_PROVIDERS } from "./apiKeyStore.js";
 import {
   buildFilteredLibraryEmptyState,
   updateLibraryLandingState,
@@ -183,21 +188,60 @@ let _settingsPanelFocusTrap: ((e: KeyboardEvent) => void) | null = null;
 let _settingsPanelSearchShortcutHandler: ((e: KeyboardEvent) => void) | null = null;
 let _settingsTabBarRo: ResizeObserver | null = null;
 
-// Lazily-instantiated cover-art provider. Creating the provider is free, but
-// we defer it so the default export surface of this module stays pure and so
-// tests can reach into `_coverArtProvider` if they ever need to override it.
-// Libretro Thumbnails is tried first (direct CDN URL construction, no auth),
-// with the GitHub cover-art-collection as a fallback for broader fuzzy coverage.
-let _coverArtProvider: CoverArtProvider | null = null;
-function getCoverArtProvider(): CoverArtProvider {
-  if (!_coverArtProvider) {
-    _coverArtProvider = new ChainedCoverArtProvider([
-      new LibretroCoverArtProvider(),
-      new GitHubCoverArtProvider(),
-    ]);
+// ── API key store + cover-art provider registry ──────────────────────────────
+
+// Single shared store for bring-your-own API keys (RAWG, MobyGames, …).
+// Created lazily so tests can construct their own ApiKeyStore and inject it
+// via `_setApiKeyStoreForTests` if ever needed. Defaults include the full
+// DEFAULT_API_KEY_PROVIDERS set so rows render even before any key is saved.
+let _apiKeyStore: ApiKeyStore | null = null;
+function getApiKeyStore(): ApiKeyStore {
+  if (!_apiKeyStore) {
+    _apiKeyStore = new ApiKeyStore({ providers: DEFAULT_API_KEY_PROVIDERS });
   }
-  return _coverArtProvider;
+  return _apiKeyStore;
 }
+
+// Registry of keyed providers so the Settings UI can test connections by id.
+let _keyedProviders: Map<string, ApiKeyedProvider> | null = null;
+function getKeyedProviders(): Map<string, ApiKeyedProvider> {
+  if (!_keyedProviders) {
+    const store = getApiKeyStore();
+    _keyedProviders = new Map();
+    _keyedProviders.set("rawg", new RawgCoverArtProvider({ getApiKey: () => store.getKey("rawg") }));
+    _keyedProviders.set("mobygames", new MobyGamesCoverArtProvider({ getApiKey: () => store.getKey("mobygames") }));
+  }
+  return _keyedProviders;
+}
+
+// Cover-art provider chain: free sources always first, then the
+// user-configured keyed providers in the order set via the API Keys tab.
+// Keyed providers whose key is missing or disabled short-circuit to [] via
+// their `isAvailable()` hook, so the default (no-key) experience is
+// identical to before this change.
+let _coverArtProvider: CoverArtProvider | null = null;
+function rebuildCoverArtProvider(): void {
+  const store = getApiKeyStore();
+  const keyed = getKeyedProviders();
+  const ordered: ApiKeyedProvider[] = [];
+  for (const id of store.getOrder()) {
+    const p = keyed.get(id);
+    if (!p) continue;
+    if (!store.getState(id).enabled) continue;
+    ordered.push(p);
+  }
+  _coverArtProvider = new ChainedCoverArtProvider([
+    new LibretroCoverArtProvider(),
+    new GitHubCoverArtProvider(),
+    ...ordered,
+  ]);
+}
+function getCoverArtProvider(): CoverArtProvider {
+  if (!_coverArtProvider) rebuildCoverArtProvider();
+  return _coverArtProvider!;
+}
+// Rebuild the chain whenever the user changes keys or ordering.
+getApiKeyStore().subscribe(() => { rebuildCoverArtProvider(); });
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
@@ -3792,7 +3836,7 @@ export async function promptAutoSaveRestore(saveLibrary: SaveStateLibrary, gameI
 
 // ── Settings panel ────────────────────────────────────────────────────────────
 
-type SettingsTab = "performance" | "display" | "library" | "cloud" | "bios" | "multiplayer" | "debug" | "about";
+type SettingsTab = "performance" | "display" | "library" | "cloud" | "bios" | "multiplayer" | "apikeys" | "debug" | "about";
 
 export function openSettingsPanel(
   settings:         Settings,
@@ -3928,6 +3972,7 @@ function buildSettingsContent(
     { id: "cloud",        icon: "☁️", label: "Cloud Storage",  ariaLabel: "Cloud Storage" },
     { id: "bios",         icon: "💾", label: "System Files",   ariaLabel: "System Files" },
     { id: "multiplayer",  icon: "🌐", label: "Play Together",  ariaLabel: "Play Together" },
+    { id: "apikeys",      icon: "🔑", label: "API Keys",       ariaLabel: "API Keys" },
     { id: "debug",        icon: "🔧", label: "Advanced",       ariaLabel: "Advanced" },
     { id: "about",        icon: "❓", label: "Help",            ariaLabel: "Help" },
   ];
@@ -4058,8 +4103,13 @@ function buildSettingsContent(
   buildCloudTab(panels[3]!, settings, library, onSettingsChange);
   buildBiosTabContent(panels[4]!, biosLibrary, { appName: APP_NAME, onError: showError });
   buildMultiplayerTab(panels[5]!, settings, onSettingsChange, getNetplayManager, settings.lastGameName, emulatorRef?.currentSystem?.id);
-  buildDebugTab(panels[6]!, settings, onSettingsChange, deviceCaps, emulatorRef, getNetplayManager, biosLibrary);
-  buildAboutTabContent(panels[7]!, APP_NAME);
+  buildApiKeysTabContent(panels[6]!, getApiKeyStore(), {
+    appName: APP_NAME,
+    getTester: (id) => getKeyedProviders().get(id) ?? null,
+    onError: showError,
+  });
+  buildDebugTab(panels[7]!, settings, onSettingsChange, deviceCaps, emulatorRef, getNetplayManager, biosLibrary);
+  buildAboutTabContent(panels[8]!, APP_NAME);
 
   const applySearchFilter = () => {
     const query = searchInput.value.trim().toLowerCase();

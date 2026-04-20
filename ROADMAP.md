@@ -63,3 +63,20 @@ This document outlines the strategic plan for reducing technical debt in the Ret
 
 > [!IMPORTANT]
 > This plan prioritises **Maintainability** and **User Friction Removal**. The goal is to make Netplay as easy as "Click and Play" while ensuring the codebase can scale to support dozens of new cores.
+
+---
+
+## Cover art sources — follow-up backlog
+
+Built-in providers today: [Libretro Thumbnails](https://thumbnails.libretro.com/),
+[`ramiabraham/cover-art-collection`](https://github.com/ramiabraham/cover-art-collection),
+and the keyed providers [RAWG](https://rawg.io/apidocs) and
+[MobyGames](https://www.mobygames.com/info/api/) (see `src/coverArt.ts` and
+`src/apiKeyStore.ts`).
+
+The GBATemp [Cover Collections for emulators with cover support](https://gbatemp.net/threads/cover-collections-for-emulators-with-cover-support.324714/)
+thread indexes many additional community sets (EmuMovies, LaunchBox Games DB,
+GameTDB, TheGamesDB, etc.). Any that publish permissive-CORS static hosting
+can be added behind the existing `CoverArtProvider` interface without UI
+changes; key-requiring services reuse the `ApiKeyedProvider` + `ApiKeyStore`
+plumbing added with RAWG / MobyGames.

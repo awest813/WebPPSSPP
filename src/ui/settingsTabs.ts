@@ -1,6 +1,12 @@
 import { BiosLibrary, BIOS_REQUIREMENTS } from "../bios.js";
 import { SYSTEMS } from "../systems.js";
 import { createElement as make } from "./dom.js";
+import {
+  ApiKeyStore,
+  redactKey,
+  looksLikePlaceholderOrUrl,
+  type ApiKeyProviderConfig,
+} from "../apiKeyStore.js";
 
 export function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary, opts: {
   appName: string;
@@ -169,4 +175,299 @@ export function buildAboutTab(container: HTMLElement, appName: string): void {
   aboutSection.appendChild(links);
 
   container.append(quickStartSection, shortcutsSection, mpSection, troubleSection, aboutSection);
+}
+
+// ── API Keys tab ─────────────────────────────────────────────────────────────
+
+/**
+ * Result of a provider connection test. Providers may be missing a key,
+ * unreachable, or rejecting the current key; the UI renders distinct
+ * statuses for each case.
+ */
+export interface ApiKeyProviderTester {
+  /** Run a cheap request against the third-party API. */
+  testConnection(opts?: { signal?: AbortSignal }): Promise<true | string>;
+}
+
+/**
+ * Build the "API Keys" settings tab. Renders one row per registered
+ * {@link ApiKeyProviderConfig} with:
+ *   - masked input + show/hide toggle + Save / Remove buttons
+ *   - enabled checkbox
+ *   - status pill (Active / No key / Invalid key / Disabled)
+ *   - "Get an API key" external link and Test button
+ *   - up/down reorder controls (accessible alternative to drag-drop)
+ *
+ * Keys are persisted in {@link ApiKeyStore}. Tests are delegated to the
+ * provider instances supplied by the caller (typically the chained
+ * cover-art registry in `ui.ts`).
+ */
+export function buildApiKeysTab(
+  container: HTMLElement,
+  store: ApiKeyStore,
+  opts: {
+    appName: string;
+    getTester(providerId: string): ApiKeyProviderTester | null;
+    onError(message: string): void;
+  },
+): void {
+  const { appName, getTester, onError } = opts;
+
+  const intro = make("div", { class: "settings-section" });
+  intro.appendChild(make("h4", { class: "settings-section__title" }, "External API Keys"));
+  intro.appendChild(make("p", { class: "settings-help" },
+    `${appName} can pull cover art and metadata from third-party services that require an account. ` +
+    "Add an API key to turn a provider on. Keys are stored only in this browser, and are sent directly " +
+    "to the service they belong to — nothing is uploaded by " + appName + "."));
+  container.appendChild(intro);
+
+  const list = make("div", { class: "api-keys-list", role: "list" });
+  container.appendChild(list);
+
+  const rows = new Map<string, HTMLElement>();
+
+  const rebuild = () => {
+    list.innerHTML = "";
+    rows.clear();
+    const order = store.getOrder();
+    const byId = new Map(store.listProviders().map((p) => [p.id, p]));
+    order.forEach((id, index) => {
+      const cfg = byId.get(id);
+      if (!cfg) return;
+      const row = buildRow(cfg, index, order.length);
+      rows.set(id, row);
+      list.appendChild(row);
+    });
+  };
+
+  const buildRow = (cfg: ApiKeyProviderConfig, index: number, total: number): HTMLElement => {
+    const row = make("div", {
+      class: "api-key-row",
+      role: "listitem",
+      "data-provider-id": cfg.id,
+    });
+    const state = store.getState(cfg.id);
+
+    // Header: name + description.
+    const header = make("div", { class: "api-key-row__header" });
+    header.appendChild(make("h5", { class: "api-key-row__name" }, cfg.name));
+    const statusPill = make("span", {
+      class: "api-key-status",
+      role: "status",
+      "aria-live": "polite",
+    }) as HTMLSpanElement;
+    header.appendChild(statusPill);
+    row.appendChild(header);
+    row.appendChild(make("p", { class: "settings-help api-key-row__desc" }, cfg.description));
+
+    // Key input + show/hide toggle.
+    const inputWrap = make("div", { class: "api-key-row__input-wrap" });
+    const inputId = `api-key-input-${cfg.id}`;
+    const label = make("label", { class: "api-key-row__label", for: inputId }, "API key");
+    const input = make("input", {
+      id: inputId,
+      class: "api-key-input",
+      type: "password",
+      autocomplete: "off",
+      spellcheck: "false",
+      "aria-label": `${cfg.name} API key`,
+      placeholder: state.key ? redactKey(state.key) : "Paste your key here",
+    }) as HTMLInputElement;
+    if (state.key) input.value = state.key;
+
+    const showBtn = make("button", {
+      type: "button",
+      class: "btn btn--ghost api-key-show-btn",
+      "aria-label": `Show or hide the ${cfg.name} API key`,
+      "aria-pressed": "false",
+    }, "Show") as HTMLButtonElement;
+    showBtn.addEventListener("click", () => {
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      showBtn.textContent = show ? "Hide" : "Show";
+      showBtn.setAttribute("aria-pressed", String(show));
+    });
+
+    inputWrap.append(label, input, showBtn);
+    row.appendChild(inputWrap);
+
+    // Warning for placeholder-looking values.
+    const warn = make("p", { class: "api-key-row__warn", hidden: "true" }) as HTMLElement;
+    warn.setAttribute("role", "note");
+    row.appendChild(warn);
+    input.addEventListener("input", () => {
+      if (looksLikePlaceholderOrUrl(input.value)) {
+        warn.textContent = "That value looks like a URL or placeholder — double-check you copied the key.";
+        warn.hidden = false;
+      } else {
+        warn.hidden = true;
+      }
+    });
+
+    // Actions row.
+    const actions = make("div", { class: "api-key-row__actions" });
+
+    const enabledId = `api-key-enabled-${cfg.id}`;
+    const enabledWrap = make("label", { class: "api-key-enabled", for: enabledId });
+    const enabledBox = make("input", {
+      id: enabledId, type: "checkbox", class: "api-key-enabled__box",
+      "aria-label": `Use ${cfg.name} for cover art`,
+    }) as HTMLInputElement;
+    enabledBox.checked = state.enabled;
+    enabledBox.addEventListener("change", () => {
+      store.setEnabled(cfg.id, enabledBox.checked);
+      renderStatus();
+    });
+    enabledWrap.append(enabledBox, document.createTextNode(" Enabled"));
+    actions.appendChild(enabledWrap);
+
+    const saveBtn = make("button", { type: "button", class: "btn btn--primary" }, "Save") as HTMLButtonElement;
+    saveBtn.addEventListener("click", () => {
+      const result = store.setKey(cfg.id, input.value);
+      if (result !== true) {
+        onError(`${cfg.name}: ${result}`);
+        renderStatus("invalid");
+        return;
+      }
+      input.value = "";
+      input.placeholder = redactKey(store.getKey(cfg.id));
+      warn.hidden = true;
+      renderStatus();
+    });
+    actions.appendChild(saveBtn);
+
+    const removeBtn = make("button", { type: "button", class: "btn btn--ghost" }, "Remove") as HTMLButtonElement;
+    removeBtn.addEventListener("click", () => {
+      store.removeKey(cfg.id);
+      input.value = "";
+      input.placeholder = "Paste your key here";
+      renderStatus();
+    });
+    actions.appendChild(removeBtn);
+
+    const testBtn = make("button", { type: "button", class: "btn" }, "Test") as HTMLButtonElement;
+    testBtn.addEventListener("click", () => {
+      void runTest();
+    });
+    actions.appendChild(testBtn);
+
+    const link = make("a", {
+      class: "btn btn--ghost api-key-row__signup",
+      href: cfg.signupUrl,
+      target: "_blank",
+      rel: "noopener noreferrer",
+    }, "Get an API key ↗");
+    actions.appendChild(link);
+
+    // Reorder controls.
+    const upBtn = make("button", {
+      type: "button", class: "btn btn--ghost api-key-row__reorder",
+      "aria-label": `Move ${cfg.name} up`,
+    }, "▲") as HTMLButtonElement;
+    if (index === 0) upBtn.disabled = true;
+    upBtn.addEventListener("click", () => {
+      const order = store.getOrder();
+      const i = order.indexOf(cfg.id);
+      if (i > 0) {
+        const next = [...order];
+        [next[i - 1], next[i]] = [next[i]!, next[i - 1]!];
+        store.setOrder(next);
+      }
+    });
+    const downBtn = make("button", {
+      type: "button", class: "btn btn--ghost api-key-row__reorder",
+      "aria-label": `Move ${cfg.name} down`,
+    }, "▼") as HTMLButtonElement;
+    if (index >= total - 1) downBtn.disabled = true;
+    downBtn.addEventListener("click", () => {
+      const order = store.getOrder();
+      const i = order.indexOf(cfg.id);
+      if (i >= 0 && i < order.length - 1) {
+        const next = [...order];
+        [next[i + 1], next[i]] = [next[i]!, next[i + 1]!];
+        store.setOrder(next);
+      }
+    });
+    actions.append(upBtn, downBtn);
+
+    row.appendChild(actions);
+
+    const renderStatus = (override?: "invalid" | "ok" | "testing") => {
+      const s = store.getState(cfg.id);
+      statusPill.classList.remove(
+        "api-key-status--active",
+        "api-key-status--missing",
+        "api-key-status--invalid",
+        "api-key-status--disabled",
+        "api-key-status--testing",
+      );
+      if (override === "testing") {
+        statusPill.classList.add("api-key-status--testing");
+        statusPill.textContent = "Testing…";
+        return;
+      }
+      if (override === "invalid") {
+        statusPill.classList.add("api-key-status--invalid");
+        statusPill.textContent = "Invalid key";
+        return;
+      }
+      if (!s.key) {
+        statusPill.classList.add("api-key-status--missing");
+        statusPill.textContent = "No key";
+      } else if (!s.enabled) {
+        statusPill.classList.add("api-key-status--disabled");
+        statusPill.textContent = "Disabled";
+      } else {
+        statusPill.classList.add("api-key-status--active");
+        statusPill.textContent = override === "ok" ? "Active ✓" : "Active";
+      }
+    };
+
+    const runTest = async () => {
+      const s = store.getState(cfg.id);
+      if (!s.key) {
+        onError(`${cfg.name}: save a key before testing.`);
+        return;
+      }
+      const tester = getTester(cfg.id);
+      if (!tester) {
+        onError(`${cfg.name}: no tester is registered for this provider.`);
+        return;
+      }
+      renderStatus("testing");
+      testBtn.disabled = true;
+      try {
+        const result = await tester.testConnection();
+        if (result === true) {
+          renderStatus("ok");
+        } else {
+          renderStatus("invalid");
+          onError(`${cfg.name}: ${result}`);
+        }
+      } finally {
+        testBtn.disabled = false;
+      }
+    };
+
+    renderStatus();
+    return row;
+  };
+
+  // Footer with "restore defaults" link for ordering only.
+  const footer = make("div", { class: "settings-section api-keys-footer" });
+  const resetBtn = make("button", { type: "button", class: "btn btn--ghost" }, "Restore default order") as HTMLButtonElement;
+  resetBtn.addEventListener("click", () => {
+    store.resetOrder();
+  });
+  footer.append(
+    make("p", { class: "settings-help" },
+      "Providers run in the order shown above. Free sources (Libretro Thumbnails, cover-art-collection) " +
+      "always run first and are not affected by this list.",
+    ),
+    resetBtn,
+  );
+  container.appendChild(footer);
+
+  rebuild();
+  store.subscribe(() => rebuild());
 }

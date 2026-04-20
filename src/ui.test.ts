@@ -1541,16 +1541,16 @@ describe("buildDebugTab", () => {
     expect(debugPanel.hidden).toBe(true);
   });
 
-  it("ArrowLeft keyboard navigation switches tabs from Debug to Multiplayer", () => {
+  it("ArrowLeft keyboard navigation switches tabs from Debug to API Keys", () => {
     openDebugTab();
     const debugTabBtn = document.getElementById("tab-debug") as HTMLButtonElement;
     debugTabBtn.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-    const mpTabBtn = document.getElementById("tab-multiplayer") as HTMLButtonElement;
-    const mpPanel = document.getElementById("tab-panel-multiplayer")!;
+    const apiTabBtn = document.getElementById("tab-apikeys") as HTMLButtonElement;
+    const apiPanel = document.getElementById("tab-panel-apikeys")!;
     const debugPanel = document.getElementById("tab-panel-debug")!;
-    expect(mpTabBtn.getAttribute("aria-selected")).toBe("true");
-    expect(mpTabBtn.getAttribute("tabindex")).toBe("0");
-    expect(mpPanel.hidden).toBe(false);
+    expect(apiTabBtn.getAttribute("aria-selected")).toBe("true");
+    expect(apiTabBtn.getAttribute("tabindex")).toBe("0");
+    expect(apiPanel.hidden).toBe(false);
     expect(debugPanel.hidden).toBe(true);
   });
 

@@ -257,6 +257,28 @@ self.crossOriginIsolated // should be true
 | First-time setup issues | Run `npm run doctor` to check environment |
 | iOS Safari failures | PSP requires `SharedArrayBuffer`; iOS WebKit has limited support — use desktop Chrome/Firefox |
 
+## Cover art & metadata (bring your own API key)
+
+RetroOasis automatically fetches cover art from two key-less community sources:
+
+- [Libretro Thumbnails](https://thumbnails.libretro.com/)
+- [ramiabraham/cover-art-collection](https://github.com/ramiabraham/cover-art-collection)
+
+Users who want broader coverage can plug in additional providers by pasting a
+free-tier API key into **Settings → API Keys**:
+
+- [**RAWG**](https://rawg.io/apidocs) — box art, header art, and screenshots. Free tier: 20,000 requests / month.
+- [**MobyGames**](https://www.mobygames.com/info/api/) — platform-accurate box covers sourced from the MobyGames database.
+
+Keys are stored **only** in your browser's `localStorage` and are sent directly
+from the browser to the provider they belong to — RetroOasis has no backend,
+and nothing is uploaded by the app itself. Each provider can be individually
+disabled (keeping the key) or removed, and the chain order is user-configurable.
+
+See the GBATemp ["Cover Collections for emulators with cover support"](https://gbatemp.net/threads/cover-collections-for-emulators-with-cover-support.324714/)
+thread for additional community-maintained collections that are candidates for
+future built-in providers.
+
 ## FAQ
 
 **Does this project include ROMs or BIOS files?**
