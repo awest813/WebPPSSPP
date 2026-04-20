@@ -3213,19 +3213,6 @@ describe("dialog Escape handling when emulator is running", () => {
     expect(document.querySelector(".ingame-menu-overlay")).toBeNull();
   });
 
-  it("pressing Escape while game is running does NOT open an in-game menu overlay", () => {
-    const emulator = makeRunningEmuMock();
-    initUI({ ...makeOpts(makeSettings()), emulator });
-
-    (emulator as unknown as { onGameStart: () => void }).onGameStart?.();
-
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-    );
-
-    expect(document.querySelector(".ingame-menu-overlay")).toBeNull();
-  });
-
   it("pressing Escape closes a confirm dialog even when the emulator is running", async () => {
     // When the emulator is running the global capture-phase Escape handler fires
     // and calls stopPropagation(). Before the fix, showConfirmDialog used bubble
