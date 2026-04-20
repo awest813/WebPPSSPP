@@ -92,6 +92,8 @@ import {
   pCloudProvider,
   BlompProvider,
   BoxProvider,
+  OneDriveProvider,
+  MegaProvider,
 } from "./cloudSave.js";
 // Cloud library types moved to lazy functions to satisfy strict TSC
 import { createProvider } from "./cloudLibrary.js";
@@ -5307,15 +5309,17 @@ interface CloudProviderMeta {
 
 /** Providers supported for cloud *save* backup. */
 const CLOUD_SAVE_PROVIDERS: CloudProviderMeta[] = [
-  { id: "gdrive",  label: "Google Drive", icon: "🗂️" },
-  { id: "dropbox", label: "Dropbox",      icon: "📦" },
-  { id: "webdav",  label: "WebDAV",       icon: "🔗" },
-  { id: "pcloud",  label: "pCloud",       icon: "🌐" },
-  { id: "blomp",   label: "Blomp",        icon: "💧" },
-  { id: "box",     label: "Box",          icon: "📫" },
+  { id: "gdrive",   label: "Google Drive", icon: "🗂️" },
+  { id: "dropbox",  label: "Dropbox",      icon: "📦" },
+  { id: "onedrive", label: "OneDrive",     icon: "☁️" },
+  { id: "webdav",   label: "WebDAV",       icon: "🔗" },
+  { id: "pcloud",   label: "pCloud",       icon: "🌐" },
+  { id: "blomp",    label: "Blomp",        icon: "💧" },
+  { id: "box",      label: "Box",          icon: "📫" },
+  { id: "mega",     label: "MEGA",         icon: "🔒" },
 ];
 
-/** Providers supported for cloud *library* sources (adds OneDrive). */
+/** Providers supported for cloud *library* sources (adds OneDrive, MEGA). */
 const CLOUD_LIBRARY_PROVIDERS: CloudProviderMeta[] = [
   { id: "gdrive",   label: "Google Drive", icon: "🗂️" },
   { id: "dropbox",  label: "Dropbox",      icon: "📦" },
@@ -5324,6 +5328,7 @@ const CLOUD_LIBRARY_PROVIDERS: CloudProviderMeta[] = [
   { id: "pcloud",   label: "pCloud",       icon: "🌐" },
   { id: "blomp",    label: "Blomp",        icon: "💧" },
   { id: "box",      label: "Box",          icon: "📫" },
+  { id: "mega",     label: "MEGA",         icon: "🔒" },
 ];
 
 /** Combined lookup table for display name resolution (dedupes gdrive, dropbox etc.). */
@@ -5335,6 +5340,7 @@ const ALL_CLOUD_PROVIDERS: CloudProviderMeta[] = [
   { id: "pcloud",   label: "pCloud",       icon: "🌐" },
   { id: "blomp",    label: "Blomp",        icon: "💧" },
   { id: "box",      label: "Box",          icon: "📫" },
+  { id: "mega",     label: "MEGA",         icon: "🔒" },
 ];
 
 function getCloudProviderLabel(id: string): string {
@@ -5567,6 +5573,40 @@ function showCloudConnectDialog(): Promise<boolean> {
           return { ok: true, data: { token, folderId } };
         };
 
+      } else if (providerId === "onedrive") {
+        const tokenRow = make("div", { class: "settings-input-row" });
+        const tokenInp = make("input", { type: "text", id: "csd-token", class: "settings-input", placeholder: "OneDrive access token", autocomplete: "off" }) as HTMLInputElement;
+        tokenRow.append(make("label", { class: "settings-input-label", for: "csd-token" }, "Access Token"), tokenInp);
+
+        const rootRow = make("div", { class: "settings-input-row" });
+        const rootInp = make("input", { type: "text", id: "csd-rootid", class: "settings-input", placeholder: "root (optional)", autocomplete: "off" }) as HTMLInputElement;
+        rootRow.append(make("label", { class: "settings-input-label", for: "csd-rootid" }, "Root Folder ID (optional)"), rootInp);
+
+        form.append(tokenRow, rootRow);
+        getCredentials = () => {
+          const token = tokenInp.value.trim();
+          if (!token) return { ok: false, error: "Access token is required." };
+          return { ok: true, data: { token, rootId: rootInp.value.trim() || "root" } };
+        };
+
+      } else if (providerId === "mega") {
+        const emailRow = make("div", { class: "settings-input-row" });
+        const emailInp = make("input", { type: "email", id: "csd-email", class: "settings-input", placeholder: "MEGA email address", autocomplete: "email" }) as HTMLInputElement;
+        emailRow.append(make("label", { class: "settings-input-label", for: "csd-email" }, "Email"), emailInp);
+
+        const passRow = make("div", { class: "settings-input-row" });
+        const passInp = make("input", { type: "password", id: "csd-pass", class: "settings-input", placeholder: "Password", autocomplete: "current-password" }) as HTMLInputElement;
+        passRow.append(make("label", { class: "settings-input-label", for: "csd-pass" }, "Password"), passInp);
+
+        form.append(emailRow, passRow);
+        getCredentials = () => {
+          const email = emailInp.value.trim();
+          const pass  = passInp.value;
+          if (!email) return { ok: false, error: "Email is required." };
+          if (!pass)  return { ok: false, error: "Password is required." };
+          return { ok: true, data: { email, pass } };
+        };
+
       } else {
         // gdrive, dropbox — just need an OAuth access token
         const tokenRow = make("div", { class: "settings-input-row" });
@@ -5626,6 +5666,12 @@ function showCloudConnectDialog(): Promise<boolean> {
           } else if (providerId === "box") {
             cloudManager.saveBoxConfig(d["token"]!, d["folderId"]!);
             provider = new BoxProvider(d["token"]!, d["folderId"]!);
+          } else if (providerId === "onedrive") {
+            cloudManager.saveOneDriveConfig(d["token"]!, d["rootId"]!);
+            provider = new OneDriveProvider(d["token"]!, d["rootId"]!);
+          } else if (providerId === "mega") {
+            cloudManager.saveMegaConfig(d["email"]!, d["pass"]!);
+            provider = new MegaProvider(d["email"]!, d["pass"]!);
           } else {
             throw new Error("Unknown provider.");
           }
@@ -7216,6 +7262,24 @@ function showAddCloudLibraryDialog(
           const token = tokenInp.value.trim();
           if (!token) return { ok: false, error: "Access token is required.", config: "{}" };
           return { ok: true, config: JSON.stringify({ accessToken: token, rootFolderId: folderInp.value.trim() || "0" }) };
+        };
+
+      } else if (providerId === "mega") {
+        const emailRow = make("div", { class: "settings-input-row" });
+        const emailInp = make("input", { type: "email", id: "cld-email", class: "settings-input", placeholder: "MEGA email address", autocomplete: "email" }) as HTMLInputElement;
+        emailRow.append(make("label", { class: "settings-input-label", for: "cld-email" }, "Email"), emailInp);
+
+        const passRow = make("div", { class: "settings-input-row" });
+        const passInp = make("input", { type: "password", id: "cld-pass", class: "settings-input", placeholder: "Password", autocomplete: "current-password" }) as HTMLInputElement;
+        passRow.append(make("label", { class: "settings-input-label", for: "cld-pass" }, "Password"), passInp);
+
+        form.append(emailRow, passRow);
+        getCredentials = () => {
+          const email = emailInp.value.trim();
+          const pass  = passInp.value;
+          if (!email) return { ok: false, error: "Email is required.", config: "{}" };
+          if (!pass)  return { ok: false, error: "Password is required.", config: "{}" };
+          return { ok: true, config: JSON.stringify({ megaEmail: email, megaPassword: pass }) };
         };
 
       } else {

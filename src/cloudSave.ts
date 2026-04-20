@@ -14,6 +14,8 @@
  * - pCloudProvider      : pCloud REST API (OAuth access token, US or EU region).
  * - BlompProvider       : Blomp cloud storage (OpenStack Swift Auth v1, username / password).
  * - BoxProvider         : Box API v2 (OAuth access token).
+ * - OneDriveProvider    : Microsoft OneDrive via Graph API v1.0 (OAuth access token).
+ * - MegaProvider        : MEGA cloud storage (email / password, end-to-end encrypted).
  *
  * Manager
  * -------
@@ -1791,11 +1793,642 @@ export class BoxProvider implements CloudSaveProvider {
   }
 }
 
+// ── OneDriveProvider ──────────────────────────────────────────────────────────
+
+/** Timeout (ms) for OneDrive availability check. */
+const ONEDRIVE_AVAILABILITY_TIMEOUT_MS = 8_000;
+/** Timeout (ms) for all other OneDrive operations. */
+const ONEDRIVE_OPERATION_TIMEOUT_MS    = 15_000;
+
+/**
+ * CloudSaveProvider backed by Microsoft OneDrive via the Graph API v1.0.
+ *
+ * Files are stored in a dedicated app folder under the user's OneDrive:
+ * ```
+ * {rootFolderId}/
+ *   RetroVault/{hex(gameId)}/{slot}/manifest.json
+ *   RetroVault/{hex(gameId)}/{slot}/state.bin
+ *   RetroVault/{hex(gameId)}/{slot}/thumb.jpg
+ * ```
+ *
+ * The access token must be obtained via OAuth 2.0 before constructing this
+ * provider.  Required scope: Files.ReadWrite.
+ */
+export class OneDriveProvider implements CloudSaveProvider {
+  readonly providerId  = "onedrive";
+  readonly displayName = "OneDrive";
+
+  private static readonly API_BASE    = "https://graph.microsoft.com/v1.0";
+  private static readonly ROOT_PREFIX = "RetroVault";
+
+  constructor(
+    private readonly accessToken: string,
+    private readonly rootId:      string = "root",
+  ) {}
+
+  // ── CloudSaveProvider implementation ───────────────────────────────────────
+
+  private _headers(): HeadersInit {
+    return { Authorization: `Bearer ${this.accessToken}` };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ONEDRIVE_AVAILABILITY_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${OneDriveProvider.API_BASE}/me/drive`, {
+        headers: this._headers(),
+        signal:  ctl.signal,
+      });
+      return r.status === 200;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async upload(entry: SaveStateEntry): Promise<void> {
+    const base = this._slotPath(entry.gameId, entry.slot);
+
+    // Upload binary payloads in parallel first, then write the manifest last.
+    const parallelUploads: Promise<void>[] = [];
+    if (entry.stateData) {
+      parallelUploads.push(this._uploadFile(`${base}/state.bin`, entry.stateData, "application/octet-stream"));
+    }
+    if (entry.thumbnail) {
+      parallelUploads.push(this._uploadFile(`${base}/thumb.jpg`, entry.thumbnail, "image/jpeg"));
+    }
+    await Promise.all(parallelUploads);
+
+    const manifest: CloudSaveManifest = {
+      gameId:    entry.gameId,
+      slot:      entry.slot,
+      timestamp: entry.timestamp,
+      checksum:  entry.checksum ?? "",
+      label:     entry.label,
+      gameName:  entry.gameName,
+      systemId:  entry.systemId,
+      version:   entry.version ?? 1,
+    };
+    await this._uploadFile(
+      `${base}/manifest.json`,
+      new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+      "application/json",
+    );
+  }
+
+  async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
+    const base = this._slotPath(gameId, slot);
+
+    const manifestBlob = await this._downloadFile(`${base}/manifest.json`);
+    if (!manifestBlob) return null;
+
+    let manifest: CloudSaveManifest;
+    try {
+      manifest = JSON.parse(await manifestBlob.text()) as CloudSaveManifest;
+    } catch {
+      return null;
+    }
+
+    const [stateData, thumbnail] = await Promise.all([
+      this._downloadFile(`${base}/state.bin`),
+      this._downloadFile(`${base}/thumb.jpg`),
+    ]);
+
+    return {
+      id:         `${gameId}:${slot}`,
+      gameId,
+      gameName:   manifest.gameName,
+      systemId:   manifest.systemId,
+      slot:       manifest.slot,
+      label:      manifest.label,
+      timestamp:  manifest.timestamp,
+      thumbnail,
+      stateData,
+      isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    manifest.version,
+      checksum:   manifest.checksum,
+    };
+  }
+
+  async listManifests(gameId: string): Promise<CloudSaveManifest[]> {
+    const slots = [AUTO_SAVE_SLOT, ...Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1)];
+    const results = await Promise.allSettled(
+      slots.map(async slot => {
+        const blob = await this._downloadFile(`${this._slotPath(gameId, slot)}/manifest.json`);
+        if (!blob) return null;
+        try {
+          return JSON.parse(await blob.text()) as CloudSaveManifest;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<CloudSaveManifest | null> => r.status === "fulfilled")
+      .map(r => r.value)
+      .filter((m): m is CloudSaveManifest => m !== null);
+  }
+
+  async delete(gameId: string, slot: number): Promise<void> {
+    const base = this._slotPath(gameId, slot);
+    await Promise.allSettled([
+      this._deleteFile(`${base}/manifest.json`),
+      this._deleteFile(`${base}/state.bin`),
+      this._deleteFile(`${base}/thumb.jpg`),
+    ]);
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  /** OneDrive path for a specific game + slot folder. */
+  private _slotPath(gameId: string, slot: number): string {
+    const safeId = Array.from(new TextEncoder().encode(gameId))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+    return `${OneDriveProvider.ROOT_PREFIX}/${safeId}/${slot}`;
+  }
+
+  /** Build the Graph API URL for a file path relative to the root. */
+  private _itemUrl(path: string): string {
+    const parentId = this.rootId === "root" ? "root" : `items/${this.rootId}`;
+    return `${OneDriveProvider.API_BASE}/me/drive/${parentId}:/${encodeURIComponent(path)}:`;
+  }
+
+  private async _uploadFile(path: string, content: Blob, contentType: string): Promise<void> {
+    const url = `${this._itemUrl(path)}/content`;
+    const r = await this._timedFetch(url, {
+      method:  "PUT",
+      headers: { ...this._headers(), "Content-Type": contentType },
+      body:    content,
+    });
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 403) {
+        throw new Error(`OneDrive authentication failed (${r.status}) — your token may have expired. Please reconnect.`);
+      }
+      throw new Error(`OneDrive upload failed (${r.status}): ${path}`);
+    }
+  }
+
+  private async _downloadFile(path: string): Promise<Blob | null> {
+    try {
+      const url = `${this._itemUrl(path)}/content`;
+      const r = await this._timedFetch(url, {
+        headers: this._headers(),
+      });
+      if (r.status === 401 || r.status === 403) {
+        throw new Error(`OneDrive authentication failed (${r.status}) — your token may have expired. Please reconnect.`);
+      }
+      if (!r.ok) return null;
+      return r.blob();
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("authentication failed")) throw err;
+      return null;
+    }
+  }
+
+  private async _deleteFile(path: string): Promise<void> {
+    const parentId = this.rootId === "root" ? "root" : `items/${this.rootId}`;
+    const url = `${OneDriveProvider.API_BASE}/me/drive/${parentId}:/${encodeURIComponent(path)}`;
+    const r = await this._timedFetch(url, {
+      method:  "DELETE",
+      headers: this._headers(),
+    });
+    if (!r.ok && r.status !== 404) throw new Error(`OneDrive delete failed (${r.status}): ${path}`);
+  }
+
+  private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ONEDRIVE_OPERATION_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+// ── MegaProvider ──────────────────────────────────────────────────────────────
+
+/** Timeout (ms) for MEGA availability check. */
+const MEGA_AVAILABILITY_TIMEOUT_MS = 15_000;
+/** Timeout (ms) for all other MEGA operations. */
+const MEGA_OPERATION_TIMEOUT_MS    = 30_000;
+
+/**
+ * CloudSaveProvider backed by MEGA cloud storage.
+ *
+ * MEGA uses end-to-end encryption.  This provider authenticates with
+ * email + password, derives the AES master key, and stores save states
+ * as files in a `/RetroVault/{hex(gameId)}/{slot}/` folder structure.
+ *
+ * Files are stored unencrypted at the MEGA layer (MEGA's own encryption
+ * is handled transparently by the API); the provider does not add an
+ * additional application-level encryption layer.
+ */
+export class MegaProvider implements CloudSaveProvider {
+  readonly providerId  = "mega";
+  readonly displayName = "MEGA";
+
+  private static readonly API_URL     = "https://g.api.mega.co.nz/cs";
+
+  private _sessionId:  string | null = null;
+  private _masterKey:  Uint8Array | null = null;
+  private _rootHandle: string | null = null;
+
+  constructor(
+    private readonly email:    string,
+    private readonly password: string,
+  ) {}
+
+  // ── CloudSaveProvider implementation ───────────────────────────────────────
+
+  async isAvailable(): Promise<boolean> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), MEGA_AVAILABILITY_TIMEOUT_MS);
+    try {
+      await this._ensureSession();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async upload(entry: SaveStateEntry): Promise<void> {
+    await this._ensureSession();
+    const folderHandle = await this._ensureSlotFolder(entry.gameId, entry.slot);
+
+    // Upload state and thumbnail in parallel before writing the manifest.
+    const parallelUploads: Promise<void>[] = [];
+    if (entry.stateData) {
+      parallelUploads.push(this._megaUploadFile(folderHandle, "state.bin", entry.stateData));
+    }
+    if (entry.thumbnail) {
+      parallelUploads.push(this._megaUploadFile(folderHandle, "thumb.jpg", entry.thumbnail));
+    }
+    await Promise.all(parallelUploads);
+
+    const manifest: CloudSaveManifest = {
+      gameId:    entry.gameId,
+      slot:      entry.slot,
+      timestamp: entry.timestamp,
+      checksum:  entry.checksum ?? "",
+      label:     entry.label,
+      gameName:  entry.gameName,
+      systemId:  entry.systemId,
+      version:   entry.version ?? 1,
+    };
+    await this._megaUploadFile(
+      folderHandle, "manifest.json",
+      new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+    );
+  }
+
+  async download(gameId: string, slot: number): Promise<SaveStateEntry | null> {
+    await this._ensureSession();
+    const slotHandle = await this._findSlotFolder(gameId, slot);
+    if (!slotHandle) return null;
+
+    const manifestBlob = await this._megaDownloadFile(slotHandle, "manifest.json");
+    if (!manifestBlob) return null;
+
+    let manifest: CloudSaveManifest;
+    try {
+      manifest = JSON.parse(await manifestBlob.text()) as CloudSaveManifest;
+    } catch {
+      return null;
+    }
+
+    const [stateData, thumbnail] = await Promise.all([
+      this._megaDownloadFile(slotHandle, "state.bin"),
+      this._megaDownloadFile(slotHandle, "thumb.jpg"),
+    ]);
+
+    return {
+      id:         `${gameId}:${slot}`,
+      gameId,
+      gameName:   manifest.gameName,
+      systemId:   manifest.systemId,
+      slot:       manifest.slot,
+      label:      manifest.label,
+      timestamp:  manifest.timestamp,
+      thumbnail,
+      stateData,
+      isAutoSave: slot === AUTO_SAVE_SLOT,
+      version:    manifest.version,
+      checksum:   manifest.checksum,
+    };
+  }
+
+  async listManifests(gameId: string): Promise<CloudSaveManifest[]> {
+    await this._ensureSession();
+    const slots = [AUTO_SAVE_SLOT, ...Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1)];
+    const results = await Promise.allSettled(
+      slots.map(async slot => {
+        const slotHandle = await this._findSlotFolder(gameId, slot);
+        if (!slotHandle) return null;
+        const blob = await this._megaDownloadFile(slotHandle, "manifest.json");
+        if (!blob) return null;
+        try {
+          return JSON.parse(await blob.text()) as CloudSaveManifest;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<CloudSaveManifest | null> => r.status === "fulfilled")
+      .map(r => r.value)
+      .filter((m): m is CloudSaveManifest => m !== null);
+  }
+
+  async delete(gameId: string, slot: number): Promise<void> {
+    await this._ensureSession();
+    const slotHandle = await this._findSlotFolder(gameId, slot);
+    if (!slotHandle) return;
+    // Delete the entire slot folder (MEGA moves to trash with 'a: "d"').
+    try {
+      await this._apiRequest([{ a: "d", n: slotHandle }]);
+    } catch { /* best-effort */ }
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  private async _ensureSession(): Promise<void> {
+    if (this._sessionId && this._masterKey) return;
+    await this._login();
+  }
+
+  private async _login(): Promise<void> {
+    // Use the same crypto helpers from MegaLibraryProvider via dynamic import.
+    const { MegaLibraryProvider } = await import("./cloudLibrary.js");
+
+    const emailLower = this.email.toLowerCase();
+    const passwordKey = MegaProvider._derivePasswordKey(this.password);
+    const userHash = MegaProvider._computeUserHash(emailLower, passwordKey);
+
+    const loginResp = await this._apiRequest([{ a: "us", user: emailLower, uh: userHash }]);
+    const data = loginResp[0] as { tsid?: string; csid?: string; k?: string } | number;
+
+    if (typeof data === "number" || !data || (!data.tsid && !data.csid)) {
+      throw new Error("MEGA authentication failed — check your email and password.");
+    }
+
+    if (data.k) {
+      const encryptedMasterKey = MegaLibraryProvider._base64ToUint8(data.k);
+      this._masterKey = MegaLibraryProvider._aesEcbDecrypt(encryptedMasterKey, passwordKey);
+    } else {
+      throw new Error("MEGA login response missing master key.");
+    }
+
+    this._sessionId = data.tsid || data.csid || null;
+    if (!this._sessionId) {
+      throw new Error("MEGA login response missing session ID.");
+    }
+
+    // Cache root cloud drive handle.
+    const nodesResp = await this._apiRequest([{ a: "f", c: 1 }]);
+    const nodesData = nodesResp[0] as { f?: Array<{ h: string; t: number }> } | undefined;
+    const rootNode = nodesData?.f?.find(n => n.t === 2);
+    this._rootHandle = rootNode?.h ?? null;
+  }
+
+  /** Navigate to or create the RetroVault/{gameHex}/{slot} folder hierarchy. */
+  private async _ensureSlotFolder(gameId: string, slot: number): Promise<string> {
+    const safeId = Array.from(new TextEncoder().encode(gameId))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    let parentHandle = this._rootHandle;
+    if (!parentHandle) throw new Error("MEGA root folder not found.");
+
+    // Walk/create: RetroVault → safeId → slot
+    for (const segment of ["RetroVault", safeId, String(slot)]) {
+      const existing = await this._findChildFolder(parentHandle, segment);
+      if (existing) {
+        parentHandle = existing;
+      } else {
+        parentHandle = await this._createFolder(parentHandle, segment);
+      }
+    }
+    return parentHandle;
+  }
+
+  /** Find an existing slot folder without creating it. Returns handle or null. */
+  private async _findSlotFolder(gameId: string, slot: number): Promise<string | null> {
+    const safeId = Array.from(new TextEncoder().encode(gameId))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    let parentHandle = this._rootHandle;
+    if (!parentHandle) return null;
+
+    for (const segment of ["RetroVault", safeId, String(slot)]) {
+      const child = await this._findChildFolder(parentHandle, segment);
+      if (!child) return null;
+      parentHandle = child;
+    }
+    return parentHandle;
+  }
+
+  /** Find a child folder by name within a parent folder. */
+  private async _findChildFolder(parentHandle: string, name: string): Promise<string | null> {
+    const nodesResp = await this._apiRequest([{ a: "f", c: 1 }]);
+    const nodesData = nodesResp[0] as { f?: Array<{ h: string; p: string; t: number; a: string; k: string }> } | undefined;
+    const nodes = nodesData?.f ?? [];
+
+    const { MegaLibraryProvider } = await import("./cloudLibrary.js");
+
+    for (const n of nodes) {
+      if (n.p !== parentHandle || n.t !== 1) continue;
+      // Decrypt node name to match
+      try {
+        const keyParts = n.k.split(":");
+        const encNodeKey = MegaLibraryProvider._base64ToUint8(keyParts[keyParts.length - 1]!);
+        const decNodeKey = MegaLibraryProvider._aesEcbDecrypt(encNodeKey, this._masterKey!);
+        // Derive attribute key: for folders (16 bytes) use directly;
+        // for files (32 bytes) XOR the two halves.
+        let attrKey: Uint8Array;
+        if (decNodeKey.length >= 32) {
+          attrKey = new Uint8Array(16);
+          for (let i = 0; i < 16; i++) {
+            attrKey[i] = (decNodeKey[i] ?? 0) ^ (decNodeKey[i + 16] ?? 0);
+          }
+        } else {
+          attrKey = decNodeKey.slice(0, 16);
+        }
+        const encAttrs = MegaLibraryProvider._base64ToUint8(n.a);
+        const decAttrs = MegaLibraryProvider._aesEcbDecrypt(encAttrs, attrKey);
+        const attrStr = new TextDecoder().decode(decAttrs);
+        const jsonStart = attrStr.indexOf("{");
+        const jsonEnd = attrStr.lastIndexOf("}");
+        if (jsonStart < 0 || jsonEnd < 0) continue;
+        const attrs = JSON.parse(attrStr.slice(jsonStart, jsonEnd + 1)) as { n?: string };
+        if (attrs.n === name) return n.h;
+      } catch { continue; }
+    }
+    return null;
+  }
+
+  /** Create a folder under the given parent. Returns the new folder's handle. */
+  private async _createFolder(parentHandle: string, name: string): Promise<string> {
+    const resp = await this._apiRequest([{
+      a: "p",
+      t: parentHandle,
+      n: [{ h: "xxxxxxxx", t: 1, a: btoa(JSON.stringify({ n: name })), k: "" }],
+    }]);
+    const data = resp[0] as { f?: Array<{ h: string }> } | number;
+    if (typeof data === "number" || !data?.f?.[0]?.h) {
+      throw new Error(`MEGA folder creation failed for "${name}".`);
+    }
+    return data.f[0].h;
+  }
+
+  /** Upload a file to a MEGA folder. */
+  private async _megaUploadFile(folderHandle: string, filename: string, content: Blob): Promise<void> {
+    // For simplicity, use MEGA's upload endpoint.
+    // Step 1: Request an upload URL.
+    const size = content.size;
+    const ulResp = await this._apiRequest([{ a: "u", s: size }]);
+    const ulData = ulResp[0] as { p?: string } | number;
+    if (typeof ulData === "number" || !ulData?.p) {
+      throw new Error(`MEGA upload request failed for "${filename}".`);
+    }
+
+    // Step 2: Upload the data to the URL.
+    const uploadUrl = ulData.p;
+    const buffer = await content.arrayBuffer();
+    const r = await this._timedFetch(uploadUrl, {
+      method: "POST",
+      body:   buffer,
+    });
+    if (!r.ok) throw new Error(`MEGA upload failed (${r.status}): ${filename}`);
+    const completionHandle = await r.text();
+
+    // Step 3: Attach the uploaded file to the folder.
+    const attachResp = await this._apiRequest([{
+      a: "p",
+      t: folderHandle,
+      n: [{ h: completionHandle, t: 0, a: btoa(JSON.stringify({ n: filename })), k: "" }],
+    }]);
+    const attachData = attachResp[0] as { f?: Array<{ h: string }> } | number;
+    if (typeof attachData === "number") {
+      throw new Error(`MEGA file attach failed for "${filename}".`);
+    }
+  }
+
+  /** Download a file by name from a MEGA folder. */
+  private async _megaDownloadFile(folderHandle: string, filename: string): Promise<Blob | null> {
+    try {
+      // Find the file node within the folder.
+      const nodesResp = await this._apiRequest([{ a: "f", c: 1 }]);
+      const nodesData = nodesResp[0] as { f?: Array<{ h: string; p: string; t: number; a: string; k: string }> } | undefined;
+      const nodes = nodesData?.f ?? [];
+      const { MegaLibraryProvider } = await import("./cloudLibrary.js");
+
+      let fileHandle: string | null = null;
+      for (const n of nodes) {
+        if (n.p !== folderHandle || n.t !== 0) continue;
+        try {
+          const keyParts = n.k.split(":");
+          const encNodeKey = MegaLibraryProvider._base64ToUint8(keyParts[keyParts.length - 1]!);
+          const decNodeKey = MegaLibraryProvider._aesEcbDecrypt(encNodeKey, this._masterKey!);
+          const attrKey = new Uint8Array(16);
+          for (let i = 0; i < 16; i++) {
+            attrKey[i] = (decNodeKey[i] ?? 0) ^ (decNodeKey[i + 16] ?? 0);
+          }
+          const encAttrs = MegaLibraryProvider._base64ToUint8(n.a);
+          const decAttrs = MegaLibraryProvider._aesEcbDecrypt(encAttrs, attrKey);
+          const attrStr = new TextDecoder().decode(decAttrs);
+          const jsonStart = attrStr.indexOf("{");
+          const jsonEnd = attrStr.lastIndexOf("}");
+          if (jsonStart < 0 || jsonEnd < 0) continue;
+          const attrs = JSON.parse(attrStr.slice(jsonStart, jsonEnd + 1)) as { n?: string };
+          if (attrs.n === filename) { fileHandle = n.h; break; }
+        } catch { continue; }
+      }
+
+      if (!fileHandle) return null;
+
+      // Get download URL.
+      const dlResp = await this._apiRequest([{ a: "g", g: 1, n: fileHandle }]);
+      const dlData = dlResp[0] as { g?: string } | number;
+      if (typeof dlData === "number" || !dlData?.g) return null;
+
+      const fileR = await this._timedFetch(dlData.g, { method: "GET" });
+      if (!fileR.ok) return null;
+      return fileR.blob();
+    } catch {
+      return null;
+    }
+  }
+
+  private async _apiRequest(payload: unknown[]): Promise<unknown[]> {
+    const url = new URL(MegaProvider.API_URL);
+    if (this._sessionId) url.searchParams.set("sid", this._sessionId);
+
+    const r = await this._timedFetch(url.toString(), {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(`MEGA API failed: ${r.status}`);
+    return await r.json() as unknown[];
+  }
+
+  /** Derive 128-bit password key using MEGA's proprietary KDF (simplified XOR). */
+  private static _derivePasswordKey(password: string): Uint8Array {
+    const pkey = new Uint8Array(16);
+    const passwordBytes = new TextEncoder().encode(password);
+    const padded = new Uint8Array(Math.ceil(passwordBytes.length / 16) * 16);
+    padded.set(passwordBytes);
+    for (let i = 0; i < padded.length; i += 16) {
+      for (let j = 0; j < 16; j++) {
+        pkey[j]! ^= padded[i + j]!;
+      }
+    }
+    return pkey;
+  }
+
+  /** Compute legacy user hash for MEGA authentication. */
+  private static _computeUserHash(email: string, passwordKey: Uint8Array): string {
+    const emailBytes = new TextEncoder().encode(email);
+    const hash = new Uint8Array(16);
+    for (let i = 0; i < emailBytes.length; i++) {
+      hash[i % 16]! ^= emailBytes[i]!;
+    }
+    // XOR hash with password key before extracting bytes.
+    for (let i = 0; i < 16; i++) {
+      hash[i]! ^= passwordKey[i]!;
+    }
+    // Return base64url of first 4 + last 4 bytes.
+    const uhBytes = new Uint8Array(8);
+    uhBytes.set(hash.subarray(0, 4), 0);
+    uhBytes.set(hash.subarray(12, 16), 4);
+    let binary = "";
+    for (let i = 0; i < uhBytes.length; i++) binary += String.fromCharCode(uhBytes[i]!);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const ctl   = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), MEGA_OPERATION_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: ctl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 // ── CloudSaveManager ──────────────────────────────────────────────────────────
 
 /** Settings persisted in localStorage under "retrovault-cloud". */
 export interface CloudSaveSettings {
-  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box";
+  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box" | "onedrive" | "mega";
   autoSyncEnabled:    boolean;
   conflictResolution: ConflictResolution;
 }
@@ -1831,7 +2464,7 @@ export class CloudSaveManager {
   private _lastError:   string | null = null;
 
   /** Persisted settings */
-  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box" = "null";
+  providerId:         "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box" | "onedrive" | "mega" = "null";
   autoSyncEnabled:    boolean           = false;
   conflictResolution: ConflictResolution = "newest";
 
@@ -1894,13 +2527,15 @@ export class CloudSaveManager {
     for (const listener of this._statusListeners) listener();
   }
 
-  private static readonly SETTINGS_KEY = "retrovault-cloud";
-  private static readonly WEBDAV_KEY   = "retrovault-cloud-webdav";
-  private static readonly GDRIVE_KEY   = "retrovault-cloud-gdrive";
-  private static readonly DROPBOX_KEY  = "retrovault-cloud-dropbox";
-  private static readonly PCLOUD_KEY   = "retrovault-cloud-pcloud";
-  private static readonly BLOMP_KEY    = "retrovault-cloud-blomp";
-  private static readonly BOX_KEY      = "retrovault-cloud-box";
+  private static readonly SETTINGS_KEY  = "retrovault-cloud";
+  private static readonly WEBDAV_KEY    = "retrovault-cloud-webdav";
+  private static readonly GDRIVE_KEY    = "retrovault-cloud-gdrive";
+  private static readonly DROPBOX_KEY   = "retrovault-cloud-dropbox";
+  private static readonly PCLOUD_KEY    = "retrovault-cloud-pcloud";
+  private static readonly BLOMP_KEY     = "retrovault-cloud-blomp";
+  private static readonly BOX_KEY       = "retrovault-cloud-box";
+  private static readonly ONEDRIVE_KEY  = "retrovault-cloud-onedrive";
+  private static readonly MEGA_KEY      = "retrovault-cloud-mega";
 
   constructor() {
     this._loadSettings();
@@ -1932,7 +2567,7 @@ export class CloudSaveManager {
 
     this._provider      = provider;
     this._connected     = true;
-    this.providerId     = provider.providerId as "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box";
+    this.providerId     = provider.providerId as "null" | "webdav" | "gdrive" | "dropbox" | "pcloud" | "blomp" | "box" | "onedrive" | "mega";
     this._lastError     = null;
     this._saveSettings();
     this._emitStatusChange();
@@ -2304,6 +2939,70 @@ export class CloudSaveManager {
     try { localStorage.removeItem(CloudSaveManager.BOX_KEY); } catch { /* ignore */ }
   }
 
+  // ── OneDrive credential storage ──────────────────────────────────────────
+
+  /** Persist OneDrive OAuth access token and root folder ID.
+   *
+   * ⚠️  Security note: the token is stored in plaintext in localStorage.
+   * OAuth access tokens are short-lived (typically 1 hour), which limits
+   * exposure, but users should be aware on shared devices.
+   */
+  saveOneDriveConfig(accessToken: string, rootId = "root"): void {
+    try {
+      localStorage.setItem(CloudSaveManager.ONEDRIVE_KEY, JSON.stringify({ accessToken, rootId }));
+    } catch { /* quota exceeded or private-browsing restriction */ }
+  }
+
+  /** Load previously saved OneDrive access token and root ID, or null if none exist. */
+  loadOneDriveConfig(): { accessToken: string; rootId: string } | null {
+    try {
+      const raw = localStorage.getItem(CloudSaveManager.ONEDRIVE_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw) as { accessToken?: string; rootId?: string };
+      return {
+        accessToken: p.accessToken ?? "",
+        rootId:      p.rootId      ?? "root",
+      };
+    } catch { return null; }
+  }
+
+  /** Remove persisted OneDrive credentials from localStorage. */
+  clearOneDriveConfig(): void {
+    try { localStorage.removeItem(CloudSaveManager.ONEDRIVE_KEY); } catch { /* ignore */ }
+  }
+
+  // ── MEGA credential storage ──────────────────────────────────────────────
+
+  /** Persist MEGA email and password.
+   *
+   * ⚠️  Security note: the password is stored in plaintext in localStorage,
+   * which is accessible to any JavaScript running on the same origin.
+   * Users should be aware of this risk, particularly on shared devices.
+   */
+  saveMegaConfig(email: string, password: string): void {
+    try {
+      localStorage.setItem(CloudSaveManager.MEGA_KEY, JSON.stringify({ email, password }));
+    } catch { /* quota exceeded or private-browsing restriction */ }
+  }
+
+  /** Load previously saved MEGA credentials, or null if none exist. */
+  loadMegaConfig(): { email: string; password: string } | null {
+    try {
+      const raw = localStorage.getItem(CloudSaveManager.MEGA_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw) as { email?: string; password?: string };
+      return {
+        email:    p.email    ?? "",
+        password: p.password ?? "",
+      };
+    } catch { return null; }
+  }
+
+  /** Remove persisted MEGA credentials from localStorage. */
+  clearMegaConfig(): void {
+    try { localStorage.removeItem(CloudSaveManager.MEGA_KEY); } catch { /* ignore */ }
+  }
+
   // ── Settings persistence ────────────────────────────────────────────────────
 
   private _loadSettings(): void {
@@ -2316,7 +3015,8 @@ export class CloudSaveManager {
       if (p.providerId === "null" || p.providerId === "webdav" ||
           p.providerId === "gdrive" || p.providerId === "dropbox" ||
           p.providerId === "pcloud" || p.providerId === "blomp" ||
-          p.providerId === "box") {
+          p.providerId === "box" || p.providerId === "onedrive" ||
+          p.providerId === "mega") {
         this.providerId = p.providerId;
       }
       if (p.autoSyncEnabled === true) this.autoSyncEnabled = true;

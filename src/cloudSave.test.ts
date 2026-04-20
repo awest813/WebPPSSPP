@@ -8,6 +8,8 @@ import {
   pCloudProvider,
   BlompProvider,
   BoxProvider,
+  OneDriveProvider,
+  MegaProvider,
   CloudSaveManager,
   type CloudSaveProvider,
   type CloudSaveManifest,
@@ -2129,5 +2131,299 @@ describe("CloudSaveManager — persists box providerId", () => {
 
     const m2 = new CloudSaveManager();
     expect(m2.providerId).toBe("box");
+  });
+});
+
+// ── OneDriveProvider tests ────────────────────────────────────────────────────
+
+describe("OneDriveProvider — construction", () => {
+  it("has providerId 'onedrive' and a non-empty displayName", () => {
+    const p = new OneDriveProvider("test-token");
+    expect(p.providerId).toBe("onedrive");
+    expect(p.displayName.length).toBeGreaterThan(0);
+  });
+
+  it("accepts a custom rootId without throwing", () => {
+    const p = new OneDriveProvider("test-token", "folder-123");
+    expect(p).toBeInstanceOf(OneDriveProvider);
+  });
+});
+
+describe("OneDriveProvider — isAvailable", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns true when /me/drive responds with 200", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200 }));
+    const p = new OneDriveProvider("tok");
+    expect(await p.isAvailable()).toBe(true);
+  });
+
+  it("returns false when status is 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 401 }));
+    const p = new OneDriveProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when fetch throws (network error)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
+    const p = new OneDriveProvider("tok");
+    expect(await p.isAvailable()).toBe(false);
+  });
+});
+
+describe("OneDriveProvider — upload", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("sends PUT requests for state.bin, thumb.jpg, and manifest.json", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new OneDriveProvider("tok");
+    await p.upload(makeEntry({ stateData: new Blob(["st"]), thumbnail: new Blob(["th"]) }));
+
+    // Should have 3 calls: state.bin, thumb.jpg, manifest.json
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const urls = mockFetch.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(urls.some((u: string) => u.includes("state.bin"))).toBe(true);
+    expect(urls.some((u: string) => u.includes("thumb.jpg"))).toBe(true);
+    expect(urls.some((u: string) => u.includes("manifest.json"))).toBe(true);
+  });
+
+  it("throws an auth error on 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    const p = new OneDriveProvider("tok");
+    await expect(p.upload(makeEntry())).rejects.toThrow(/authentication failed/);
+  });
+});
+
+describe("OneDriveProvider — download", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns null when manifest.json is not found (404)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const p = new OneDriveProvider("tok");
+    expect(await p.download("g1", 1)).toBeNull();
+  });
+
+  it("returns a SaveStateEntry when manifest and state exist", async () => {
+    const manifest = makeManifest({ gameId: "g1", slot: 1 });
+    const manifestBlob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+    const stateBlob = new Blob(["state-data"]);
+
+    vi.stubGlobal("fetch", vi.fn()
+      // manifest download
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: () => Promise.resolve(manifestBlob) })
+      // state.bin download
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: () => Promise.resolve(stateBlob) })
+      // thumb.jpg — missing
+      .mockResolvedValueOnce({ ok: false, status: 404 }),
+    );
+
+    const p = new OneDriveProvider("tok");
+    const result = await p.download("g1", 1);
+    expect(result).not.toBeNull();
+    expect(result!.gameId).toBe("g1");
+    expect(result!.slot).toBe(1);
+    expect(result!.stateData).toBe(stateBlob);
+    expect(result!.thumbnail).toBeNull();
+  });
+
+  it("propagates auth error on 401 response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    const p = new OneDriveProvider("tok");
+    await expect(p.download("g1", 1)).rejects.toThrow(/authentication failed/);
+  });
+});
+
+describe("OneDriveProvider — delete", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("sends DELETE requests for all three files via allSettled", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new OneDriveProvider("tok");
+    await p.delete("g1", 1);
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const methods = mockFetch.mock.calls.map((c: unknown[]) => (c[1] as RequestInit).method);
+    expect(methods.every((m: string | undefined) => m === "DELETE")).toBe(true);
+  });
+
+  it("resolves even when individual DELETE requests fail (allSettled semantics)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("fail")));
+    const p = new OneDriveProvider("tok");
+    // Should not throw.
+    await expect(p.delete("g1", 1)).resolves.toBeUndefined();
+  });
+});
+
+describe("OneDriveProvider — listManifests", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns manifests for slots that have them", async () => {
+    const manifest = makeManifest({ gameId: "g1", slot: 1 });
+    const manifestBlob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+
+    vi.stubGlobal("fetch", vi.fn()
+      // slot 0 — missing
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      // slot 1 — exists
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: () => Promise.resolve(manifestBlob) })
+      // slots 2-8 — missing
+      .mockResolvedValue({ ok: false, status: 404 }),
+    );
+
+    const p = new OneDriveProvider("tok");
+    const manifests = await p.listManifests("g1");
+    expect(manifests.length).toBe(1);
+    expect(manifests[0]!.slot).toBe(1);
+  });
+});
+
+describe("CloudSaveManager — OneDrive credential storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("saveOneDriveConfig / loadOneDriveConfig round-trip", () => {
+    const m = new CloudSaveManager();
+    m.saveOneDriveConfig("my-token", "folder-abc");
+    const cfg = m.loadOneDriveConfig();
+    expect(cfg).toEqual({ accessToken: "my-token", rootId: "folder-abc" });
+  });
+
+  it("loadOneDriveConfig uses default rootId 'root' when not stored", () => {
+    const m = new CloudSaveManager();
+    m.saveOneDriveConfig("tok");
+    expect(m.loadOneDriveConfig()!.rootId).toBe("root");
+  });
+
+  it("clearOneDriveConfig removes stored credentials", () => {
+    const m = new CloudSaveManager();
+    m.saveOneDriveConfig("tok");
+    m.clearOneDriveConfig();
+    expect(m.loadOneDriveConfig()).toBeNull();
+  });
+});
+
+describe("CloudSaveManager — persists onedrive providerId", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("persists 'onedrive' providerId after connecting an OneDriveProvider", async () => {
+    const mockProvider: CloudSaveProvider = {
+      providerId:    "onedrive",
+      displayName:   "OneDrive",
+      isAvailable:   vi.fn().mockResolvedValue(true),
+      upload:        vi.fn().mockResolvedValue(undefined),
+      download:      vi.fn().mockResolvedValue(null),
+      listManifests: vi.fn().mockResolvedValue([]),
+      delete:        vi.fn().mockResolvedValue(undefined),
+    };
+    const m = new CloudSaveManager();
+    await m.connect(mockProvider);
+    expect(m.providerId).toBe("onedrive");
+
+    const m2 = new CloudSaveManager();
+    expect(m2.providerId).toBe("onedrive");
+  });
+});
+
+// ── MegaProvider tests ────────────────────────────────────────────────────────
+
+describe("MegaProvider — construction", () => {
+  it("has providerId 'mega' and a non-empty displayName", () => {
+    const p = new MegaProvider("user@mega.nz", "password123");
+    expect(p.providerId).toBe("mega");
+    expect(p.displayName.length).toBeGreaterThan(0);
+  });
+});
+
+describe("MegaProvider — isAvailable", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("returns false when login fails (API returns error number)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([-9]),
+    }));
+    const p = new MegaProvider("user@mega.nz", "wrong");
+    expect(await p.isAvailable()).toBe(false);
+  });
+
+  it("returns false when fetch throws (network error)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
+    const p = new MegaProvider("user@mega.nz", "pass");
+    expect(await p.isAvailable()).toBe(false);
+  });
+});
+
+describe("MegaProvider — delete", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("is a no-op when slot folder is not found", async () => {
+    // Login succeeds, then folder listing returns no matching folder.
+    const loginResp = { tsid: "session123", k: "AAAAAAAAAAAAAAAAAAAAAA" };
+    const nodesResp = { f: [{ h: "rootH", t: 2, p: "", a: "", k: "" }] };
+
+    const mockFetch = vi.fn()
+      // login
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([loginResp]) })
+      // fetch nodes for root
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([nodesResp]) })
+      // delete -> findSlotFolder -> fetch nodes (no matching children)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([nodesResp]) });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const p = new MegaProvider("user@mega.nz", "pass");
+    // First ensure session is established
+    try { await p.isAvailable(); } catch { /* ignore */ }
+    // delete should be a no-op when folder not found
+    await expect(p.delete("game1", 1)).resolves.toBeUndefined();
+  });
+});
+
+describe("CloudSaveManager — MEGA credential storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("saveMegaConfig / loadMegaConfig round-trip", () => {
+    const m = new CloudSaveManager();
+    m.saveMegaConfig("user@mega.nz", "secret123");
+    const cfg = m.loadMegaConfig();
+    expect(cfg).toEqual({ email: "user@mega.nz", password: "secret123" });
+  });
+
+  it("loadMegaConfig returns null when not set", () => {
+    const m = new CloudSaveManager();
+    expect(m.loadMegaConfig()).toBeNull();
+  });
+
+  it("clearMegaConfig removes stored credentials", () => {
+    const m = new CloudSaveManager();
+    m.saveMegaConfig("user@mega.nz", "secret");
+    m.clearMegaConfig();
+    expect(m.loadMegaConfig()).toBeNull();
+  });
+});
+
+describe("CloudSaveManager — persists mega providerId", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("persists 'mega' providerId after connecting a MegaProvider", async () => {
+    const mockProvider: CloudSaveProvider = {
+      providerId:    "mega",
+      displayName:   "MEGA",
+      isAvailable:   vi.fn().mockResolvedValue(true),
+      upload:        vi.fn().mockResolvedValue(undefined),
+      download:      vi.fn().mockResolvedValue(null),
+      listManifests: vi.fn().mockResolvedValue([]),
+      delete:        vi.fn().mockResolvedValue(undefined),
+    };
+    const m = new CloudSaveManager();
+    await m.connect(mockProvider);
+    expect(m.providerId).toBe("mega");
+
+    const m2 = new CloudSaveManager();
+    expect(m2.providerId).toBe("mega");
   });
 });
