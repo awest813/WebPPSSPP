@@ -67,7 +67,7 @@ export function renderRoomCard(
   card.appendChild(info);
 
   const isHost = opts.isHost ?? true;
-  card.appendChild(make("p", { class: "enp-active-room__waiting" }, isHost ? "⏳ Waiting for Player 2…" : "✓ Joined room — waiting for the host to start…"));
+  card.appendChild(make("p", { class: "enp-active-room__waiting" }, isHost ? "⏳ Waiting for another player…" : "✓ Joined room — waiting for the host to start…"));
 
   if (opts.showLeaveBtn && opts.easyMgr) {
     const btnLeave = make("button", { class: "btn btn--danger enp-leave-btn" }, "Leave Room") as HTMLButtonElement;

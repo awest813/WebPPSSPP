@@ -204,11 +204,7 @@ export class PeerDataChannel {
     if (!this._dc || this._dc.readyState !== "open") {
       throw new Error("Data channel is not open.");
     }
-    if (typeof data === "string") {
-      this._dc.send(data);
-    } else {
-      this._dc.send(data);
-    }
+    this._dc.send(data);
   }
 
   /**
@@ -226,15 +222,17 @@ export class PeerDataChannel {
   ping(timeoutMs = 5_000): Promise<number> {
     return new Promise((resolve, reject) => {
       const sentAt = Date.now();
+      const prev = this.onMessage;
+      const restore = () => { this.onMessage = prev; };
       const timeoutId = setTimeout(() => {
+        restore();
         reject(new Error("Ping timed out"));
       }, timeoutMs);
 
-      const prev = this.onMessage;
       this.onMessage = (msg) => {
         if (msg.type === "pong" && msg.echoTimestamp === sentAt) {
           clearTimeout(timeoutId);
-          this.onMessage = prev;
+          restore();
           resolve(Date.now() - sentAt);
           return;
         }
@@ -244,7 +242,7 @@ export class PeerDataChannel {
         this.sendMessage({ type: "ping", timestamp: sentAt });
       } catch (err) {
         clearTimeout(timeoutId);
-        this.onMessage = prev;
+        restore();
         reject(err);
       }
     });
