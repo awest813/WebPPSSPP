@@ -182,3 +182,101 @@ describe("buildApiKeysTab", () => {
     expect(store.getOrder()).toEqual(["rawg", "mobygames"]);
   });
 });
+
+describe("buildApiKeysTab — polish", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  it("renders a summary badge reflecting configured providers", () => {
+    const { container, store } = mount();
+    const summary = container.querySelector(".api-keys-summary")!;
+    expect(summary.textContent).toMatch(/0 of 2/);
+    store.setKey("rawg", "0123456789abcdef0123456789abcdef");
+    const summary2 = container.querySelector(".api-keys-summary")!;
+    expect(summary2.textContent).toMatch(/1 of 2/);
+  });
+
+  it("row receives api-key-row--disabled class when the provider is disabled", () => {
+    const { container, store } = mount();
+    const row = container.querySelector<HTMLElement>('[data-provider-id="rawg"]')!;
+    expect(row.classList.contains("api-key-row--disabled")).toBe(false);
+    store.setEnabled("rawg", false);
+    const row2 = container.querySelector<HTMLElement>('[data-provider-id="rawg"]')!;
+    expect(row2.classList.contains("api-key-row--disabled")).toBe(true);
+  });
+
+  it("shows an inline OK message after a successful test and a tested-timestamp in the pill", async () => {
+    const { container, store } = mount();
+    store.setKey("rawg", "0123456789abcdef0123456789abcdef");
+    const row = container.querySelector<HTMLElement>('[data-provider-id="rawg"]')!;
+    const testBtn = Array.from(row.querySelectorAll("button")).find((b) => b.textContent === "Test") as HTMLButtonElement;
+    testBtn.click();
+    await Promise.resolve(); await Promise.resolve();
+    const msg = row.querySelector(".api-key-row__test-msg")!;
+    expect(msg.textContent).toMatch(/Connection OK/);
+    expect(msg.className).toMatch(/--ok/);
+    const pill = row.querySelector(".api-key-status")!;
+    expect(pill.textContent).toMatch(/tested/);
+  });
+
+  it("shows an inline error message after a rejecting test", async () => {
+    const { container, store } = mount();
+    store.setKey("mobygames", "0123456789abcdef0123456789abcdef");
+    const row = container.querySelector<HTMLElement>('[data-provider-id="mobygames"]')!;
+    const testBtn = Array.from(row.querySelectorAll("button")).find((b) => b.textContent === "Test") as HTMLButtonElement;
+    testBtn.click();
+    await Promise.resolve(); await Promise.resolve();
+    const msg = row.querySelector(".api-key-row__test-msg")!;
+    expect(msg.className).toMatch(/--error/);
+    expect(msg.textContent).toMatch(/MobyGames rejected/);
+  });
+
+  it("Save clears any stale test message", async () => {
+    const { container, store } = mount();
+    store.setKey("mobygames", "0123456789abcdef0123456789abcdef");
+    // Fail once.
+    const row = container.querySelector<HTMLElement>('[data-provider-id="mobygames"]')!;
+    const testBtn = Array.from(row.querySelectorAll("button")).find((b) => b.textContent === "Test") as HTMLButtonElement;
+    testBtn.click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(container.querySelector('[data-provider-id="mobygames"] .api-key-row__test-msg')!.textContent)
+      .toMatch(/rejected/);
+    // Now save a new key → stale error should be cleared.
+    const row2 = container.querySelector<HTMLElement>('[data-provider-id="mobygames"]')!;
+    const input = row2.querySelector<HTMLInputElement>(".api-key-input")!;
+    input.value = "fedcba9876543210fedcba9876543210";
+    const saveBtn = Array.from(row2.querySelectorAll("button")).find((b) => b.textContent === "Save") as HTMLButtonElement;
+    saveBtn.click();
+    const row3 = container.querySelector<HTMLElement>('[data-provider-id="mobygames"]')!;
+    expect(row3.querySelector(".api-key-row__test-msg")!.textContent).toBe("");
+  });
+
+  it("drops onto another row to reorder via drag-and-drop", () => {
+    const { container, store } = mount();
+    expect(store.getOrder()).toEqual(["rawg", "mobygames"]);
+    const rawg = container.querySelector<HTMLElement>('[data-provider-id="rawg"]')!;
+    const moby = container.querySelector<HTMLElement>('[data-provider-id="mobygames"]')!;
+    // Both rows must be draggable.
+    expect(rawg.getAttribute("draggable")).toBe("true");
+    expect(moby.getAttribute("draggable")).toBe("true");
+    // Simulate dragging RAWG onto MobyGames.
+    const data = new Map<string, string>();
+    const dt = {
+      effectAllowed: "", dropEffect: "",
+      setData: (k: string, v: string) => { data.set(k, v); },
+      getData: (k: string) => data.get(k) ?? "",
+    } as unknown as DataTransfer;
+    const ev = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: dt });
+    rawg.dispatchEvent(ev("dragstart"));
+    moby.dispatchEvent(ev("dragover"));
+    moby.dispatchEvent(ev("drop"));
+    expect(store.getOrder()).toEqual(["mobygames", "rawg"]);
+  });
+
+  it("pressing Enter in the key input saves the key", () => {
+    const { container, store } = mount();
+    const input = container.querySelector<HTMLInputElement>('[data-provider-id="rawg"] .api-key-input')!;
+    input.value = "0123456789abcdef0123456789abcdef";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(store.getKey("rawg")).toBe("0123456789abcdef0123456789abcdef");
+  });
+});

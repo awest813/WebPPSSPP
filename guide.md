@@ -108,27 +108,32 @@ Then:
 ## 8) Manual test checklist — API Keys tab (cover art providers)
 
 After deploying or before shipping, quickly sanity-check the bring-your-own
-API key UX for the RAWG and MobyGames cover art providers:
+API key UX for the RAWG, MobyGames, and TheGamesDB cover art providers:
 
 1. **No-key default**: In a fresh browser profile, open a library that has
    games without cover art and run **Fetch missing covers**. Results should
    still come back — Libretro Thumbnails and the GitHub cover-art-collection
    run without keys.
 2. **Add a RAWG key**: Open **Settings → API Keys**, paste a RAWG key, click
-   **Save**, then **Test**. The status pill must change to **Active ✓**.
-   Re-run **Fetch missing covers**; candidates labelled "RAWG" should now
-   appear for systems RAWG supports (SNES, PSX, NDS, …).
+   **Save**, then **Test**. The status pill must change to **Active ✓** and
+   an inline "Connection OK — RAWG is ready." message should appear under
+   the input. Re-run **Fetch missing covers**; candidates labelled "RAWG"
+   should now appear for systems RAWG supports (SNES, PSX, NDS, …).
 3. **Invalid key**: Paste an obviously-wrong string (e.g. a URL). Saving
    should be blocked with a validation error, and the red-orange warning
    hint should appear under the input.
-4. **Disable provider**: Uncheck **Enabled** for RAWG. Covers should stop
-   coming from RAWG, but the key stays saved (re-check **Enabled** to
-   restore).
+4. **Disable provider**: Uncheck **Enabled** for RAWG. The row should dim
+   visually, covers should stop coming from RAWG, but the key stays saved
+   (re-check **Enabled** to restore).
 5. **Remove key**: Click **Remove**. Status returns to **No key** and the
    provider no longer runs.
-6. **MobyGames**: Repeat steps 2–5 with a MobyGames key.
-7. **Reorder**: Use the ▲ / ▼ buttons to swap provider priority; the change
-   takes effect on the next **Fetch missing covers** run.
+6. **MobyGames / TheGamesDB**: Repeat steps 2–5 with a MobyGames or
+   TheGamesDB key.
+7. **Reorder**: Drag a row to a new position (or use the ▲ / ▼ buttons for
+   keyboard access) to swap provider priority; the change takes effect on
+   the next **Fetch missing covers** run.
+8. **Summary badge**: The "X of Y providers configured" line near the top of
+   the tab should update as keys are saved or removed.
 
 Expected privacy guarantees:
 

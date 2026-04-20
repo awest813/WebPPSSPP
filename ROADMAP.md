@@ -70,8 +70,9 @@ This document outlines the strategic plan for reducing technical debt in the Ret
 
 Built-in providers today: [Libretro Thumbnails](https://thumbnails.libretro.com/),
 [`ramiabraham/cover-art-collection`](https://github.com/ramiabraham/cover-art-collection),
-and the keyed providers [RAWG](https://rawg.io/apidocs) and
-[MobyGames](https://www.mobygames.com/info/api/) (see `src/coverArt.ts` and
+and the keyed providers [RAWG](https://rawg.io/apidocs),
+[MobyGames](https://www.mobygames.com/info/api/), and
+[TheGamesDB](https://thegamesdb.net/) (see `src/coverArt.ts` and
 `src/apiKeyStore.ts`).
 
 The GBATemp [Cover Collections for emulators with cover support](https://gbatemp.net/threads/cover-collections-for-emulators-with-cover-support.324714/)

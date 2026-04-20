@@ -141,6 +141,7 @@ describe("ApiKeyStore", () => {
     const ids = DEFAULT_API_KEY_PROVIDERS.map((p) => p.id);
     expect(ids).toContain("rawg");
     expect(ids).toContain("mobygames");
+    expect(ids).toContain("thegamesdb");
     for (const p of DEFAULT_API_KEY_PROVIDERS) {
       expect(p.signupUrl).toMatch(/^https:\/\//);
       expect(typeof p.validate).toBe("function");

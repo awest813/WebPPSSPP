@@ -134,6 +134,7 @@ import {
   ChainedCoverArtProvider,
   RawgCoverArtProvider,
   MobyGamesCoverArtProvider,
+  TheGamesDBCoverArtProvider,
   fetchAndValidateCoverArt,
   listGamesMissingCoverArt,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
@@ -210,6 +211,7 @@ function getKeyedProviders(): Map<string, ApiKeyedProvider> {
     _keyedProviders = new Map();
     _keyedProviders.set("rawg", new RawgCoverArtProvider({ getApiKey: () => store.getKey("rawg") }));
     _keyedProviders.set("mobygames", new MobyGamesCoverArtProvider({ getApiKey: () => store.getKey("mobygames") }));
+    _keyedProviders.set("thegamesdb", new TheGamesDBCoverArtProvider({ getApiKey: () => store.getKey("thegamesdb") }));
   }
   return _keyedProviders;
 }

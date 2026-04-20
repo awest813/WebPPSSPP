@@ -8592,3 +8592,48 @@ body {
 .api-key-status--disabled { color: #b0a060; }
 .api-key-status--testing  { color: #7ab8ff; }
 .api-keys-footer { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+
+/* ── API Keys tab — polish ─────────────────────────────────── */
+.api-keys-summary {
+  margin-top: 4px;
+  opacity: 0.8;
+  font-size: 0.9em;
+}
+.api-key-row__drag {
+  cursor: grab;
+  opacity: 0.5;
+  padding: 0 4px;
+  letter-spacing: -2px;
+  font-size: 1.1em;
+  user-select: none;
+}
+.api-key-row[draggable="true"] { transition: border-color 120ms, opacity 120ms, transform 120ms; }
+.api-key-row--dragging { opacity: 0.5; }
+.api-key-row--drag-over { border-color: rgba(120, 170, 255, 0.8); transform: translateY(-1px); }
+.api-key-row--disabled { opacity: 0.6; }
+.api-key-row__test-msg {
+  margin: 0;
+  font-size: 0.9em;
+  min-height: 1.2em;
+}
+.api-key-row__test-msg:empty { display: none; }
+.api-key-row__test-msg--ok    { color: #6bdc9a; }
+.api-key-row__test-msg--error { color: #ff7080; }
+.btn.is-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.btn.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 1em; height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: #fff;
+  animation: api-key-spin 0.7s linear infinite;
+}
+@keyframes api-key-spin { to { transform: rotate(360deg); } }

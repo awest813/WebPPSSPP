@@ -189,14 +189,29 @@ export interface ApiKeyProviderTester {
   testConnection(opts?: { signal?: AbortSignal }): Promise<true | string>;
 }
 
+/** Format a Date as a compact "Xs ago" / "Xm ago" label. */
+function timeAgo(at: number, now: number = Date.now()): string {
+  const secs = Math.max(0, Math.round((now - at) / 1000));
+  if (secs < 5)    return "just now";
+  if (secs < 60)   return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60)   return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24)  return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
 /**
  * Build the "API Keys" settings tab. Renders one row per registered
  * {@link ApiKeyProviderConfig} with:
  *   - masked input + show/hide toggle + Save / Remove buttons
- *   - enabled checkbox
- *   - status pill (Active / No key / Invalid key / Disabled)
+ *   - enabled checkbox (and a visually-dimmed row when disabled)
+ *   - status pill (Active / No key / Invalid key / Disabled / Testing)
  *   - "Get an API key" external link and Test button
- *   - up/down reorder controls (accessible alternative to drag-drop)
+ *   - inline test result message (ok / error) with `aria-live`
+ *   - drag-and-drop reorder via a grab handle, with ▲/▼ buttons as
+ *     an accessible fallback
  *
  * Keys are persisted in {@link ApiKeyStore}. Tests are delegated to the
  * provider instances supplied by the caller (typically the chained
@@ -213,43 +228,63 @@ export function buildApiKeysTab(
 ): void {
   const { appName, getTester, onError } = opts;
 
+  // Clear any prior content so the tab is safe to rebuild.
+  container.innerHTML = "";
+
   const intro = make("div", { class: "settings-section" });
   intro.appendChild(make("h4", { class: "settings-section__title" }, "External API Keys"));
   intro.appendChild(make("p", { class: "settings-help" },
     `${appName} can pull cover art and metadata from third-party services that require an account. ` +
     "Add an API key to turn a provider on. Keys are stored only in this browser, and are sent directly " +
     "to the service they belong to — nothing is uploaded by " + appName + "."));
+
+  // Summary badge: "X of Y providers configured".
+  const summary = make("p", { class: "settings-help api-keys-summary", role: "status", "aria-live": "polite" }) as HTMLParagraphElement;
+  intro.appendChild(summary);
   container.appendChild(intro);
 
   const list = make("div", { class: "api-keys-list", role: "list" });
   container.appendChild(list);
 
-  const rows = new Map<string, HTMLElement>();
+  // Track last-test timestamps & results per provider for the inline message.
+  const lastTestAt = new Map<string, number>();
+  const lastTestMsg = new Map<string, { kind: "ok" | "error"; text: string }>();
 
   const rebuild = () => {
     list.innerHTML = "";
-    rows.clear();
     const order = store.getOrder();
     const byId = new Map(store.listProviders().map((p) => [p.id, p]));
+    let configured = 0;
     order.forEach((id, index) => {
       const cfg = byId.get(id);
       if (!cfg) return;
+      if (store.getState(id).key) configured++;
       const row = buildRow(cfg, index, order.length);
-      rows.set(id, row);
       list.appendChild(row);
     });
+    summary.textContent = `${configured} of ${order.length} providers configured.`;
   };
 
   const buildRow = (cfg: ApiKeyProviderConfig, index: number, total: number): HTMLElement => {
+    const state = store.getState(cfg.id);
     const row = make("div", {
-      class: "api-key-row",
+      class: `api-key-row${state.enabled ? "" : " api-key-row--disabled"}`,
       role: "listitem",
       "data-provider-id": cfg.id,
+      draggable: "true",
     });
-    const state = store.getState(cfg.id);
 
-    // Header: name + description.
+    // Drag handle (visually obvious; purely decorative for a11y — keyboard
+    // users reorder via the ▲/▼ buttons further down the row).
+    const dragHandle = make("span", {
+      class: "api-key-row__drag",
+      "aria-hidden": "true",
+      title: "Drag to reorder",
+    }, "⋮⋮") as HTMLSpanElement;
+
+    // Header: drag handle + name + status pill.
     const header = make("div", { class: "api-key-row__header" });
+    header.appendChild(dragHandle);
     header.appendChild(make("h5", { class: "api-key-row__name" }, cfg.name));
     const statusPill = make("span", {
       class: "api-key-status",
@@ -303,6 +338,18 @@ export function buildApiKeysTab(
         warn.hidden = true;
       }
     });
+    // Select all on focus so replacing a previously-saved key is one click.
+    input.addEventListener("focus", () => input.select());
+
+    // Inline test-result line (separate from the pill so the full message
+    // stays visible without depending on toasts).
+    const testMsg = make("p", { class: "api-key-row__test-msg", "aria-live": "polite" }) as HTMLParagraphElement;
+    const prev = lastTestMsg.get(cfg.id);
+    if (prev) {
+      testMsg.classList.add(prev.kind === "ok" ? "api-key-row__test-msg--ok" : "api-key-row__test-msg--error");
+      testMsg.textContent = prev.text;
+    }
+    row.appendChild(testMsg);
 
     // Actions row.
     const actions = make("div", { class: "api-key-row__actions" });
@@ -316,39 +363,56 @@ export function buildApiKeysTab(
     enabledBox.checked = state.enabled;
     enabledBox.addEventListener("change", () => {
       store.setEnabled(cfg.id, enabledBox.checked);
+      row.classList.toggle("api-key-row--disabled", !enabledBox.checked);
       renderStatus();
     });
     enabledWrap.append(enabledBox, document.createTextNode(" Enabled"));
     actions.appendChild(enabledWrap);
 
     const saveBtn = make("button", { type: "button", class: "btn btn--primary" }, "Save") as HTMLButtonElement;
-    saveBtn.addEventListener("click", () => {
+    const saveKey = () => {
+      // Clear stale test feedback BEFORE persisting — persisting triggers a
+      // rebuild via the store's change notification, which would otherwise
+      // re-render the previous error message from the captured map.
+      lastTestMsg.delete(cfg.id);
+      lastTestAt.delete(cfg.id);
       const result = store.setKey(cfg.id, input.value);
       if (result !== true) {
         onError(`${cfg.name}: ${result}`);
         renderStatus("invalid");
-        return;
+        return false;
       }
       input.value = "";
       input.placeholder = redactKey(store.getKey(cfg.id));
       warn.hidden = true;
+      testMsg.textContent = "";
+      testMsg.className = "api-key-row__test-msg";
       renderStatus();
+      return true;
+    };
+    saveBtn.addEventListener("click", () => { saveKey(); });
+    // Enter to save for keyboard users.
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); saveKey(); }
     });
     actions.appendChild(saveBtn);
 
     const removeBtn = make("button", { type: "button", class: "btn btn--ghost" }, "Remove") as HTMLButtonElement;
     removeBtn.addEventListener("click", () => {
+      // Clear stale test feedback before the removal triggers a rebuild.
+      lastTestMsg.delete(cfg.id);
+      lastTestAt.delete(cfg.id);
       store.removeKey(cfg.id);
       input.value = "";
       input.placeholder = "Paste your key here";
+      testMsg.textContent = "";
+      testMsg.className = "api-key-row__test-msg";
       renderStatus();
     });
     actions.appendChild(removeBtn);
 
     const testBtn = make("button", { type: "button", class: "btn" }, "Test") as HTMLButtonElement;
-    testBtn.addEventListener("click", () => {
-      void runTest();
-    });
+    testBtn.addEventListener("click", () => { void runTest(); });
     actions.appendChild(testBtn);
 
     const link = make("a", {
@@ -359,7 +423,7 @@ export function buildApiKeysTab(
     }, "Get an API key ↗");
     actions.appendChild(link);
 
-    // Reorder controls.
+    // Reorder controls (kept as an accessible fallback for drag-and-drop).
     const upBtn = make("button", {
       type: "button", class: "btn btn--ghost api-key-row__reorder",
       "aria-label": `Move ${cfg.name} up`,
@@ -392,6 +456,44 @@ export function buildApiKeysTab(
 
     row.appendChild(actions);
 
+    // Drag-and-drop reordering (HTML5 dnd). Keyboard users have the ▲/▼
+    // buttons above, so this is purely an enhancement for pointer users.
+    row.addEventListener("dragstart", (ev) => {
+      row.classList.add("api-key-row--dragging");
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = "move";
+        // Some browsers need a text payload to start the drag.
+        try { ev.dataTransfer.setData("text/plain", cfg.id); } catch { /* jsdom */ }
+      }
+    });
+    row.addEventListener("dragend", () => {
+      row.classList.remove("api-key-row--dragging");
+      list.querySelectorAll(".api-key-row--drag-over")
+        .forEach((el) => el.classList.remove("api-key-row--drag-over"));
+    });
+    row.addEventListener("dragover", (ev) => {
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+      row.classList.add("api-key-row--drag-over");
+    });
+    row.addEventListener("dragleave", () => {
+      row.classList.remove("api-key-row--drag-over");
+    });
+    row.addEventListener("drop", (ev) => {
+      ev.preventDefault();
+      row.classList.remove("api-key-row--drag-over");
+      const sourceId = ev.dataTransfer?.getData("text/plain");
+      if (!sourceId || sourceId === cfg.id) return;
+      const order = store.getOrder();
+      const from = order.indexOf(sourceId);
+      const to = order.indexOf(cfg.id);
+      if (from < 0 || to < 0) return;
+      const next = [...order];
+      next.splice(from, 1);
+      next.splice(to, 0, sourceId);
+      store.setOrder(next);
+    });
+
     const renderStatus = (override?: "invalid" | "ok" | "testing") => {
       const s = store.getState(cfg.id);
       statusPill.classList.remove(
@@ -419,7 +521,12 @@ export function buildApiKeysTab(
         statusPill.textContent = "Disabled";
       } else {
         statusPill.classList.add("api-key-status--active");
-        statusPill.textContent = override === "ok" ? "Active ✓" : "Active";
+        const t = lastTestAt.get(cfg.id);
+        // Append last-tested timestamp so the "Active" state communicates
+        // freshness of the test rather than just "a key is saved".
+        statusPill.textContent = t
+          ? `Active ✓ · tested ${timeAgo(t)}`
+          : (override === "ok" ? "Active ✓" : "Active");
       }
     };
 
@@ -436,16 +543,27 @@ export function buildApiKeysTab(
       }
       renderStatus("testing");
       testBtn.disabled = true;
+      testBtn.classList.add("is-loading");
+      testMsg.textContent = "";
+      testMsg.className = "api-key-row__test-msg";
       try {
         const result = await tester.testConnection();
         if (result === true) {
+          lastTestAt.set(cfg.id, Date.now());
+          lastTestMsg.set(cfg.id, { kind: "ok", text: `Connection OK — ${cfg.name} is ready.` });
+          testMsg.classList.add("api-key-row__test-msg--ok");
+          testMsg.textContent = `Connection OK — ${cfg.name} is ready.`;
           renderStatus("ok");
         } else {
+          lastTestMsg.set(cfg.id, { kind: "error", text: result });
+          testMsg.classList.add("api-key-row__test-msg--error");
+          testMsg.textContent = result;
           renderStatus("invalid");
           onError(`${cfg.name}: ${result}`);
         }
       } finally {
         testBtn.disabled = false;
+        testBtn.classList.remove("is-loading");
       }
     };
 

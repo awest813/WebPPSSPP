@@ -311,4 +311,11 @@ export const DEFAULT_API_KEY_PROVIDERS: readonly ApiKeyProviderConfig[] = Object
     signupUrl: "https://www.mobygames.com/info/api/",
     validate: genericKeyValidator(16, "MobyGames"),
   },
+  {
+    id: "thegamesdb",
+    name: "TheGamesDB",
+    description: "Community-driven open games database. Front/back boxart, screenshots, and metadata. Personal-use API keys are free.",
+    signupUrl: "https://thegamesdb.net/",
+    validate: genericKeyValidator(16, "TheGamesDB"),
+  },
 ]);

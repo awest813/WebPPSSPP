@@ -269,6 +269,7 @@ free-tier API key into **Settings → API Keys**:
 
 - [**RAWG**](https://rawg.io/apidocs) — box art, header art, and screenshots. Free tier: 20,000 requests / month.
 - [**MobyGames**](https://www.mobygames.com/info/api/) — platform-accurate box covers sourced from the MobyGames database.
+- [**TheGamesDB**](https://thegamesdb.net/) — community-driven database with front / back boxart and screenshots. Personal-use keys are free.
 
 Keys are stored **only** in your browser's `localStorage` and are sent directly
 from the browser to the provider they belong to — RetroOasis has no backend,
