@@ -4797,3 +4797,358 @@ describe("resolveSystemAndAdd — retry on addGame failure", () => {
     expect(banner?.classList.contains("visible")).toBe(true);
   });
 });
+
+// ── Performance tab (buildPerfTab) ────────────────────────────────────────────
+
+describe("buildPerfTab — Performance settings tab", () => {
+  function openPerfTab(settings: Settings = makeSettings()) {
+    openSettingsPanel(
+      settings,
+      fullCapsForTests,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "performance",
+    );
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("opens on the Performance tab when initialTab is 'performance'", () => {
+    openPerfTab();
+    const panel = document.getElementById("tab-panel-performance")!;
+    expect(panel.hidden).toBe(false);
+  });
+
+  it("Graphics Mode section is present", () => {
+    openPerfTab();
+    const panel = document.getElementById("tab-panel-performance")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("Graphics Mode");
+  });
+
+  it("'auto' radio is checked when performanceMode is 'auto'", () => {
+    openPerfTab(makeSettings({ performanceMode: "auto" }));
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="perf-mode"]'));
+    const autoRadio = radios.find(r => r.value === "auto");
+    expect(autoRadio?.checked).toBe(true);
+    expect(radios.find(r => r.value === "performance")?.checked).toBe(false);
+    expect(radios.find(r => r.value === "quality")?.checked).toBe(false);
+  });
+
+  it("'performance' radio is checked when performanceMode is 'performance'", () => {
+    openPerfTab(makeSettings({ performanceMode: "performance" }));
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="perf-mode"]'));
+    expect(radios.find(r => r.value === "performance")?.checked).toBe(true);
+    expect(radios.find(r => r.value === "auto")?.checked).toBe(false);
+  });
+
+  it("'quality' radio is checked when performanceMode is 'quality'", () => {
+    openPerfTab(makeSettings({ performanceMode: "quality" }));
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="perf-mode"]'));
+    expect(radios.find(r => r.value === "quality")?.checked).toBe(true);
+  });
+
+  it("clicking a performance mode radio calls onSettingsChange with the new mode", () => {
+    const onSettingsChange = vi.fn();
+    openSettingsPanel(
+      makeSettings({ performanceMode: "auto" }),
+      fullCapsForTests,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      onSettingsChange,
+      undefined, undefined, undefined, undefined,
+      "performance",
+    );
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="perf-mode"]'));
+    const perfRadio = radios.find(r => r.value === "performance")!;
+    perfRadio.checked = true;
+    perfRadio.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ performanceMode: "performance" });
+  });
+
+  it("UI Visual Fidelity section is present", () => {
+    openPerfTab();
+    const panel = document.getElementById("tab-panel-performance")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("UI Visual Fidelity");
+  });
+
+  it("'auto' UI mode radio is checked when uiMode is 'auto'", () => {
+    openPerfTab(makeSettings({ uiMode: "auto" }));
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="ui-mode"]'));
+    expect(radios.find(r => r.value === "auto")?.checked).toBe(true);
+    expect(radios.find(r => r.value === "quality")?.checked).toBe(false);
+    expect(radios.find(r => r.value === "lite")?.checked).toBe(false);
+  });
+
+  it("'lite' UI mode radio is checked when uiMode is 'lite'", () => {
+    openPerfTab(makeSettings({ uiMode: "lite" }));
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="ui-mode"]'));
+    expect(radios.find(r => r.value === "lite")?.checked).toBe(true);
+  });
+
+  it("clicking a UI mode radio calls onSettingsChange with the new mode", () => {
+    const onSettingsChange = vi.fn();
+    openSettingsPanel(
+      makeSettings({ uiMode: "auto" }),
+      fullCapsForTests,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      onSettingsChange,
+      undefined, undefined, undefined, undefined,
+      "performance",
+    );
+    const panel = document.getElementById("tab-panel-performance")!;
+    const radios = Array.from(panel.querySelectorAll<HTMLInputElement>('input[type="radio"][name="ui-mode"]'));
+    const qualityRadio = radios.find(r => r.value === "quality")!;
+    qualityRadio.checked = true;
+    qualityRadio.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ uiMode: "quality" });
+  });
+
+  it("Your Device section is present", () => {
+    openPerfTab();
+    const panel = document.getElementById("tab-panel-performance")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("Your Device");
+  });
+});
+
+// ── Display tab (buildDisplayTab) ─────────────────────────────────────────────
+
+describe("buildDisplayTab — Display settings tab", () => {
+  function openDisplayTab(settings: Settings = makeSettings(), caps: DeviceCapabilities = fullCapsForTests) {
+    openSettingsPanel(
+      settings,
+      caps,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "display",
+    );
+  }
+
+  function openDisplayTabWithCallback(settings: Settings, onSettingsChange: ReturnType<typeof vi.fn>) {
+    openSettingsPanel(
+      settings,
+      fullCapsForTests,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      onSettingsChange,
+      undefined, undefined, undefined, undefined,
+      "display",
+    );
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("opens on the Display tab when initialTab is 'display'", () => {
+    openDisplayTab();
+    const panel = document.getElementById("tab-panel-display")!;
+    expect(panel.hidden).toBe(false);
+  });
+
+  it("In-Game Overlays section is present", () => {
+    openDisplayTab();
+    const panel = document.getElementById("tab-panel-display")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("In-Game Overlays");
+  });
+
+  it("FPS counter toggle is unchecked when showFPS is false", () => {
+    openDisplayTab(makeSettings({ showFPS: false }));
+    const panel = document.getElementById("tab-panel-display")!;
+    const toggleRows = Array.from(panel.querySelectorAll<HTMLInputElement>("input[type=checkbox]"));
+    // First checkbox is FPS counter
+    expect(toggleRows[0]?.checked).toBe(false);
+  });
+
+  it("FPS counter toggle is checked when showFPS is true", () => {
+    openDisplayTab(makeSettings({ showFPS: true }));
+    const panel = document.getElementById("tab-panel-display")!;
+    const toggleRows = Array.from(panel.querySelectorAll<HTMLInputElement>("input[type=checkbox]"));
+    expect(toggleRows[0]?.checked).toBe(true);
+  });
+
+  it("toggling FPS counter calls onSettingsChange with showFPS: true", () => {
+    const onSettingsChange = vi.fn();
+    openDisplayTabWithCallback(makeSettings({ showFPS: false }), onSettingsChange);
+    const panel = document.getElementById("tab-panel-display")!;
+    const checkbox = panel.querySelectorAll<HTMLInputElement>("input[type=checkbox]")[0]!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith(expect.objectContaining({ showFPS: true }));
+  });
+
+  it("Audio Enhancement section is present", () => {
+    openDisplayTab();
+    const panel = document.getElementById("tab-panel-display")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("Audio Enhancement");
+  });
+
+  it("audio filter type selector reflects settings.audioFilterType", () => {
+    openDisplayTab(makeSettings({ audioFilterType: "lowpass" }));
+    const panel = document.getElementById("tab-panel-display")!;
+    const sel = panel.querySelector<HTMLSelectElement>('[aria-label="Audio filter type"]')!;
+    expect(sel.value).toBe("lowpass");
+  });
+
+  it("cutoff row is hidden when audioFilterType is 'none'", () => {
+    openDisplayTab(makeSettings({ audioFilterType: "none" }));
+    const panel = document.getElementById("tab-panel-display")!;
+    const cutoffInput = panel.querySelector<HTMLInputElement>('[aria-label="Audio filter cutoff frequency"]');
+    expect(cutoffInput?.closest(".settings-control-row")?.hidden).toBe(true);
+  });
+
+  it("cutoff row is visible when audioFilterType is 'lowpass'", () => {
+    openDisplayTab(makeSettings({ audioFilterType: "lowpass" }));
+    const panel = document.getElementById("tab-panel-display")!;
+    const cutoffInput = panel.querySelector<HTMLInputElement>('[aria-label="Audio filter cutoff frequency"]');
+    expect(cutoffInput?.closest(".settings-control-row")?.hidden).toBe(false);
+  });
+
+  it("changing audio filter type calls onSettingsChange and toggles cutoff row visibility", () => {
+    const onSettingsChange = vi.fn();
+    openDisplayTabWithCallback(makeSettings({ audioFilterType: "none" }), onSettingsChange);
+    const panel = document.getElementById("tab-panel-display")!;
+    const sel = panel.querySelector<HTMLSelectElement>('[aria-label="Audio filter type"]')!;
+    const cutoffRow = panel.querySelector<HTMLInputElement>('[aria-label="Audio filter cutoff frequency"]')!
+      .closest(".settings-control-row") as HTMLElement;
+
+    expect(cutoffRow.hidden).toBe(true);
+    sel.value = "highpass";
+    sel.dispatchEvent(new Event("change"));
+
+    expect(onSettingsChange).toHaveBeenCalledWith({ audioFilterType: "highpass" });
+    expect(cutoffRow.hidden).toBe(false);
+  });
+
+  it("changing cutoff frequency calls onSettingsChange on the change event", () => {
+    const onSettingsChange = vi.fn();
+    openDisplayTabWithCallback(makeSettings({ audioFilterType: "lowpass", audioFilterCutoff: 8000 }), onSettingsChange);
+    const panel = document.getElementById("tab-panel-display")!;
+    const cutoffInput = panel.querySelector<HTMLInputElement>('[aria-label="Audio filter cutoff frequency"]')!;
+
+    cutoffInput.value = "12000";
+    cutoffInput.dispatchEvent(new Event("change"));
+
+    expect(onSettingsChange).toHaveBeenCalledWith({ audioFilterCutoff: 12000 });
+  });
+
+  it("Mobile & Touch section is present", () => {
+    openDisplayTab();
+    const panel = document.getElementById("tab-panel-display")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("Mobile & Touch");
+  });
+});
+
+// ── Library tab — Organization toggle ────────────────────────────────────────
+
+describe("buildLibraryTab — Organization toggle", () => {
+  function openLibraryTab(settings: Settings = makeSettings(), onSettingsChange = vi.fn()) {
+    openSettingsPanel(
+      settings,
+      fullCapsForTests,
+      makeFullLibForTests(),
+      makeBiosLibForTests(),
+      onSettingsChange,
+      undefined,
+      undefined,
+      { count: vi.fn().mockResolvedValue(0) } as unknown as SaveStateLibrary,
+      undefined,
+      "library",
+    );
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("Organization section is present in the Library tab", () => {
+    openLibraryTab();
+    const panel = document.getElementById("tab-panel-library")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("Organization");
+  });
+
+  it("Group by system toggle is checked when libraryGrouped is true", () => {
+    openLibraryTab(makeSettings({ libraryGrouped: true }));
+    const panel = document.getElementById("tab-panel-library")!;
+    // Find the Group by system toggle among all checkboxes in the Organization section
+    const orgSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
+      .find(s => s.querySelector("h4")?.textContent === "Organization");
+    expect(orgSection).toBeTruthy();
+    const checkbox = orgSection!.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it("Group by system toggle is unchecked when libraryGrouped is false", () => {
+    openLibraryTab(makeSettings({ libraryGrouped: false }));
+    const panel = document.getElementById("tab-panel-library")!;
+    const orgSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
+      .find(s => s.querySelector("h4")?.textContent === "Organization");
+    const checkbox = orgSection!.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("toggling Group by system calls onSettingsChange with libraryGrouped: false", () => {
+    const onSettingsChange = vi.fn();
+    openLibraryTab(makeSettings({ libraryGrouped: true }), onSettingsChange);
+    const panel = document.getElementById("tab-panel-library")!;
+    const orgSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
+      .find(s => s.querySelector("h4")?.textContent === "Organization");
+    const checkbox = orgSection!.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change"));
+    expect(onSettingsChange).toHaveBeenCalledWith({ libraryGrouped: false });
+  });
+
+  it("Supported Systems section is present in the Library tab", () => {
+    openLibraryTab();
+    const panel = document.getElementById("tab-panel-library")!;
+    const headings = Array.from(panel.querySelectorAll("h4")).map(h => h.textContent);
+    expect(headings).toContain("Supported Systems");
+  });
+});

@@ -4208,7 +4208,7 @@ function buildPerfTab(
     const coreSection = make("div", { class: "settings-section" });
     coreSection.appendChild(make("h4", { class: "settings-section__title" }, "Current Core"));
 
-        const heading = make("div", { class: "settings-core-heading" });
+    const heading = make("div", { class: "settings-core-heading" });
     if (activeSystem.iconUrl) {
       heading.appendChild(make("img", { src: activeSystem.iconUrl, class: "settings-core-heading__icon", alt: "" }));
     }
