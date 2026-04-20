@@ -2944,9 +2944,9 @@ function buildInGameControls(
   // ── Menu button ─────────────────────────────────────────────────────────────
   const btnMenu = make("button", {
     class: "btn btn--gradient header-priority-primary",
-    title: "Open Menu (Esc)",
+    title: "Open Menu",
     "aria-label": "Open Menu",
-    "data-tooltip": "Open Menu (Esc)",
+    "data-tooltip": "Open Menu",
   });
   btnMenu.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg> Menu`;
   btnMenu.addEventListener("click", () => {
@@ -2959,20 +2959,6 @@ function buildInGameControls(
   }, { signal });
 
   container.append(btnMenu);
-
-  // Global Esc listener for quick menu access
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && emulator.state === "running") {
-      e.preventDefault();
-      void showInGameMenu({
-        emulator, settings, onSettingsChange, onReturnToLibrary,
-        saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
-        getCurrentSystemId, getTouchOverlay, onOpenSettings,
-        getNetplayManager, onOpenPlayTogetherSettings
-      });
-    }
-  };
-  window.addEventListener("keydown", onKeyDown, { signal });
 
   // Clean up listener when returning to library
   document.addEventListener(LEGACY_EVENTS.returnToLibrary, () => {
@@ -3205,11 +3191,23 @@ async function showInGameMenu(ctx: {
       `;
       const volInp = volRow.querySelector("input") as HTMLInputElement;
       const volVal = volRow.querySelector(".ingame-menu__range-val")!;
+      let volDebounceTimer: ReturnType<typeof setTimeout> | null = null;
       volInp.addEventListener("input", () => {
         const v = parseFloat(volInp.value);
         volVal.textContent = `${Math.round(v * 100)}%`;
-        ctx.onSettingsChange({ volume: v });
         ctx.emulator.setVolume(v);
+        if (volDebounceTimer !== null) clearTimeout(volDebounceTimer);
+        volDebounceTimer = setTimeout(() => {
+          ctx.onSettingsChange({ volume: v });
+          volDebounceTimer = null;
+        }, 150);
+      }, { signal });
+      volInp.addEventListener("change", () => {
+        if (volDebounceTimer !== null) {
+          clearTimeout(volDebounceTimer);
+          volDebounceTimer = null;
+        }
+        ctx.onSettingsChange({ volume: parseFloat(volInp.value) });
       }, { signal });
       grid.appendChild(volRow);
 

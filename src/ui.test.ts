@@ -2011,25 +2011,19 @@ describe("buildLibraryTab clear library closes panel properly", () => {
 describe("volume slider debounce", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
-  it("calls setVolume immediately but debounces onSettingsChange while dragging", () => {
-    const app = document.createElement("div");
-    document.body.appendChild(app);
-    buildDOM(app);
-
-    const onSettingsChange = vi.fn();
-    const setVolume = vi.fn();
-    const emulatorMock = {
+  function makeVolEmuMock(setVolume = vi.fn()): PSPEmulator {
+    return {
       state: "running",
       activeTier: "medium",
       currentSystem: { shortName: "PSP", name: "PSP", id: "psp", color: "#00f" },
       setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
       setVolume,
       quickSave: vi.fn(),
       quickLoad: vi.fn(),
@@ -2039,63 +2033,29 @@ describe("volume slider debounce", () => {
       onGameStart: null,
       onFPSUpdate: null,
     } as unknown as PSPEmulator;
+  }
 
-    initUI({
-      ...makeOpts(makeSettings({ volume: 0.7 })),
-      emulator: emulatorMock,
-      onSettingsChange,
-    });
+  async function openIngameSettingsTab(emulatorMock: PSPEmulator): Promise<void> {
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart?.();
+    const menuButton = document.querySelector<HTMLButtonElement>('button[aria-label="Open Menu"]');
+    expect(menuButton).toBeTruthy();
+    menuButton!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const qsBtn = Array.from(document.querySelectorAll<HTMLButtonElement>(".ingame-menu__sidebar-btn"))
+      .find((b) => b.getAttribute("data-tab") === "settings");
+    expect(qsBtn).toBeTruthy();
+    qsBtn!.click();
+    await new Promise((r) => setTimeout(r, 0));
+  }
 
-    // Trigger game start to render in-game controls including the volume slider
-    emulatorMock.onGameStart?.();
-
-    const volSlider = document.querySelector<HTMLInputElement>("input[type=range][aria-label=Volume]");
-    if (!volSlider) return; // skip if element not rendered (no-op in this environment)
-
-    // Simulate rapid slider input (like dragging)
-    for (let i = 1; i <= 5; i++) {
-      volSlider.value = String(i * 0.1);
-      volSlider.dispatchEvent(new Event("input"));
-    }
-
-    // setVolume should have been called immediately on every input
-    expect(setVolume).toHaveBeenCalledTimes(5);
-
-    // onSettingsChange should NOT have been called yet (debounce is 150 ms)
-    const volumeCallsBefore = (onSettingsChange.mock.calls as Array<[{ volume?: number }]>)
-      .filter(([arg]) => typeof arg.volume === "number");
-    expect(volumeCallsBefore.length).toBe(0);
-
-    // Advance timers past the 150 ms debounce window
-    vi.advanceTimersByTime(200);
-
-    // Now onSettingsChange should have been called exactly once with the last value
-    const volumeCalls = (onSettingsChange.mock.calls as Array<[{ volume?: number }]>)
-      .filter(([arg]) => typeof arg.volume === "number");
-    expect(volumeCalls.length).toBe(1);
-    expect(volumeCalls[0]![0].volume).toBeCloseTo(0.5);
-  });
-
-  it("flushes pending debounce immediately on change event (drag end)", () => {
+  it("calls setVolume immediately but debounces onSettingsChange while dragging", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
 
     const onSettingsChange = vi.fn();
-    const emulatorMock = {
-      state: "running",
-      activeTier: "medium",
-      currentSystem: { shortName: "PSP", name: "PSP", id: "psp", color: "#00f" },
-      setFPSMonitorEnabled: vi.fn(),
-      setVolume: vi.fn(),
-      quickSave: vi.fn(),
-      quickLoad: vi.fn(),
-      onStateChange: null,
-      onProgress: null,
-      onError: null,
-      onGameStart: null,
-      onFPSUpdate: null,
-    } as unknown as PSPEmulator;
+    const setVolume = vi.fn();
+    const emulatorMock = makeVolEmuMock(setVolume);
 
     initUI({
       ...makeOpts(makeSettings({ volume: 0.7 })),
@@ -2103,27 +2063,82 @@ describe("volume slider debounce", () => {
       onSettingsChange,
     });
 
-    emulatorMock.onGameStart?.();
+    await openIngameSettingsTab(emulatorMock);
 
-    const volSlider = document.querySelector<HTMLInputElement>("input[type=range][aria-label=Volume]");
+    const volSlider = document.querySelector<HTMLInputElement>("input[type=range][aria-label='Master Volume']");
+    expect(volSlider).toBeTruthy();
     if (!volSlider) return;
 
-    volSlider.value = "0.3";
-    volSlider.dispatchEvent(new Event("input"));
+    vi.useFakeTimers();
+    try {
+      // Simulate rapid slider input (like dragging)
+      for (let i = 1; i <= 5; i++) {
+        volSlider.value = String(i * 0.1);
+        volSlider.dispatchEvent(new Event("input"));
+      }
 
-    // Before debounce fires, simulate the drag-end (change event)
-    volSlider.dispatchEvent(new Event("change"));
+      // setVolume should have been called immediately on every input
+      expect(setVolume).toHaveBeenCalledTimes(5);
 
-    // onSettingsChange should have been called by the change event immediately
-    const volumeCalls = (onSettingsChange.mock.calls as Array<[{ volume?: number }]>)
-      .filter(([arg]) => typeof arg.volume === "number");
-    expect(volumeCalls.length).toBeGreaterThanOrEqual(1);
-    expect(volumeCalls[volumeCalls.length - 1]![0].volume).toBeCloseTo(0.3);
+      // onSettingsChange should NOT have been called yet (debounce is 150 ms)
+      const volumeCallsBefore = (onSettingsChange.mock.calls as Array<[{ volume?: number }]>)
+        .filter(([arg]) => typeof arg.volume === "number");
+      expect(volumeCallsBefore.length).toBe(0);
 
-    // Advancing time should NOT trigger another call (timer was already flushed)
-    const callCountBefore = onSettingsChange.mock.calls.length;
-    vi.advanceTimersByTime(300);
-    expect(onSettingsChange).toHaveBeenCalledTimes(callCountBefore);
+      // Advance timers past the 150 ms debounce window
+      vi.advanceTimersByTime(200);
+
+      // Now onSettingsChange should have been called exactly once with the last value
+      const volumeCalls = (onSettingsChange.mock.calls as Array<[{ volume?: number }]>)
+        .filter(([arg]) => typeof arg.volume === "number");
+      expect(volumeCalls.length).toBe(1);
+      expect(volumeCalls[0]![0].volume).toBeCloseTo(0.5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes pending debounce immediately on change event (drag end)", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const onSettingsChange = vi.fn();
+    const emulatorMock = makeVolEmuMock();
+
+    initUI({
+      ...makeOpts(makeSettings({ volume: 0.7 })),
+      emulator: emulatorMock,
+      onSettingsChange,
+    });
+
+    await openIngameSettingsTab(emulatorMock);
+
+    const volSlider = document.querySelector<HTMLInputElement>("input[type=range][aria-label='Master Volume']");
+    expect(volSlider).toBeTruthy();
+    if (!volSlider) return;
+
+    vi.useFakeTimers();
+    try {
+      volSlider.value = "0.3";
+      volSlider.dispatchEvent(new Event("input"));
+
+      // Before debounce fires, simulate the drag-end (change event)
+      volSlider.dispatchEvent(new Event("change"));
+
+      // onSettingsChange should have been called by the change event immediately
+      const volumeCalls = (onSettingsChange.mock.calls as Array<[{ volume?: number }]>)
+        .filter(([arg]) => typeof arg.volume === "number");
+      expect(volumeCalls.length).toBeGreaterThanOrEqual(1);
+      expect(volumeCalls[volumeCalls.length - 1]![0].volume).toBeCloseTo(0.3);
+
+      // Advancing time should NOT trigger another call (timer was already flushed)
+      const callCountBefore = onSettingsChange.mock.calls.length;
+      vi.advanceTimersByTime(300);
+      expect(onSettingsChange).toHaveBeenCalledTimes(callCountBefore);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -3176,6 +3191,39 @@ describe("dialog Escape handling when emulator is running", () => {
     localStorage.clear();
     vi.restoreAllMocks();
     document.querySelectorAll(".confirm-overlay").forEach((el) => el.remove());
+  });
+
+  it("pressing Escape while game is running returns to the library (not opens menu)", () => {
+    const onReturnToLibrary = vi.fn();
+    const emulator = makeRunningEmuMock();
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator,
+      onReturnToLibrary,
+    });
+
+    (emulator as unknown as { onGameStart: () => void }).onGameStart?.();
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+
+    expect(onReturnToLibrary).toHaveBeenCalledOnce();
+    // The in-game menu must NOT have opened
+    expect(document.querySelector(".ingame-menu-overlay")).toBeNull();
+  });
+
+  it("pressing Escape while game is running does NOT open an in-game menu overlay", () => {
+    const emulator = makeRunningEmuMock();
+    initUI({ ...makeOpts(makeSettings()), emulator });
+
+    (emulator as unknown as { onGameStart: () => void }).onGameStart?.();
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+
+    expect(document.querySelector(".ingame-menu-overlay")).toBeNull();
   });
 
   it("pressing Escape closes a confirm dialog even when the emulator is running", async () => {
