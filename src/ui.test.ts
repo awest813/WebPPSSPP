@@ -5031,14 +5031,14 @@ describe("buildDisplayTab — Display settings tab", () => {
     openDisplayTab(makeSettings({ audioFilterType: "none" }));
     const panel = document.getElementById("tab-panel-display")!;
     const cutoffInput = panel.querySelector<HTMLInputElement>('[aria-label="Audio filter cutoff frequency"]');
-    expect(cutoffInput?.closest(".settings-control-row")?.hidden).toBe(true);
+    expect((cutoffInput?.closest(".settings-control-row") as HTMLElement | null)?.hidden).toBe(true);
   });
 
   it("cutoff row is visible when audioFilterType is 'lowpass'", () => {
     openDisplayTab(makeSettings({ audioFilterType: "lowpass" }));
     const panel = document.getElementById("tab-panel-display")!;
     const cutoffInput = panel.querySelector<HTMLInputElement>('[aria-label="Audio filter cutoff frequency"]');
-    expect(cutoffInput?.closest(".settings-control-row")?.hidden).toBe(false);
+    expect((cutoffInput?.closest(".settings-control-row") as HTMLElement | null)?.hidden).toBe(false);
   });
 
   it("changing audio filter type calls onSettingsChange and toggles cutoff row visibility", () => {
