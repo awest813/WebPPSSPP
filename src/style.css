@@ -1313,7 +1313,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  opacity: 0.55;
+  opacity: 0.7;
   font-size: 1rem;
   line-height: 1;
   color: var(--c-text);
@@ -2182,7 +2182,7 @@ body {
   -webkit-backdrop-filter: blur(12px) saturate(1.8);
   backdrop-filter: blur(12px) saturate(1.8);
   padding: 6px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
   font-family: var(--font-mono);
@@ -2191,7 +2191,7 @@ body {
   color: #fff;
   pointer-events: none;
   user-select: none;
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+  transition: opacity var(--transition-med), transform 0.3s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .fps-overlay[hidden] { 
@@ -2248,7 +2248,7 @@ body {
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   padding: 20px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   font-family: var(--font-mono);
@@ -2583,7 +2583,7 @@ body {
   line-height: 1;
   flex-shrink: 0;
   padding: 2px;
-  opacity: 0.65;
+  opacity: 0.75;
   transition: opacity var(--transition);
 }
 
@@ -4030,11 +4030,17 @@ kbd {
   padding: 2px 6px;
   background: var(--c-surface2);
   border: 1px solid var(--c-border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 0.75em;
   font-family: "SF Mono", "Fira Code", monospace;
   color: var(--c-text-dim);
   vertical-align: middle;
+}
+
+kbd.kbd--inline {
+  font-size: 0.7em;
+  opacity: 0.5;
+  margin-left: 2px;
 }
 
 /* ── Netplay display name input ────────────────────────────── */
@@ -4654,7 +4660,7 @@ kbd {
   padding: 3px 10px;
   background: var(--c-surface3);
   border: 1px solid var(--c-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--c-accent);
   font-weight: 700;
   white-space: nowrap;
@@ -4920,7 +4926,8 @@ kbd {
   transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
 }
 
-.enp-copy-diag:hover {
+.enp-copy-diag:hover,
+.enp-copy-diag:focus-visible {
   color: var(--c-text);
   border-color: var(--c-accent);
   background: color-mix(in srgb, var(--c-accent) 8%, var(--c-surface2));
@@ -4937,7 +4944,8 @@ kbd {
   border-radius: var(--radius);
   transition:  background var(--transition-fast), color var(--transition-fast);
 }
-.enp-close:hover { background: var(--c-surface3); color: var(--c-text); }
+.enp-close:hover,
+.enp-close:focus-visible { background: var(--c-surface3); color: var(--c-text); }
 
 /* ── First-time setup strip ─────────────────────────────────── */
 .enp-setup-strip {
@@ -5662,9 +5670,9 @@ kbd {
   backdrop-filter: blur(12px) saturate(180%);
   -webkit-backdrop-filter: blur(12px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-  z-index: 10000;
+  z-index: 9500;
   overflow: hidden;
   font-family: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
   color: #e0e0e0;
@@ -6035,12 +6043,12 @@ kbd {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #fff;
+  color: var(--c-text);
 }
 
 .ingame-menu__save-time {
   font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--c-text-muted);
   font-weight: 500;
 }
 
@@ -6330,10 +6338,19 @@ kbd {
 }
 
 .ingame-menu__empty-state p {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--c-text-muted);
   font-size: 0.9rem;
   max-width: 240px;
   line-height: 1.5;
+}
+
+.ingame-menu__empty-state svg {
+  opacity: 0.3;
+  margin-bottom: 16px;
+}
+
+.ingame-menu__empty-state .ingame-menu__btn {
+  margin-top: 16px;
 }
 
 .ingame-menu__content {
@@ -6462,6 +6479,11 @@ kbd {
 
 .btn--highlight:active {
   transform: scale(0.96);
+}
+
+.btn__icon {
+  vertical-align: middle;
+  margin-right: 6px;
 }
 
 /* Chrome-specific Scrollbar Tweaks for full performance */
@@ -6902,7 +6924,7 @@ body {
   width: 48px;
   height: 48px;
   background: rgba(244, 247, 251, 0.92);
-  color: #0d1320;
+  color: var(--c-bg);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
 }
 
@@ -7166,9 +7188,9 @@ body {
 }
 
 .drop-zone__browse {
-  color: #9ce6dc;
+  color: var(--c-accent-light);
   text-decoration: underline;
-  text-decoration-color: rgba(156, 230, 220, 0.35);
+  text-decoration-color: var(--c-accent-dim);
   text-underline-offset: 0.18em;
 }
 
@@ -7182,95 +7204,6 @@ body {
   max-width: 64ch;
   margin-inline: auto;
   text-align: center;
-}
-
-.onboarding {
-  width: min(100%, 920px);
-  margin-inline: auto;
-  display: grid;
-  gap: 20px;
-  margin-top: 8px;
-}
-
-.welcome-hero {
-  margin: 0;
-  padding: 10px 12px 0;
-  text-align: center;
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-}
-
-.welcome-hero__eyebrow {
-  margin: 0;
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(167, 179, 255, 0.2);
-  background: linear-gradient(180deg, rgba(124, 140, 255, 0.12) 0%, rgba(124, 140, 255, 0.05) 100%);
-  color: var(--c-accent-h);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.welcome-hero__title,
-.welcome-hero__tagline,
-.library-row__title {
-  background: none;
-  -webkit-text-fill-color: currentColor;
-}
-
-.welcome-hero__title {
-  max-width: 11ch;
-  margin-inline: auto;
-  margin-block: 0;
-  font-size: clamp(2.3rem, 5vw, 4.4rem);
-  line-height: 0.94;
-  letter-spacing: -0.065em;
-}
-
-.welcome-hero__tagline {
-  max-width: 58ch;
-  font-size: 1rem;
-  line-height: 1.65;
-  margin: 0;
-  color: var(--c-text-dim);
-}
-
-.onboarding__grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-}
-
-.onboarding__quick-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.onboarding__card {
-  border-radius: calc(var(--radius-xl) + 2px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.012) 100%),
-    linear-gradient(160deg, rgba(20, 26, 38, 0.96) 0%, rgba(13, 17, 26, 0.96) 100%);
-  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.18);
-}
-
-.onboarding__card--main {
-  padding: 22px 24px 24px;
-}
-
-.onboarding__card--main h3 {
-  margin: 0 0 8px;
-  font-family: var(--font-display);
-  font-size: 1.18rem;
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  color: var(--c-text);
 }
 
 .onboarding {

@@ -984,7 +984,7 @@ describe("ui in-game touch controls toolbar", () => {
     const resetAfterDisable = document.querySelector<HTMLButtonElement>('[aria-label="Reset touch control layout"]');
     expect(menuAfterDisable).toBeTruthy();
     expect(editAfterDisable?.textContent).toBe("🎮 Edit");
-    expect(resetAfterDisable?.style.display).toBe("none");
+    expect(resetAfterDisable?.hidden).toBe(true);
   });
 });
 
