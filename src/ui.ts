@@ -568,6 +568,7 @@ export function initUI(opts: UIOptions): void {
           onLaunchGame, onSettingsChange, onReturnToLibrary,
           onApplyPatch, onFileChosen,
           getCurrentGameId, getCurrentGameName, getCurrentSystemId,
+          getCurrentCoreOptions, onUpdateCoreOption,
           getTouchOverlay, canInstallPWA, onInstallPWA } = opts;
 
   const saveService = opts.saveService ?? new SaveGameService({
@@ -734,7 +735,8 @@ export function initUI(opts: UIOptions): void {
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
-      getTouchOverlay, openSettingsWith, getNetplayManager, openPlayTogetherSettings
+      getTouchOverlay, openSettingsWith, getNetplayManager, openPlayTogetherSettings,
+      getCurrentCoreOptions, onUpdateCoreOption,
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
     if (settings.touchControls) {
@@ -765,7 +767,8 @@ export function initUI(opts: UIOptions): void {
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
-      getTouchOverlay, openSettingsWithResume, getNetplayManager, openPlayTogetherSettings
+      getTouchOverlay, openSettingsWithResume, getNetplayManager, openPlayTogetherSettings,
+      getCurrentCoreOptions, onUpdateCoreOption,
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
     if (settings.touchControls) {
@@ -789,7 +792,8 @@ export function initUI(opts: UIOptions): void {
     buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
-      getTouchOverlay, openSettingsWith, getNetplayManager, openPlayTogetherSettings
+      getTouchOverlay, openSettingsWith, getNetplayManager, openPlayTogetherSettings,
+      getCurrentCoreOptions, onUpdateCoreOption,
     );
   };
   bindEvent(document, TOUCH_CONTROLS_CHANGED_EVENT, rebuildInGameControls);
@@ -2781,6 +2785,8 @@ function buildInGameControls(
   onOpenSettings?:    (tab?: SettingsTab) => void,
   getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>,
   onOpenPlayTogetherSettings?: () => void,
+  getCurrentCoreOptions?: () => Record<string, string>,
+  onUpdateCoreOption?: (key: string, value: string) => void,
 ): void {
   const container = el("#header-actions");
   container.innerHTML = "";
@@ -2857,6 +2863,7 @@ function buildInGameControls(
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
       getCurrentSystemId, getTouchOverlay, onOpenSettings,
       getNetplayManager, onOpenPlayTogetherSettings,
+      getCurrentCoreOptions, onUpdateCoreOption,
     });
   }, { signal });
   container.append(btnGallery);
@@ -2954,7 +2961,8 @@ function buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
       getCurrentSystemId, getTouchOverlay, onOpenSettings,
-      getNetplayManager, onOpenPlayTogetherSettings
+      getNetplayManager, onOpenPlayTogetherSettings,
+      getCurrentCoreOptions, onUpdateCoreOption,
     });
   }, { signal });
 
@@ -3319,7 +3327,15 @@ async function showInGameMenu(ctx: {
               { label: "512x384 (2x)", value: "512x384" },
               { label: "1024x768 (4x)", value: "1024x768" },
             ]
-          }
+          },
+          segaDC: {
+            key: "reicast_internal_resolution",
+            options: [
+              { label: "640x480 (Native)", value: "640x480" },
+              { label: "1280x960 (2x)", value: "1280x960" },
+              { label: "1920x1440 (3x)", value: "1920x1440" },
+            ]
+          },
         };
 
         const config = resolutionConfig[systemId];
