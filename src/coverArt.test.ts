@@ -8,6 +8,10 @@ import {
   fetchAndValidateCoverArt,
   GitHubCoverArtProvider,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
+  cleanRomNameForLibretro,
+  systemIdToLibretroSystems,
+  LibretroCoverArtProvider,
+  ChainedCoverArtProvider,
 } from "./coverArt.js";
 import type { GameMetadata } from "./library.js";
 
@@ -327,5 +331,216 @@ describe("fetchAndValidateCoverArt", () => {
     } finally {
       (globalThis as { createImageBitmap?: unknown }).createImageBitmap = originalBitmap;
     }
+  });
+});
+
+// ── cleanRomNameForLibretro ───────────────────────────────────────────────────
+
+describe("cleanRomNameForLibretro", () => {
+  it("returns empty string for empty input", () => {
+    expect(cleanRomNameForLibretro("")).toBe("");
+  });
+
+  it("strips file extensions", () => {
+    expect(cleanRomNameForLibretro("Super Mario World.smc")).toBe("Super Mario World");
+    expect(cleanRomNameForLibretro("Zelda.nes")).toBe("Zelda");
+  });
+
+  it("preserves parenthesised region tags (No-Intro style)", () => {
+    expect(cleanRomNameForLibretro("Super Mario World (USA).smc")).toBe("Super Mario World (USA)");
+    expect(cleanRomNameForLibretro("Chrono Trigger (USA) (En,Fr,De).sfc")).toBe("Chrono Trigger (USA) (En,Fr,De)");
+  });
+
+  it("strips bracketed dump / verification tags", () => {
+    expect(cleanRomNameForLibretro("Zelda [!].nes")).toBe("Zelda");
+    expect(cleanRomNameForLibretro("Sonic (Europe) [b1].bin")).toBe("Sonic (Europe)");
+    expect(cleanRomNameForLibretro("Mario [!][h2].smc")).toBe("Mario");
+  });
+
+  it("preserves parenthesised revision markers", () => {
+    // No-Intro revision tags are in parentheses, not brackets.
+    expect(cleanRomNameForLibretro("Pokemon Red (Rev A).gb")).toBe("Pokemon Red (Rev A)");
+  });
+
+  it("handles path prefixes", () => {
+    expect(cleanRomNameForLibretro("roms/snes/Super Metroid (USA).smc")).toBe("Super Metroid (USA)");
+  });
+
+  it("collapses extra whitespace left by removals", () => {
+    expect(cleanRomNameForLibretro("Sonic [b1]  (Europe).bin")).toBe("Sonic (Europe)");
+  });
+});
+
+// ── systemIdToLibretroSystems ─────────────────────────────────────────────────
+
+describe("systemIdToLibretroSystems", () => {
+  it("maps common systems to at least one folder", () => {
+    expect(systemIdToLibretroSystems("nes").length).toBeGreaterThan(0);
+    expect(systemIdToLibretroSystems("snes").length).toBeGreaterThan(0);
+    expect(systemIdToLibretroSystems("gba").length).toBeGreaterThan(0);
+    expect(systemIdToLibretroSystems("segaMD").length).toBeGreaterThan(0);
+    expect(systemIdToLibretroSystems("psx").length).toBeGreaterThan(0);
+  });
+
+  it("returns the correct Libretro folder names", () => {
+    expect(systemIdToLibretroSystems("snes")).toEqual(["Nintendo - Super Nintendo Entertainment System"]);
+    expect(systemIdToLibretroSystems("psx")).toEqual(["Sony - PlayStation"]);
+    expect(systemIdToLibretroSystems("segaMD")).toEqual(["Sega - Mega Drive - Genesis"]);
+  });
+
+  it("returns an empty array for unknown systems", () => {
+    expect(systemIdToLibretroSystems("unknown")).toEqual([]);
+    expect(systemIdToLibretroSystems("")).toEqual([]);
+  });
+
+  it("returns a copy so callers cannot mutate the internal table", () => {
+    const a = systemIdToLibretroSystems("snes");
+    a.push("mutated");
+    const b = systemIdToLibretroSystems("snes");
+    expect(b).not.toContain("mutated");
+  });
+});
+
+// ── LibretroCoverArtProvider ──────────────────────────────────────────────────
+
+describe("LibretroCoverArtProvider", () => {
+  it("returns [] for unknown systems without calling fetch", async () => {
+    let called = 0;
+    const fetchImpl = (async (): Promise<Response> => {
+      called++;
+      return new Response("", { status: 200 });
+    }) as unknown as typeof fetch;
+    const p = new LibretroCoverArtProvider({ fetchImpl });
+    expect(await p.search("Zelda", "unknown-system")).toEqual([]);
+    expect(called).toBe(0);
+  });
+
+  it("returns [] when the name is empty after cleaning", async () => {
+    let called = 0;
+    const fetchImpl = (async (): Promise<Response> => {
+      called++;
+      return new Response("", { status: 200 });
+    }) as unknown as typeof fetch;
+    const p = new LibretroCoverArtProvider({ fetchImpl });
+    // Only bracketed dump tags — nothing left after cleaning.
+    expect(await p.search("[!][b1]", "snes")).toEqual([]);
+    expect(called).toBe(0);
+  });
+
+  it("constructs valid Libretro CDN URLs", async () => {
+    const urls: string[] = [];
+    const fetchImpl = (() => {
+      // No-op fetch — we only care what URLs are constructed.
+      return Promise.resolve(new Response("", { status: 200 }));
+    }) as unknown as typeof fetch;
+    const p = new LibretroCoverArtProvider({ fetchImpl, imageTypes: ["Named_Boxarts"] });
+    const results = await p.search("Super Mario World (USA).smc", "snes");
+    for (const r of results) urls.push(r.imageUrl);
+    // Every URL must start with the Libretro base URL.
+    for (const url of urls) {
+      expect(url).toMatch(/^https:\/\/thumbnails\.libretro\.com\//);
+    }
+    // Must contain the correct system directory.
+    expect(urls.some((u) => u.includes("Nintendo%20-%20Super%20Nintendo%20Entertainment%20System"))).toBe(true);
+    // Must end with .png.
+    for (const url of urls) expect(url).toMatch(/\.png$/);
+  });
+
+  it("returns a No-Intro candidate (score >= threshold) and a normalised fallback", async () => {
+    const p = new LibretroCoverArtProvider({ imageTypes: ["Named_Boxarts"] });
+    const results = await p.search("Super Mario World (USA) [!].smc", "snes");
+    // At least one candidate has the No-Intro name preserved.
+    const noIntro = results.find((r) => r.title === "Super Mario World (USA)");
+    expect(noIntro).toBeDefined();
+    expect(noIntro!.score).toBeGreaterThanOrEqual(AUTO_APPLY_CONFIDENCE_THRESHOLD);
+    // sourceName identifies the provider.
+    for (const r of results) expect(r.sourceName).toBe("Libretro Thumbnails");
+  });
+
+  it("respects the limit option", async () => {
+    const p = new LibretroCoverArtProvider();
+    const results = await p.search("Zelda (USA).nes", "nes", { limit: 1 });
+    expect(results.length).toBeLessThanOrEqual(1);
+  });
+
+  it("returns [] when aborted before starting", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const p = new LibretroCoverArtProvider();
+    expect(await p.search("Zelda", "nes", { signal: ctrl.signal })).toEqual([]);
+  });
+
+  it("sorts candidates by score descending", async () => {
+    const p = new LibretroCoverArtProvider({ imageTypes: ["Named_Boxarts"] });
+    const results = await p.search("Super Mario World (USA).smc", "snes");
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1]!.score).toBeGreaterThanOrEqual(results[i]!.score);
+    }
+  });
+});
+
+// ── ChainedCoverArtProvider ───────────────────────────────────────────────────
+
+describe("ChainedCoverArtProvider", () => {
+  it("merges results from all providers sorted by score", async () => {
+    const providerA = {
+      id: "a", name: "A",
+      search: async () => [
+        { title: "Title A", systemId: "snes", imageUrl: "https://a.example/1.png", sourceName: "A", score: 0.7 },
+      ],
+    };
+    const providerB = {
+      id: "b", name: "B",
+      search: async () => [
+        { title: "Title B", systemId: "snes", imageUrl: "https://b.example/2.png", sourceName: "B", score: 0.9 },
+      ],
+    };
+    const chain = new ChainedCoverArtProvider([providerA, providerB]);
+    const results = await chain.search("Some Game", "snes");
+    // Highest-scoring candidate should be first.
+    expect(results[0]!.score).toBe(0.9);
+    expect(results[1]!.score).toBe(0.7);
+  });
+
+  it("deduplicates candidates with the same imageUrl", async () => {
+    const shared = { title: "T", systemId: "nes", imageUrl: "https://x.example/img.png", sourceName: "X", score: 0.8 };
+    const p1 = { id: "p1", name: "P1", search: async () => [shared] };
+    const p2 = { id: "p2", name: "P2", search: async () => [shared] };
+    const chain = new ChainedCoverArtProvider([p1, p2]);
+    const results = await chain.search("T", "nes");
+    expect(results.length).toBe(1);
+  });
+
+  it("continues past a failing provider", async () => {
+    const broken = {
+      id: "bad", name: "Bad",
+      search: async (): Promise<never> => { throw new Error("network down"); },
+    };
+    const good = {
+      id: "good", name: "Good",
+      search: async () => [
+        { title: "Good Result", systemId: "nes", imageUrl: "https://good.example/img.png", sourceName: "Good", score: 0.8 },
+      ],
+    };
+    const chain = new ChainedCoverArtProvider([broken, good]);
+    const results = await chain.search("Zelda", "nes");
+    expect(results.length).toBe(1);
+    expect(results[0]!.title).toBe("Good Result");
+  });
+
+  it("returns [] for an empty provider list", async () => {
+    const chain = new ChainedCoverArtProvider([]);
+    expect(await chain.search("Mario", "snes")).toEqual([]);
+  });
+
+  it("respects the limit option", async () => {
+    const manyResults = Array.from({ length: 10 }, (_, i) => ({
+      title: `Title ${i}`, systemId: "snes",
+      imageUrl: `https://x.example/${i}.png`, sourceName: "X", score: 1 - i * 0.05,
+    }));
+    const p = { id: "x", name: "X", search: async () => manyResults };
+    const chain = new ChainedCoverArtProvider([p]);
+    const results = await chain.search("Game", "snes", { limit: 3 });
+    expect(results.length).toBe(3);
   });
 });

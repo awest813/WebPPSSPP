@@ -385,3 +385,219 @@ export function listGamesMissingCoverArt(games: GameMetadata[]): GameMetadata[] 
  * prompting the user; everything else is reported for manual review.
  */
 export const AUTO_APPLY_CONFIDENCE_THRESHOLD = 0.85;
+
+// ── Libretro Thumbnails provider ─────────────────────────────────────────────
+
+/**
+ * Mapping from RetroOasis systemId → Libretro thumbnail system directory
+ * names. See https://thumbnails.libretro.com/ for the full directory listing.
+ * These follow the "<Publisher> - <System>" convention used by the Libretro
+ * thumbnails project.
+ */
+const LIBRETRO_SYSTEM_MAP: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  nes:        ["Nintendo - Nintendo Entertainment System"],
+  snes:       ["Nintendo - Super Nintendo Entertainment System"],
+  gb:         ["Nintendo - Game Boy"],
+  gbc:        ["Nintendo - Game Boy Color"],
+  gba:        ["Nintendo - Game Boy Advance"],
+  nds:        ["Nintendo - Nintendo DS"],
+  n64:        ["Nintendo - Nintendo 64"],
+  segaMD:     ["Sega - Mega Drive - Genesis"],
+  segaMS:     ["Sega - Master System - Mark III"],
+  segaGG:     ["Sega - Game Gear"],
+  segaSaturn: ["Sega - Saturn"],
+  segaDC:     ["Sega - Dreamcast"],
+  psx:        ["Sony - PlayStation"],
+  psp:        ["Sony - PlayStation Portable"],
+  atari2600:  ["Atari - 2600"],
+  atari7800:  ["Atari - 7800"],
+  lynx:       ["Atari - Lynx"],
+  ngp:        ["SNK - Neo Geo Pocket Color"],
+  arcade:     ["FBNeo - Arcade Games"],
+  mame2003:   ["MAME"],
+});
+
+const LIBRETRO_BASE_URL = "https://thumbnails.libretro.com";
+type LibretroImageType = "Named_Boxarts" | "Named_Titles" | "Named_Snaps";
+const LIBRETRO_IMAGE_TYPES: readonly LibretroImageType[] = ["Named_Boxarts", "Named_Titles"];
+
+/**
+ * Return candidate Libretro system directory names for a given systemId in
+ * the order they should be tried. Unknown systems return an empty array.
+ */
+export function systemIdToLibretroSystems(systemId: string): string[] {
+  if (!systemId) return [];
+  const hit = LIBRETRO_SYSTEM_MAP[systemId];
+  return hit ? [...hit] : [];
+}
+
+/**
+ * Prepare a ROM filename for Libretro thumbnail lookup.
+ *
+ * Unlike `normalizeRomName`, this function preserves parenthesised
+ * region, language, and revision tags so the result matches the
+ * No-Intro naming convention used by the Libretro thumbnails repository.
+ * Only the file extension and bracketed dump-verification tags (e.g. [!],
+ * [b1], [h2]) are stripped.
+ *
+ * Examples:
+ *   "Super Mario World (USA) [!].smc" → "Super Mario World (USA)"
+ *   "Chrono Trigger (USA) (En,Fr,De).sfc" → "Chrono Trigger (USA) (En,Fr,De)"
+ *   "Zelda [!].nes"                   → "Zelda"
+ */
+export function cleanRomNameForLibretro(raw: string): string {
+  if (!raw) return "";
+  let s = String(raw);
+
+  // Drop path prefix just in case the caller passes a full path.
+  const slash = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+  if (slash >= 0) s = s.substring(slash + 1);
+
+  // Strip file extension (last dot only, when the suffix looks like an extension).
+  const dot = s.lastIndexOf(".");
+  if (dot > 0 && s.length - dot <= 6) s = s.substring(0, dot);
+
+  // Remove bracketed dump / verification tags only — NOT parenthetical tags.
+  s = s.replace(/\[[^\]]*\]/g, " ");
+
+  // Collapse whitespace introduced by removals.
+  s = s.replace(/\s+/g, " ").trim();
+
+  return s;
+}
+
+/** Tunable options for `LibretroCoverArtProvider`. Exposed mainly for tests. */
+export interface LibretroProviderOptions {
+  /** Override `fetch` (useful for unit tests). */
+  fetchImpl?: typeof fetch;
+  /**
+   * Image categories to search, in priority order.
+   * Defaults to `["Named_Boxarts", "Named_Titles"]`.
+   */
+  imageTypes?: readonly LibretroImageType[];
+}
+
+/**
+ * Libretro-thumbnails-backed cover art provider.
+ *
+ * Constructs direct image URLs from the public Libretro thumbnails CDN at
+ * https://thumbnails.libretro.com/. No API key or authentication is needed.
+ *
+ * Two name variants are tried for each game:
+ *   1. The No-Intro-style name (region tags preserved) — higher confidence.
+ *   2. The fully-normalised name (all tags stripped) — lower confidence fallback.
+ *
+ * Candidates are returned without prior network validation so the search is
+ * instantaneous. The caller's `fetchAndValidateCoverArt` call handles the
+ * actual download and will surface any 404 / unreachable errors gracefully.
+ */
+export class LibretroCoverArtProvider implements CoverArtProvider {
+  readonly id = "libretro";
+  readonly name = "Libretro Thumbnails";
+
+  private readonly fetchImpl: typeof fetch;
+  private readonly imageTypes: readonly LibretroImageType[];
+
+  constructor(opts: LibretroProviderOptions = {}) {
+    this.fetchImpl  = opts.fetchImpl  ?? fetch.bind(globalThis);
+    this.imageTypes = opts.imageTypes ?? LIBRETRO_IMAGE_TYPES;
+  }
+
+  async search(
+    name: string,
+    systemId: string,
+    opts: { limit?: number; signal?: AbortSignal } = {},
+  ): Promise<CoverArtCandidate[]> {
+    if (opts.signal?.aborted) return [];
+    const systems = systemIdToLibretroSystems(systemId);
+    if (systems.length === 0) return [];
+
+    // Build name variants: No-Intro style first (highest quality match),
+    // then the aggressively-normalised form as a fallback.
+    const noIntroName = cleanRomNameForLibretro(name);
+    const normName    = normalizeRomName(name);
+    if (!noIntroName && !normName) return [];
+
+    // Deduplicate variants while preserving priority order.
+    const variants = [...new Set([noIntroName, normName].filter(Boolean))];
+
+    const limit = Math.max(1, Math.min(20, opts.limit ?? 6));
+    const candidates: CoverArtCandidate[] = [];
+    const seenUrls = new Set<string>();
+
+    for (const system of systems) {
+      if (opts.signal?.aborted) break;
+
+      for (const imageType of this.imageTypes) {
+        if (opts.signal?.aborted) break;
+
+        for (const variant of variants) {
+          if (candidates.length >= limit) break;
+
+          const url =
+            `${LIBRETRO_BASE_URL}/${encodeURIComponent(system)}` +
+            `/${imageType}/${encodeURIComponent(variant)}.png`;
+
+          if (seenUrls.has(url)) continue;
+          seenUrls.add(url);
+
+          // No-Intro name matches what the thumbnail repo actually uses;
+          // normalised name is a fallback that may work for simpler titles.
+          const score = variant === noIntroName ? 0.92 : 0.82;
+          candidates.push({ title: variant, systemId, imageUrl: url, sourceName: this.name, score });
+        }
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates.slice(0, limit);
+  }
+}
+
+// ── Chained / composite provider ─────────────────────────────────────────────
+
+/**
+ * A meta-provider that queries multiple `CoverArtProvider` instances in order
+ * and returns a merged, deduplicated list of candidates ranked by score.
+ *
+ * Each inner provider is tried in sequence. Results are deduplicated by
+ * `imageUrl` so the same image is never returned twice. The combined list is
+ * sorted by score descending and truncated to `limit` entries.
+ *
+ * Network / runtime errors from individual providers are silently swallowed so
+ * that one failing source does not prevent results from the others.
+ */
+export class ChainedCoverArtProvider implements CoverArtProvider {
+  readonly id = "chained";
+  readonly name = "All Sources";
+
+  constructor(private readonly providers: readonly CoverArtProvider[]) {}
+
+  async search(
+    name: string,
+    systemId: string,
+    opts: { limit?: number; signal?: AbortSignal } = {},
+  ): Promise<CoverArtCandidate[]> {
+    const limit = Math.max(1, Math.min(20, opts.limit ?? 6));
+    const all: CoverArtCandidate[] = [];
+    const seenUrls = new Set<string>();
+
+    for (const provider of this.providers) {
+      if (opts.signal?.aborted) break;
+      try {
+        const results = await provider.search(name, systemId, { ...opts, limit });
+        for (const c of results) {
+          if (!seenUrls.has(c.imageUrl)) {
+            seenUrls.add(c.imageUrl);
+            all.push(c);
+          }
+        }
+      } catch {
+        // A single provider failing must not abort the chain.
+      }
+    }
+
+    all.sort((a, b) => b.score - a.score);
+    return all.slice(0, limit);
+  }
+}

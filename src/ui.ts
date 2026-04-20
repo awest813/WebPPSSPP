@@ -130,10 +130,13 @@ import {
 } from "./ui/modals.js";
 import {
   GitHubCoverArtProvider,
+  LibretroCoverArtProvider,
+  ChainedCoverArtProvider,
   fetchAndValidateCoverArt,
   listGamesMissingCoverArt,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
   type CoverArtCandidate,
+  type CoverArtProvider,
 } from "./coverArt.js";
 import {
   buildAboutTab as buildAboutTabContent,
@@ -183,9 +186,16 @@ let _settingsTabBarRo: ResizeObserver | null = null;
 // Lazily-instantiated cover-art provider. Creating the provider is free, but
 // we defer it so the default export surface of this module stays pure and so
 // tests can reach into `_coverArtProvider` if they ever need to override it.
-let _coverArtProvider: GitHubCoverArtProvider | null = null;
-function getCoverArtProvider(): GitHubCoverArtProvider {
-  if (!_coverArtProvider) _coverArtProvider = new GitHubCoverArtProvider();
+// Libretro Thumbnails is tried first (direct CDN URL construction, no auth),
+// with the GitHub cover-art-collection as a fallback for broader fuzzy coverage.
+let _coverArtProvider: CoverArtProvider | null = null;
+function getCoverArtProvider(): CoverArtProvider {
+  if (!_coverArtProvider) {
+    _coverArtProvider = new ChainedCoverArtProvider([
+      new LibretroCoverArtProvider(),
+      new GitHubCoverArtProvider(),
+    ]);
+  }
   return _coverArtProvider;
 }
 
