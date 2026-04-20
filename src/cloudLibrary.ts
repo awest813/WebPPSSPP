@@ -147,8 +147,10 @@ export class DropboxLibraryProvider implements CloudProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const r = await fetch("https://api.dropboxapi.com/2/check/user", {
+      const r = await fetch("https://api.dropboxapi.com/2/users/get_current_account", {
+        method:  "POST",
         headers: { Authorization: `Bearer ${this.accessToken}` },
+        body:    "null",
       });
       return r.status === 200;
     } catch { return false; }
@@ -671,7 +673,7 @@ export class MegaLibraryProvider implements CloudProvider {
    * proprietary KDF (repeated AES-ECB encryption of the password chunks
    * XOR'd into a running key).
    */
-  private static _derivePasswordKey(password: string): Uint8Array {
+  static _derivePasswordKey(password: string): Uint8Array {
     const pkey = new Uint8Array(16);
     const passwordBytes = new TextEncoder().encode(password);
     // Pad password to a multiple of 16 bytes.
@@ -699,7 +701,7 @@ export class MegaLibraryProvider implements CloudProvider {
    * Compute the legacy user hash (uh) for authentication.
    * Repeatedly AES-ECB-encrypts the email using the password key.
    */
-  private static _computeUserHash(email: string, passwordKey: Uint8Array): string {
+  static _computeUserHash(email: string, passwordKey: Uint8Array): string {
     const emailBytes = new TextEncoder().encode(email);
     const hash = new Uint8Array(16);
     for (let i = 0; i < emailBytes.length; i++) {
@@ -849,7 +851,7 @@ export class MegaLibraryProvider implements CloudProvider {
   }
 
   /** MEGA-style base64url encode (no padding, + → - , / → _ ). */
-  private static _uint8ToBase64(bytes: Uint8Array): string {
+  static _uint8ToBase64(bytes: Uint8Array): string {
     let binary = "";
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

@@ -2167,8 +2167,8 @@ export class MegaProvider implements CloudSaveProvider {
     const { MegaLibraryProvider } = await import("./cloudLibrary.js");
 
     const emailLower = this.email.toLowerCase();
-    const passwordKey = MegaProvider._derivePasswordKey(this.password);
-    const userHash = MegaProvider._computeUserHash(emailLower, passwordKey);
+    const passwordKey = MegaLibraryProvider._derivePasswordKey(this.password);
+    const userHash = MegaLibraryProvider._computeUserHash(emailLower, passwordKey);
 
     const loginResp = await this._apiRequest([{ a: "us", user: emailLower, uh: userHash }]);
     const data = loginResp[0] as { tsid?: string; csid?: string; k?: string } | number;
@@ -2336,9 +2336,14 @@ export class MegaProvider implements CloudSaveProvider {
           const keyParts = n.k.split(":");
           const encNodeKey = MegaLibraryProvider._base64ToUint8(keyParts[keyParts.length - 1]!);
           const decNodeKey = MegaLibraryProvider._aesEcbDecrypt(encNodeKey, this._masterKey!);
-          const attrKey = new Uint8Array(16);
-          for (let i = 0; i < 16; i++) {
-            attrKey[i] = (decNodeKey[i] ?? 0) ^ (decNodeKey[i + 16] ?? 0);
+          let attrKey: Uint8Array;
+          if (decNodeKey.length >= 32) {
+            attrKey = new Uint8Array(16);
+            for (let i = 0; i < 16; i++) {
+              attrKey[i] = (decNodeKey[i] ?? 0) ^ (decNodeKey[i + 16] ?? 0);
+            }
+          } else {
+            attrKey = decNodeKey.slice(0, 16);
           }
           const encAttrs = MegaLibraryProvider._base64ToUint8(n.a);
           const decAttrs = MegaLibraryProvider._aesEcbDecrypt(encAttrs, attrKey);
@@ -2377,40 +2382,6 @@ export class MegaProvider implements CloudSaveProvider {
     });
     if (!r.ok) throw new Error(`MEGA API failed: ${r.status}`);
     return await r.json() as unknown[];
-  }
-
-  /** Derive 128-bit password key using MEGA's proprietary KDF (simplified XOR). */
-  private static _derivePasswordKey(password: string): Uint8Array {
-    const pkey = new Uint8Array(16);
-    const passwordBytes = new TextEncoder().encode(password);
-    const padded = new Uint8Array(Math.ceil(passwordBytes.length / 16) * 16);
-    padded.set(passwordBytes);
-    for (let i = 0; i < padded.length; i += 16) {
-      for (let j = 0; j < 16; j++) {
-        pkey[j]! ^= padded[i + j]!;
-      }
-    }
-    return pkey;
-  }
-
-  /** Compute legacy user hash for MEGA authentication. */
-  private static _computeUserHash(email: string, passwordKey: Uint8Array): string {
-    const emailBytes = new TextEncoder().encode(email);
-    const hash = new Uint8Array(16);
-    for (let i = 0; i < emailBytes.length; i++) {
-      hash[i % 16]! ^= emailBytes[i]!;
-    }
-    // XOR hash with password key before extracting bytes.
-    for (let i = 0; i < 16; i++) {
-      hash[i]! ^= passwordKey[i]!;
-    }
-    // Return base64url of first 4 + last 4 bytes.
-    const uhBytes = new Uint8Array(8);
-    uhBytes.set(hash.subarray(0, 4), 0);
-    uhBytes.set(hash.subarray(12, 16), 4);
-    let binary = "";
-    for (let i = 0; i < uhBytes.length; i++) binary += String.fromCharCode(uhBytes[i]!);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
   private async _timedFetch(url: string, init: RequestInit): Promise<Response> {
