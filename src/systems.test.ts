@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier, type SystemInfo } from "./systems.js";
+import { detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier, getGBSettingsForTier, getGBCSettingsForTier, type SystemInfo } from "./systems.js";
 
 describe('systems performance profiles', () => {
   describe('detectSystem', () => {
@@ -567,6 +567,102 @@ describe('systems performance profiles', () => {
       expect(n64?.tierSettings?.medium?.['mupen64plus-cpucore']).toBe('dynamic_recompiler');
       expect(n64?.tierSettings?.high?.['mupen64plus-cpucore']).toBe('dynamic_recompiler');
       expect(n64?.tierSettings?.ultra?.['mupen64plus-cpucore']).toBe('dynamic_recompiler');
+    });
+  });
+
+  describe('Game Boy (GB) core settings', () => {
+    it('detects .gb files as the Game Boy system', () => {
+      const detected = detectSystem('tetris.gb');
+      expect(Array.isArray(detected)).toBe(false);
+      expect(detected && !Array.isArray(detected) ? detected.id : null).toBe('gb');
+    });
+
+    it('uses DMG hardware mode on the low tier for authentic monochrome experience', () => {
+      const settings = getGBSettingsForTier('low');
+      expect(settings['gambatte_gb_hwmode']).toBe('GB');
+      expect(settings['gambatte_gb_colorization']).toBe('disabled');
+    });
+
+    it('switches to GBC hardware mode on medium+ tiers to enable built-in colour palettes', () => {
+      const medium = getGBSettingsForTier('medium');
+      const high   = getGBSettingsForTier('high');
+      const ultra  = getGBSettingsForTier('ultra');
+      expect(medium['gambatte_gb_hwmode']).toBe('GBC');
+      expect(high['gambatte_gb_hwmode']).toBe('GBC');
+      expect(ultra['gambatte_gb_hwmode']).toBe('GBC');
+    });
+
+    it('enables internal GBC colour palettes on medium+ tiers', () => {
+      const medium = getGBSettingsForTier('medium');
+      expect(medium['gambatte_gb_colorization']).toBe('internal');
+    });
+
+    it('enables mix_frames LCD ghosting on high and ultra tiers', () => {
+      const low    = getGBSettingsForTier('low');
+      const medium = getGBSettingsForTier('medium');
+      const high   = getGBSettingsForTier('high');
+      const ultra  = getGBSettingsForTier('ultra');
+      expect(low['gambatte_mix_frames']).toBe('disabled');
+      expect(medium['gambatte_mix_frames']).toBe('disabled');
+      expect(high['gambatte_mix_frames']).toBe('mix');
+      expect(ultra['gambatte_mix_frames']).toBe('mix');
+    });
+
+    it('applies dark_filter_level 10 only on ultra tier', () => {
+      expect(getGBSettingsForTier('low')['gambatte_dark_filter_level']).toBe('0');
+      expect(getGBSettingsForTier('high')['gambatte_dark_filter_level']).toBe('0');
+      expect(getGBSettingsForTier('ultra')['gambatte_dark_filter_level']).toBe('10');
+    });
+
+    it('GB system uses GB_TIER_SETTINGS via getSystemById', () => {
+      const gb = getSystemById('gb');
+      expect(gb?.tierSettings?.low?.['gambatte_gb_hwmode']).toBe('GB');
+      expect(gb?.tierSettings?.high?.['gambatte_gb_hwmode']).toBe('GBC');
+    });
+  });
+
+  describe('Game Boy Color (GBC) core settings', () => {
+    it('detects .gbc files as the Game Boy Color system', () => {
+      const detected = detectSystem('pokemon_crystal.gbc');
+      expect(Array.isArray(detected)).toBe(false);
+      expect(detected && !Array.isArray(detected) ? detected.id : null).toBe('gbc');
+    });
+
+    it('always uses GBC hardware mode on all tiers', () => {
+      const tiers = (['low', 'medium', 'high', 'ultra'] as const);
+      for (const tier of tiers) {
+        expect(getGBCSettingsForTier(tier)['gambatte_gb_hwmode']).toBe('GBC');
+      }
+    });
+
+    it('does not apply GB colorisation keys — native GBC games are already full colour', () => {
+      for (const tier of ['low', 'medium', 'high', 'ultra'] as const) {
+        const settings = getGBCSettingsForTier(tier);
+        expect(settings['gambatte_gb_colorization']).toBeUndefined();
+        expect(settings['gambatte_gb_internal_palette']).toBeUndefined();
+      }
+    });
+
+    it('enables mix_frames LCD ghosting on high and ultra tiers', () => {
+      expect(getGBCSettingsForTier('low')['gambatte_mix_frames']).toBe('disabled');
+      expect(getGBCSettingsForTier('medium')['gambatte_mix_frames']).toBe('disabled');
+      expect(getGBCSettingsForTier('high')['gambatte_mix_frames']).toBe('mix');
+      expect(getGBCSettingsForTier('ultra')['gambatte_mix_frames']).toBe('mix');
+    });
+
+    it('applies dark_filter_level 10 only on ultra tier', () => {
+      expect(getGBCSettingsForTier('low')['gambatte_dark_filter_level']).toBe('0');
+      expect(getGBCSettingsForTier('high')['gambatte_dark_filter_level']).toBe('0');
+      expect(getGBCSettingsForTier('ultra')['gambatte_dark_filter_level']).toBe('10');
+    });
+
+    it('GBC system uses GBC_TIER_SETTINGS via getSystemById', () => {
+      const gbc = getSystemById('gbc');
+      // All tiers should use GBC hardware mode, not GB
+      expect(gbc?.tierSettings?.low?.['gambatte_gb_hwmode']).toBe('GBC');
+      expect(gbc?.tierSettings?.high?.['gambatte_gb_hwmode']).toBe('GBC');
+      // Colorization keys must not appear for native GBC games
+      expect(gbc?.tierSettings?.low?.['gambatte_gb_colorization']).toBeUndefined();
     });
   });
 });

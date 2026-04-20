@@ -702,6 +702,22 @@ export function getGBASettingsForTier(tier: PerformanceTier): Record<string, str
 }
 
 /**
+ * Get the appropriate Gambatte GB settings for a given performance tier.
+ * Use this for original Game Boy (.gb) ROMs.
+ */
+export function getGBSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...GB_TIER_SETTINGS[tier] };
+}
+
+/**
+ * Get the appropriate Gambatte GBC settings for a given performance tier.
+ * Use this for native Game Boy Color (.gbc) ROMs.
+ */
+export function getGBCSettingsForTier(tier: PerformanceTier): Record<string, string> {
+  return { ...GBC_TIER_SETTINGS[tier] };
+}
+
+/**
  * Get the appropriate Beetle PSX settings for a given performance tier.
  */
 export function getPSXSettingsForTier(tier: PerformanceTier): Record<string, string> {
@@ -814,16 +830,25 @@ const SNES_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
-// ── Game Boy / Game Boy Color (Gambatte) tier settings ────────────────────────
+// ── Game Boy (Gambatte) tier settings ─────────────────────────────────────────
 //
-// Gambatte is the precision GB/GBC core. Key options:
-//   gambatte_gb_colorization  — GBC palette colorisation for monochrome GB titles
-//   gambatte_gb_internal_palette — built-in DMG palette name
-//   gambatte_mix_frames       — LCD ghosting simulation ("disabled" | "mix")
+// Gambatte is the precision GB/GBC core. Key options for the original Game Boy:
+//   gambatte_gb_hwmode         — hardware to emulate: "GB" (DMG) or "GBC" (run GB
+//                                games in GBC mode to unlock built-in GBC colorisation)
+//   gambatte_gb_colorization   — GBC palette colorisation for monochrome GB titles
+//                                ("disabled" | "internal" | "custom")
+//   gambatte_gb_internal_palette — built-in DMG palette name (e.g. "GB - DMG")
+//   gambatte_mix_frames        — LCD ghosting simulation ("disabled" | "mix")
 //   gambatte_dark_filter_level — darkness filter 0–100 (mimics original screen bias)
+//
+// Low tier uses authentic "GB" hardware mode for maximum performance.
+// Medium and above switch to "GBC" hardware mode so the core applies GBC's
+// built-in palettes to monochrome GB titles, improving visual quality.
 
-const GAMBATTE_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+const GB_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
+    // Emulate the original DMG hardware for authenticity and lowest CPU cost.
+    gambatte_gb_hwmode: "GB",
     gambatte_gb_colorization: "disabled",
     gambatte_gb_internal_palette: "GB - DMG",
     gambatte_mix_frames: "disabled",
@@ -832,7 +857,8 @@ const GAMBATTE_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = 
     gambatte_dark_filter_level: "0",
   },
   medium: {
-    // Use GBC built-in colorisation for monochrome GB titles in GBC mode
+    // Run GB games in GBC mode to enable built-in GBC colour palettes.
+    gambatte_gb_hwmode: "GBC",
     gambatte_gb_colorization: "internal",
     gambatte_gb_internal_palette: "GB - DMG",
     gambatte_mix_frames: "disabled",
@@ -841,6 +867,7 @@ const GAMBATTE_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = 
     gambatte_dark_filter_level: "0",
   },
   high: {
+    gambatte_gb_hwmode: "GBC",
     gambatte_gb_colorization: "internal",
     gambatte_gb_internal_palette: "GB - DMG",
     // "mix" blending replicates the DMG LCD motion handling most faithfully
@@ -850,12 +877,57 @@ const GAMBATTE_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = 
     gambatte_dark_filter_level: "0",
   },
   ultra: {
+    gambatte_gb_hwmode: "GBC",
     gambatte_gb_colorization: "internal",
     gambatte_gb_internal_palette: "GB - DMG",
     gambatte_mix_frames: "mix",
     gambatte_up_down_allowed: "disabled",
     gambatte_turbo_period: "4",
     // 10% darkness mimics the slight greenish bias of original DMG screens
+    gambatte_dark_filter_level: "10",
+  },
+};
+
+// ── Game Boy Color (Gambatte) tier settings ───────────────────────────────────
+//
+// Native GBC games (.gbc) are already full-colour — the colorisation and
+// internal-palette keys are therefore omitted here (they only affect monochrome
+// GB titles running in GBC compatibility mode).
+//
+//   gambatte_gb_hwmode  — always "GBC" for native Game Boy Color hardware
+//   gambatte_mix_frames — GBC LCD also exhibits inter-frame ghosting; "mix"
+//                         replicates it on capable devices
+//   gambatte_dark_filter_level — slight colour bias present on GBC screens
+
+const GBC_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    gambatte_gb_hwmode: "GBC",
+    gambatte_mix_frames: "disabled",
+    gambatte_up_down_allowed: "disabled",
+    gambatte_turbo_period: "4",
+    gambatte_dark_filter_level: "0",
+  },
+  medium: {
+    gambatte_gb_hwmode: "GBC",
+    gambatte_mix_frames: "disabled",
+    gambatte_up_down_allowed: "disabled",
+    gambatte_turbo_period: "4",
+    gambatte_dark_filter_level: "0",
+  },
+  high: {
+    gambatte_gb_hwmode: "GBC",
+    // GBC LCD ghosting is subtler than DMG but still present on capable hardware
+    gambatte_mix_frames: "mix",
+    gambatte_up_down_allowed: "disabled",
+    gambatte_turbo_period: "4",
+    gambatte_dark_filter_level: "0",
+  },
+  ultra: {
+    gambatte_gb_hwmode: "GBC",
+    gambatte_mix_frames: "mix",
+    gambatte_up_down_allowed: "disabled",
+    gambatte_turbo_period: "4",
+    // Slight colour bias on the original GBC screen
     gambatte_dark_filter_level: "10",
   },
 };
@@ -1167,9 +1239,9 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#e87d2a",
     needsThreads: false,
     needsWebGL2: false,
-    qualitySettings: GAMBATTE_TIER_SETTINGS.high,
-    perfSettings: GAMBATTE_TIER_SETTINGS.low,
-    tierSettings: GAMBATTE_TIER_SETTINGS,
+    qualitySettings: GBC_TIER_SETTINGS.high,
+    perfSettings: GBC_TIER_SETTINGS.low,
+    tierSettings: GBC_TIER_SETTINGS,
   },
   {
     id: "gb",
@@ -1180,9 +1252,9 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#7a9e27",
     needsThreads: false,
     needsWebGL2: false,
-    qualitySettings: GAMBATTE_TIER_SETTINGS.high,
-    perfSettings: GAMBATTE_TIER_SETTINGS.low,
-    tierSettings: GAMBATTE_TIER_SETTINGS,
+    qualitySettings: GB_TIER_SETTINGS.high,
+    perfSettings: GB_TIER_SETTINGS.low,
+    tierSettings: GB_TIER_SETTINGS,
   },
   {
     id: "nds",

@@ -2663,8 +2663,8 @@ describe("buildMultiplayerTab — supported systems section", () => {
     expect(gameSection!.textContent).toContain("unique room key");
   });
 
-  it("shows incompatibility message for unsupported system (SNES)", () => {
-    openMultiplayerTabWith("Super Mario World (USA)", "snes");
+  it("shows incompatibility message for unsupported system (PSX)", () => {
+    openMultiplayerTabWith("Metal Gear Solid (USA)", "psx");
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const gameSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
       .find(s => s.querySelector("h4")?.textContent?.includes("Current Game"));
@@ -3681,7 +3681,7 @@ describe("openEasyNetplayModal", () => {
   });
 
   it("shows the game badge and compat warning for an unsupported system", () => {
-    openEasyNetplayModal({ currentGameName: "My Game", currentSystemId: "nes" });
+    openEasyNetplayModal({ currentGameName: "My Game", currentSystemId: "psx" });
     const badge = document.querySelector(".enp-game-badge");
     expect(badge).toBeTruthy();
     expect(badge!.textContent).toContain("My Game");
