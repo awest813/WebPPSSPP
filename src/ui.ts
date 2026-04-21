@@ -77,6 +77,8 @@ import {
   roomDisplayNameForKey,
 } from "./multiplayerUtils.js";
 import { getNetplayManager, peekNetplayManager, registerNetplayInstance } from "./netplaySingleton.js";
+import { store } from "./store/index.js";
+import { fromNetplayIceServers, toNetplayIceServers } from "./store/bridge.js";
 import { resolveNetplayRoomKey } from "./multiplayer.js"; // Stay in lazy chunk for now
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
 import type { EasyNetplayRoom } from "./netplay/netplayTypes.js";
@@ -4918,6 +4920,8 @@ export function openEasyNetplayModal(opts: {
       try { fn(); } catch { /* ignore cleanup errors */ }
     });
     easyMgr.cancelPendingOperations();
+    // Mark the netplay slice inactive so subscribers know the modal is gone.
+    store.set("netplay", { active: false, roomKey: null, peerCount: 0 });
     overlay.classList.remove("confirm-overlay--visible");
     setTimeout(() => overlay.remove(), OVERLAY_FADE_DELAY_MS);
   };
@@ -4936,6 +4940,8 @@ export function openEasyNetplayModal(opts: {
   btnClose.addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   document.addEventListener("keydown", onKey, { capture: true });
+  // Mark the netplay slice active so subscribers can show an "in-lobby" indicator.
+  store.set("netplay", { active: true });
   requestAnimationFrame(() => {
     overlay.classList.add("confirm-overlay--visible");
     tabBtns[0]?.focus();
@@ -6342,8 +6348,27 @@ function buildMultiplayerTab(
     "For networks with strict symmetric NAT, add a TURN server (e.g. turn:turn.example.com:3478)."
   ));
 
-  // Mutable local copy — kept in sync with NetplayManager on every change
-  let iceServers: RTCIceServer[] = [...(peekNetplayManager()?.iceServers ?? DEFAULT_ICE_SERVERS)];
+  // Mutable local copy driven by the RetroOasisStore `settings` slice.
+  //
+  // At first render, if the store slice is empty (fresh install or settings
+  // without `netplayIceServers`), fall back to whatever the NetplayManager
+  // currently holds so existing users don't lose legacy-persisted servers.
+  // From this point on, all mutations flow through
+  // `onSettingsChange({ netplayIceServers: … })`, which mirrors into the
+  // store and — via the main.ts subscriber — back into
+  // `NetplayManager.setIceServers()`.
+  let iceServers: RTCIceServer[] = (() => {
+    const fromStore = store.get("settings").netplayIceServers;
+    if (fromStore.length > 0) return fromNetplayIceServers(fromStore);
+    return [...(peekNetplayManager()?.iceServers ?? DEFAULT_ICE_SERVERS)];
+  })();
+
+  /** Commit the local list to the store (single source of truth). */
+  const commitIceServers = (): void => {
+    onSettingsChange({
+      netplayIceServers: toNetplayIceServers(iceServers),
+    });
+  };
 
   // List of current entries, rebuilt on every mutation
   const iceList = make("div", { class: "netplay-ice-list" });
@@ -6368,7 +6393,7 @@ function buildMultiplayerTab(
       removeBtn.addEventListener("click", () => {
         const idx = iceServers.indexOf(srv);
         if (idx !== -1) iceServers.splice(idx, 1);
-        callNm(m => m.setIceServers([...iceServers]));
+        commitIceServers();
         renderIceList();
       });
       row.appendChild(removeBtn);
@@ -6408,7 +6433,7 @@ function buildMultiplayerTab(
     }
     addInput.setCustomValidity("");
     iceServers.push({ urls: url });
-    callNm(m => m.setIceServers([...iceServers]));
+    commitIceServers();
     addInput.value = "";
     renderIceList();
   });
@@ -6425,8 +6450,8 @@ function buildMultiplayerTab(
   // Reset-to-defaults button
   const resetBtn = make("button", { class: "btn settings-clear-btn" }, "Reset to defaults") as HTMLButtonElement;
   resetBtn.addEventListener("click", () => {
-    callNm(m => m.resetIceServers());
     iceServers = [...DEFAULT_ICE_SERVERS];
+    commitIceServers();
     renderIceList();
   });
   iceContent.appendChild(resetBtn);

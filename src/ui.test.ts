@@ -10,6 +10,7 @@ import type { BiosLibrary } from "./bios.js";
 import type { SaveStateLibrary } from "./saves.js";
 import type { Settings } from "./main.js";
 import { UIDirtyFlags, UIDirtyTracker, type DeviceCapabilities } from "./performance.js";
+import { store } from "./store/index.js";
 
 function makeSaveLibraryStub(overrides: Partial<SaveStateLibrary> = {}): SaveStateLibrary {
   return {
@@ -48,6 +49,7 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     netplayEnabled: false,
     netplayServerUrl: "",
     netplayUsername: "",
+    netplayIceServers: [],
     verboseLogging:  false,
     cloudLibraries:  [],
     audioFilterType: "none",
@@ -56,6 +58,7 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     libraryLayout: "grid",
     libraryGrouped: true,
     coreOptions: {},
+    recordPlayHistory: true,
   };
   return {
     ...settings,
@@ -1055,6 +1058,9 @@ describe("buildMultiplayerTab", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     localStorage.clear();
+    // Reset the RetroOasisStore ICE slice so one test doesn't leak state
+    // into the next (the store is a module-level singleton).
+    store.set("settings", { netplayIceServers: [] });
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
@@ -1169,9 +1175,8 @@ describe("buildMultiplayerTab", () => {
     expect(urlInput.validationMessage).toBe("");
   });
 
-  it("adding a valid stun: ICE server updates the list and calls netplayManager.setIceServers", async () => {
+  it("adding a valid stun: ICE server updates the list and propagates via onSettingsChange", async () => {
     openMultiplayerTab();
-    const setIceServers = vi.spyOn(mgr, "setIceServers");
 
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const addInput = panel.querySelector<HTMLInputElement>("#netplay-ice-add")!;
@@ -1183,9 +1188,15 @@ describe("buildMultiplayerTab", () => {
     addBtn.click();
     await flushUI();
 
-    expect(setIceServers).toHaveBeenCalled();
-    const updatedServers = setIceServers.mock.calls[0]![0] as RTCIceServer[];
-    expect(updatedServers.some(s => {
+    // The UI now pushes ICE-server changes through the settings pipeline;
+    // main.ts subscribes to the RetroOasisStore to forward them into
+    // NetplayManager, so the unit contract is purely on `onSettingsChange`.
+    const iceCall = onSettingsChange.mock.calls.find(
+      ([p]) => typeof p === "object" && p !== null && "netplayIceServers" in (p as object),
+    );
+    expect(iceCall).toBeTruthy();
+    const patch = iceCall![0] as { netplayIceServers: Array<{ urls: string | string[] }> };
+    expect(patch.netplayIceServers.some((s) => {
       const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
       return urls.includes("stun:custom.stun.example.com:3478");
     })).toBe(true);
@@ -1194,9 +1205,8 @@ describe("buildMultiplayerTab", () => {
     expect(addInput.value).toBe("");
   });
 
-  it("adding an invalid ICE server URL does not call netplayManager.setIceServers", () => {
+  it("adding an invalid ICE server URL does not notify onSettingsChange", () => {
     openMultiplayerTab();
-    const setIceServers = vi.spyOn(mgr, "setIceServers");
 
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const addInput = panel.querySelector<HTMLInputElement>("#netplay-ice-add")!;
@@ -1205,12 +1215,14 @@ describe("buildMultiplayerTab", () => {
     addInput.value = "http://invalid-ice-server.com";
     addBtn.click();
 
-    expect(setIceServers).not.toHaveBeenCalled();
+    const iceCalls = onSettingsChange.mock.calls.filter(
+      ([p]) => typeof p === "object" && p !== null && "netplayIceServers" in (p as object),
+    );
+    expect(iceCalls).toHaveLength(0);
   });
 
   it("removing an ICE server updates the list", async () => {
     openMultiplayerTab();
-    const setIceServers = vi.spyOn(mgr, "setIceServers");
 
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const removeBtn = panel.querySelector<HTMLButtonElement>(".netplay-ice-remove")!;
@@ -1218,15 +1230,17 @@ describe("buildMultiplayerTab", () => {
     removeBtn.click();
     await flushUI();
 
-    expect(setIceServers).toHaveBeenCalled();
-    const updated = setIceServers.mock.calls[0]![0] as RTCIceServer[];
+    const iceCall = onSettingsChange.mock.calls.find(
+      ([p]) => typeof p === "object" && p !== null && "netplayIceServers" in (p as object),
+    );
+    expect(iceCall).toBeTruthy();
+    const updated = (iceCall![0] as { netplayIceServers: unknown[] }).netplayIceServers;
     // Should have one fewer entry than the default
     expect(updated.length).toBe(DEFAULT_ICE_SERVERS.length - 1);
   });
 
-  it("resetting ICE servers restores defaults and calls netplayManager.resetIceServers", async () => {
+  it("resetting ICE servers restores the default set via onSettingsChange", async () => {
     openMultiplayerTab();
-    const resetIce = vi.spyOn(mgr, "resetIceServers");
 
     const panel = document.getElementById("tab-panel-multiplayer")!;
     // Remove one entry first so we have something to reset
@@ -1240,7 +1254,15 @@ describe("buildMultiplayerTab", () => {
     resetBtn.click();
     await flushUI();
 
-    expect(resetIce).toHaveBeenCalled();
+    // Final patch should contain the full default set
+    const iceCalls = onSettingsChange.mock.calls.filter(
+      ([p]) => typeof p === "object" && p !== null && "netplayIceServers" in (p as object),
+    );
+    expect(iceCalls.length).toBeGreaterThanOrEqual(2);
+    const lastPatch = iceCalls[iceCalls.length - 1]![0] as {
+      netplayIceServers: Array<{ urls: string | string[] }>;
+    };
+    expect(lastPatch.netplayIceServers).toHaveLength(DEFAULT_ICE_SERVERS.length);
     // The rendered list should show all defaults again
     const iceUrls = Array.from(panel.querySelectorAll<HTMLElement>(".netplay-ice-url"))
       .map(el => el.textContent?.trim() ?? "");

@@ -44,6 +44,13 @@ import { buildDOM, initUI,
 import { extractJoinCodeFromUrl } from "./netplay/signalingClient.js";
 import { isTouchDevice } from "./touchControls.js";
 import { sessionTracker } from "./sessionTracker.js";
+import { store } from "./store/index.js";
+import type { NetplayIceServer } from "./store/index.js";
+import {
+  hydrateSettingsIntoStore,
+  mirrorSettingsPatchToStore,
+  fromNetplayIceServers,
+} from "./store/bridge.js";
 // Initialize Chrome-specific performance optimizations early
 import { optimizeChromePerformance } from "./performance.js";
 optimizeChromePerformance();
@@ -104,6 +111,14 @@ export interface Settings {
   netplayServerUrl: string;
   /** Player display name shown to others in a netplay room. Empty means anonymous. */
   netplayUsername: string;
+  /**
+   * Optional STUN / TURN server list for WebRTC peer connections.
+   *
+   * When empty (default), consumers fall back to the built-in public STUN
+   * defaults.  Mirrored to / from the `RetroOasisStore` `settings` slice
+   * so reactive UI can observe changes without prop-drilling.
+   */
+  netplayIceServers: NetplayIceServer[];
   /** Whether verbose debug logging is written to the browser console. */
   verboseLogging:  boolean;
   /** Configured cloud library sources. */
@@ -157,6 +172,7 @@ const DEFAULT_SETTINGS: Settings = {
   netplayEnabled:  false,
   netplayServerUrl: "",
   netplayUsername: "",
+  netplayIceServers: [],
   verboseLogging:  false,
   cloudLibraries:  [],
   audioFilterType: "none" as "none" | "lowpass" | "highpass",
@@ -229,6 +245,13 @@ function loadSettings(): Settings {
       netplayUsername: typeof parsed.netplayUsername === "string"
         ? parsed.netplayUsername
         : DEFAULT_SETTINGS.netplayUsername,
+      netplayIceServers: Array.isArray(parsed.netplayIceServers)
+        ? (parsed.netplayIceServers as NetplayIceServer[]).filter(
+            (s): s is NetplayIceServer =>
+              !!s && typeof s === "object" &&
+              (typeof s.urls === "string" || Array.isArray(s.urls)),
+          )
+        : DEFAULT_SETTINGS.netplayIceServers,
       verboseLogging: typeof parsed.verboseLogging === "boolean"
         ? parsed.verboseLogging
         : DEFAULT_SETTINGS.verboseLogging,
@@ -345,6 +368,13 @@ async function main(): Promise<void> {
   // 3. Load settings
   const settings = loadSettings();
 
+  // Hydrate the RetroOasisStore from the loaded settings in a single atomic
+  // batch so any pre-wired subscribers see exactly one notification.  The
+  // `Settings` object remains the authoritative source for the imperative
+  // code paths below; the store is a reactive observation layer kept in
+  // sync via `mirrorSettingsPatchToStore` inside `onSettingsChange`.
+  hydrateSettingsIntoStore(settings, store);
+
   // UI-lite mode trims expensive visual effects on constrained devices or when
   // the user explicitly asks for lower data/motion usage.
   const navConnection = (navigator as Navigator & {
@@ -386,6 +416,30 @@ async function main(): Promise<void> {
   
   // NetplayManager remains lazily instantiated by the singleton helper.
   // Don't instantiate yet — getNetplayManager() will do it on demand.
+
+  // Bridge `store.settings.netplayIceServers` → `NetplayManager.setIceServers()`
+  // so any consumer that writes ICE servers through the store (e.g. the
+  // Multiplayer-tab UI) has its change reflected in the live manager used
+  // by peer connections.  The manager is lazy-loaded: if it isn't resident
+  // yet we defer the sync until the async factory resolves.
+  // A JSON-serialised snapshot avoids redundant `setIceServers` calls on
+  // unrelated settings-slice mutations (the subscription fires for every
+  // `store.set("settings", …)`, not just ICE changes).
+  let lastIceServersSnapshot: string = JSON.stringify(
+    store.get("settings").netplayIceServers,
+  );
+  store.subscribe("settings", (s) => {
+    const serialized = JSON.stringify(s.netplayIceServers);
+    if (serialized === lastIceServersSnapshot) return;
+    lastIceServersSnapshot = serialized;
+    const ice = fromNetplayIceServers(s.netplayIceServers);
+    const nm = peekNetplayManager();
+    if (nm) {
+      nm.setIceServers(ice);
+    } else {
+      void getNetplayManager().then((m) => m.setIceServers(ice)).catch(() => {});
+    }
+  });
 
   // Propagate verbose logging from settings into the emulator so debug
   // information is written to the console when the user enables it.
@@ -519,6 +573,17 @@ async function main(): Promise<void> {
     currentGameFileName = file.name;
     currentSystemId     = systemId;
     currentGameId       = gameId ?? null;
+
+    // Reflect session context in the RetroOasisStore so subscribers can
+    // observe the active game without prop-drilling through main.ts.
+    store.batch(() => {
+      store.set("session", {
+        gameId:   currentGameId,
+        gameName: gameName,
+        systemId: currentSystemId,
+        phase:    "loading",
+      });
+    });
 
     const compatibilityEntry =
       gameCompatibilityDb.lookup(gameId ?? "") ??
@@ -675,6 +740,9 @@ async function main(): Promise<void> {
 
   // 5c-ii. Wire play-time tracking: begin recording when the game is actually running.
   emulator.onGameStart = () => {
+    // Flip the session slice to "running" so observers can gate UI that
+    // only applies once the core has actually booted.
+    store.set("session", { phase: "running" });
     if (settings.recordPlayHistory && currentGameId && currentSystemId) {
       sessionTracker.startSession(
         currentGameId,
@@ -734,6 +802,16 @@ async function main(): Promise<void> {
 
     // End any in-progress play session before leaving the game view.
     void sessionTracker.endSession().catch(() => {});
+
+    // Reset the session slice so observers know the game view is gone.
+    store.batch(() => {
+      store.set("session", {
+        gameId:   null,
+        gameName: null,
+        systemId: null,
+        phase:    "idle",
+      });
+    });
 
     // Release orientation lock when leaving the game view
     try {
@@ -828,6 +906,9 @@ async function main(): Promise<void> {
     if (patch.uiMode !== undefined) {
       updateUILite();
     }
+    // Mirror the patch into the RetroOasisStore so subscribers react to the
+    // same change that `saveSettings` persists to localStorage.
+    mirrorSettingsPatchToStore(patch, store);
     saveSettings(settings);
   };
 
