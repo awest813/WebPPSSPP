@@ -48,13 +48,6 @@ test.describe("Save journey", () => {
     // Verify the app attempted a save (key handler fired)
     const saveCalled = await page.evaluate(() => (window as Window & { _e2e_saveCalled?: boolean })._e2e_saveCalled ?? false);
     expect(saveCalled).toBe(true);
-
-    // Look for a toast notification (success or error is acceptable — we verify the attempt)
-    const toast = page.locator(
-      ".info-toast, .toast, .perf-suggestion, [role='status'], [role='alert']"
-    ).first();
-    // Toast may or may not appear depending on emulator state — don't assert strictly.
-    // The key assertion is that the save was attempted (saveCalled = true).
   });
 
   test("F7 key triggers a load slot attempt", async ({ appPage: page }) => {

@@ -66,11 +66,14 @@ test.describe("Add ROM journey", () => {
       await settingsBtn.click();
       await expect(page.locator("#settings-panel, [role='dialog']").first()).toBeVisible({ timeout: 5_000 });
 
-      // Press Escape to close
-      await page.keyboard.press("Escape");
-      await expect(page.locator("#settings-panel").first()).not.toBeVisible({ timeout: 3_000 }).catch(() => {
-        // Settings panel may already be hidden or removed
-      });
+    // Press Escape to close
+    await page.keyboard.press("Escape");
+    // Settings panel may be removed from DOM or just hidden after Escape.
+    // We check that it is no longer blocking user interaction.
+    const settingsPanel = page.locator("#settings-panel").first();
+    const isStillVisible = await settingsPanel.isVisible().catch(() => false);
+    // Either hidden or removed — both are acceptable close behaviours.
+    expect(isStillVisible).toBe(false);
     } else {
       test.skip();
     }

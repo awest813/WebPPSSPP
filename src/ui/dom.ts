@@ -24,16 +24,18 @@ export function createElement<K extends keyof HTMLElementTagNameMap>(
 
 /**
  * Escape HTML special characters to safe entity references.
- * Safe to use inside innerHTML / template literals.
+ * Safe to use inside innerHTML / template literals and HTML attributes
+ * (including both single-quoted and double-quoted attribute values).
  */
 export function escHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => {
+  return s.replace(/[&<>"']/g, (c) => {
     switch (c) {
-      case "&": return "&amp;";
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case '"': return "&quot;";
-      default: return c;
+      case "&":  return "&amp;";
+      case "<":  return "&lt;";
+      case ">":  return "&gt;";
+      case '"':  return "&quot;";
+      case "'":  return "&#39;";
+      default:   return c;
     }
   });
 }

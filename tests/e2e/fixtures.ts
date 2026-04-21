@@ -26,8 +26,10 @@ const IDB_STUB_SCRIPT = `
   }
 
   function makeStore(storeName, data) {
+    // Use a sequential counter as fallback key to avoid non-deterministic Math.random() collisions
+    let _fallbackKeyCounter = 0;
     return {
-      put(value) { data.set(value.id ?? Math.random(), value); return makeRequest(undefined); },
+      put(value) { data.set(value.id ?? ++_fallbackKeyCounter, value); return makeRequest(undefined); },
       get(key)   { return makeRequest(data.get(key)); },
       getAll()   { return makeRequest([...data.values()]); },
       delete(key){ data.delete(key); return makeRequest(undefined); },
@@ -75,8 +77,12 @@ const IDB_STUB_SCRIPT = `
     deleteDatabase() { return makeRequest(undefined); },
   };
 
-  try { Object.defineProperty(window, 'indexedDB', { value: _fakeIDB, writable: true, configurable: true }); }
-  catch {}
+  try {
+    Object.defineProperty(window, 'indexedDB', { value: _fakeIDB, writable: true, configurable: true });
+  } catch {
+    // Some browsers (or other init scripts) may prevent this override —
+    // acceptable in test environments since the real IDB is sandboxed anyway.
+  }
 })();
 `;
 

@@ -59,7 +59,7 @@ describe("set", () => {
   });
 
   it("accepts initial overrides via constructor", () => {
-    const s = new RetroOasisStore({ settings: { volume: 0.1 } as never });
+    const s = new RetroOasisStore({ settings: { volume: 0.1 } });
     expect(s.get("settings").volume).toBe(0.1);
   });
 });

@@ -213,7 +213,7 @@ export class RetroOasisStore {
   private _batchDepth = 0;
   private _dirtySlices = new Set<SliceKey>();
 
-  constructor(initial?: Partial<StoreSlices>) {
+  constructor(initial?: { [K in keyof StoreSlices]?: Partial<StoreSlices[K]> }) {
     this.state = {
       settings:  { ...defaultSettings(),  ...(initial?.settings  ?? {}) },
       library:   { ...defaultLibrary(),   ...(initial?.library   ?? {}) },
