@@ -1022,3 +1022,120 @@ describe("isWebRTCAvailable / WebRTC guard", () => {
     }
   });
 });
+
+// ── extractJoinCodeFromUrl ────────────────────────────────────────────────────
+
+import { extractJoinCodeFromUrl } from "./signalingClient.js";
+
+describe("extractJoinCodeFromUrl", () => {
+  it("returns the normalised invite code from a full https URL", () => {
+    expect(extractJoinCodeFromUrl("https://retrovault.app/?join=abc123")).toBe("ABC123");
+  });
+
+  it("returns the normalised code when the URL has a path and other params", () => {
+    expect(
+      extractJoinCodeFromUrl("https://retrovault.app/app/?foo=1&join=xy-ZW_7&bar=2"),
+    ).toBe("XYZW7");
+  });
+
+  it("accepts a bare query string starting with '?'", () => {
+    expect(extractJoinCodeFromUrl("?join=mn456")).toBe("MN456");
+  });
+
+  it("accepts a bare key/value query string without '?'", () => {
+    expect(extractJoinCodeFromUrl("join=pq789")).toBe("PQ789");
+  });
+
+  it("returns null when the join parameter is missing", () => {
+    expect(extractJoinCodeFromUrl("https://retrovault.app/?other=1")).toBeNull();
+  });
+
+  it("returns null when the join parameter is empty or whitespace", () => {
+    expect(extractJoinCodeFromUrl("https://retrovault.app/?join=")).toBeNull();
+    expect(extractJoinCodeFromUrl("https://retrovault.app/?join=%20%20")).toBeNull();
+  });
+
+  it("returns null for non-string inputs or empty strings", () => {
+    // The runtime guard (`typeof input !== "string"`) protects callers that
+    // pass values from untyped sources (e.g. `window.location.href` in odd
+    // historical contexts, or JSON-decoded config).  The casts below simulate
+    // those invalid runtime inputs that TypeScript would normally reject.
+    expect(extractJoinCodeFromUrl("")).toBeNull();
+    expect(extractJoinCodeFromUrl(undefined as unknown as string)).toBeNull();
+    expect(extractJoinCodeFromUrl(null as unknown as string)).toBeNull();
+  });
+
+  it("strips whitespace, hyphens, and underscores and uppercases the code", () => {
+    expect(extractJoinCodeFromUrl("https://x/?join=a-b_c 2_3")).toBe("ABC23");
+  });
+
+  it("truncates to INVITE_CODE_LEN characters", () => {
+    expect(extractJoinCodeFromUrl("https://x/?join=ABCDEFGHIJK")).toHaveLength(6);
+  });
+});
+
+// ── EasyNetplayManager.getShareLink ───────────────────────────────────────────
+
+describe("EasyNetplayManager.getShareLink", () => {
+  const room = {
+    id:          "room-1",
+    code:        "AB12CD",
+    name:        "Alice's Room",
+    privacy:     "local" as const,
+    gameId:      "g1",
+    gameName:    "Super Mario",
+    systemId:    "snes",
+    hostName:    "Alice",
+    playerCount: 1,
+    maxPlayers:  2,
+    hasPassword: false,
+    isLocal:     true,
+    createdAt:   Date.now(),
+  };
+
+  it("encodes the invite code as a ?join= param using an explicit origin", () => {
+    const mgr = new EasyNetplayManager();
+    const link = mgr.getShareLink(room, "https://retrovault.app/");
+    expect(link).not.toBeNull();
+    const url = new URL(link!);
+    expect(url.searchParams.get("join")).toBe("AB12CD");
+    expect(url.origin).toBe("https://retrovault.app");
+  });
+
+  it("preserves other query params on the supplied origin URL", () => {
+    const mgr = new EasyNetplayManager();
+    const link = mgr.getShareLink(room, "https://retrovault.app/app/?lang=en")!;
+    const url = new URL(link);
+    expect(url.searchParams.get("lang")).toBe("en");
+    expect(url.searchParams.get("join")).toBe("AB12CD");
+    expect(url.pathname).toBe("/app/");
+  });
+
+  it("round-trips through extractJoinCodeFromUrl", () => {
+    const mgr = new EasyNetplayManager();
+    const link = mgr.getShareLink(room, "https://retrovault.app/")!;
+    expect(extractJoinCodeFromUrl(link)).toBe("AB12CD");
+  });
+
+  it("returns null when the room has no invite code", () => {
+    const mgr = new EasyNetplayManager();
+    const link = mgr.getShareLink({ ...room, code: "" }, "https://retrovault.app/");
+    expect(link).toBeNull();
+  });
+
+  it("returns null when no origin is supplied and window is unavailable", () => {
+    const mgr = new EasyNetplayManager();
+    const originalWindow = (globalThis as { window?: unknown }).window;
+    try {
+      // Simulate a non-browser environment by removing the global `window`.
+      // Cast to a mutable record so `delete` is permitted here.
+      delete (globalThis as unknown as Record<string, unknown>)["window"];
+      const link = mgr.getShareLink(room);
+      expect(link).toBeNull();
+    } finally {
+      if (originalWindow !== undefined) {
+        (globalThis as { window?: unknown }).window = originalWindow;
+      }
+    }
+  });
+});

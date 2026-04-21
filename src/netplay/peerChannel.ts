@@ -69,8 +69,15 @@ export type PeerMessage =
 
 // ── Default ICE servers ───────────────────────────────────────────────────────
 
+/**
+ * Default STUN servers when no explicit configuration is supplied.
+ * Mirrors the list in `multiplayerUtils.ts` so the two layers stay in
+ * sync when PeerDataChannel is used directly (e.g. in tests) without
+ * NetplayManager's persisted settings.
+ */
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -127,25 +127,21 @@ import {
   isTopmostOverlay,
 } from "./ui/modals.js";
 import {
-  GitHubCoverArtProvider,
-  LibretroCoverArtProvider,
-  ChainedCoverArtProvider,
-  RawgCoverArtProvider,
-  MobyGamesCoverArtProvider,
-  TheGamesDBCoverArtProvider,
   fetchAndValidateCoverArt,
   listGamesMissingCoverArt,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
   type CoverArtCandidate,
-  type CoverArtProvider,
-  type ApiKeyedProvider,
 } from "./coverArt.js";
 import {
   buildAboutTab as buildAboutTabContent,
   buildBiosTab as buildBiosTabContent,
   buildApiKeysTab as buildApiKeysTabContent,
 } from "./ui/settingsTabs.js";
-import { ApiKeyStore, DEFAULT_API_KEY_PROVIDERS } from "./apiKeyStore.js";
+import {
+  getApiKeyStore,
+  getCoverArtProvider,
+  getKeyedProviders,
+} from "./ui/coverArtRegistry.js";
 import {
   buildFilteredLibraryEmptyState,
   updateLibraryLandingState,
@@ -196,60 +192,9 @@ let _settingsPanelSearchShortcutHandler: ((e: KeyboardEvent) => void) | null = n
 let _settingsTabBarRo: ResizeObserver | null = null;
 
 // ── API key store + cover-art provider registry ──────────────────────────────
-
-// Single shared store for bring-your-own API keys (RAWG, MobyGames, …).
-// Created lazily so tests can construct their own ApiKeyStore and inject it
-// via `_setApiKeyStoreForTests` if ever needed. Defaults include the full
-// DEFAULT_API_KEY_PROVIDERS set so rows render even before any key is saved.
-let _apiKeyStore: ApiKeyStore | null = null;
-function getApiKeyStore(): ApiKeyStore {
-  if (!_apiKeyStore) {
-    _apiKeyStore = new ApiKeyStore({ providers: DEFAULT_API_KEY_PROVIDERS });
-  }
-  return _apiKeyStore;
-}
-
-// Registry of keyed providers so the Settings UI can test connections by id.
-let _keyedProviders: Map<string, ApiKeyedProvider> | null = null;
-function getKeyedProviders(): Map<string, ApiKeyedProvider> {
-  if (!_keyedProviders) {
-    const store = getApiKeyStore();
-    _keyedProviders = new Map();
-    _keyedProviders.set("rawg", new RawgCoverArtProvider({ getApiKey: () => store.getKey("rawg") }));
-    _keyedProviders.set("mobygames", new MobyGamesCoverArtProvider({ getApiKey: () => store.getKey("mobygames") }));
-    _keyedProviders.set("thegamesdb", new TheGamesDBCoverArtProvider({ getApiKey: () => store.getKey("thegamesdb") }));
-  }
-  return _keyedProviders;
-}
-
-// Cover-art provider chain: free sources always first, then the
-// user-configured keyed providers in the order set via the API Keys tab.
-// Keyed providers whose key is missing or disabled short-circuit to [] via
-// their `isAvailable()` hook, so the default (no-key) experience is
-// identical to before this change.
-let _coverArtProvider: CoverArtProvider | null = null;
-function rebuildCoverArtProvider(): void {
-  const store = getApiKeyStore();
-  const keyed = getKeyedProviders();
-  const ordered: ApiKeyedProvider[] = [];
-  for (const id of store.getOrder()) {
-    const p = keyed.get(id);
-    if (!p) continue;
-    if (!store.getState(id).enabled) continue;
-    ordered.push(p);
-  }
-  _coverArtProvider = new ChainedCoverArtProvider([
-    new LibretroCoverArtProvider(),
-    new GitHubCoverArtProvider(),
-    ...ordered,
-  ]);
-}
-function getCoverArtProvider(): CoverArtProvider {
-  if (!_coverArtProvider) rebuildCoverArtProvider();
-  return _coverArtProvider!;
-}
-// Rebuild the chain whenever the user changes keys or ordering.
-getApiKeyStore().subscribe(() => { rebuildCoverArtProvider(); });
+// Registry singletons live in ./ui/coverArtRegistry.ts; see there for the
+// rebuild subscription that wires Settings → API Keys tab changes back into
+// the composed provider chain.
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
@@ -4703,8 +4648,15 @@ export function openEasyNetplayModal(opts: {
   currentSystemId?: string | null;
   /** Opens Settings on the Play Together tab (closes this modal first). */
   onOpenPlayTogetherSettings?: () => void;
+  /**
+   * Invite code to pre-fill into the Join tab (e.g. from a `?join=<code>`
+   * deep-link captured at startup).  When present, the modal activates the
+   * Join tab and populates the code field so the user lands one tap away
+   * from joining.
+   */
+  initialJoinCode?: string | null;
 }): void {
-  const { netplayManager, currentGameName, currentGameId, currentSystemId, onOpenPlayTogetherSettings } = opts;
+  const { netplayManager, currentGameName, currentGameId, currentSystemId, onOpenPlayTogetherSettings, initialJoinCode } = opts;
   const serverUrl = netplayManager?.serverUrl ?? "";
   const username  = netplayManager?.username  ?? "";
   const netplayEnabled = netplayManager?.enabled ?? false;
@@ -4897,6 +4849,21 @@ export function openEasyNetplayModal(opts: {
   // ── Append + animate ─────────────────────────────────────────────────────
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+
+  // Deep-link / share-link pre-fill: when a `?join=<code>` was captured at
+  // startup (or otherwise forwarded), pre-activate the Join tab and seed
+  // the invite-code field so the user lands one tap away from connecting.
+  if (initialJoinCode && initialJoinCode.length > 0) {
+    const normalised = normaliseInviteCode(initialJoinCode);
+    if (normalised.length > 0) {
+      switchTab("join");
+      // Re-read through a local so TS doesn't narrow _fillJoinCode to null
+      // (callback assignment inside _buildJoinPanel is not visible to flow
+      // analysis here).
+      const fill = _fillJoinCode as ((code: string) => void) | null;
+      fill?.(normalised);
+    }
+  }
 
   let closed = false;
   const close = () => {

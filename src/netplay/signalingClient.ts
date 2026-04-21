@@ -103,6 +103,45 @@ export function normaliseInviteCode(raw: string): string {
   return raw.replace(/[\s\-_]/g, "").toUpperCase().slice(0, INVITE_CODE_LEN);
 }
 
+/**
+ * Extract a Play Together invite code from a URL's `?join=<code>` query
+ * parameter.
+ *
+ * Returns a normalised uppercase code (same transform as
+ * {@link normaliseInviteCode}) when the parameter is present and decodes
+ * to a non-empty value; otherwise returns `null`.  Malformed URLs and
+ * whitespace-only values also return `null`.
+ *
+ * Accepts both a full URL string and, when the caller has already captured
+ * the raw value, a pre-extracted code.  The function is defensive against
+ * malformed input so it is safe to call with untrusted user-provided URLs.
+ */
+export function extractJoinCodeFromUrl(input: string): string | null {
+  if (typeof input !== "string" || input.length === 0) return null;
+  let raw: string | null = null;
+  try {
+    // Try to parse as a URL first.  A placeholder base handles relative URLs
+    // like "/foo?join=ABC".
+    const url = new URL(input, "http://_placeholder/");
+    raw = url.searchParams.get("join");
+  } catch {
+    // Not a URL — fall through to the bare-query fallback below.
+  }
+  if (!raw) {
+    // Bare query string (e.g. "?join=ABC123" or "join=ABC123").
+    const qIdx = input.indexOf("?");
+    const qs = qIdx >= 0 ? input.slice(qIdx + 1) : input;
+    try {
+      raw = new URLSearchParams(qs).get("join");
+    } catch {
+      return null;
+    }
+  }
+  if (!raw) return null;
+  const normalised = normaliseInviteCode(raw);
+  return normalised.length > 0 ? normalised : null;
+}
+
 // ── HTTP signaling client ─────────────────────────────────────────────────────
 
 /**
