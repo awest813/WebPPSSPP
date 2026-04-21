@@ -468,3 +468,118 @@ describe('PerGameGraphicsProfile', () => {
     expect(() => clearGameGraphicsProfile(gameId)).not.toThrow();
   });
 });
+
+// ── setCoverArt / getCoverArt / hasCoverArt ───────────────────────────────────
+
+describe('GameLibrary.setCoverArt / getCoverArt', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('getCoverArt returns null when no cover art is set', async () => {
+    const entry = await library.addGame(new File(['rom'], 'game.nes', { type: 'application/octet-stream' }), 'nes');
+    const blob = await library.getCoverArt(entry.id);
+    expect(blob).toBeNull();
+  });
+
+  it('setCoverArt stores a blob that getCoverArt can retrieve', async () => {
+    const entry = await library.addGame(new File(['rom'], 'game.nes', { type: 'application/octet-stream' }), 'nes');
+    await library.setCoverArt(entry.id, new Blob(['cover-art-data'], { type: 'image/png' }));
+    // getCoverArt should return the stored value (non-null after setting).
+    const retrieved = await library.getCoverArt(entry.id);
+    expect(retrieved).not.toBeNull();
+  });
+
+  it('setCoverArt with null removes existing cover art', async () => {
+    const entry = await library.addGame(new File(['rom'], 'game.nes', { type: 'application/octet-stream' }), 'nes');
+    const artBlob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+    await library.setCoverArt(entry.id, artBlob);
+    await library.setCoverArt(entry.id, null);
+    const retrieved = await library.getCoverArt(entry.id);
+    expect(retrieved).toBeNull();
+  });
+
+  it('hasCoverArt is true in metadata after setting cover art', async () => {
+    const entry = await library.addGame(new File(['rom'], 'game.nes', { type: 'application/octet-stream' }), 'nes');
+    await library.setCoverArt(entry.id, new Blob(['cover-art'], { type: 'image/png' }));
+    const metas = await library.getAllGamesMetadata();
+    const meta = metas.find(g => g.id === entry.id);
+    expect(meta).toBeDefined();
+    expect(meta!.hasCoverArt).toBe(true);
+    expect('coverArtBlob' in meta!).toBe(false);
+  });
+
+  it('hasCoverArt is false in metadata after removing cover art', async () => {
+    const entry = await library.addGame(new File(['rom'], 'game.nes', { type: 'application/octet-stream' }), 'nes');
+    await library.setCoverArt(entry.id, new Blob(['cover-art'], { type: 'image/png' }));
+    await library.setCoverArt(entry.id, null);
+    const metas = await library.getAllGamesMetadata();
+    const meta = metas.find(g => g.id === entry.id);
+    expect(meta).toBeDefined();
+    expect(meta!.hasCoverArt).toBe(false);
+  });
+
+  it('hasCoverArt is false for a newly added game with no cover art', async () => {
+    const entry = await library.addGame(new File(['rom'], 'new.nes', { type: 'application/octet-stream' }), 'nes');
+    const metas = await library.getAllGamesMetadata();
+    const meta = metas.find(g => g.id === entry.id);
+    expect(meta).toBeDefined();
+    // hasCoverArt may be false or undefined for a fresh entry; either is acceptable.
+    expect(!meta!.hasCoverArt).toBe(true);
+  });
+
+  it('getCoverArt returns null for an unknown game id', async () => {
+    const blob = await library.getCoverArt('nonexistent-id');
+    expect(blob).toBeNull();
+  });
+
+  it('setCoverArt is a no-op for an unknown game id', async () => {
+    await expect(
+      library.setCoverArt('nonexistent-id', new Blob(['cover-art'], { type: 'image/png' }))
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ── setThumbnailUrl ────────────────────────────────────────────────────────────
+
+describe('GameLibrary.setThumbnailUrl', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('stores a thumbnail URL that is visible in metadata', async () => {
+    const entry = await library.addVirtualGame(
+      'Cloud Game', 'game.nes', 'nes', 100,
+      'cloud-id', '/remote/game.nes', 'https://example.com/old.jpg',
+    );
+    await library.setThumbnailUrl(entry.id, 'https://example.com/new.jpg');
+    const metas = await library.getAllGamesMetadata();
+    const meta = metas.find(g => g.id === entry.id);
+    expect(meta).toBeDefined();
+    expect(meta!.thumbnailUrl).toBe('https://example.com/new.jpg');
+  });
+
+  it('clears a thumbnail URL when set to undefined', async () => {
+    const entry = await library.addVirtualGame(
+      'Cloud Game', 'game.nes', 'nes', 100,
+      'cloud-id-2', '/remote/game2.nes', 'https://example.com/cover.jpg',
+    );
+    await library.setThumbnailUrl(entry.id, undefined);
+    const metas = await library.getAllGamesMetadata();
+    const meta = metas.find(g => g.id === entry.id);
+    expect(meta).toBeDefined();
+    expect(meta!.thumbnailUrl).toBeUndefined();
+  });
+
+  it('is a no-op for an unknown game id', async () => {
+    await expect(
+      library.setThumbnailUrl('nonexistent-id', 'https://example.com/x.jpg')
+    ).resolves.toBeUndefined();
+  });
+});

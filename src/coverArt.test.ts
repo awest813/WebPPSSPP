@@ -340,7 +340,25 @@ describe("fetchAndValidateCoverArt", () => {
       (globalThis as { createImageBitmap?: unknown }).createImageBitmap = originalBitmap;
     }
   });
+
+  it("throws when createImageBitmap rejects (non-image data)", async () => {
+    // The server returns a blob that claims to be an image but createImageBitmap
+    // cannot decode it — simulates a corrupt file or wrong content-type.
+    const garbageBlob = new Blob(["not an image"], { type: "image/png" });
+    const fetchImpl = (async (): Promise<Response> =>
+      new Response(garbageBlob, { status: 200, headers: { "Content-Type": "image/png" } })) as unknown as typeof fetch;
+
+    const originalBitmap = (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
+    (globalThis as unknown as { createImageBitmap: (b: Blob) => Promise<never> })
+      .createImageBitmap = async () => { throw new Error("Could not decode image"); };
+    try {
+      await expect(fetchAndValidateCoverArt("https://x/bad.png", { fetchImpl })).rejects.toThrow();
+    } finally {
+      (globalThis as { createImageBitmap?: unknown }).createImageBitmap = originalBitmap;
+    }
+  });
 });
+
 
 // ── cleanRomNameForLibretro ───────────────────────────────────────────────────
 

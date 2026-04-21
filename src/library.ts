@@ -554,6 +554,21 @@ export class GameLibrary {
   }
 
   /**
+   * Update the remote thumbnail URL for a game.
+   *
+   * @param id  Game id.
+   * @param url New thumbnail URL, or undefined to remove the existing URL.
+   */
+  async setThumbnailUrl(id: string, url: string | undefined): Promise<void> {
+    const db = await openDB();
+    const entry = await promisify<GameEntry | undefined>(tx(db, "readonly").get(id));
+    if (!entry) return;
+    entry.thumbnailUrl = url;
+    await promisify(tx(db, "readwrite").put(entry));
+    invalidateMetadataCache();
+  }
+
+  /**
    * Total number of games in the library.
    */
   async count(): Promise<number> {
