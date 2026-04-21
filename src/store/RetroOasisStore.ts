@@ -16,6 +16,17 @@ import type { PostProcessEffect } from "../webgpuPostProcess.js";
 
 // ── Slice type definitions ─────────────────────────────────────────────────
 
+/**
+ * Minimal `RTCIceServer`-compatible shape for persisted STUN / TURN
+ * configuration.  Kept separate from the DOM `RTCIceServer` type so the
+ * store remains usable in non-browser test / tooling contexts.
+ */
+export interface NetplayIceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
 export interface SettingsSlice {
   volume: number;
   lastGameName: string | null;
@@ -34,6 +45,15 @@ export interface SettingsSlice {
   netplayEnabled: boolean;
   netplayServerUrl: string;
   netplayUsername: string;
+  /**
+   * Optional STUN / TURN server list for WebRTC peer connections.
+   *
+   * When empty (default), consumers should fall back to `DEFAULT_ICE_SERVERS`
+   * from `multiplayerUtils.ts`.  Power users can supply a TURN server here
+   * to traverse symmetric-NAT networks that plain STUN cannot punch through.
+   * Each entry uses the standard `RTCIceServer` shape.
+   */
+  netplayIceServers: NetplayIceServer[];
   verboseLogging: boolean;
   cloudLibraries: CloudLibrarySlice[];
   audioFilterType: "none" | "lowpass" | "highpass";
@@ -131,6 +151,7 @@ function defaultSettings(): SettingsSlice {
     netplayEnabled: false,
     netplayServerUrl: "",
     netplayUsername: "",
+    netplayIceServers: [],
     verboseLogging: false,
     cloudLibraries: [],
     audioFilterType: "none",

@@ -408,6 +408,32 @@ export class EasyNetplayManager {
     }
   }
 
+  /**
+   * Build a shareable "Play Together" URL for the given room.
+   *
+   * The URL encodes the room's invite code as a `join` query parameter so a
+   * recipient opening the link lands on the app with the EasyNetplay join
+   * panel pre-filled (see `extractJoinCodeFromUrl` / main.ts startup).
+   *
+   * When `origin` is omitted, the current page's `window.location.origin +
+   * location.pathname` is used.  In non-browser environments callers must
+   * pass an explicit origin.
+   *
+   * @returns The fully-qualified URL, or `null` when the room has no code
+   *   or no origin is available (e.g. pure SSR tests without a window).
+   */
+  getShareLink(room: EasyNetplayRoom, origin?: string): string | null {
+    if (!room || !room.code) return null;
+    let base = origin;
+    if (base === undefined) {
+      if (typeof window === "undefined" || !window.location) return null;
+      base = `${window.location.origin}${window.location.pathname}`;
+    }
+    const url = new URL(base);
+    url.searchParams.set("join", room.code);
+    return url.toString();
+  }
+
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   private _setState(state: NetplaySessionState): void {
