@@ -2027,7 +2027,14 @@ function buildGameCard(
 
     try {
       if (result.type === "remove") {
+        // When only a remote thumbnail URL was present (no local blob), also
+        // clear it from the DB so the removal persists across re-renders.
+        const hadOnlyThumbnail = !game.hasCoverArt && !!game.thumbnailUrl;
         await library.setCoverArt(game.id, null);
+        if (hadOnlyThumbnail) {
+          await library.setThumbnailUrl(game.id, undefined);
+          game.thumbnailUrl = undefined;
+        }
         if (coverArtObjectUrl) {
           URL.revokeObjectURL(coverArtObjectUrl);
           coverArtObjectUrl = null;
@@ -2036,8 +2043,17 @@ function buildGameCard(
         coverArtImg.remove();
         showInfoToast(`Cover art removed for "${game.name}".`, "info");
         game.hasCoverArt = false;
-        btnArt.title = "Set cover art";
-        btnArt.setAttribute("aria-label", `Set cover art for ${game.name}`);
+        // If a thumbnailUrl still exists (e.g. game had local blob + remote URL,
+        // only the blob was removed), restore the remote thumbnail display and
+        // leave the button in "Change" mode.
+        if (game.thumbnailUrl) {
+          applyCoverArt(game.thumbnailUrl);
+          btnArt.title = "Change cover art";
+          btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+        } else {
+          btnArt.title = "Set cover art";
+          btnArt.setAttribute("aria-label", `Set cover art for ${game.name}`);
+        }
 
       } else if (result.type === "file") {
         await library.setCoverArt(game.id, result.blob);
