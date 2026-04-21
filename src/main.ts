@@ -43,6 +43,7 @@ import { buildDOM, initUI,
           TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
 import { extractJoinCodeFromUrl } from "./netplay/signalingClient.js";
 import { isTouchDevice } from "./touchControls.js";
+import { sessionTracker } from "./sessionTracker.js";
 // Initialize Chrome-specific performance optimizations early
 import { optimizeChromePerformance } from "./performance.js";
 optimizeChromePerformance();
@@ -129,6 +130,11 @@ export interface Settings {
   libraryLayout: "grid" | "list" | "compact";
   /** Whether to group games by system in the library. */
   libraryGrouped: boolean;
+  /**
+   * Whether to record play sessions in the local play-history database.
+   * When disabled, no new sessions are written; existing history is unaffected.
+   */
+  recordPlayHistory: boolean;
 }
 
 const STORAGE_KEY = LEGACY_STORAGE_KEYS.settings;
@@ -159,6 +165,7 @@ const DEFAULT_SETTINGS: Settings = {
   libraryLayout: "grid",
   libraryGrouped: true,
   coreOptions: {},
+  recordPlayHistory: true,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -243,6 +250,9 @@ function loadSettings(): Settings {
       libraryGrouped: typeof parsed.libraryGrouped === "boolean"
         ? parsed.libraryGrouped
         : DEFAULT_SETTINGS.libraryGrouped,
+      recordPlayHistory: typeof parsed.recordPlayHistory === "boolean"
+        ? parsed.recordPlayHistory
+        : DEFAULT_SETTINGS.recordPlayHistory,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -398,6 +408,9 @@ async function main(): Promise<void> {
   library.warmUp().catch(() => {});
   biosLibrary.warmUp().catch(() => {});
   saveLibrary.warmUp().catch(() => {});
+  if (settings.recordPlayHistory) {
+    sessionTracker.warmUp().catch(() => {});
+  }
 
   // Pre-warm WebGPU if the user has opted in and it is available.
   // Use low-power mode on low-spec devices to conserve energy and prefer
@@ -660,6 +673,17 @@ async function main(): Promise<void> {
     }).catch(() => {});
   };
 
+  // 5c-ii. Wire play-time tracking: begin recording when the game is actually running.
+  emulator.onGameStart = () => {
+    if (settings.recordPlayHistory && currentGameId && currentSystemId) {
+      sessionTracker.startSession(
+        currentGameId,
+        settings.lastGameName ?? "Unknown",
+        currentSystemId,
+      );
+    }
+  };
+
   // 5d. Wire auto tier downgrade — triggered by onLowFPS
   emulator.onLowFPS = async (averageFPS: number, currentTier: PerformanceTier | null) => {
     if (!currentTier || currentTier === "low") return; // already at minimum
@@ -707,6 +731,9 @@ async function main(): Promise<void> {
   const onReturnToLibrary = (): void => {
     if (emulator.state !== "running" && emulator.state !== "paused") return;
     if (emulator.state === "running") emulator.pause();
+
+    // End any in-progress play session before leaving the game view.
+    void sessionTracker.endSession().catch(() => {});
 
     // Release orientation lock when leaving the game view
     try {
@@ -839,6 +866,13 @@ async function main(): Promise<void> {
         void onLaunchGame(file, currentSystemId, currentGameId);
       }
     }
+  });
+
+  // End any in-progress play session when the page is closed or navigated away.
+  // The IDB write is best-effort — modern browsers give async tasks a short
+  // window to complete on unload, so most sessions will be persisted correctly.
+  window.addEventListener("beforeunload", () => {
+    void sessionTracker.endSession().catch(() => {});
   });
 
   // 8. If user returns to landing, rebuild landing header controls with a Resume button

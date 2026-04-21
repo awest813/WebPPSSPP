@@ -61,6 +61,11 @@ export interface SettingsSlice {
   uiMode: "auto" | "quality" | "lite";
   libraryLayout: "grid" | "list" | "compact";
   libraryGrouped: boolean;
+  /**
+   * Whether to record play sessions in the local play-history database.
+   * When disabled, no new sessions are written; existing history is unaffected.
+   */
+  recordPlayHistory: boolean;
   coreOptions: Record<string, string>;
 }
 
@@ -159,6 +164,7 @@ function defaultSettings(): SettingsSlice {
     uiMode: "auto",
     libraryLayout: "grid",
     libraryGrouped: true,
+    recordPlayHistory: true,
     coreOptions: {},
   };
 }

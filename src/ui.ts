@@ -156,6 +156,7 @@ import {
 } from "./ui/multiplayerInfo.js";
 import { createDebugConsoleController } from "./ui/debugConsole.js";
 import { ArchiveSelectionStore } from "./archiveStore.js";
+import { sessionTracker, formatPlayTime } from "./sessionTracker.js";
 import {
   toggleDevOverlay,
   updateDevOverlay,
@@ -4624,6 +4625,48 @@ function buildLibraryTab(
     saveSection.appendChild(btnClearSaves);
     container.appendChild(saveSection);
   }
+
+  // Play History
+  const historySection = make("div", { class: "settings-section" });
+  historySection.appendChild(make("h4", { class: "settings-section__title" }, "Play History"));
+
+  const historyStatsEl = make("p", { class: "device-info" }, "Calculating…");
+  historySection.appendChild(historyStatsEl);
+  sessionTracker.getAllStats().then((statsMap) => {
+    if (statsMap.size === 0) {
+      historyStatsEl.textContent = "No play history recorded yet — launch a game to start tracking.";
+      return;
+    }
+    let totalMs = 0;
+    let sessionCount = 0;
+    for (const stats of statsMap.values()) {
+      totalMs      += stats.totalMs;
+      sessionCount += stats.sessionCount;
+    }
+    historyStatsEl.textContent =
+      `${formatPlayTime(totalMs)} played across ${sessionCount} session${sessionCount !== 1 ? "s" : ""} ` +
+      `in ${statsMap.size} game${statsMap.size !== 1 ? "s" : ""}`;
+  }).catch(() => { historyStatsEl.textContent = "Could not load play history stats."; });
+
+  historySection.appendChild(buildToggleRow(
+    "Record play time",
+    "Track how long you play each game. Data is stored only in your browser.",
+    settings.recordPlayHistory,
+    (v) => onSettingsChange({ recordPlayHistory: v })
+  ));
+
+  const btnClearHistory = make("button", { class: "btn btn--danger settings-clear-btn" }, "Clear Play History");
+  btnClearHistory.addEventListener("click", async () => {
+    const confirmed = await showConfirmDialog(
+      "This will delete all recorded play sessions and cannot be undone.",
+      { title: "Clear Play History?", confirmLabel: "Clear All", isDanger: true }
+    );
+    if (!confirmed) return;
+    await sessionTracker.clearAll();
+    historyStatsEl.textContent = "No play history recorded yet — launch a game to start tracking.";
+  });
+  historySection.appendChild(btnClearHistory);
+  container.appendChild(historySection);
 
   // Supported systems
   const sysSection = make("div", { class: "settings-section" });
