@@ -527,8 +527,9 @@ describe('GameLibrary.setCoverArt / getCoverArt', () => {
     const metas = await library.getAllGamesMetadata();
     const meta = metas.find(g => g.id === entry.id);
     expect(meta).toBeDefined();
-    // hasCoverArt may be false or undefined for a fresh entry; either is acceptable.
-    expect(!meta!.hasCoverArt).toBe(true);
+    // The metadata cursor always computes hasCoverArt from the stored blob field,
+    // so it must be exactly false (not undefined) for a fresh entry.
+    expect(meta!.hasCoverArt).toBe(false);
   });
 
   it('getCoverArt returns null for an unknown game id', async () => {
