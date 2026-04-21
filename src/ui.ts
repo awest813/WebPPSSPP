@@ -299,7 +299,7 @@ export function buildDOM(app: HTMLElement): void {
               <h2 class="library-title">My Library</h2>
               <span class="library-count" id="library-count" aria-live="polite" aria-atomic="true"></span>
             </div>
-            <div class="library-controls" aria-label="Library controls">
+            <div class="library-controls" role="group" aria-label="Library controls">
               <div class="library-search-wrap">
                 <svg class="library-search-icon" width="14" height="14" viewBox="0 0 24 24"
                      fill="none" stroke="currentColor" stroke-width="2.5"
@@ -320,7 +320,7 @@ export function buildDOM(app: HTMLElement): void {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                 </button>
               </div>
-              <button class="btn btn--ghost btn--icon library-fav-filter" id="library-fav-filter" title="Show favorites only" aria-pressed="false">
+              <button class="btn btn--ghost btn--icon library-fav-filter" id="library-fav-filter" aria-label="Show favorites only" title="Show favorites only" aria-pressed="false">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               </button>
               <select class="library-sort" id="library-sort" aria-label="Sort games">
@@ -2054,6 +2054,7 @@ function buildGameCard(
     class: `game-card__fav${game.isFavorite ? " active" : ""}`,
     title: game.isFavorite ? "Remove from favorites" : "Add to favorites",
     "aria-label": game.isFavorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`,
+    "aria-pressed": String(game.isFavorite),
   }, "★");
   btnFav.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -2062,6 +2063,8 @@ function buildGameCard(
     game.isFavorite = next;
     btnFav.classList.toggle("active", next);
     btnFav.title = next ? "Remove from favorites" : "Add to favorites";
+    btnFav.setAttribute("aria-label", next ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`);
+    btnFav.setAttribute("aria-pressed", String(next));
     if (_libraryShowFavorites || settings.libraryGrouped) {
       void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch);
     }

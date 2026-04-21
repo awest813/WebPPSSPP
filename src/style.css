@@ -1737,6 +1737,11 @@ body {
   height: 0;
 }
 
+.toggle-switch:focus-within {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
 .toggle-switch {
   position: relative;
   display: inline-flex;
@@ -2411,6 +2416,9 @@ body {
   /* Mute button: ensure 44×44 pt */
   .vol-mute-btn { min-width: 44px; min-height: 44px; }
 
+  /* Search clear button: expand touch target to 44×44 pt */
+  .library-search-clear { min-width: 44px; min-height: 44px; }
+
   /* Settings panels: smooth momentum scrolling on iOS */
   .settings-panels,
   .system-picker-list { -webkit-overflow-scrolling: touch; }
@@ -2572,6 +2580,7 @@ body {
   font-size: 0.875rem;
   font-family: inherit;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+  outline: none;
 }
 
 .settings-select:focus-visible {
@@ -2879,6 +2888,7 @@ details.netplay-advanced[open] > summary::before { transform: rotate(90deg); }
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.72);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   z-index: 300;
   display: flex;
@@ -4087,7 +4097,8 @@ kbd.kbd--inline {
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
-#netplay-username:focus {
+#netplay-username:focus,
+#netplay-username:focus-visible {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-accent-dim);
 }
@@ -4105,7 +4116,8 @@ kbd.kbd--inline {
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
-#netplay-ice-add:focus {
+#netplay-ice-add:focus,
+#netplay-ice-add:focus-visible {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-accent-dim);
 }
