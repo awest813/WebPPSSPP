@@ -1,6 +1,7 @@
 import { CloudSaveManager } from "./cloudSave.js";
 import {
   AUTO_SAVE_SLOT,
+  MAX_SAVE_SLOTS,
   SaveStateLibrary,
   captureScreenshot,
   createThumbnail,
@@ -277,7 +278,7 @@ export class SaveGameService {
 
     const states = await this.saveLibrary.getStatesForGame(context.gameId);
     const occupied = new Set(states.map((s) => s.slot));
-    for (let s = 1; s <= 8; s++) {
+    for (let s = 1; s <= MAX_SAVE_SLOTS; s++) {
       if (!occupied.has(s)) return s;
     }
     return 1;

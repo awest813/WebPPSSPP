@@ -65,6 +65,7 @@ import {
 } from "./bios.js";
 import {
   SaveStateLibrary,
+  MAX_SAVE_SLOTS,
 } from "./saves.js";
 import type { Settings } from "./main.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
@@ -3432,6 +3433,16 @@ async function showInGameMenu(ctx: {
   const ac = new AbortController();
   const signal = ac.signal;
 
+  // Track object URLs created for save thumbnails so they can be revoked
+  // before each re-render (prevents memory leaks when switching menu tabs).
+  let _thumbObjectUrls: string[] = [];
+  const _revokeThumbUrls = () => {
+    _thumbObjectUrls.forEach(u => URL.revokeObjectURL(u));
+    _thumbObjectUrls = [];
+  };
+  // Also revoke on final menu close.
+  signal.addEventListener("abort", _revokeThumbUrls, { once: true });
+
   const overlay = make("div", { class: "ingame-menu-overlay", role: "dialog", "aria-modal": "true", "aria-label": "In-Game Menu" });
   document.body.appendChild(overlay);
 
@@ -3465,6 +3476,8 @@ async function showInGameMenu(ctx: {
   menu.appendChild(content);
 
   const renderContent = async (type: "saves" | "settings" | "multiplayer") => {
+    // Revoke stale thumbnail object URLs from a previous saves-tab render.
+    _revokeThumbUrls();
     content.innerHTML = "";
     
     // Update sidebar active state
@@ -3493,9 +3506,9 @@ async function showInGameMenu(ctx: {
 
       const statesResult = ctx.saveLibrary ? await ctx.saveLibrary.getStatesForGame(gameId) : [];
       const states = Array.isArray(statesResult) ? statesResult : [];
-      const slots = Array.from({ length: 8 }, (_, i) => i + 1);
+      const slots = Array.from({ length: MAX_SAVE_SLOTS }, (_, i) => i + 1);
 
-      const slotCountEl = make("span", { class: "ingame-menu__saves-count" }, `${states.length}/8 used`);
+      const slotCountEl = make("span", { class: "ingame-menu__saves-count" }, `${states.length}/${MAX_SAVE_SLOTS} used`);
       header.querySelector(".ingame-menu__header-main")?.appendChild(slotCountEl);
 
       const grid = make("div", { class: "ingame-menu__saves-grid" });
@@ -3508,9 +3521,8 @@ async function showInGameMenu(ctx: {
         let thumbHtml = `<div class="ingame-menu__save-thumb-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/><polyline points="16 5 21 5 21 10"/><line x1="12" y1="12" x2="21" y2="3"/></svg></div>`;
         if (entry?.thumbnail) {
           const url = URL.createObjectURL(entry.thumbnail);
+          _thumbObjectUrls.push(url);
           thumbHtml = `<img src="${url}" class="ingame-menu__save-thumb" alt="Slot ${slotIdx}" />`;
-          // Cleanup on abort
-          signal.addEventListener("abort", () => URL.revokeObjectURL(url), { once: true });
         }
 
         card.innerHTML = `
@@ -3553,13 +3565,26 @@ async function showInGameMenu(ctx: {
           e.stopPropagation();
           if (ctx.saveService) {
             busyEl?.classList.add("active");
+            let integrityWarning = false;
+            const unsubStatus = ctx.saveService.onStatus((evt) => {
+              if (evt.gameId === gameId && evt.slot === slotIdx && evt.status === "integrity-warning") {
+                integrityWarning = true;
+              }
+            });
             try {
               const ok = await ctx.saveService.loadSlot(slotIdx);
               if (ok) {
-                showInfoToast(`Loaded Slot ${slotIdx}`, "success");
+                if (integrityWarning) {
+                  showInfoToast(`Loaded Slot ${slotIdx} — save may be corrupted (checksum mismatch).`, "warning");
+                } else {
+                  showInfoToast(`Loaded Slot ${slotIdx}`, "success");
+                }
                 closeMenu();
+              } else {
+                showInfoToast("Could not load save — the emulator may still be starting up. Try again in a moment.", "error");
               }
             } finally {
+              unsubStatus();
               busyEl?.classList.remove("active");
             }
           }
@@ -3598,7 +3623,16 @@ async function showInGameMenu(ctx: {
           input.focus();
           input.select();
 
+          let renameCancelled = false;
           const finish = async () => {
+            if (renameCancelled) {
+              // Restore the label element without writing to the DB.
+              const restoredDiv = document.createElement("div");
+              restoredDiv.className = "ingame-menu__save-label";
+              restoredDiv.textContent = currentLabel;
+              input.replaceWith(restoredDiv);
+              return;
+            }
             const newLabel = input.value.trim();
             await ctx.saveLibrary!.updateStateLabel(gameId, slotIdx, newLabel);
             void renderContent("saves");
@@ -3607,7 +3641,7 @@ async function showInGameMenu(ctx: {
           input.addEventListener("blur", finish, { once: true, signal });
           input.addEventListener("keydown", (ke) => {
             if (ke.key === "Enter") { ke.preventDefault(); input.blur(); }
-            if (ke.key === "Escape") { ke.preventDefault(); input.value = currentLabel; input.blur(); }
+            if (ke.key === "Escape") { ke.preventDefault(); renameCancelled = true; input.blur(); }
           }, { signal });
         }, { signal });
 
