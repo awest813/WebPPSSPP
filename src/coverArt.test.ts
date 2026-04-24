@@ -324,9 +324,8 @@ describe("fetchAndValidateCoverArt", () => {
       0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
       0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
     ]);
-    const expectedBlob = new Blob([pngBytes], { type: "image/png" });
     const fetchImpl = (async (): Promise<Response> =>
-      new Response(expectedBlob, { status: 200, headers: { "Content-Type": "image/png" } })) as unknown as typeof fetch;
+      new Response(pngBytes.buffer, { status: 200, headers: { "Content-Type": "image/png" } })) as unknown as typeof fetch;
 
     // jsdom may lack createImageBitmap; stub it to accept any blob for this test.
     const originalBitmap = (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
@@ -334,8 +333,8 @@ describe("fetchAndValidateCoverArt", () => {
       .createImageBitmap = async () => ({ close: () => {} });
     try {
       const blob = await fetchAndValidateCoverArt("https://x/p.png", { fetchImpl });
-      expect(blob).toBeInstanceOf(Blob);
       expect(blob.size).toBeGreaterThan(0);
+      expect(blob.type).toMatch(/image/);
     } finally {
       (globalThis as { createImageBitmap?: unknown }).createImageBitmap = originalBitmap;
     }
