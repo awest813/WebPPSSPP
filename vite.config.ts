@@ -9,7 +9,9 @@ function copyEmulatorDataPlugin(): Plugin {
       const source = resolve("data");
       const target = resolve("dist", "data");
       if (!existsSync(source)) return;
-      rmSync(target, { recursive: true, force: true });
+      if (existsSync(target)) {
+        rmSync(target, { recursive: true, force: true });
+      }
       cpSync(source, target, { recursive: true });
     },
   };

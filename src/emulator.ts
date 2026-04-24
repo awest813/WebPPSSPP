@@ -3142,9 +3142,9 @@ export class PSPEmulator {
     const promise = new Promise<void>((resolve, reject) => {
       const script = document.createElement("script");
       script.src = src;
-      const scriptUrl = document.createElement("a");
-      scriptUrl.href = src;
-      if (scriptUrl.origin !== window.location.origin) {
+      const urlParser = document.createElement("a");
+      urlParser.href = src;
+      if (urlParser.origin !== window.location.origin) {
         script.crossOrigin = "anonymous";
       }
       script.setAttribute("data-ejs-loader", "true");
