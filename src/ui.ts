@@ -1263,7 +1263,7 @@ export async function renderLibrary(
         getSystemName:      (id) => getSystemById(id)?.shortName ?? id.toUpperCase(),
         formatRelativeTime,
         formatPlayTime,
-        onPlayFavorite: async (game) => {
+        onPlayFavorite: (game) => { void (async () => {
           showLoadingOverlay();
           setLoadingMessage(`Starting ${game.name}…`);
           setLoadingSubtitle("Getting ready to play");
@@ -1285,8 +1285,8 @@ export async function renderLibrary(
             hideLoadingOverlay();
             showError(`Failed to start game: ${err instanceof Error ? err.message : String(err)}`);
           }
-        },
-        onPlaySession: async (game, _session) => {
+        })(); },
+        onPlaySession: (game, _session) => { void (async () => {
           if (!game) return;
           showLoadingOverlay();
           setLoadingMessage(`Starting ${game.name}…`);
@@ -1309,7 +1309,7 @@ export async function renderLibrary(
             hideLoadingOverlay();
             showError(`Failed to start game: ${err instanceof Error ? err.message : String(err)}`);
           }
-        },
+        })(); },
       });
 
       highlightsEl.innerHTML = "";
