@@ -1009,7 +1009,29 @@ async function main(): Promise<void> {
     // Malformed URLs / non-browser environments are non-fatal.
   }
 
-  // 9. Dev helpers
+  // 8b. Web Share Target — pick up any ROM files deposited by the service
+  //     worker when this app was opened from the OS share sheet.
+  //     The service worker stores shared files under `/_shared/<filename>` in
+  //     the "retrovault-shared-roms" cache; we retrieve and process them here,
+  //     then delete the cached entries so they're not replayed on the next load.
+  try {
+    const shareCache = await caches.open("retrovault-shared-roms");
+    const sharedKeys = await shareCache.keys();
+    if (sharedKeys.length > 0) {
+      for (const req of sharedKeys) {
+        const resp = await shareCache.match(req);
+        if (!resp) continue;
+        const filename = resp.headers.get("X-Share-Filename") ?? req.url.split("/").pop() ?? "rom";
+        const blob = await resp.blob();
+        const file = new File([blob], decodeURIComponent(filename), { type: blob.type });
+        void onFileChosen(file);
+        await shareCache.delete(req);
+      }
+    }
+  } catch {
+    // Non-fatal — caches API unavailable in some environments.
+  }
+
   if (import.meta.env.DEV) {
     window[LEGACY_APP_GLOBALS.devConsole] = { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps };
     console.info(`[${APP_NAME}] Dev mode. Access \`window.${LEGACY_APP_GLOBALS.devConsole}\` in the console.`);
