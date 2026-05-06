@@ -436,6 +436,62 @@ describe('PSPEmulator', () => {
       expect(errors[0]).toContain('WebGL 2');
     });
 
+    it('wires Dreamcast to Flycast and forwards the external core bundle path', async () => {
+      clearWebGL2SupportCache();
+      vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+      const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext') as unknown as {
+        mockImplementation(fn: (contextId: string) => object | null): void;
+      };
+      getContextSpy.mockImplementation((contextId: string) => {
+        if (contextId === 'webgl2') return {} as RenderingContext;
+        return null;
+      });
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      try {
+        await emulator.launch({
+          file:            new File(['data'], 'sonic.gdi'),
+          volume:          0.7,
+          systemId:        'segaDC',
+          performanceMode: 'auto',
+          deviceCaps:      {
+            deviceMemoryGB: 8,
+            cpuCores: 8,
+            gpuRenderer: 'test-gpu',
+            isSoftwareGPU: false,
+            isLowSpec: false,
+            isChromOS: false, isIOS: false, isAndroid: false, isMobile: false, isSafari: false, safariVersion: null,
+            recommendedMode: 'quality' as const,
+            tier: 'high' as const,
+            gpuCaps: {
+              renderer: 'test-gpu', vendor: 'test', maxTextureSize: 4096,
+              maxVertexAttribs: 16, maxVaryingVectors: 8, maxRenderbufferSize: 4096,
+              anisotropicFiltering: true, maxAnisotropy: 4,
+              floatTextures: true, halfFloatTextures: true,
+              instancedArrays: true, webgl2: true, vertexArrayObject: true,
+              compressedTextures: false, etc2Textures: false, astcTextures: false,
+              maxColorAttachments: 4, multiDraw: false,
+            },
+            gpuBenchmarkScore: 80,
+            prefersReducedMotion: false,
+            webgpuAvailable: false,
+            connectionQuality: 'unknown' as const,
+            jsHeapLimitMB: null, estimatedVRAMMB: 2048,
+          },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(window.EJS_core).toBe('flycast');
+      expect(window.EJS_corePath).toContain('flycast-wasm.data');
+      expect(emulator.state).toBe('running');
+    });
+
     it('rejects launch while already loading', async () => {
       const errors: string[] = [];
       emulator.onError = (msg) => errors.push(msg);

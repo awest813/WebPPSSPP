@@ -1,6 +1,7 @@
 import { BiosLibrary, BIOS_REQUIREMENTS } from "../bios.js";
 import { SYSTEMS } from "../systems.js";
 import { createElement as make } from "./dom.js";
+import type { RAUserSummary, RARecentAchievement } from "../types/metadata.js";
 import {
   ApiKeyStore,
   redactKey,
@@ -8,6 +9,8 @@ import {
   type ApiKeyProviderConfig,
 } from "../apiKeyStore.js";
 import { getStorageEstimate, formatBytes } from "../library.js";
+
+type JsonObject = Record<string, unknown>;
 
 export function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary, opts: {
   appName: string;
@@ -205,7 +208,155 @@ export function buildAboutTab(container: HTMLElement, appName: string): void {
   }, "🔒 Privacy Policy"));
   aboutSection.appendChild(links);
 
-  container.append(quickStartSection, shortcutsSection, mpSection, troubleSection, storageSection, aboutSection);
+  const dataSection = make("div", { class: "settings-section" });
+  dataSection.appendChild(make("h4", { class: "settings-section__title" }, "Data Management"));
+  dataSection.appendChild(make("p", { class: "settings-help" }, "Backup your library metadata and settings to a JSON file. This does NOT include your ROM files, only the record of your collection and preferences."));
+  
+  const dataButtons = make("div", { class: "help-links" });
+  
+  const exportBtn = make("button", { class: "btn" }, "📤 Export Library JSON");
+  exportBtn.addEventListener("click", async () => {
+    try {
+      const { GameLibrary } = await import("../library.js");
+      const lib = new GameLibrary();
+      const meta = await lib.getAllGamesMetadata();
+      const settings = localStorage.getItem("retro-oasis.apiKeys") || "{}";
+      const apiKeys = JSON.parse(settings) as JsonObject;
+      const data = {
+        version: 1,
+        exportedAt: Date.now(),
+        library: meta,
+        apiKeys,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `retro-oasis-library-${new Date().toISOString().split("T")[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed:", err);
+    }
+  });
+
+  const importInput = make("input", { type: "file", accept: ".json", style: "display:none" }) as HTMLInputElement;
+  const importBtn = make("button", { class: "btn" }, "📥 Import Library JSON");
+  importBtn.addEventListener("click", () => importInput.click());
+  importInput.addEventListener("change", async () => {
+    const file = importInput.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as { apiKeys?: JsonObject };
+      if (data.apiKeys) {
+        localStorage.setItem("retro-oasis.apiKeys", JSON.stringify(data.apiKeys));
+      }
+      alert("Metadata imported! Refresh the page to see changes. Note: ROM files must still be added manually or found in your cloud library.");
+      window.location.reload();
+    } catch (err) {
+      alert("Failed to import data: " + (err instanceof Error ? err.message : String(err)));
+    }
+  });
+
+  dataButtons.append(exportBtn, importBtn, importInput);
+  dataSection.appendChild(dataButtons);
+
+  container.append(quickStartSection, shortcutsSection, mpSection, troubleSection, storageSection, dataSection, aboutSection);
+}
+
+export function buildAchievementsTab(
+  container: HTMLElement,
+  store: ApiKeyStore,
+  opts: {
+    appName: string;
+    onError(message: string): void;
+  },
+): void {
+  void opts.onError;
+  void opts.appName; // part of standardized opts interface
+  container.innerHTML = "";
+
+  const raState = store.getState("retroachievements");
+  if (!raState.enabled || !raState.key) {
+    const empty = make("div", { class: "settings-section achievements-empty" });
+    empty.appendChild(make("h4", { class: "settings-section__title" }, "RetroAchievements"));
+    empty.appendChild(make("p", { class: "settings-help" },
+      "Connect your RetroAchievements account to track progress, earn trophies, and see your rank. " +
+      "You'll need a free account from retroachievements.org."
+    ));
+    const setupBtn = make("button", { class: "btn btn--primary" }, "Set up RetroAchievements");
+    setupBtn.addEventListener("click", () => {
+      // Find the API Keys tab button and click it
+      const apiKeysTab = document.getElementById("tab-apikeys");
+      apiKeysTab?.click();
+    });
+    empty.appendChild(setupBtn);
+    container.appendChild(empty);
+    return;
+  }
+
+  // If configured, show the dashboard
+  const dashboard = make("div", { class: "achievements-dashboard" });
+  
+  const header = make("div", { class: "settings-section achievements-header" });
+  header.appendChild(make("h4", { class: "settings-section__title" }, "Your Achievements"));
+  header.appendChild(make("p", { class: "settings-help" }, "Fetching your latest progress…"));
+  dashboard.appendChild(header);
+
+  container.appendChild(dashboard);
+
+  // Lazy load achievements data
+  void import("../achievements.js").then(({ getRAClient, parseRAKey }) => {
+    const creds = parseRAKey(raState.key);
+    if (!creds) return;
+    const client = getRAClient(creds.username, creds.apiKey);
+    if (!client) return;
+
+    client.getUserSummary().then((summary: RAUserSummary) => {
+      header.querySelector(".settings-help")!.textContent = 
+        `Welcome back, ${creds.username}! You have ${summary.TotalPoints} points and ${summary.TotalTruePoints} true points.`;
+      
+      const stats = make("div", { class: "achievements-stats-grid" });
+      stats.append(
+        _buildStatCard("Rank", `#${summary.Rank || "---"}`),
+        _buildStatCard("Completed", summary.RecentlyCompleted?.length || "0"),
+        _buildStatCard("Last Played", summary.RecentlyPlayed?.[0]?.Title || "None")
+      );
+      dashboard.appendChild(stats);
+
+      if (summary.RecentAchievements && summary.RecentAchievements.length > 0) {
+        const recentSection = make("div", { class: "settings-section" });
+        recentSection.appendChild(make("h5", { class: "settings-section__title" }, "Recent Trophies"));
+        const trophyList = make("div", { class: "trophy-list" });
+        summary.RecentAchievements.slice(0, 5).forEach((ach: RARecentAchievement) => {
+          const item = make("div", { class: "trophy-item" });
+          item.innerHTML = `
+            <img src="https://media.retroachievements.org/Badge/${ach.BadgeName}.png" class="trophy-badge" alt="">
+            <div class="trophy-text">
+              <div class="trophy-name">${ach.Title}</div>
+              <div class="trophy-game">${ach.GameTitle}</div>
+            </div>
+          `;
+          trophyList.appendChild(item);
+        });
+        recentSection.appendChild(trophyList);
+        dashboard.appendChild(recentSection);
+      }
+    }).catch(err => {
+      header.querySelector(".settings-help")!.textContent = "Failed to fetch achievements data. Check your API key.";
+      console.error(err);
+    });
+  });
+}
+
+function _buildStatCard(label: string, value: string | number): HTMLElement {
+  const card = make("div", { class: "stat-card" });
+  card.innerHTML = `
+    <div class="stat-card__label">${label}</div>
+    <div class="stat-card__value">${value}</div>
+  `;
+  return card;
 }
 
 // ── API Keys tab ─────────────────────────────────────────────────────────────

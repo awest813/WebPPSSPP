@@ -213,28 +213,27 @@ describe("GitHubCoverArtProvider", () => {
 
   it("ranks candidates by score and limits results", async () => {
     const listing = [
-      { name: "Super Mario World (USA).png", path: "SNES/Super Mario World (USA).png", type: "file", download_url: "https://raw.example/smw.png" },
-      { name: "Super Mario All-Stars (USA).png", path: "SNES/Super Mario All-Stars (USA).png", type: "file", download_url: "https://raw.example/smas.png" },
-      { name: "Tetris (USA).png", path: "SNES/Tetris (USA).png", type: "file", download_url: "https://raw.example/tetris.png" },
-      { name: "Readme.md", path: "SNES/Readme.md", type: "file", download_url: "https://raw.example/readme.md" },
-      { name: "subfolder", path: "SNES/subfolder", type: "dir", download_url: null },
+      { name: "Custom Game.png", path: "Atari 2600/Custom Game.png", type: "file", download_url: "https://raw.example/cg.png" },
+      { name: "Other Game.png", path: "Atari 2600/Other Game.png", type: "file", download_url: "https://raw.example/og.png" },
+      { name: "Readme.md", path: "Atari 2600/Readme.md", type: "file", download_url: "https://raw.example/readme.md" },
+      { name: "subfolder", path: "Atari 2600/subfolder", type: "dir", download_url: null },
     ];
     let calls = 0;
     const fetchImpl = (async (url: RequestInfo | URL): Promise<Response> => {
       calls++;
-      expect(String(url)).toContain("/repos/ramiabraham/cover-art-collection/contents/SNES");
+      expect(String(url)).toContain("/repos/ramiabraham/cover-art-collection/contents/Atari%202600");
       return jsonResponse(listing);
     }) as unknown as typeof fetch;
 
     const provider = new GitHubCoverArtProvider({ fetchImpl });
-    const results = await provider.search("Super Mario World (USA).smc", "snes", { limit: 2 });
+    const results = await provider.search("Custom Game", "atari2600", { limit: 2 });
 
     expect(calls).toBe(1);
     expect(results.length).toBe(2);
-    expect(results[0]!.title).toBe("Super Mario World (USA)");
+    expect(results[0]!.title).toBe("Custom Game");
     expect(results[0]!.sourceName).toBe("cover-art-collection");
-    expect(results[0]!.imageUrl).toBe("https://raw.example/smw.png");
-    expect(results[0]!.systemId).toBe("snes");
+    expect(results[0]!.imageUrl).toBe("https://raw.example/cg.png");
+    expect(results[0]!.systemId).toBe("atari2600");
     // Top match should be near-perfect (>= threshold).
     expect(results[0]!.score).toBeGreaterThanOrEqual(AUTO_APPLY_CONFIDENCE_THRESHOLD);
     // Results are sorted by score descending.
@@ -319,7 +318,7 @@ describe("GitHubCoverArtProvider", () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
     const p = new GitHubCoverArtProvider({ fetchImpl });
-    expect(await p.search("Zelda", "nes")).toEqual([]);
+    expect(await p.search("SomeNonExistentGame", "atari2600")).toEqual([]);
   });
 
   it("deduplicates concurrent listings for the same folder", async () => {

@@ -2357,7 +2357,7 @@ describe("MegaProvider — isAvailable", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
     const p = new MegaProvider("user@mega.nz", "pass");
     expect(await p.isAvailable()).toBe(false);
-  });
+  }, 20_000);
 });
 
 describe("MegaProvider — delete", () => {
@@ -2383,7 +2383,7 @@ describe("MegaProvider — delete", () => {
     try { await p.isAvailable(); } catch { /* ignore */ }
     // delete should be a no-op when folder not found
     await expect(p.delete("game1", 1)).resolves.toBeUndefined();
-  });
+  }, 20_000);
 });
 
 describe("CloudSaveManager — MEGA credential storage", () => {

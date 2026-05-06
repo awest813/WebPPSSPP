@@ -618,7 +618,7 @@ describe("library stale system filter recovery", () => {
     await flushUI();
 
     const allChip = Array.from(document.querySelectorAll<HTMLButtonElement>(".sys-filter-chip"))
-      .find(btn => btn.textContent?.trim() === "All");
+      .find(btn => btn.textContent?.trim().includes("All Games"));
     expect(search.value).toBe("");
     expect(allChip?.classList.contains("active")).toBe(true);
 
@@ -3097,7 +3097,7 @@ describe("save gallery cloud bar UX", () => {
     }
   });
 
-  it("cloud connect dialog has a provider selector with Google Drive (first), WebDAV, and Dropbox options", async () => {
+  it("cloud connect dialog has a provider picker with Google Drive (first), WebDAV, and Dropbox options", async () => {
     const emulator = makeRunningEmulator();
     const saveLib  = makeBasicSaveLibrary();
 
@@ -3123,15 +3123,18 @@ describe("save gallery cloud bar UX", () => {
     await new Promise(r => setTimeout(r, 20));
 
     const dialog = document.querySelector("[aria-label='Cloud Connection']");
-    const sel = dialog?.querySelector("select");
-    expect(sel).toBeTruthy();
+    expect(dialog).toBeTruthy();
 
-    const optionValues = Array.from(sel!.querySelectorAll("option")).map(o => o.value);
-    expect(optionValues).toContain("webdav");
-    expect(optionValues).toContain("gdrive");
-    expect(optionValues).toContain("dropbox");
-    // Google Drive must be the first option
-    expect(optionValues[0]).toBe("gdrive");
+    // New UI: provider cards (Step 1 of wizard)
+    const cards = Array.from(dialog!.querySelectorAll<HTMLButtonElement>(".cloud-provider-card"));
+    expect(cards.length).toBeGreaterThan(0);
+
+    const cardLabels = cards.map(c => c.querySelector(".cloud-provider-card__label")?.textContent ?? "");
+    expect(cardLabels.some(l => l.includes("WebDAV"))).toBe(true);
+    expect(cardLabels.some(l => l.includes("Google Drive"))).toBe(true);
+    expect(cardLabels.some(l => l.includes("Dropbox"))).toBe(true);
+    // Google Drive must be the first card
+    expect(cardLabels[0]).toBe("Google Drive");
   });
 
   it("cloud bar shows a new-user hint in the last-sync element when not connected", async () => {
@@ -3168,6 +3171,47 @@ describe("save gallery cloud bar UX", () => {
     // The status text should say "Not connected" with no modifier class
     expect(statusText!.textContent).toBe("Not connected");
     expect(statusText!.className).toBe("cloud-bar__status-text");
+  });
+
+  it("navigating to Step 2 of the cloud wizard shows provider-specific fields", async () => {
+    const emulator = makeRunningEmulator();
+    const saveLib  = makeBasicSaveLibrary();
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator,
+      saveLibrary: saveLib,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    if (typeof (emulator as unknown as { onGameStart: () => void }).onGameStart === "function") {
+      (emulator as unknown as { onGameStart: () => void }).onGameStart();
+    }
+
+    openGalleryButton()?.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const connectBtn = Array.from(document.querySelectorAll<HTMLButtonElement>(".cloud-bar__actions button"))
+      .find(b => b.textContent?.includes("Connect"));
+    connectBtn?.click();
+    await new Promise(r => setTimeout(r, 20));
+
+    const dialog = document.querySelector("[aria-label='Cloud Connection']");
+    const webdavCard = Array.from(dialog!.querySelectorAll<HTMLButtonElement>(".cloud-provider-card"))
+      .find(c => c.textContent?.includes("WebDAV"));
+    webdavCard?.click();
+
+    const nextBtn = Array.from(dialog!.querySelectorAll<HTMLButtonElement>("button"))
+      .find(b => b.textContent?.includes("Next"));
+    nextBtn?.click();
+    await new Promise(r => setTimeout(r, 20));
+
+    // Check for WebDAV specific fields
+    expect(document.getElementById("csd-url")).toBeTruthy();
+    expect(document.getElementById("csd-user")).toBeTruthy();
+    expect(document.getElementById("csd-pass")).toBeTruthy();
   });
 });
 
@@ -3768,7 +3812,7 @@ describe("openEasyNetplayModal", () => {
     const overlay = document.querySelector(".easy-netplay-overlay");
     expect(overlay).toBeTruthy();
     const panels = document.querySelectorAll<HTMLElement>(".enp-panel");
-    expect(panels).toHaveLength(4);
+    expect(panels).toHaveLength(5);
     void calledWith; // suppress unused warning
   });
 
@@ -3849,6 +3893,20 @@ describe("openEasyNetplayModal", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("LAN Rooms tab is present and can be activated", async () => {
+    openEasyNetplayModal({});
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
+    const lanemuTab = Array.from(tabs).find(t => t.textContent?.includes("LAN Rooms"));
+    expect(lanemuTab).toBeTruthy();
+    
+    lanemuTab!.click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(lanemuTab!.getAttribute("aria-selected")).toBe("true");
+    
+    // Should show the LAN Rooms content (MultiplayerHome)
+    expect(document.querySelector(".multiplayer-dashboard-header")).toBeTruthy();
   });
 });
 

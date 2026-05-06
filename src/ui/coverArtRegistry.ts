@@ -25,6 +25,7 @@ import {
   LibretroCoverArtProvider,
   MobyGamesCoverArtProvider,
   RawgCoverArtProvider,
+  ScreenScraperCoverArtProvider,
   TheGamesDBCoverArtProvider,
   type ApiKeyedProvider,
   type CoverArtProvider,
@@ -52,6 +53,7 @@ export function getKeyedProviders(): Map<string, ApiKeyedProvider> {
     _keyedProviders.set("rawg",       new RawgCoverArtProvider({       getApiKey: () => store.getKey("rawg") }));
     _keyedProviders.set("mobygames",  new MobyGamesCoverArtProvider({  getApiKey: () => store.getKey("mobygames") }));
     _keyedProviders.set("thegamesdb", new TheGamesDBCoverArtProvider({ getApiKey: () => store.getKey("thegamesdb") }));
+    _keyedProviders.set("screenscraper", new ScreenScraperCoverArtProvider(() => store.getKey("screenscraper")));
   }
   return _keyedProviders;
 }

@@ -318,4 +318,44 @@ export const DEFAULT_API_KEY_PROVIDERS: readonly ApiKeyProviderConfig[] = Object
     signupUrl: "https://thegamesdb.net/",
     validate: genericKeyValidator(16, "TheGamesDB"),
   },
+  {
+    id: "retroachievements",
+    name: "RetroAchievements",
+    description: "Track your achievements as you play. Requires your RA Username and Web API Key (found in RA Settings). Format: username:apikey",
+    signupUrl: "https://retroachievements.org/controlpanel.php",
+    validate: (val: string) => {
+      const parts = val.split(":");
+      if (parts.length !== 2 || !parts[0]?.trim() || !parts[1]?.trim()) {
+        return "Format must be 'username:apikey'. Get your key from your RetroAchievements control panel.";
+      }
+      return true;
+    },
+  },
+  {
+    id: "steamgriddb",
+    name: "SteamGridDB",
+    description: "Premium gaming assets: high-res grids, hero backgrounds, and transparent logos. Free personal API keys.",
+    signupUrl: "https://www.steamgriddb.com/profile/api",
+    validate: genericKeyValidator(16, "SteamGridDB"),
+  },
+  {
+    id: "igdb",
+    name: "IGDB",
+    description: "The internet's most comprehensive game database. Detailed metadata, ratings, and company info. (via Twitch Dev)",
+    signupUrl: "https://api-docs.igdb.com/",
+    validate: genericKeyValidator(16, "IGDB"),
+  },
+  {
+    id: "screenscraper",
+    name: "ScreenScraper.fr",
+    description: "The ultimate source for retro gaming media. Requires an account on screenscraper.fr. Format: userid:password. (App provides default dev keys)",
+    signupUrl: "https://www.screenscraper.fr/",
+    validate: (val: string) => {
+      const parts = val.split(":");
+      if (parts.length !== 2 || !parts[0]?.trim() || !parts[1]?.trim()) {
+        return "Format must be 'userid:password'. Get your credentials from screenscraper.fr.";
+      }
+      return true;
+    },
+  },
 ]);

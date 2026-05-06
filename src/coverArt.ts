@@ -84,7 +84,13 @@ export interface CoverArtProvider {
   search(
     name: string,
     systemId: string,
-    opts?: { limit?: number; signal?: AbortSignal },
+    opts?: {
+      limit?: number;
+      signal?: AbortSignal;
+      hashes?: { md5?: string; sha1?: string };
+      /** Original ROM filename for fallback matching (e.g. ScreenScraper). */
+      fileName?: string;
+    },
   ): Promise<CoverArtCandidate[]>;
 }
 
@@ -797,7 +803,12 @@ export class ChainedCoverArtProvider implements CoverArtProvider {
   async search(
     name: string,
     systemId: string,
-    opts: { limit?: number; signal?: AbortSignal } = {},
+    opts: {
+      limit?: number;
+      signal?: AbortSignal;
+      hashes?: { md5?: string; sha1?: string };
+      fileName?: string;
+    } = {},
   ): Promise<CoverArtCandidate[]> {
     const limit = Math.max(1, Math.min(20, opts.limit ?? 6));
     const all: CoverArtCandidate[] = [];
@@ -1397,5 +1408,125 @@ export class TheGamesDBCoverArtProvider implements ApiKeyedProvider {
     } catch (err) {
       return `Could not reach TheGamesDB: ${err instanceof Error ? err.message : String(err)}`;
     }
+  }
+}
+
+// ── ScreenScraper provider ───────────────────────────────────────────────────
+
+/**
+ * ScreenScraper.fr-backed cover art provider.
+ *
+ * Primary path: ROM hash (MD5) → exact database match → box-2D media URL.
+ * Fallback path: ROM filename → near-exact match.
+ *
+ * Requires a ScreenScraper account (ssid:sspassword in the API Keys settings).
+ */
+export class ScreenScraperCoverArtProvider implements ApiKeyedProvider {
+  readonly id = "screenscraper";
+  readonly name = "ScreenScraper.fr";
+  readonly requiresApiKey = true as const;
+  readonly providerId = "screenscraper";
+  readonly signupUrl = "https://www.screenscraper.fr/";
+
+  constructor(private readonly getApiKey: () => string) {}
+
+  isAvailable(): boolean {
+    return !!this.getApiKey().trim();
+  }
+
+  async search(
+    name: string,
+    systemId: string,
+    opts: {
+      limit?: number;
+      signal?: AbortSignal;
+      hashes?: { md5?: string; sha1?: string };
+      /** Original ROM filename — used as fallback when no hash is available. */
+      fileName?: string;
+    } = {},
+  ): Promise<CoverArtCandidate[]> {
+    const key = this.getApiKey().trim();
+    if (!key) return [];
+
+    // Lazy-import to avoid bundling SS code until actually needed
+    const [{ SYSTEMS }, { ScreenScraperClient, pickBestCoverMedia }] = await Promise.all([
+      import("./systems.js"),
+      import("./screenscraper.js"),
+    ]);
+
+    const sysInfo = SYSTEMS.find(s => s.id === systemId);
+    if (!sysInfo?.screenscraperId) return [];
+
+    const client = new ScreenScraperClient(key);
+    const { signal } = opts;
+
+    let game: import("./screenscraper.js").ScreenScraperGame | null = null;
+
+    // ── 1. Hash-based lookup (most accurate) ──────────────────────────────────
+    const md5 = opts.hashes?.md5;
+    const sha1 = opts.hashes?.sha1;
+
+    if (md5) {
+      try {
+        game = await client.getGameByHash(md5, "md5", sysInfo.screenscraperId, signal);
+      } catch (err) {
+        // Non-fatal: log and fall through to filename fallback
+        console.warn("[ScreenScraper] Hash lookup (md5) failed:", err instanceof Error ? err.message : err);
+      }
+    }
+
+    if (!game && sha1) {
+      try {
+        game = await client.getGameByHash(sha1, "sha1", sysInfo.screenscraperId, signal);
+      } catch (err) {
+        console.warn("[ScreenScraper] Hash lookup (sha1) failed:", err instanceof Error ? err.message : err);
+      }
+    }
+
+    // ── 2. Filename fallback ──────────────────────────────────────────────────
+    if (!game) {
+      // Use the raw filename if available, otherwise construct one from the display name.
+      // ScreenScraper filename matching expects the extension to be present.
+      const fileName = opts.fileName || name;
+      try {
+        game = await client.getGameByFileName(fileName, sysInfo.screenscraperId, signal);
+      } catch (err) {
+        console.warn("[ScreenScraper] Filename lookup failed:", err instanceof Error ? err.message : err);
+      }
+    }
+
+    if (!game) return [];
+
+    // ── 3. Pick best media ────────────────────────────────────────────────────
+    const best = pickBestCoverMedia(game.medias);
+    if (!best?.url) return [];
+
+    const title = game.names.find(n => n.region === "us")?.name
+      || game.names.find(n => n.region === "wor")?.name
+      || game.names[0]?.name
+      || name;
+
+    // Hash match = 1.0 confidence; filename match = 0.85
+    const wasHashMatch = !!(md5 || sha1);
+    const score = wasHashMatch ? 1.0 : 0.85;
+
+    return [{
+      title,
+      systemId,
+      imageUrl: best.url,
+      sourceName: this.name,
+      score,
+    }];
+  }
+
+  async testConnection(opts: { signal?: AbortSignal } = {}): Promise<true | string> {
+    const key = this.getApiKey().trim();
+    if (!key) return "No credentials configured. Enter your ScreenScraper.fr userid:password.";
+
+    const { ScreenScraperClient } = await import("./screenscraper.js");
+    const client = new ScreenScraperClient(key);
+    const result = await client.testCredentials(opts.signal);
+    if (result.ok) return true;
+    return `ScreenScraper authentication failed: ${result.message}`;
   }
 }

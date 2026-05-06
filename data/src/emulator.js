@@ -30,6 +30,7 @@ class EmulatorJS {
             "atari2600": ["stella2014"],
             "jaguar": ["virtualjaguar"],
             "segaSaturn": ["yabause"],
+            "segaDC": ["flycast"],
             "amiga": ["puae"],
             "c64": ["vice_x64sc"],
             "c128": ["vice_x128"],
@@ -49,7 +50,7 @@ class EmulatorJS {
         return requiresThreads.includes(core);
     }
     requiresWebGL2(core) {
-        const requiresWebGL2 = ["ppsspp"];
+        const requiresWebGL2 = ["ppsspp", "flycast"];
         return requiresWebGL2.includes(core);
     }
     getCore(generic) {
@@ -760,6 +761,22 @@ class EmulatorJS {
             if (this.debug) console.log("[EJS Core] js size:", js?.byteLength, "wasm size:", wasm?.byteLength, "thread size:", thread?.byteLength);
 
             this.initGameCore(js, wasm, thread);
+        }
+
+        if (typeof this.config.corePath === "string" && this.config.corePath.length > 0) {
+            const corePath = this.config.corePath;
+            console.log("[EJS Core] Downloading external core:", corePath);
+            this.webgl2Enabled = this.requiresWebGL2(this.getCore()) ? true : this.webgl2Enabled;
+            this.downloadFile(corePath, this.downloadType.core.name, (progress) => {
+                this.textElem.innerText = this.localization("Download Game Core") + progress;
+            }, true, { responseType: "arraybuffer", method: "GET" }, true, this.downloadType.core.dontCache).then(res => {
+                if (res === -1) {
+                    this.startGameError(this.localization("Error downloading core") + " (" + this.getCore() + ")");
+                    return;
+                }
+                gotCore(res.data);
+            });
+            return;
         }
 
         const report = "cores/reports/" + this.getCore() + ".json";

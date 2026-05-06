@@ -11,6 +11,8 @@ describe("LanemuService", () => {
       spawn: vi.fn().mockResolvedValue(1234),
       kill: vi.fn().mockResolvedValue(undefined),
       isProcessRunning: vi.fn().mockResolvedValue(true),
+      exists: vi.fn().mockResolvedValue(true),
+      validateJava: vi.fn().mockResolvedValue(true),
     };
 
     mockNetwork = {

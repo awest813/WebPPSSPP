@@ -36,17 +36,21 @@ export class LanemuService {
     }
   }
 
+  private _accessFileLoaded: boolean = false;
+
   async getStatus(): Promise<LanemuStatus> {
     const isRunning = await this._proc.checkAlive();
     const virtualIp = isRunning ? await this._net.detectVirtualIp() : null;
 
+    const { javaOk, jarOk } = await this._proc.validatePrerequisites(this._settings.javaPath, this._settings.lanemuJarPath);
+
     return {
-      javaDetected:      true, // TODO: Implement real detection via launcher
-      lanemuJarDetected: true, // TODO: Implement real detection via filesystem
+      javaDetected:      javaOk,
+      lanemuJarDetected: jarOk,
       running:           isRunning,
       virtualIp:         virtualIp?.address,
       adapterName:       virtualIp?.name,
-      accessFileLoaded:  isRunning, // Simplification for MVP
+      accessFileLoaded:  isRunning && this._accessFileLoaded,
     };
   }
 
@@ -59,7 +63,12 @@ export class LanemuService {
   }): Promise<void> {
     const args = ["--headless"];
     if (options.playerName) args.push(`--name=${options.playerName}`);
-    if (options.accessFilePath) args.push(`--access=${options.accessFilePath}`);
+    if (options.accessFilePath) {
+      args.push(`--access=${options.accessFilePath}`);
+      this._accessFileLoaded = true;
+    } else {
+      this._accessFileLoaded = false;
+    }
     if (options.port) args.push(`--port=${options.port}`);
     if (options.vpnIp) args.push(`--vpn.ip=${options.vpnIp}`);
     if (options.vpnMask) args.push(`--vpn.mask=${options.vpnMask}`);
@@ -70,6 +79,7 @@ export class LanemuService {
 
   async stop(): Promise<void> {
     await this._proc.stop();
+    this._accessFileLoaded = false;
     this._notify(await this.getStatus());
   }
 
@@ -80,5 +90,9 @@ export class LanemuService {
 
   async validateSetup(): Promise<LanemuStatus> {
     return this.getStatus();
+  }
+
+  async ping(ip: string): Promise<boolean> {
+    return this._net.ping(ip);
   }
 }

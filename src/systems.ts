@@ -67,6 +67,14 @@ export interface SystemInfo {
    */
   is3D?: boolean;
   /**
+   * Whether this system is supported by RetroAchievements.org.
+   */
+  hasAchievements?: boolean;
+  /**
+   * Numeric identifier used by ScreenScraper.fr.
+   */
+  screenscraperId?: number;
+  /**
    * EJS_Settings overrides applied in "performance" (low-spec) mode.
    * Keys are RetroArch core-option names; values are strings.
    */
@@ -1176,6 +1184,7 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: true,
     needsWebGL2: true,
     is3D: true,
+    screenscraperId: 61,
     qualitySettings: {
       ppsspp_internal_resolution: "2",
       ppsspp_auto_frameskip: "disabled",
@@ -1195,11 +1204,13 @@ export const SYSTEMS: SystemInfo[] = [
     id: "nes",
     name: "Nintendo Entertainment System",
     shortName: "NES",
-    iconUrl: "/assets/nes_system_icon_premium_1775435133234.png",
+    iconUrl: "/assets/nes_system_icon_premium_1775433133234.png",
     extensions: ["nes", "fds", "unf", "unif"],
     color: "#e52b2b",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
+    screenscraperId: 1,
     qualitySettings: NES_TIER_SETTINGS.high,
     perfSettings: NES_TIER_SETTINGS.low,
     tierSettings: NES_TIER_SETTINGS,
@@ -1213,6 +1224,8 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#7b3fae",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
+    screenscraperId: 4,
     qualitySettings: SNES_TIER_SETTINGS.high,
     perfSettings: SNES_TIER_SETTINGS.low,
     tierSettings: SNES_TIER_SETTINGS,
@@ -1226,6 +1239,8 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#7c4dff",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
+    screenscraperId: 12,
     qualitySettings: GBA_TIER_SETTINGS.high,
     perfSettings: GBA_TIER_SETTINGS.low,
     tierSettings: GBA_TIER_SETTINGS,
@@ -1239,6 +1254,8 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#e87d2a",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
+    screenscraperId: 10,
     qualitySettings: GBC_TIER_SETTINGS.high,
     perfSettings: GBC_TIER_SETTINGS.low,
     tierSettings: GBC_TIER_SETTINGS,
@@ -1252,6 +1269,8 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#7a9e27",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
+    screenscraperId: 9,
     qualitySettings: GB_TIER_SETTINGS.high,
     perfSettings: GB_TIER_SETTINGS.low,
     tierSettings: GB_TIER_SETTINGS,
@@ -1267,6 +1286,7 @@ export const SYSTEMS: SystemInfo[] = [
     needsWebGL2: false,
     is3D: true,
     touchControlMode: "builtin",
+    screenscraperId: 28,
     qualitySettings: NDS_TIER_SETTINGS.high,
     perfSettings: NDS_TIER_SETTINGS.low,
     tierSettings: NDS_TIER_SETTINGS,

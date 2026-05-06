@@ -56,6 +56,8 @@ import { optimizeChromePerformance } from "./performance.js";
 optimizeChromePerformance();
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
 import type { PostProcessEffect } from "./webgpuPostProcess.js";
+import { getApiKeyStore } from "./ui/coverArtRegistry.js";
+import { parseRAKey } from "./achievements.js";
 
 const APP_NAME = "RetroOasis";
 registerCOIServiceWorker();
@@ -326,7 +328,7 @@ function setTouchControlsPreferenceForSystem(
  */
 declare global {
   interface Window {
-    __retro-oasis?: Record<string, unknown>;
+    "__retro-oasis"?: Record<string, unknown>;
     __pwaInstallPrompt?: () => Promise<void>;
   }
 }
@@ -646,6 +648,10 @@ async function main(): Promise<void> {
       nm.setUsername(settings.netplayUsername);
     }
 
+    const apiStore = getApiKeyStore();
+    const raState = apiStore.getState("retroachievements");
+    const raCreds = (raState.enabled && raState.key) ? parseRAKey(raState.key) : null;
+
     await emulator.launch({
       file,
       volume:              settings.volume,
@@ -658,6 +664,11 @@ async function main(): Promise<void> {
       netplayManager: peekNetplayManager() ?? undefined,
       gameId,
       skipExtensionCheck:  !!gameId,
+      achievements: raCreds ? {
+        username: raCreds.username,
+        apiKey: raCreds.apiKey,
+        hardcore: true, // Default to hardcore for Oasis users
+      } : undefined,
     });
 
     if (gameId && cloudSaveManager.isConnected()) {

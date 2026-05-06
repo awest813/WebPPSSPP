@@ -84,6 +84,7 @@
     config.gameUrl = window.EJS_gameUrl;
     config.dataPath = scriptPath;
     config.system = window.EJS_core;
+    config.corePath = window.EJS_corePath;
     config.biosUrl = window.EJS_biosUrl;
     config.gameName = window.EJS_gameName;
     config.color = window.EJS_color;

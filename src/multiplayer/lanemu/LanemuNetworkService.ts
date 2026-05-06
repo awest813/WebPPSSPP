@@ -37,6 +37,10 @@ export class LanemuNetworkService {
     return this._network.ping(ip);
   }
 
+  async ping(ip: string): Promise<boolean> {
+    return this._network.ping(ip);
+  }
+
   async testGamePort(ip: string, port: number): Promise<boolean> {
     return this._network.checkTcpPort(ip, port);
   }

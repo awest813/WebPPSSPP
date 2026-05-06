@@ -71,10 +71,7 @@ export function renderRoomCard(
     return;
   }
 
-  // Standard card for Browse list or Joining state
-  const card = make("div", { class: "enp-active-room" });
-  // ... (rest of the standard card logic if needed for browse list)
-  // But usually browse list is handled by sharedGetEasyNetplayManager listRooms.
+  // joining state is handled by sharedGetEasyNetplayManager listRooms.
 }
 
 function resolveAssetUrl(path: string): string {

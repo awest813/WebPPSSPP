@@ -170,6 +170,9 @@ describe('systems performance profiles', () => {
     // Dreamcast uses Flycast (reicast core options)
     expect(dc?.tierSettings?.low?.reicast_frame_skipping).toBe('enabled');
     expect(dc?.tierSettings?.ultra?.reicast_internal_resolution).toBe('1920x1440');
+    expect(dc?.coreId).toBe('flycast');
+    expect(dc?.corePath).toContain('flycast-wasm.data');
+    expect(dc?.needsWebGL2).toBe(true);
     expect(dc?.experimental).toBe(true);
     expect(dc?.stabilityNotice).toContain('stabil');
   });

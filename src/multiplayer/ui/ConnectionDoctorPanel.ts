@@ -1,40 +1,59 @@
-/**
- * ConnectionDoctorPanel.ts — Interactive diagnostic panel for netplay.
- */
-
 import { createElement as make } from "../../ui/dom.js";
+import { getLanemuService } from "../lanemu/LanemuSingleton.js";
+import { LanemuConnectionDoctor } from "../lanemu/LanemuConnectionDoctor.js";
 
-export function buildConnectionDoctorPanel(container: HTMLElement): void {
-  container.innerHTML = "";
+export function buildConnectionDoctorPanel(container: HTMLElement, opts: { roomId: string; onBack: () => void }): void {
+  const service = getLanemuService();
+  const doctor = new LanemuConnectionDoctor(service);
 
-  const panel = make("div", { class: "doctor-panel" });
-  panel.appendChild(make("h3", {}, "Connection Doctor"));
-  panel.appendChild(make("p", { class: "doctor-intro" }, "Scanning your connection for issues..."));
+  const render = async () => {
+    container.innerHTML = "";
 
-  const resultsList = make("div", { class: "doctor-results" });
-  
-  // Example result items (would be dynamically generated from LanemuConnectionDoctor)
-  const addItem = (label: string, status: "pass" | "warn" | "fail", message: string, fix?: string) => {
-    const item = make("div", { class: `doctor-item doctor-item--${status}` });
-    item.innerHTML = `
-      <div class="doctor-item__header">
-        <span class="doctor-item__status">${status === "pass" ? "✅" : status === "warn" ? "⚠️" : "❌"}</span>
-        <span class="doctor-item__label">${label}</span>
-      </div>
-      <div class="doctor-item__message">${message}</div>
-      ${fix ? `<div class="doctor-item__fix"><strong>Fix:</strong> ${fix}</div>` : ""}
-    `;
-    resultsList.appendChild(item);
+    const panel = make("div", { class: "doctor-panel" });
+    
+    const header = make("div", { class: "modal-header" });
+    const btnBack = make("button", { class: "btn btn--ghost", style: "margin-right: 10px", "aria-label": "Go back" }, "⬅");
+    btnBack.addEventListener("click", opts.onBack);
+    header.append(btnBack, make("h3", { class: "modal-title" }, "Connection Doctor"));
+    panel.appendChild(header);
+
+    const intro = make("p", { class: "doctor-intro" }, "Scanning your connection for issues...");
+    panel.appendChild(intro);
+
+    const loadingWrap = make("div", { class: "doctor-loading", style: "padding: 40px; text-align: center;" });
+    loadingWrap.innerHTML = `<span class="spinner"></span><p style="margin-top: 10px; color: var(--c-text-dim);">Running diagnostics...</p>`;
+    panel.appendChild(loadingWrap);
+    container.appendChild(panel);
+
+    const results = await doctor.runChecks({ roomId: opts.roomId });
+    
+    loadingWrap.remove();
+    intro.textContent = results.every(r => r.status === "pass") 
+      ? "All checks passed! Your connection looks healthy." 
+      : "Some issues were detected. Check the fixes below.";
+
+    const resultsList = make("div", { class: "doctor-results", role: "list" });
+    panel.appendChild(resultsList);
+
+    for (const res of results) {
+      const item = make("div", { class: `doctor-item doctor-item--${res.status}`, role: "listitem" });
+      item.innerHTML = `
+        <div class="doctor-item__header">
+          <span class="doctor-item__status" aria-hidden="true">${res.status === "pass" ? "✅" : res.status === "warn" ? "⚠️" : "❌"}</span>
+          <strong class="doctor-item__label">${res.label}</strong>
+        </div>
+        <div class="doctor-item__message">${res.message}</div>
+        ${res.fix ? `<div class="doctor-item__fix"><strong>Fix:</strong> ${res.fix}</div>` : ""}
+      `;
+      resultsList.appendChild(item);
+    }
+
+    const actions = make("div", { class: "doctor-actions", style: "margin-top: 20px" });
+    const btnRetry = make("button", { class: "btn btn--primary" }, "Run Checks Again");
+    btnRetry.addEventListener("click", () => void render());
+    actions.appendChild(btnRetry);
+    panel.appendChild(actions);
   };
 
-  addItem("LANemu Process", "pass", "LANemu is running (PID: 1234)");
-  addItem("Virtual IP Address", "pass", "Your virtual IP: 10.6.10.10");
-  addItem("Friend Reachability", "fail", "Could not reach friend at 10.6.10.11", "Make sure your friend has joined the same room.");
-
-  panel.appendChild(resultsList);
-  
-  const btnRetry = make("button", { class: "btn btn--primary" }, "Run Checks Again");
-  panel.appendChild(btnRetry);
-
-  container.appendChild(panel);
+  void render();
 }

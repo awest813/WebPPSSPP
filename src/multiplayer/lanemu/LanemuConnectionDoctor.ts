@@ -69,12 +69,13 @@ export class LanemuConnectionDoctor {
 
     // 5. Friend reachability (if IP provided)
     if (input.friendIp) {
+      const alive = await this._service.ping(input.friendIp);
       results.push({
         id: "friend",
         label: "Friend Connectivity",
-        status: "warn", // Mocking as it requires async ping
-        message: `Pinging ${input.friendIp}...`,
-        fix: "Ensure your friend has joined the same room.",
+        status: alive ? "pass" : "fail",
+        message: alive ? `Reached friend at ${input.friendIp}.` : `Could not reach friend at ${input.friendIp}.`,
+        fix: alive ? undefined : "Ensure your friend has joined the same room and their firewall is not blocking LANemu.",
       });
     }
 

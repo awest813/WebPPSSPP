@@ -1,0 +1,29 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RetroOasis">
+  <defs>
+    <linearGradient id="ro-sky" x1="18" y1="14" x2="78" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#56B6C2"/>
+      <stop offset="0.52" stop-color="#7A98B8"/>
+      <stop offset="1" stop-color="#E0A44C"/>
+    </linearGradient>
+    <linearGradient id="ro-face" x1="25" y1="27" x2="71" y2="69" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#232A36"/>
+      <stop offset="1" stop-color="#101319"/>
+    </linearGradient>
+    <filter id="ro-glow" x="4" y="4" width="88" height="88" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#56B6C2" flood-opacity="0.22"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#E0A44C" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="96" height="96" rx="24" fill="#111318"/>
+  <g filter="url(#ro-glow)">
+    <path d="M48 14C66.778 14 82 29.222 82 48C82 66.778 66.778 82 48 82C29.222 82 14 66.778 14 48C14 29.222 29.222 14 48 14Z" fill="url(#ro-sky)"/>
+    <path d="M24 52C28.874 44.123 37.594 38.875 47.55 38.875C57.836 38.875 66.807 44.476 71.57 52.8C69.273 66.426 58.113 76 48 76C37.5 76 26.597 66.048 24 52Z" fill="#F1C77C"/>
+    <path d="M48 24C61.255 24 72 34.745 72 48C72 61.255 61.255 72 48 72C34.745 72 24 61.255 24 48C24 34.745 34.745 24 48 24Z" fill="url(#ro-face)"/>
+    <path d="M30 51C34.438 45.775 40.91 42.75 48 42.75C55.09 42.75 61.562 45.775 66 51C61.562 56.225 55.09 59.25 48 59.25C40.91 59.25 34.438 56.225 30 51Z" fill="#151922"/>
+    <rect x="34" y="45" width="28" height="12" rx="6" fill="#232A36" stroke="#56B6C2" stroke-width="2"/>
+    <path d="M42 49V53M40 51H44" stroke="#F7F3E8" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="54" cy="51" r="2" fill="#E0A44C"/>
+    <circle cx="60" cy="51" r="2" fill="#56B6C2"/>
+    <path d="M35 33C38.684 30.478 43.151 29 48 29C52.849 29 57.316 30.478 61 33" stroke="#F7F3E8" stroke-opacity="0.7" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

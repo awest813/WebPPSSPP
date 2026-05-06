@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { versions } from 'node:process';
 
@@ -74,6 +74,42 @@ addCheck('Cross-origin isolation helper present for static hosts', () => {
     };
   }
   return { status: PASS, message: `${swPath} is present.` };
+});
+
+addCheck('Emulator core runtime wiring', () => {
+  const loaderPath = 'data/loader.js';
+  const runtimePath = 'data/src/emulator.js';
+  if (!existsSync(loaderPath) || !existsSync(runtimePath)) {
+    return {
+      status: FAIL,
+      message: `Missing bundled EmulatorJS file(s): ${loaderPath}, ${runtimePath}.`
+    };
+  }
+
+  const loader = readFileSync(loaderPath, 'utf8');
+  const runtime = readFileSync(runtimePath, 'utf8');
+  const missing = [];
+  if (!loader.includes('config.corePath = window.EJS_corePath')) {
+    missing.push('loader corePath passthrough');
+  }
+  if (!runtime.includes('"segaDC": ["flycast"]')) {
+    missing.push('Dreamcast Flycast registration');
+  }
+  if (!runtime.includes('const requiresWebGL2 = ["ppsspp", "flycast"]')) {
+    missing.push('Flycast WebGL2 guard');
+  }
+  if (!runtime.includes('[EJS Core] Downloading external core:')) {
+    missing.push('external core download path');
+  }
+
+  if (missing.length) {
+    return {
+      status: FAIL,
+      message: `Core runtime patch missing: ${missing.join(', ')}.`
+    };
+  }
+
+  return { status: PASS, message: 'Bundled runtime can pass and load external Flycast core bundles.' };
 });
 
 console.log('RetroOasis environment doctor\n');

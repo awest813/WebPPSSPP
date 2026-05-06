@@ -3,6 +3,7 @@ import type { SystemInfo } from "../systems.js";
 import { getSystemById, getSystemFeatureSummary } from "../systems.js";
 import type { ArchiveFormat } from "../archive.js";
 import { createElement } from "./dom.js";
+import type { RAProgress, SGDBAssets, IGDBMetadata, IGDBGenre, RAAchievement } from "../types/metadata.js";
 
 export function isTopmostOverlay(overlay: HTMLElement): boolean {
   const all = document.querySelectorAll<HTMLElement>(".confirm-overlay");
@@ -496,7 +497,7 @@ export function showCoverArtCandidatePicker(
       { class: "confirm-body" },
       candidates.length === 0
         ? `No online matches were found for "${gameName}". Try uploading an image file instead.`
-        : `Pick the best match for "${gameName}". Images come from the community cover-art-collection on GitHub.`,
+        : `Showing ${candidates.length} result(s) for "${gameName}" — select the best match.`,
     ));
 
     let closed = false;
@@ -513,10 +514,11 @@ export function showCoverArtCandidatePicker(
       const grid = createElement("div", { class: "cover-art-candidate-grid" });
       for (const c of candidates) {
         const scorePct = Math.round(c.score * 100);
+        const isPerfect = c.score >= 0.99;
         const card = createElement("button", {
-          class: "cover-art-candidate",
+          class: `cover-art-candidate${isPerfect ? " cover-art-candidate--perfect" : ""}`,
           type: "button",
-          title: `${c.title} (${scorePct}% match from ${c.sourceName})`,
+          title: `${c.title} (${scorePct}% match · ${c.sourceName})`,
           "aria-label": `Use cover "${c.title}" (${scorePct}% match from ${c.sourceName})`,
         });
 
@@ -525,19 +527,38 @@ export function showCoverArtCandidatePicker(
           alt: "",
           loading: "lazy",
           src: c.imageUrl,
+          crossorigin: "anonymous",
         }) as HTMLImageElement;
 
-        // Confidence badge
+        // Confidence badge — data attrs drive CSS color coding
         const badge = createElement("div", { class: "cover-art-candidate__score-badge" });
-        badge.innerHTML = `<span>${scorePct}%</span><span>${c.sourceName}</span>`;
+        const scoreSpan = createElement("span", {}, isPerfect ? "✓ Exact" : `${scorePct}%`);
+        if (isPerfect) (scoreSpan as HTMLElement).setAttribute("data-perfect", "1");
+        const sourceSpan = createElement("span", {}, c.sourceName);
+        (sourceSpan as HTMLElement).setAttribute("data-source", c.sourceName);
+        badge.append(scoreSpan, sourceSpan);
 
-        img.addEventListener("error", () => { img.style.opacity = "0.35"; });
+        img.addEventListener("error", () => {
+          img.style.opacity = "0.25";
+          img.alt = "Image unavailable";
+        });
         const label = createElement("span", { class: "cover-art-candidate__label" }, c.title);
         card.append(img, badge, label);
         card.addEventListener("click", () => close(c.imageUrl));
         grid.appendChild(card);
       }
       box.appendChild(grid);
+    } else {
+      // Rich empty state
+      const empty = createElement("div", { class: "cover-art-no-results" });
+      empty.innerHTML = `
+        <div class="cover-art-no-results__icon">🔍</div>
+        <p class="cover-art-no-results__text">
+          No covers found online for <strong>"${gameName}"</strong>.<br>
+          Try uploading an image file or pasting a URL instead.
+        </p>
+      `;
+      box.appendChild(empty);
     }
 
     const footer = createElement("div", { class: "confirm-footer" });
@@ -562,6 +583,218 @@ export function showCoverArtCandidatePicker(
     requestAnimationFrame(() => {
       overlay.classList.add("confirm-overlay--visible");
       btnCancel.focus();
+    });
+  });
+}
+
+
+/**
+ * Premium Game Details modal.
+ * Shows high-res cover art, achievements, play stats, and launch options.
+ */
+export function showGameDetails(
+  game: GameMetadata,
+  opts: {
+    system: SystemInfo | null;
+    formatBytes: (n: number) => string;
+    onLaunch: () => void;
+    onRemove: () => void;
+    onToggleFav: () => void;
+    onEditArt: () => void;
+    getRAProgress?: () => Promise<RAProgress | null>;
+    getSGDBAssets?: () => Promise<SGDBAssets | null>;
+    getIGDBMetadata?: () => Promise<IGDBMetadata | null>;
+  }
+): Promise<void> {
+  const { system, formatBytes, onLaunch, onRemove, onToggleFav, onEditArt, getRAProgress, getSGDBAssets, getIGDBMetadata } = opts;
+
+  return new Promise((resolve) => {
+    const overlay = createElement("div", { class: "confirm-overlay confirm-overlay--details" });
+    const box = createElement("div", {
+      class: "details-box",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": `Details for ${game.name}`,
+    });
+
+    const close = () => {
+      document.removeEventListener("keydown", onKey, { capture: true });
+      overlay.classList.remove("confirm-overlay--visible");
+      setTimeout(() => { overlay.remove(); resolve(); }, 200);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isTopmostOverlay(overlay)) {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    };
+
+    // ── Layout ───────────────────────────────────────────────────────────────
+    
+    // Background Blur of the cover art
+    const bg = createElement("div", { class: "details-bg" });
+    if (game.thumbnailUrl) bg.style.backgroundImage = `url(${game.thumbnailUrl})`;
+    box.appendChild(bg);
+
+    const content = createElement("div", { class: "details-content" });
+    
+    // Left: High-res Cover + System Badge
+    const left = createElement("div", { class: "details-left" });
+    const coverWrap = createElement("div", { class: "details-cover-wrap" });
+    if (game.thumbnailUrl) {
+      coverWrap.appendChild(createElement("img", { src: game.thumbnailUrl, class: "details-cover", alt: "" }));
+    } else {
+      coverWrap.appendChild(createElement("div", { class: "details-cover-placeholder" }, "No Art"));
+    }
+    
+    const editArtBtn = createElement("button", { class: "details-edit-art", title: "Change Cover Art" }, "✎");
+    editArtBtn.addEventListener("click", onEditArt);
+    coverWrap.appendChild(editArtBtn);
+    left.appendChild(coverWrap);
+    
+    if (system) {
+      const sysBadge = createElement("div", { class: "details-sys-badge" }, system.shortName);
+      sysBadge.style.backgroundColor = system.color;
+      left.appendChild(sysBadge);
+    }
+    
+    // Right: Info + Achievements + Actions
+    const right = createElement("div", { class: "details-right" });
+    
+    const header = createElement("div", { class: "details-header" });
+    header.appendChild(createElement("h2", { class: "details-title" }, game.name));
+    
+    const meta = createElement("div", { class: "details-meta" }, 
+      `${system?.name || "Unknown System"} • ${formatBytes(game.size)}`
+    );
+    header.appendChild(meta);
+    right.appendChild(header);
+
+    // Apply SGDB Assets if available
+    if (getSGDBAssets) {
+      void getSGDBAssets().then(assets => {
+        if (!assets) return;
+        if (assets.heroUrl) {
+          bg.style.backgroundImage = `url(${assets.heroUrl})`;
+          bg.style.filter = "blur(10px) brightness(0.6)"; 
+          bg.style.opacity = "1";
+        }
+        if (assets.logoUrl) {
+          const logo = createElement("img", { src: assets.logoUrl, class: "details-logo", alt: game.name });
+          header.querySelector(".details-title")?.replaceWith(logo);
+        }
+      });
+    }
+
+    // Apply IGDB Metadata if available
+    if (getIGDBMetadata) {
+      void getIGDBMetadata().then(data => {
+        if (!data) return;
+        
+        // Summary
+        if (data.summary) {
+          const summary = createElement("p", { class: "details-summary" }, data.summary);
+          header.appendChild(summary);
+        }
+        
+        // Rating & Genre Pill
+        const infoRow = createElement("div", { class: "details-info-row" });
+        if (data.rating) {
+          const rating = createElement("div", { class: "details-rating" }, `★ ${Math.round(data.rating) / 10}`);
+          infoRow.appendChild(rating);
+        }
+        if (data.genres) {
+          data.genres.slice(0, 2).forEach((g: IGDBGenre) => {
+            infoRow.appendChild(createElement("div", { class: "details-genre" }, g.name));
+          });
+        }
+        header.appendChild(infoRow);
+      });
+    }
+
+    // Achievements Section
+    const achSection = createElement("div", { class: "details-achievements" });
+    if (system?.hasAchievements && getRAProgress) {
+      achSection.appendChild(createElement("h4", { class: "details-section-title" }, "Achievements"));
+      const progressContainer = createElement("div", { class: "details-ach-loading" }, "Loading achievements…");
+      achSection.appendChild(progressContainer);
+      
+      getRAProgress().then(data => {
+        progressContainer.innerHTML = "";
+        if (!data) {
+          progressContainer.textContent = "RetroAchievements not connected.";
+          return;
+        }
+        
+        const bar = createElement("div", { class: "ach-progress-bar" });
+        const pct = (data.numUnlocked / data.numAchievements) * 100;
+        bar.innerHTML = `<div class="ach-progress-fill" style="width: ${pct}%"></div>`;
+        
+        const label = createElement("div", { class: "ach-progress-label" }, 
+          `${data.numUnlocked} / ${data.numAchievements} Unlocked (${data.pointsEarned} pts)`
+        );
+        
+        progressContainer.append(bar, label);
+
+        // Show a few recent locked/unlocked
+        const list = createElement("div", { class: "details-ach-list" });
+        data.achievements.slice(0, 3).forEach((ach: RAAchievement) => {
+          const item = createElement("div", { class: `details-ach-item ${ach.isUnlocked ? "unlocked" : "locked"}` });
+          item.innerHTML = `
+            <img src="https://media.retroachievements.org/Badge/${ach.badgeName}.png" class="details-ach-icon" alt="">
+            <div class="details-ach-text">
+              <div class="details-ach-name">${ach.name}</div>
+              <div class="details-ach-desc">${ach.description}</div>
+            </div>
+          `;
+          list.appendChild(item);
+        });
+        progressContainer.appendChild(list);
+      }).catch(() => {
+        progressContainer.textContent = "Could not fetch achievements.";
+      });
+    }
+    right.appendChild(achSection);
+
+    // Footer Actions
+    const footer = createElement("div", { class: "details-footer" });
+    
+    const launchBtn = createElement("button", { class: "btn btn--primary btn--large" }, "▶ Play Game");
+    launchBtn.addEventListener("click", () => { close(); onLaunch(); });
+    
+    const favBtn = createElement("button", { class: `btn ${game.isFavorite ? "btn--active" : ""}` }, "★ Favorite");
+    favBtn.addEventListener("click", () => { 
+      onToggleFav(); 
+      favBtn.classList.toggle("btn--active");
+    });
+    
+    const strategyBtn = createElement("button", { class: "btn" }, "📚 Strategy");
+    strategyBtn.addEventListener("click", () => {
+      window.open(`https://strategywiki.org/wiki/Special:Search?search=${encodeURIComponent(game.name)}`, "_blank");
+    });
+    
+    const removeBtn = createElement("button", { class: "btn btn--danger" }, "Remove");
+    removeBtn.addEventListener("click", () => { close(); onRemove(); });
+
+    const closeBtn = createElement("button", { class: "btn" }, "Close");
+    closeBtn.addEventListener("click", close);
+
+    footer.append(launchBtn, favBtn, strategyBtn, removeBtn, closeBtn);
+    right.appendChild(footer);
+
+    content.append(left, right);
+    box.appendChild(content);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey, { capture: true });
+
+    requestAnimationFrame(() => {
+      overlay.classList.add("confirm-overlay--visible");
+      launchBtn.focus();
     });
   });
 }

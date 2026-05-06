@@ -856,6 +856,15 @@ export interface LaunchOptions {
    */
   gameId?: string;
   /**
+   * Optional RetroAchievements credentials. When provided, the emulator core
+   * will be configured to track progress and unlock achievements on the fly.
+   */
+  achievements?: {
+    username: string;
+    apiKey: string;
+    hardcore?: boolean;
+  };
+  /**
    * When true, skip the file-extension validation check in the emulator.
    *
    * Set this when launching a game that already exists in the library, where
@@ -2262,6 +2271,15 @@ export class PSPEmulator {
         delete window.EJS_playerName;
       }
 
+      if (opts.achievements) {
+        ejsSettings["cheevos_enable"] = "true";
+        ejsSettings["cheevos_username"] = opts.achievements.username;
+        ejsSettings["cheevos_password"] = opts.achievements.apiKey; // RA uses API key as pass for token auth
+        if (opts.achievements.hardcore) {
+          ejsSettings["cheevos_hardcore_mode_enable"] = "true";
+        }
+      }
+
       if (Object.keys(ejsSettings).length > 0) {
         window.EJS_Settings = ejsSettings;
         this._activeCoreSettings = ejsSettings;
@@ -2972,6 +2990,7 @@ export class PSPEmulator {
     delete window.EJS_ready;
     delete window.EJS_onGameStart;
     delete window.EJS_biosUrl;
+    delete window.EJS_corePath;
     delete window.EJS_Settings;
     this._currentSystem = null;
     this._activeTier = null;
