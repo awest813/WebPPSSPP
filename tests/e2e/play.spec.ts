@@ -26,9 +26,9 @@ test.describe("Play journey", () => {
     // Press Escape to return to library
     await page.keyboard.press("Escape");
 
-    // Drop zone or library container should be visible again
+    // Drop zone or landing page should be visible again
     await expect(
-      page.locator("#drop-zone, #library-container").first()
+      page.locator("#drop-zone, #landing").first()
     ).toBeVisible({ timeout: 8_000 });
   });
 });

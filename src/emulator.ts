@@ -926,6 +926,8 @@ export class PSPEmulator {
   private _launchTimeoutId: ReturnType<typeof setTimeout> | null = null;
   /** Diagnostic event log for the debug panel timeline. */
   private _diagnosticLog: DiagnosticEvent[] = [];
+  /** Called when WebGPU post-processing fails to activate despite being requested. */
+  onPostProcessorFallback?: (reason: string) => void;
   /**
    * In-flight promise for the EmulatorJS loader script injection.
    * Cached so that concurrent `_loadScript()` calls share the same load
@@ -3115,7 +3117,9 @@ export class PSPEmulator {
       postProcessor.attach(canvas, playerEl);
       if (!postProcessor.active) {
         postProcessor.dispose();
-        console.warn("[RetroOasis] WebGPU post-processing requested but could not be activated.");
+        const reason = "WebGPU post-processing requested but could not be activated.";
+        console.warn(`[RetroOasis] ${reason}`);
+        this.onPostProcessorFallback?.(reason);
         return;
       }
       this._postProcessor = postProcessor;

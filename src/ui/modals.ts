@@ -743,7 +743,7 @@ export function showGameDetails(
         data.achievements.slice(0, 3).forEach((ach: RAAchievement) => {
           const item = createElement("div", { class: `details-ach-item ${ach.isUnlocked ? "unlocked" : "locked"}` });
           item.innerHTML = `
-            <img src="https://media.retroachievements.org/Badge/${ach.badgeName}.png" class="details-ach-icon" alt="">
+            <img src="https://media.retroachievements.org/Badge/${ach.badgeName}.png" class="details-ach-icon" alt="${ach.name} achievement badge">
             <div class="details-ach-text">
               <div class="details-ach-name">${ach.name}</div>
               <div class="details-ach-desc">${ach.description}</div>

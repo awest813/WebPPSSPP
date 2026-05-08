@@ -138,9 +138,6 @@ import {
 } from "./coverArt.js";
 import {
   buildAboutTab as buildAboutTabContent,
-  buildBiosTab as buildBiosTabContent,
-  buildApiKeysTab as buildApiKeysTabContent,
-  buildAchievementsTab,
 } from "./ui/settingsTabs.js";
 import {
   getApiKeyStore,
@@ -547,6 +544,7 @@ export function buildDOM(app: HTMLElement): void {
           <div class="status-dot idle" id="status-dot"></div>
           <span class="status-item__value" id="status-state">Ready</span>
         </div>
+        ${!window.crossOriginIsolated ? `<span class="footer-info footer-coi-warning" title="Cross-origin isolation is not active — PSP/N64 performance may be reduced.">⚠ COI</span>` : ""}
       </div>
       
       <div class="footer-center">
@@ -2053,7 +2051,7 @@ function buildGameCard(
 
   const icon = make("div", { class: "game-card__icon" });
   icon.setAttribute("aria-hidden", "true");
-  icon.style.background = `linear-gradient(135deg, ${sysColor}33, ${sysColor}11)`;
+  icon.style.setProperty("--sys-gradient", `linear-gradient(135deg, ${sysColor}33, ${sysColor}11)`);
 
   // System icon (emoji or image) wrapped in a span so CSS can hide it when cover art is shown
   const sysIconWrap = make("span", { class: "game-card__sys-icon", "aria-hidden": "true" });
@@ -2106,7 +2104,7 @@ function buildGameCard(
     if (!icon.contains(coverArtImg)) {
       icon.appendChild(coverArtImg);
     }
-    fallback.style.opacity = "0"; // Hide fallback if art loads
+    fallback.classList.add("game-card__fallback--hidden");
   };
 
   if (game.hasCoverArt) {
@@ -2123,7 +2121,7 @@ function buildGameCard(
   const name = make("div", { class: "game-card__name" }, game.name);
   const meta = make("div", { class: "game-card__meta" });
   const badge = make("span", { class: "sys-badge" }, system?.shortName ?? game.systemId);
-  badge.style.background = sysColor;
+  badge.style.setProperty("--sys-color", sysColor);
   const size = make("span", { class: "game-card__size" }, formatBytes(game.size));
   meta.append(badge, size);
   if (system?.experimental) {
@@ -4323,6 +4321,12 @@ export function openSettingsPanel(
   document.addEventListener("keydown", _settingsPanelSearchShortcutHandler, { capture: true });
 }
 
+let _settingsTabsModule: typeof import("./ui/settingsTabs.js") | null = null;
+async function _loadSettingsTabs(): Promise<typeof import("./ui/settingsTabs.js")> {
+  if (!_settingsTabsModule) _settingsTabsModule = await import("./ui/settingsTabs.js");
+  return _settingsTabsModule;
+}
+
 function buildSettingsContent(
   container:        HTMLElement,
   settings:         Settings,
@@ -4496,19 +4500,22 @@ function buildSettingsContent(
   buildDisplayTab(panels[1]!, settings, deviceCaps, onSettingsChange, emulatorRef);
   buildLibraryTab(panels[2]!, settings, library, saveLibrary, onSettingsChange, onLaunchGame, emulatorRef);
   buildCloudTab(panels[3]!, settings, library, onSettingsChange);
-  buildBiosTabContent(panels[4]!, biosLibrary, { appName: APP_NAME, onError: showError });
   buildMultiplayerTab(panels[5]!, settings, onSettingsChange, getNetplayManager, settings.lastGameName, emulatorRef?.currentSystem?.id);
-  buildAchievementsTab(panels[6]!, getApiKeyStore(), {
-    appName: APP_NAME,
-    onError: showError,
-  });
-  buildApiKeysTabContent(panels[7]!, getApiKeyStore(), {
-    appName: APP_NAME,
-    getTester: (id) => getKeyedProviders().get(id) ?? null,
-    onError: showError,
-  });
   buildDebugTab(panels[8]!, settings, onSettingsChange, deviceCaps, emulatorRef, getNetplayManager, biosLibrary);
   buildAboutTabContent(panels[9]!, APP_NAME);
+
+  void _loadSettingsTabs().then((st) => {
+    st.buildBiosTab(panels[4]!, biosLibrary, { appName: APP_NAME, onError: showError });
+    st.buildAchievementsTab(panels[6]!, getApiKeyStore(), {
+      appName: APP_NAME,
+      onError: showError,
+    });
+    st.buildApiKeysTab(panels[7]!, getApiKeyStore(), {
+      appName: APP_NAME,
+      getTester: (id: string) => getKeyedProviders().get(id) ?? null,
+      onError: showError,
+    });
+  });
 
   const applySearchFilter = () => {
     const query = searchInput.value.trim().toLowerCase();
@@ -4970,11 +4977,19 @@ function buildLibraryTab(
 
   const statsEl = make("p", { class: "device-info" }, "Calculating…");
   libSection.appendChild(statsEl);
-  Promise.all([library.count(), library.totalSize()]).then(([count, total]) => {
-    statsEl.textContent = count === 0
-      ? "No games added yet — drop a ROM file to get started!"
-      : `${count} game${count !== 1 ? "s" : ""} · ${formatBytes(total)} stored in your browser`;
-  }).catch(() => { statsEl.textContent = "Could not load library stats."; });
+  const loadStats = () => {
+    Promise.all([library.count(), library.totalSize()]).then(([count, total]) => {
+      statsEl.textContent = count === 0
+        ? "No games added yet — drop a ROM file to get started!"
+        : `${count} game${count !== 1 ? "s" : ""} · ${formatBytes(total)} stored in your browser`;
+    }).catch(() => {
+      statsEl.textContent = "Could not load library stats. ";
+      const retryBtn = make("button", { class: "btn btn--sm btn--ghost", type: "button" }, "Retry");
+      retryBtn.addEventListener("click", () => { retryBtn.remove(); loadStats(); });
+      statsEl.appendChild(retryBtn);
+    });
+  };
+  loadStats();
 
   const btnClear = make("button", { class: "btn btn--danger settings-clear-btn" }, "Remove All Games");
   btnClear.addEventListener("click", async () => {
@@ -5117,7 +5132,7 @@ function buildLibraryTab(
   const sysList = make("div", { class: "sys-list" });
   for (const sys of SYSTEMS) {
     const chip = make("span", { class: "sys-chip" }, sys.shortName);
-    chip.style.background = sys.color;
+    chip.style.setProperty("--sys-color", sys.color);
     chip.title = [sys.name, ...getSystemFeatureSummary(sys)].join(" • ");
     sysList.appendChild(chip);
   }
@@ -7616,7 +7631,7 @@ function buildToggleRow(label: string, desc: string, checked: boolean, onChange:
 
 // ── Multi-disc helpers ────────────────────────────────────────────────────────
 
-export function parseM3U(content: string): string[] {
+function parseM3U(content: string): string[] {
   return content
     .split(/\r?\n/)
     .map(line => line.trim())
@@ -7624,7 +7639,7 @@ export function parseM3U(content: string): string[] {
     .map(line => line.split(/[/\\]/).pop() ?? line);
 }
 
-export function showMultiDiscPicker(discFileNames: string[]): Promise<Map<string, File> | null> {
+function showMultiDiscPicker(discFileNames: string[]): Promise<Map<string, File> | null> {
   return showMultiDiscPickerImpl(discFileNames);
 }
 
@@ -7713,7 +7728,7 @@ function showPerfSuggestion(): void {
   requestAnimationFrame(() => toast.classList.add("perf-suggestion--visible"));
 }
 
-export function resetPerfSuggestion(): void {
+function resetPerfSuggestion(): void {
   _lowFPSCount = 0;
   _perfSuggestionShown = false;
   document.getElementById("perf-suggestion")?.remove();
@@ -7751,16 +7766,16 @@ function updateStatusDot(state: EmulatorState): void {
   const sysItem  = document.getElementById("status-system-item");
   const sysLabel = document.getElementById("status-system-label");
   const tierItem = document.getElementById("status-tier-item");
-  if (sysItem)  sysItem.style.display  = isActive ? "" : "none";
-  if (sysLabel) sysLabel.style.display = isActive ? "" : "none";
-  if (tierItem) tierItem.style.display = isActive ? "" : "none";
+  if (sysItem)  sysItem.classList.toggle("status-item--hidden", !isActive);
+  if (sysLabel) sysLabel.classList.toggle("status-item--hidden", !isActive);
+  if (tierItem) tierItem.classList.toggle("status-item--hidden", !isActive);
 
   if (state === "idle" || state === "error") { setStatusGame("—"); setStatusSystem("—"); setStatusTier(null); }
 }
 
 
 /** Set the current progress percent (0-100) shown on the loading overlay. Pass null to hide. */
-export function setLoadingProgress(percent: number | null): void {
+function setLoadingProgress(percent: number | null): void {
   const container = document.getElementById("loading-progress-container");
   const bar       = document.getElementById("loading-progress-bar");
   if (!container || !bar) return;
@@ -8351,8 +8366,8 @@ async function syncCloudLibrary(
 
 // ── Visibility helpers ────────────────────────────────────────────────────────
 
-export function hideLanding(): void    { el("#landing").classList.add("hidden"); }
-export function showLanding(): void    { el("#landing").classList.remove("hidden"); }
+function hideLanding(): void    { el("#landing").classList.add("hidden"); }
+function showLanding(): void    { el("#landing").classList.remove("hidden"); }
 export function showLoadingOverlay(): void {
   const overlay = document.getElementById("loading-overlay");
   overlay?.classList.add("visible");
@@ -8369,10 +8384,10 @@ export function hideLoadingOverlay(): void {
     sub.setAttribute("hidden", "true");
   }
 }
-export function showEjsContainer(): void  { document.getElementById("ejs-container")?.classList.add("visible"); }
-export function hideEjsContainer(): void  { document.getElementById("ejs-container")?.classList.remove("visible"); }
+function showEjsContainer(): void  { document.getElementById("ejs-container")?.classList.add("visible"); }
+function hideEjsContainer(): void  { document.getElementById("ejs-container")?.classList.remove("visible"); }
 
-export function transitionToGame(): void {
+function transitionToGame(): void {
   hideLanding();
   requestAnimationFrame(() => showEjsContainer());
 }
@@ -8393,8 +8408,8 @@ export function setLoadingSubtitle(msg: string): void {
   if (msg.trim()) e.removeAttribute("hidden");
   else e.setAttribute("hidden", "true");
 }
-export function setStatusGame(name: string): void    { const e = document.getElementById("status-game");    if (e) e.textContent = name; }
-export function setStatusSystem(name: string): void  { const e = document.getElementById("status-system");  if (e) e.textContent = name; }
+function setStatusGame(name: string): void    { const e = document.getElementById("status-game");    if (e) e.textContent = name; }
+function setStatusSystem(name: string): void  { const e = document.getElementById("status-system");  if (e) e.textContent = name; }
 function setStatusTier(tier: PerformanceTier | null): void { const e = document.getElementById("status-tier"); if (e) e.textContent = tier ? formatTierLabel(tier) : "—"; }
 
 let _errorDismissTimer: ReturnType<typeof setTimeout> | null = null;

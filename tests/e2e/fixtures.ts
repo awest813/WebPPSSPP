@@ -155,8 +155,8 @@ export const test = base.extend<RetroOasisFixtures>({
     await page.addInitScript({ content: EMULATOR_STUB_SCRIPT });
 
     await page.goto("/");
-    // Wait for the library container to appear before handing off to the test
-    await page.waitForSelector("#library-container, #drop-zone, #landing", {
+    // Wait for the landing page to appear before handing off to the test
+    await page.waitForSelector("#landing", {
       timeout: 15_000,
     });
 

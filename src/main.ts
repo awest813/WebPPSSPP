@@ -403,6 +403,9 @@ async function main(): Promise<void> {
 
   // 4. Instantiate services
   const emulator      = new PSPEmulator("ejs-player");
+  emulator.onPostProcessorFallback = () => {
+    showInfoToast("WebGPU post-processing was disabled due to instability.", "warning");
+  };
   const library       = new GameLibrary();
   const biosLibrary   = new BiosLibrary();
   const saveLibrary   = new SaveStateLibrary();
@@ -605,7 +608,9 @@ async function main(): Promise<void> {
             pendingAutoRestore = new Uint8Array(await autoState.stateData.arrayBuffer());
           }
         }
-      } catch {}
+      } catch {
+        // Auto-restore prompt or state read failed — launch game without restoring.
+      }
     }
 
     if (pendingAutoRestore) {
@@ -615,6 +620,9 @@ async function main(): Promise<void> {
         slot: AUTO_SAVE_SLOT,
         delayMs: 500,
         onConsumed: () => { pendingAutoRestoreCancel = null; },
+        onError: () => {
+          showInfoToast("Auto-restore failed — your save could not be loaded.", "error");
+        },
       });
       pendingAutoRestoreCancel = () => {
         registration.cancel();
@@ -639,7 +647,9 @@ async function main(): Promise<void> {
     try {
       const primaryBios = await biosLibrary.getLaunchBiosAsset(systemId);
       if (primaryBios) biosAsset = primaryBios;
-    } catch {}
+    } catch {
+      // BIOS asset lookup failed — launch without BIOS (best-effort).
+    }
 
     const nm = peekNetplayManager();
     if (nm) {
@@ -1070,6 +1080,6 @@ if (document.readyState === "loading") {
 } else {
   main().catch(err => {
     console.error(`[${APP_NAME}] Fatal startup error:`, err);
-    alert(`${APP_NAME} failed to start. Check console for details.`);
+    showError(`${APP_NAME} failed to start. Check the browser console for details.`);
   });
 }

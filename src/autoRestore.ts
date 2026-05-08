@@ -23,6 +23,7 @@ export interface AutoRestoreOptions {
   delayMs?: number;
   eventTarget?: Pick<Document, "addEventListener" | "removeEventListener">;
   onConsumed?: () => void;
+  onError?: (err: unknown) => void;
 }
 
 /**
@@ -39,6 +40,7 @@ export function scheduleAutoRestoreOnGameStart(opts: AutoRestoreOptions): AutoRe
     delayMs = 500,
     eventTarget = document,
     onConsumed,
+    onError,
   } = opts;
 
   let active = true;
@@ -60,6 +62,8 @@ export function scheduleAutoRestoreOnGameStart(opts: AutoRestoreOptions): AutoRe
         }
       } catch (err) {
         console.error("[RetroOasis] Auto-restore failed:", err);
+        onConsumed?.();
+        onError?.(err);
       }
     }, delayMs);
   };

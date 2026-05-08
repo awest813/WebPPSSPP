@@ -21,20 +21,23 @@ const MOCK_PROPFIND = `<?xml version="1.0" encoding="utf-8"?>
 async function openCloudStorageSettings(page: import("@playwright/test").Page): Promise<void> {
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page.locator("#settings-panel")).toBeVisible({ timeout: 5_000 });
+  // Click the Cloud Storage tab by its role and name
   await page.getByRole("tab", { name: "Cloud Storage" }).click();
+  // Wait for the cloud tab content to appear
+  await expect(page.locator(".cloud-bar, .cloud-connect-btn, button:has-text('Connect')").first()).toBeVisible({ timeout: 5_000 });
 }
 
 async function openCloudConnectDialog(page: import("@playwright/test").Page): Promise<void> {
   await openCloudStorageSettings(page);
-  await page.locator(".cloud-connect-btn, button:has-text('Connect')").first().click();
+  await page.locator("button:has-text('Connect')").first().click();
   await expect(
-    page.locator(".cloud-wizard-box, .confirm-box, [aria-label*='Cloud']").first()
+    page.locator("[aria-label*='Cloud Connection'], .cloud-wizard-box").first()
   ).toBeVisible({ timeout: 5_000 });
 }
 
 async function selectWebDavProvider(page: import("@playwright/test").Page): Promise<void> {
   const dialog = page.locator("[aria-label='Cloud Connection']");
-  await dialog.locator(".cloud-provider-card:has-text('WebDAV')").click();
+  await dialog.locator("button:has-text('WebDAV')").click();
   await dialog.locator("button:has-text('Next')").click();
   await expect(dialog.getByLabel("Server URL")).toBeVisible({ timeout: 5_000 });
 }
@@ -78,7 +81,7 @@ test.describe("Cloud Sync journey", () => {
     await openCloudConnectDialog(page);
 
     await expect(
-      page.locator(".cloud-provider-card:has-text('WebDAV'), [aria-label*='WebDAV'], button:has-text('WebDAV')").first()
+      page.locator("button:has-text('WebDAV')").first()
     ).toBeVisible({ timeout: 5_000 });
   });
 

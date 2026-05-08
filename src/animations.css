@@ -36,6 +36,6 @@
 }
 
 /* ── Spinner ───────────────────────────────────────────────── */
-/* @keyframes spin, pulse, shimmer are defined inline in style.css
-   alongside the components that use them and are intentionally kept
-   co-located for clarity. */
+/* @keyframes loading-spin, pulse-shadow, pulse-scale, pulse-green
+   are defined in style.css alongside the components that use them
+   and are intentionally kept co-located for clarity. */

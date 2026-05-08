@@ -5,7 +5,7 @@
  * them into responses and also caches the small app shell for faster reloads.
  */
 
-const CACHE_NAME = "retro-oasis-shell-v2";
+const CACHE_NAME = "retro-oasis-shell-v3";
 
 function getPrecacheUrls() {
   const scopeUrl = new URL(self.registration.scope);

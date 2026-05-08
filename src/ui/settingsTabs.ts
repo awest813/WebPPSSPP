@@ -242,24 +242,33 @@ export function buildAboutTab(container: HTMLElement, appName: string): void {
 
   const importInput = make("input", { type: "file", accept: ".json", style: "display:none" }) as HTMLInputElement;
   const importBtn = make("button", { class: "btn" }, "📥 Import Library JSON");
+  const importStatus = make("p", { class: "settings-import-status", "aria-live": "polite" });
   importBtn.addEventListener("click", () => importInput.click());
   importInput.addEventListener("change", async () => {
     const file = importInput.files?.[0];
     if (!file) return;
+    importBtn.disabled = true;
+    importBtn.classList.add("is-loading");
+    importStatus.textContent = "Importing...";
+    importStatus.className = "settings-import-status settings-import-status--dim";
     try {
       const text = await file.text();
       const data = JSON.parse(text) as { apiKeys?: JsonObject };
       if (data.apiKeys) {
         localStorage.setItem("retro-oasis.apiKeys", JSON.stringify(data.apiKeys));
       }
-      alert("Metadata imported! Refresh the page to see changes. Note: ROM files must still be added manually or found in your cloud library.");
+      importStatus.textContent = "Metadata imported successfully. Refreshing...";
+      importStatus.className = "settings-import-status settings-import-status--success";
       window.location.reload();
     } catch (err) {
-      alert("Failed to import data: " + (err instanceof Error ? err.message : String(err)));
+      importBtn.disabled = false;
+      importBtn.classList.remove("is-loading");
+      importStatus.textContent = "Failed to import data: " + (err instanceof Error ? err.message : String(err));
+      importStatus.className = "settings-import-status settings-import-status--error";
     }
   });
 
-  dataButtons.append(exportBtn, importBtn, importInput);
+  dataButtons.append(exportBtn, importBtn, importInput, importStatus);
   dataSection.appendChild(dataButtons);
 
   container.append(quickStartSection, shortcutsSection, mpSection, troubleSection, storageSection, dataSection, aboutSection);
@@ -332,7 +341,7 @@ export function buildAchievementsTab(
         summary.RecentAchievements.slice(0, 5).forEach((ach: RARecentAchievement) => {
           const item = make("div", { class: "trophy-item" });
           item.innerHTML = `
-            <img src="https://media.retroachievements.org/Badge/${ach.BadgeName}.png" class="trophy-badge" alt="">
+            <img src="https://media.retroachievements.org/Badge/${ach.BadgeName}.png" class="trophy-badge" alt="${ach.Title} achievement badge">
             <div class="trophy-text">
               <div class="trophy-name">${ach.Title}</div>
               <div class="trophy-game">${ach.GameTitle}</div>

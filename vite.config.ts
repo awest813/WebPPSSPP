@@ -77,9 +77,17 @@ export default defineConfig({
           if (id.includes("/src/cloudSave.") || id.includes("/src/saveService.") || id.includes("/src/saves.")) {
             return "saves";
           }
-          if (id.includes("/src/ui.ts") || id.includes("/src/compatibility.")) {
-            // Keep UI and compatibility in the main bundle for now as they are core to landing,
-            // but we could split more specific UI panels later if needed.
+          if (id.includes("/src/ui/modals.")) {
+            return "modals";
+          }
+          if (id.includes("/src/ui/settingsTabs.") || id.includes("/src/ui/coverArtRegistry.")) {
+            return "settings";
+          }
+          if (id.includes("/src/ui/virtualGrid.")) {
+            return "virtualgrid";
+          }
+          if (id.includes("/src/ui/highlightsPanel.")) {
+            return "highlights";
           }
         },
       },

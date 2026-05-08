@@ -46,6 +46,33 @@
   --c-success:    #3a9a60;
   --c-fav:        #f43f5e; /* favorites / star / heart highlight */
 
+  /* Status indicators */
+  --c-status-running: #00ff00;
+  --c-status-paused:  #ffaa00;
+  --c-status-online:  #00ff88;
+  --c-status-offline: #ff4444;
+  --c-status-inactive: #555555;
+
+  /* Pure tones (use sparingly — prefer semantic variables above) */
+  --c-white:      #ffffff;
+  --c-black:      #000000;
+
+  /* Doctor / diagnostic status */
+  --c-doctor-pass: #4CAF50;
+  --c-doctor-warn: #FFC107;
+  --c-doctor-fail: #F44336;
+
+  /* Tier badge colors */
+  --c-tier-ok:       #00ff88;
+  --c-tier-ok-text:  #004422;
+  --c-tier-mid:      #ffcc00;
+  --c-tier-mid-text: #443300;
+  --c-tier-warn:     #ff4444;
+  --c-tier-warn-text:#440000;
+
+  /* Cover art matching */
+  --c-perfect-match: #00e676;
+
   /* Text hierarchy */
   --c-text:       #dcdce8;
   --c-text-dim:   #848499;
@@ -66,8 +93,8 @@
   --safe-right:  env(safe-area-inset-right, 0px);
 
   /* ── Layout ── */
-  --header-h:     64px;
-  --footer-h:     38px;
+  --header-h:     72px;
+  --footer-h:     64px;
   --sidebar-w:    300px;
   --settings-sidebar-w: 162px;
   --toast-bottom: calc(var(--footer-h) + var(--safe-bottom) + 14px);

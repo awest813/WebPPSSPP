@@ -32,12 +32,10 @@ test.describe("Add ROM journey", () => {
     const dropZone = page.locator("#drop-zone");
     await expect(dropZone).toBeVisible();
 
-    // Simulate dragenter to activate the drag-over class
+    // Simulate dragenter on the document (the handler is attached to document)
     await page.evaluate(() => {
-      const dz = document.getElementById("drop-zone");
-      if (!dz) return;
       const dt = new DataTransfer();
-      dz.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: dt }));
+      document.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: dt }));
     });
 
     await expect(dropZone).toHaveClass(/drag-over/);
@@ -46,23 +44,21 @@ test.describe("Add ROM journey", () => {
   test("dragleave removes drag-over state", async ({ appPage: page }) => {
     const dropZone = page.locator("#drop-zone");
 
-    // Enter then leave
+    // Enter then leave on the document
     await page.evaluate(() => {
-      const dz = document.getElementById("drop-zone");
-      if (!dz) return;
       const dt = new DataTransfer();
-      dz.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: dt }));
-      dz.dispatchEvent(new DragEvent("dragleave",  { bubbles: true, dataTransfer: dt }));
+      document.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: dt }));
+      document.dispatchEvent(new DragEvent("dragleave",  { bubbles: true, dataTransfer: dt }));
     });
 
     await expect(dropZone).not.toHaveClass(/drag-over/);
   });
 
   test("settings panel opens and closes", async ({ appPage: page }) => {
-    // Find and click the settings button
-    const settingsBtn = page.locator("button[aria-label*='Settings'], button[title*='Settings'], #settings-btn, [data-action='settings']").first();
+    // Find and click the settings button by its aria-label
+    const settingsBtn = page.locator("button[aria-label='Open settings']").first();
 
-    if (await settingsBtn.count() > 0) {
+    if (await settingsBtn.isVisible().catch(() => false)) {
       await settingsBtn.click();
       await expect(page.locator("#settings-panel")).toBeVisible({ timeout: 5_000 });
 
