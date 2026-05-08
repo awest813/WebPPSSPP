@@ -924,8 +924,8 @@ button {
   display: flex;
   overflow: hidden;
   box-shadow: 0 50px 100px rgba(0,0,0,0.8);
-  transform: scale(0.95) translateY(40px);
-  transition: all 0.5s var(--spring);
+  transform: scale(0.97) translateY(24px);
+  transition: transform 0.24s ease-out, opacity 0.24s ease-out;
 }
 
 .ingame-menu-overlay--visible .ingame-menu {
@@ -2383,11 +2383,11 @@ body:has(#ejs-container.visible) .app-header {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 50px 100px rgba(0,0,0,0.8);
-  animation: modal-pop 0.4s var(--spring);
+  animation: modal-pop 0.22s ease-out;
 }
 
 @keyframes modal-pop {
-  0% { transform: scale(0.9) translateY(40px); opacity: 0; }
+  0% { transform: scale(0.97) translateY(24px); opacity: 0; }
   100% { transform: scale(1) translateY(0); opacity: 1; }
 }
 
@@ -2790,6 +2790,8 @@ body:has(#ejs-container.visible) .app-header {
   background: var(--c-surface2);
   padding: 8px;
   gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .enp-tab {
@@ -4484,8 +4486,80 @@ body.using-gamepad .game-card:focus {
 /* ── Netplay / Easy Netplay ────────────────────────────────── */
 
 .easy-netplay-dialog {
-  max-width: 600px;
+  max-width: 760px;
   width: 90%;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.enp-pre-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 0;
+}
+
+.enp-readiness {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: color-mix(in srgb, var(--c-surface2) 82%, black);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.enp-readiness__items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.enp-readiness__item {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--c-warn) 40%, var(--c-border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--c-warn) 9%, transparent);
+}
+
+.enp-readiness__item--ready {
+  border-color: color-mix(in srgb, var(--c-success) 45%, var(--c-border));
+  background: color-mix(in srgb, var(--c-success) 10%, transparent);
+}
+
+.enp-readiness__label,
+.enp-readiness__value {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enp-readiness__label {
+  color: var(--c-text-dim);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.enp-readiness__value {
+  color: var(--c-text);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.enp-readiness__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.enp-ready-action {
+  min-height: 36px;
+  padding: 0 12px;
 }
 
 .enp-diag {
@@ -4519,6 +4593,7 @@ body.using-gamepad .game-card:focus {
 
 .enp-setup-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 12px;
@@ -4527,10 +4602,20 @@ body.using-gamepad .game-card:focus {
   border-radius: var(--radius);
 }
 
+.enp-setup-strip__copy {
+  min-width: 0;
+}
+
 .enp-setup-strip__title {
   font-weight: 700;
   font-size: 0.9rem;
   color: var(--c-text);
+}
+
+.enp-setup-strip__text {
+  color: var(--c-text-dim);
+  font-size: 0.82rem;
+  margin: 4px 0 0;
 }
 
 .enp-setup-strip__steps {
@@ -4540,6 +4625,65 @@ body.using-gamepad .game-card:focus {
 
 .enp-setup-strip__btn {
   margin-left: auto;
+}
+
+.enp-open-source {
+  flex-basis: 100%;
+  width: 100%;
+  color: var(--c-text-dim);
+  font-size: 0.82rem;
+}
+
+.enp-open-source__summary {
+  cursor: pointer;
+  color: var(--c-text);
+  font-weight: 800;
+}
+
+.enp-open-source__body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.enp-open-source__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  background: var(--c-surface3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+
+.enp-open-source__copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.enp-open-source__name {
+  color: var(--c-accent-light);
+  font-weight: 800;
+}
+
+.enp-open-source__fit {
+  color: var(--c-text-dim);
+}
+
+.enp-open-source__cmd {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-text);
+}
+
+.enp-open-source__btn {
+  min-height: 34px;
+  padding: 0 10px;
 }
 
 .enp-game-badge {
@@ -4599,6 +4743,17 @@ body.using-gamepad .game-card:focus {
   font-size: 0.85rem;
   color: var(--c-text-dim);
   margin: 8px 0;
+}
+
+.enp-code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.enp-btn-paste-code {
+  min-height: 42px;
+  padding: 0 12px;
 }
 
 .enp-active-room__waiting {
@@ -5174,6 +5329,61 @@ body.using-gamepad .game-card:focus {
 
   .enp-title {
     font-size: 1rem;
+  }
+
+  .enp-pre-tabs {
+    padding-inline: 8px;
+  }
+
+  .enp-readiness {
+    grid-template-columns: 1fr;
+  }
+
+  .enp-readiness__items {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .enp-readiness__item {
+    padding: 7px 8px;
+  }
+
+  .enp-readiness__value {
+    font-size: 0.8rem;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .enp-readiness__actions {
+    justify-content: flex-start;
+  }
+
+  .enp-ready-action {
+    flex: 1 1 80px;
+  }
+
+  .enp-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    padding: 6px;
+  }
+
+  .enp-tab {
+    flex: 1 1 88px;
+    min-width: 88px;
+    padding: 12px 10px;
+    font-size: 0.86rem;
+  }
+
+  .enp-setup-strip {
+    align-items: stretch;
+  }
+
+  .enp-setup-strip__btn {
+    margin-left: 0;
+  }
+
+  .enp-code-row {
+    grid-template-columns: 1fr;
   }
 }
 

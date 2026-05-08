@@ -38,6 +38,18 @@ export type PerformanceTier = "low" | "medium" | "high" | "ultra";
  */
 export type ResolutionPreset = "native" | "2x" | "4x" | "display_match";
 
+/**
+ * One-click 3D graphics preset. These are intentionally renderer-facing rather
+ * than device-tier names: tier selection decides the default, while presets let
+ * the user push a specific game toward clarity or speed.
+ */
+export type GraphicsPreset = "native" | "balanced" | "quality" | "ultra";
+
+/**
+ * Texture upscaler preference for 3D cores that expose texture enhancement.
+ */
+export type TextureUpscaler = "off" | "smooth" | "sharp" | "xbrz";
+
 // ── Per-system resolution ladders ─────────────────────────────────────────────
 
 /**
@@ -118,6 +130,146 @@ export function getResolutionCoreOptions(
   // to avoid redundant core-option injection.
   if (!value || targetIdx === 0) return {};
   return { [ladder.key]: value };
+}
+
+const GRAPHICS_PRESET_TO_RESOLUTION: Record<GraphicsPreset, ResolutionPreset> = {
+  native:   "native",
+  balanced: "2x",
+  quality:  "display_match",
+  ultra:    "4x",
+};
+
+/**
+ * Returns core-option overrides for a complete 3D graphics preset.
+ */
+export function getGraphicsPresetCoreOptions(
+  systemId: string,
+  preset: GraphicsPreset,
+): Record<string, string> {
+  const out = { ...getResolutionCoreOptions(systemId, GRAPHICS_PRESET_TO_RESOLUTION[preset]) };
+
+  switch (systemId) {
+    case "psp":
+      if (preset === "native") {
+        Object.assign(out, {
+          ppsspp_gpu_anisotropic_filtering: "off",
+          ppsspp_texture_filtering: "auto",
+          ppsspp_texture_scaling_level: "1",
+          ppsspp_lower_resolution_for_effects: "2",
+        });
+      } else if (preset === "balanced") {
+        Object.assign(out, {
+          ppsspp_gpu_anisotropic_filtering: "2x",
+          ppsspp_texture_filtering: "auto",
+          ppsspp_texture_scaling_level: "1",
+          ppsspp_lower_resolution_for_effects: "0",
+        });
+      } else if (preset === "quality") {
+        Object.assign(out, {
+          ppsspp_gpu_anisotropic_filtering: "8x",
+          ppsspp_texture_filtering: "auto",
+          ppsspp_texture_scaling_level: "2",
+          ppsspp_lower_resolution_for_effects: "0",
+        });
+      } else {
+        Object.assign(out, {
+          ppsspp_gpu_anisotropic_filtering: "16x",
+          ppsspp_texture_filtering: "auto",
+          ppsspp_texture_scaling_level: "3",
+          ppsspp_lower_resolution_for_effects: "0",
+        });
+      }
+      break;
+
+    case "n64":
+      Object.assign(out, {
+        "mupen64plus-rdp-plugin": preset === "native" ? "rice" : "gliden64",
+        "mupen64plus-BilinearMode": preset === "native" ? "standard" : "3point",
+        "mupen64plus-txFilterMode": preset === "ultra" ? "Smooth filtering 4" : preset === "quality" ? "Smooth filtering 1" : "None",
+        "mupen64plus-EnableFBEmulation": preset === "native" ? "False" : "True",
+        "mupen64plus-EnableHWLighting": preset === "native" || preset === "balanced" ? "False" : "True",
+        "mupen64plus-EnableNoise": preset === "native" ? "False" : "True",
+      });
+      if (preset === "ultra") {
+        out["mupen64plus-EnableN64DepthCompare"] = "True";
+        out["mupen64plus-MaxTxCacheSize"] = "4000";
+      }
+      break;
+
+    case "psx":
+      Object.assign(out, {
+        beetle_psx_hw_filter: preset === "native" ? "nearest" : "bilinear",
+        beetle_psx_hw_dither_mode: preset === "native" ? "1x(native)" : preset === "balanced" ? "internal resolution" : "disabled",
+        beetle_psx_hw_depth: preset === "native" ? "16bpp(native)" : "32bpp",
+        beetle_psx_hw_pgxp_mode: preset === "ultra" ? "memory + CPU" : preset === "quality" ? "memory only" : "disabled",
+        beetle_psx_hw_pgxp_texture: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
+        beetle_psx_hw_gte_overclock: preset === "native" ? "disabled" : "enabled",
+        beetle_psx_hw_msaa: preset === "ultra" ? "4x" : preset === "quality" ? "2x" : "disabled",
+      });
+      break;
+
+    case "nds":
+      Object.assign(out, {
+        desmume_opengl_mode: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
+        desmume_filtering: preset === "native" ? "none" : "bilinear",
+        desmume_color_depth: preset === "native" || preset === "balanced" ? "16-bit" : "32-bit",
+        desmume_gfx_edgemark: preset === "native" ? "disabled" : "enabled",
+      });
+      break;
+
+    case "segaDC":
+      Object.assign(out, {
+        reicast_threaded_rendering: preset === "native" ? "disabled" : "enabled",
+        reicast_mipmapping: preset === "native" ? "disabled" : "enabled",
+        reicast_anisotropic_filtering: preset === "native" ? "1" : preset === "balanced" ? "2" : preset === "quality" ? "4" : "8",
+        reicast_enable_rttb: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
+        reicast_alpha_sorting: preset === "native" || preset === "balanced" ? "per-strip (fast, least accurate)" : "per-triangle (normal)",
+        reicast_frame_skipping: preset === "native" ? "enabled" : "disabled",
+      });
+      break;
+  }
+
+  return out;
+}
+
+/**
+ * Returns texture-upscaler core-option overrides for supported 3D systems.
+ */
+export function getTextureUpscalerCoreOptions(
+  systemId: string,
+  upscaler: TextureUpscaler,
+): Record<string, string> {
+  switch (systemId) {
+    case "psp": {
+      const level = upscaler === "off" ? "1" : upscaler === "smooth" ? "2" : "3";
+      return {
+        ppsspp_texture_scaling_level: level,
+        ppsspp_texture_scaling_type: upscaler === "sharp" ? "hybrid" : "xBRZ",
+        ppsspp_texture_deposterize: upscaler === "off" ? "disabled" : "enabled",
+        ppsspp_texture_shader: upscaler === "xbrz" ? "xBRZ" : "Off",
+      };
+    }
+    case "n64":
+      return {
+        "mupen64plus-txEnhancementMode": upscaler === "off" ? "As Is" : upscaler === "sharp" ? "Sharpen" : "As Is",
+        "mupen64plus-txFilterMode": upscaler === "off" ? "None" : upscaler === "smooth" ? "Smooth filtering 1" : "Smooth filtering 4",
+      };
+    case "psx":
+      return {
+        beetle_psx_hw_filter: upscaler === "off" || upscaler === "sharp" ? "nearest" : "bilinear",
+        beetle_psx_hw_adaptive_smoothing: upscaler === "smooth" ? "enabled" : "disabled",
+        beetle_psx_hw_super_sampling: upscaler === "xbrz" ? "enabled" : "disabled",
+      };
+    case "nds":
+      return { desmume_filtering: upscaler === "off" || upscaler === "sharp" ? "none" : "bilinear" };
+    case "segaDC":
+      return {
+        reicast_texupscale: upscaler === "off" ? "disabled" : upscaler === "xbrz" ? "4x" : "2x",
+        reicast_mipmapping: upscaler === "off" ? "disabled" : "enabled",
+      };
+    default:
+      return {};
+  }
 }
 
 /**

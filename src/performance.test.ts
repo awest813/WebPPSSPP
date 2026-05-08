@@ -31,6 +31,8 @@ import {
   GPUCapabilities,
   getResolutionCoreOptions,
   getResolutionLadder,
+  getGraphicsPresetCoreOptions,
+  getTextureUpscalerCoreOptions,
   recommendedAssetConcurrency,
   recommendedFrameBudgetMs,
   ThermalMonitor,
@@ -2335,6 +2337,57 @@ describe('performance', () => {
         expect(ladder).not.toBeNull();
         expect(ladder!.key).toBe('reicast_internal_resolution');
         expect(ladder!.values).toEqual(['640x480', '1280x960', '1920x1440']);
+      });
+    });
+
+    describe('getGraphicsPresetCoreOptions', () => {
+      it('maps PSP quality preset to resolution and filtering options', () => {
+        expect(getGraphicsPresetCoreOptions('psp', 'quality')).toMatchObject({
+          ppsspp_internal_resolution: '2',
+          ppsspp_gpu_anisotropic_filtering: '8x',
+          ppsspp_texture_scaling_level: '2',
+        });
+      });
+
+      it('maps N64 ultra preset to GLideN64 accuracy and resolution options', () => {
+        expect(getGraphicsPresetCoreOptions('n64', 'ultra')).toMatchObject({
+          'mupen64plus-rdp-plugin': 'gliden64',
+          'mupen64plus-resolution-factor': '4',
+          'mupen64plus-EnableN64DepthCompare': 'True',
+        });
+      });
+
+      it('maps PSX native preset to fastest hardware-renderer options', () => {
+        expect(getGraphicsPresetCoreOptions('psx', 'native')).toMatchObject({
+          beetle_psx_hw_filter: 'nearest',
+          beetle_psx_hw_dither_mode: '1x(native)',
+          beetle_psx_hw_pgxp_mode: 'disabled',
+        });
+      });
+
+      it('returns an empty map for unsupported systems', () => {
+        expect(getGraphicsPresetCoreOptions('segaSaturn', 'quality')).toEqual({});
+      });
+    });
+
+    describe('getTextureUpscalerCoreOptions', () => {
+      it('maps PSP xBRZ upscaling options', () => {
+        expect(getTextureUpscalerCoreOptions('psp', 'xbrz')).toMatchObject({
+          ppsspp_texture_scaling_level: '3',
+          ppsspp_texture_scaling_type: 'xBRZ',
+          ppsspp_texture_shader: 'xBRZ',
+        });
+      });
+
+      it('maps Dreamcast xBRZ-style choice to max texture upscale', () => {
+        expect(getTextureUpscalerCoreOptions('segaDC', 'xbrz')).toEqual({
+          reicast_texupscale: '4x',
+          reicast_mipmapping: 'enabled',
+        });
+      });
+
+      it('returns an empty map for unsupported systems', () => {
+        expect(getTextureUpscalerCoreOptions('segaSaturn', 'smooth')).toEqual({});
       });
     });
   });

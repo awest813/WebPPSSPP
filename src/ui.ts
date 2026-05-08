@@ -55,6 +55,10 @@ import {
   isLikelyIOS,
   isLikelyAndroid,
   clearCapabilitiesCache,
+  getGraphicsPresetCoreOptions,
+  getTextureUpscalerCoreOptions,
+  type GraphicsPreset,
+  type TextureUpscaler,
 } from "./performance.js";
 import {
   type PostProcessEffect,
@@ -680,7 +684,14 @@ export function initUI(opts: UIOptions): void {
   const dropZone  = el("#drop-zone");
   let dragDepth = 0;
   let dragOverActive = false;
-  const openFilePicker = () => fileInput.click();
+  let lastFilePickerOpenAt = Number.NEGATIVE_INFINITY;
+  let fileSelectionInProgress = false;
+  const openFilePicker = () => {
+    const now = performance.now();
+    if (fileSelectionInProgress || now - lastFilePickerOpenAt < 750) return;
+    lastFilePickerOpenAt = now;
+    fileInput.click();
+  };
   const clearDragOver = () => {
     dragDepth = 0;
     if (!dragOverActive) return;
@@ -688,10 +699,23 @@ export function initUI(opts: UIOptions): void {
     dropZone.classList.remove("drag-over");
   };
 
-  const onFileInputChange = () => {
+  const onFileInputChange = async () => {
     const file = fileInput.files?.[0];
-    if (file) void onFileChosen(file);
-    fileInput.value = "";
+    if (!file) {
+      fileInput.value = "";
+      return;
+    }
+    if (fileSelectionInProgress) {
+      fileInput.value = "";
+      return;
+    }
+    fileSelectionInProgress = true;
+    try {
+      await onFileChosen(file);
+    } finally {
+      fileInput.value = "";
+      fileSelectionInProgress = false;
+    }
   };
   bindEvent(fileInput, "change", onFileInputChange);
 
@@ -702,7 +726,23 @@ export function initUI(opts: UIOptions): void {
     openFilePicker();
   };
   bindEvent(dropZone, "keydown", onDropZoneKeydown);
-  bindEvent(dropZone, "click", () => openFilePicker());
+  bindEvent(dropZone, "click", (event: Event) => {
+    const target = event.target as Element | null;
+    if (target?.closest("button, input, select, textarea, a")) return;
+    openFilePicker();
+  });
+
+  const bindFilePickerButton = (id: string) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    bindEvent(btn, "click", (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openFilePicker();
+    });
+  };
+  bindFilePickerButton("btn-add-game-onboarding");
+  bindFilePickerButton("btn-add-game-secondary");
 
   const onDragOver = (event: Event) => {
     const e = event as DragEvent;
@@ -754,7 +794,7 @@ export function initUI(opts: UIOptions): void {
   // It is rendered in the DOM for all builds and hidden via CSS (pointer: fine).
   const mobileFab = document.getElementById("mobile-fab");
   if (mobileFab) {
-    bindEvent(mobileFab, "click", () => fileInput.click());
+    bindEvent(mobileFab, "click", () => openFilePicker());
   }
 
   // ── Portrait rotation hint ────────────────────────────────────────────────
@@ -1876,18 +1916,6 @@ function _wireLibraryControls(
   if (cloudOnboardingBtn) {
     cloudOnboardingBtn.addEventListener("click", () => {
       _openSettingsFn?.("cloud");
-    });
-  }
-  const addGameOnboardingBtn = document.getElementById("btn-add-game-onboarding");
-  if (addGameOnboardingBtn) {
-    addGameOnboardingBtn.addEventListener("click", () => {
-      (document.getElementById("file-input") as HTMLInputElement | null)?.click();
-    });
-  }
-  const addGameSecondaryBtn = document.getElementById("btn-add-game-secondary");
-  if (addGameSecondaryBtn) {
-    addGameSecondaryBtn.addEventListener("click", () => {
-      (document.getElementById("file-input") as HTMLInputElement | null)?.click();
     });
   }
   const onboardingHelpBtn = document.getElementById("btn-open-help-onboarding");
@@ -3437,6 +3465,7 @@ export function buildLandingControls(
 }
 
 let _inGameControlsAc: AbortController | null = null;
+let _inGameMenuOpen = false;
 
 function buildInGameControls(
   emulator:           PSPEmulator,
@@ -3661,6 +3690,10 @@ async function showInGameMenu(ctx: {
   getCurrentCoreOptions?: () => Record<string, string>;
   onUpdateCoreOption?: (key: string, value: string) => void;
 }): Promise<void> {
+  const existingOverlay = document.querySelector(".ingame-menu-overlay");
+  if (existingOverlay) return;
+  if (_inGameMenuOpen) _inGameMenuOpen = false;
+  _inGameMenuOpen = true;
   if (ctx.emulator.state === "running") ctx.emulator.pause?.();
 
   const ac = new AbortController();
@@ -3693,6 +3726,7 @@ async function showInGameMenu(ctx: {
     setTimeout(() => {
       overlay.remove();
       ac.abort();
+      _inGameMenuOpen = false;
       if (ctx.emulator.state === "paused") ctx.emulator.resume();
     }, 400);
   };
@@ -3988,6 +4022,75 @@ async function showInGameMenu(ctx: {
       // --- 3D Core Internal Resolution ---
       const systemInfo = getSystemById(systemId);
       if (systemInfo?.is3D) {
+        const appendRestartButton = () => {
+          if (content.querySelector(".btn-restart-core")) return;
+          const restartBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block btn-restart-core" }, "Restart Game to Apply Changes");
+          restartBtn.addEventListener("click", () => {
+            closeMenu();
+            document.dispatchEvent(new CustomEvent(RESTART_REQUIRED_EVENT));
+          }, { signal });
+          body.appendChild(restartBtn);
+        };
+
+        const presetRow = make("div", { class: "ingame-menu__setting-item" });
+        presetRow.innerHTML = `
+          <div class="ingame-menu__setting-info">
+            <div class="ingame-menu__setting-name">3D Graphics Preset</div>
+            <div class="ingame-menu__setting-desc">Applies resolution, filtering, anti-aliasing, and accuracy options for this core.</div>
+          </div>
+          <div class="ingame-menu__setting-control">
+            <select class="ingame-menu__select" aria-label="3D Graphics Preset">
+              <option value="">Keep current</option>
+              <option value="native">Native / fastest</option>
+              <option value="balanced">Balanced HD</option>
+              <option value="quality">Quality</option>
+              <option value="ultra">Ultra</option>
+            </select>
+          </div>
+        `;
+        const presetSel = presetRow.querySelector("select") as HTMLSelectElement;
+        presetSel.addEventListener("change", () => {
+          if (!presetSel.value) return;
+          const options = getGraphicsPresetCoreOptions(systemId, presetSel.value as GraphicsPreset);
+          for (const [key, value] of Object.entries(options)) {
+            ctx.onUpdateCoreOption?.(key, value);
+          }
+          showInfoToast("Graphics preset updated. Restart game to apply.", "warning");
+          appendRestartButton();
+        }, { signal });
+        grid.appendChild(presetRow);
+
+        const upscalerOptions = getTextureUpscalerCoreOptions(systemId, "smooth");
+        if (Object.keys(upscalerOptions).length > 0) {
+          const upscalerRow = make("div", { class: "ingame-menu__setting-item" });
+          upscalerRow.innerHTML = `
+            <div class="ingame-menu__setting-info">
+              <div class="ingame-menu__setting-name">Texture Upscaler</div>
+              <div class="ingame-menu__setting-desc">Enhances 3D textures where the selected core exposes texture filtering controls.</div>
+            </div>
+            <div class="ingame-menu__setting-control">
+              <select class="ingame-menu__select" aria-label="Texture Upscaler">
+                <option value="">Keep current</option>
+                <option value="off">Off / original textures</option>
+                <option value="smooth">Smooth</option>
+                <option value="sharp">Sharp</option>
+                <option value="xbrz">xBRZ / max enhancement</option>
+              </select>
+            </div>
+          `;
+          const upscalerSel = upscalerRow.querySelector("select") as HTMLSelectElement;
+          upscalerSel.addEventListener("change", () => {
+            if (!upscalerSel.value) return;
+            const options = getTextureUpscalerCoreOptions(systemId, upscalerSel.value as TextureUpscaler);
+            for (const [key, value] of Object.entries(options)) {
+              ctx.onUpdateCoreOption?.(key, value);
+            }
+            showInfoToast("Texture upscaler updated. Restart game to apply.", "warning");
+            appendRestartButton();
+          }, { signal });
+          grid.appendChild(upscalerRow);
+        }
+
         const resolutionConfig: Record<string, { key: string, options: { label: string, value: string }[] }> = {
           psp: {
             key: "ppsspp_internal_resolution",
@@ -4056,17 +4159,7 @@ async function showInGameMenu(ctx: {
             const nextVal = resSel.value;
             ctx.onUpdateCoreOption?.(config.key, nextVal);
             showInfoToast("Resolution updated. Restart game to apply.", "warning");
-            
-            // Add a restart button if it doesn't exist yet
-            if (!content.querySelector(".btn-restart-core")) {
-              const restartBtn = make("button", { class: "ingame-menu__btn ingame-menu__btn--block btn-restart-core" }, "Restart Game to Apply Changes");
-              restartBtn.addEventListener("click", () => {
-                closeMenu();
-                // Signal main.ts to restart emulator with new window.EJS_Settings
-                document.dispatchEvent(new CustomEvent(RESTART_REQUIRED_EVENT));
-              }, { signal });
-              body.appendChild(restartBtn);
-            }
+            appendRestartButton();
           }, { signal });
           grid.appendChild(resRow);
         }
@@ -5138,6 +5231,92 @@ function buildLibraryTab(
 
 // ── BIOS tab ──────────────────────────────────────────────────────────────────
 
+const OPEN_SOURCE_NETPLAY_SERVER_OPTIONS = [
+  {
+    name: "EmuLAN",
+    fit: "Fast same-network rooms",
+    command: "npx emulan",
+    href: "https://github.com/nickcoutsos/emulan",
+  },
+  {
+    name: "EmulatorJS netplay-server",
+    fit: "Private online or LAN lobby",
+    command: "git clone https://github.com/EmulatorJS/netplay-server",
+    href: "https://github.com/EmulatorJS/netplay-server",
+  },
+] as const;
+
+function buildNetplayReadinessStrip(opts: {
+  hasGame: boolean;
+  serverReady: boolean;
+  supportedSystem: boolean;
+  onHost: () => void;
+  onJoin: () => void;
+  onBrowse: () => void;
+}): HTMLElement {
+  const strip = make("div", { class: "enp-readiness", role: "region", "aria-label": "Play Together readiness" });
+  const items = make("div", { class: "enp-readiness__items" });
+  items.append(
+    makeReadinessItem("Game", opts.hasGame ? "Loaded" : "Needed", opts.hasGame),
+    makeReadinessItem("System", opts.supportedSystem ? "Supported" : "Unsupported", opts.supportedSystem),
+    makeReadinessItem("Server", opts.serverReady ? "Ready" : "Set up", opts.serverReady),
+  );
+
+  const actions = make("div", { class: "enp-readiness__actions" });
+  const hostBtn = make("button", { type: "button", class: "btn btn--primary enp-ready-action" }, "Host") as HTMLButtonElement;
+  hostBtn.addEventListener("click", opts.onHost);
+  const joinBtn = make("button", { type: "button", class: "btn enp-ready-action" }, "Join code") as HTMLButtonElement;
+  joinBtn.addEventListener("click", opts.onJoin);
+  const browseBtn = make("button", { type: "button", class: "btn enp-ready-action" }, "Browse") as HTMLButtonElement;
+  browseBtn.addEventListener("click", opts.onBrowse);
+  actions.append(hostBtn, joinBtn, browseBtn);
+
+  strip.append(items, actions);
+  return strip;
+}
+
+function makeReadinessItem(label: string, value: string, ready: boolean): HTMLElement {
+  const item = make("div", { class: ready ? "enp-readiness__item enp-readiness__item--ready" : "enp-readiness__item" });
+  item.append(
+    make("span", { class: "enp-readiness__label" }, label),
+    make("span", { class: "enp-readiness__value" }, value),
+  );
+  return item;
+}
+
+function buildOpenSourceNetplayPanel(): HTMLElement {
+  const details = make("details", { class: "enp-open-source" }) as HTMLDetailsElement;
+  details.appendChild(make("summary", { class: "enp-open-source__summary" }, "Open-source server options"));
+  const body = make("div", { class: "enp-open-source__body" });
+  for (const option of OPEN_SOURCE_NETPLAY_SERVER_OPTIONS) {
+    const row = make("div", { class: "enp-open-source__row" });
+    const copy = make("div", { class: "enp-open-source__copy" });
+    const link = make("a", {
+      class: "enp-open-source__name",
+      href: option.href,
+      target: "_blank",
+      rel: "noreferrer",
+    }, option.name);
+    copy.append(
+      link,
+      make("span", { class: "enp-open-source__fit" }, option.fit),
+      make("code", { class: "enp-open-source__cmd" }, option.command),
+    );
+    const btnCopy = make("button", { type: "button", class: "btn enp-open-source__btn" }, "Copy") as HTMLButtonElement;
+    btnCopy.addEventListener("click", () => {
+      void navigator.clipboard?.writeText(option.command).then(() => {
+        showInfoToast("Server command copied.");
+      }).catch(() => {
+        showInfoToast("Couldn't copy the command. Please allow clipboard access.", "warning");
+      });
+    });
+    row.append(copy, btnCopy);
+    body.appendChild(row);
+  }
+  details.appendChild(body);
+  return details;
+}
+
 export function openEasyNetplayModal(opts: {
   netplayManager?: NetplayManager;
   currentGameName?: string | null;
@@ -5207,6 +5386,8 @@ export function openEasyNetplayModal(opts: {
   }, "✕") as HTMLButtonElement;
   header.appendChild(btnClose);
   dialog.appendChild(header);
+  const preTabs = make("div", { class: "enp-pre-tabs" });
+  dialog.appendChild(preTabs);
 
   // ── First-time / setup strip (server or enable missing) ──────────────────
   const needsServerUrl = serverUrl.trim().length === 0;
@@ -5236,10 +5417,13 @@ export function openEasyNetplayModal(opts: {
       });
       setupStrip.appendChild(btnSetup);
     }
-    dialog.appendChild(setupStrip);
+    setupStrip.appendChild(buildOpenSourceNetplayPanel());
+    preTabs.appendChild(setupStrip);
   }
 
   // ── Current game badge ───────────────────────────────────────────────────
+  const hasGame = !!(currentGameId || currentGameName);
+  const topLevelSystemSupport = currentSystemId ? checkSystemSupport(currentSystemId) : null;
   if (currentGameName) {
     const gameBadge = make("div", { class: "enp-game-badge" });
     gameBadge.appendChild(make("span", { class: "enp-game-badge__label" }, "Playing:"));
@@ -5251,7 +5435,7 @@ export function openEasyNetplayModal(opts: {
         title: sysSupport.errors[0] ?? "",
       }, "⚠ No multiplayer support"));
     }
-    dialog.appendChild(gameBadge);
+    preTabs.appendChild(gameBadge);
   }
 
   // ── Tab bar ──────────────────────────────────────────────────────────────
@@ -5280,6 +5464,15 @@ export function openEasyNetplayModal(opts: {
       p.hidden = tabs[i]!.id !== id;
     });
   };
+
+  preTabs.prepend(buildNetplayReadinessStrip({
+    hasGame,
+    serverReady: !needsServerUrl && !needsEnable,
+    supportedSystem: !topLevelSystemSupport || topLevelSystemSupport.compatible,
+    onHost: () => switchTab("host"),
+    onJoin: () => switchTab("join"),
+    onBrowse: () => switchTab(serverUrl ? "browse" : "host"),
+  }));
 
   for (const tab of tabs) {
     const btn = make("button", {
@@ -5604,7 +5797,28 @@ function _buildJoinPanel(
     btnJoin.disabled = norm.length < INVITE_CODE_LEN;
   };
   codeInput.addEventListener("input", syncCodeInput);
-  codeField.appendChild(codeInput);
+  const codeRow = make("div", { class: "enp-code-row" });
+  const btnPasteCode = make("button", {
+    type: "button",
+    class: "btn enp-btn-paste-code",
+  }, "Paste") as HTMLButtonElement;
+  btnPasteCode.addEventListener("click", async () => {
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (!text) {
+        codeInput.focus();
+        return;
+      }
+      codeInput.value = text;
+      syncCodeInput();
+      codeInput.focus();
+    } catch {
+      codeInput.focus();
+      showInfoToast("Clipboard paste is blocked. Type the code here instead.", "warning");
+    }
+  });
+  codeRow.append(codeInput, btnPasteCode);
+  codeField.appendChild(codeRow);
   container.appendChild(codeField);
 
   // Expose a setter so other panels (e.g. Browse) can pre-fill the code and

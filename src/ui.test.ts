@@ -276,6 +276,43 @@ describe("buildDOM", () => {
     expect(accept).toContain(".gz");
   });
 
+  it("opens the file picker only once when clicking the drop-zone Choose Files button", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const settings = makeSettings();
+    initUI(makeOpts(settings));
+    await flushUI();
+
+    const input = document.getElementById("file-input") as HTMLInputElement;
+    const choose = document.getElementById("btn-add-game-onboarding") as HTMLButtonElement;
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {});
+
+    choose.click();
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("debounces repeated file picker open requests", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const settings = makeSettings();
+    initUI(makeOpts(settings));
+    await flushUI();
+
+    const input = document.getElementById("file-input") as HTMLInputElement;
+    const dropZone = document.getElementById("drop-zone") as HTMLElement;
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {});
+
+    dropZone.click();
+    dropZone.click();
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("renders a clear-search control for quick library resets", () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
@@ -3744,6 +3781,19 @@ describe("openEasyNetplayModal", () => {
     expect(btn?.textContent).toContain("Logs");
   });
 
+  it("shows readiness and open-source server setup shortcuts", () => {
+    openEasyNetplayModal({});
+    const readiness = document.querySelector<HTMLElement>(".enp-readiness");
+    expect(readiness).toBeTruthy();
+    expect(readiness?.textContent).toContain("Server");
+    expect(readiness?.textContent).toContain("Set up");
+
+    const setup = document.querySelector<HTMLElement>(".enp-open-source");
+    expect(setup).toBeTruthy();
+    expect(setup?.textContent).toContain("EmuLAN");
+    expect(setup?.textContent).toContain("EmulatorJS netplay-server");
+  });
+
   it("shows the no-server warning in both Host and Browse panels when no server is configured", () => {
     openEasyNetplayModal({});
     const warnings = document.querySelectorAll<HTMLElement>(".enp-server-warn");
@@ -3814,6 +3864,27 @@ describe("openEasyNetplayModal", () => {
 
     codeInput.value = "AB12CD";
     codeInput.dispatchEvent(new Event("input"));
+    expect(joinBtn.disabled).toBe(false);
+  });
+
+  it("join tab can paste an invite code from the clipboard", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: vi.fn().mockResolvedValue("ab12cd") },
+    });
+
+    openEasyNetplayModal({});
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
+    const joinTab = Array.from(tabs).find(t => t.textContent?.includes("Join"))!;
+    joinTab.click();
+
+    const codeInput = document.querySelector<HTMLInputElement>(".enp-code-input")!;
+    const joinBtn = document.querySelector<HTMLButtonElement>(".enp-btn-join")!;
+    const pasteBtn = document.querySelector<HTMLButtonElement>(".enp-btn-paste-code")!;
+    pasteBtn.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(codeInput.value).toBe("AB12CD");
     expect(joinBtn.disabled).toBe(false);
   });
 
