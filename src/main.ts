@@ -367,6 +367,22 @@ async function main(): Promise<void> {
   // on page navigations and soft-reloads within the same browser session.
   const deviceCaps = detectCapabilitiesCached();
 
+  // On low-end devices and Chromebooks, enforce the "low-power" WebGL context
+  // preference globally. This prevents severe thermal throttling on constrained
+  // hardware by signalling to the OS/driver that clocks should be managed conservatively.
+  if (deviceCaps.isLowSpec || deviceCaps.isChromOS) {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    (HTMLCanvasElement.prototype as any).getContext = function(type: string, options?: any) {
+      if (type === "webgl" || type === "webgl2" || type === "experimental-webgl") {
+        options = options || {};
+        if (options.powerPreference === undefined) {
+          options.powerPreference = "low-power";
+        }
+      }
+      return (originalGetContext as Function).call(this, type, options);
+    };
+  }
+
   // 3. Load settings
   const settings = loadSettings();
 
@@ -475,7 +491,7 @@ async function main(): Promise<void> {
   // Use low-power mode on low-spec devices to conserve energy and prefer
   // the integrated GPU, which is usually more efficient on such hardware.
   if (settings.useWebGPU && deviceCaps.webgpuAvailable) {
-    const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
+    const webgpuPowerPref = (deviceCaps.isLowSpec || deviceCaps.isChromOS) ? "low-power" : "high-performance";
     emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
       // Apply stored post-processing effect after device is ready
       if (settings.postProcessEffect !== "none") {
@@ -857,7 +873,7 @@ async function main(): Promise<void> {
   const onSettingsChange = (patch: Partial<Settings>): void => {
     Object.assign(settings, patch);
     if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
-      const webgpuPowerPref = deviceCaps.isLowSpec ? "low-power" : "high-performance";
+      const webgpuPowerPref = (deviceCaps.isLowSpec || deviceCaps.isChromOS) ? "low-power" : "high-performance";
       emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
         if (settings.postProcessEffect !== "none") {
           emulator.setPostProcessEffect(settings.postProcessEffect);

@@ -1748,7 +1748,9 @@ export class PSPEmulator {
     try {
       // Prefer the game's OpenAL context so we're in the same audio graph
       const ejsCtx = window.EJS_emulator?.Module?.AL?.currentCtx?.audioCtx;
-      ctx = ejsCtx ?? new AudioContext({ latencyHint: "playback" });
+      const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) return false;
+      ctx = ejsCtx ?? new AudioContextCtor({ latencyHint: "playback" });
       ctxOwned = !ejsCtx;
 
       // Resume a suspended context (may happen due to autoplay policy)
@@ -2230,14 +2232,14 @@ export class PSPEmulator {
       // core, so no audio hardware adaptation is applied (unlike PSP/N64/PS1/
       // GBA/NDS).
       if (opts.systemId === "segaDC") {
-        const dcResolution         = ejsSettings["reicast_internal_resolution"]   ?? "?";
-        const dcThreaded           = ejsSettings["reicast_threaded_rendering"]    ?? "?";
-        const dcMipmap             = ejsSettings["reicast_mipmapping"]            ?? "?";
-        const dcAnisotropic        = ejsSettings["reicast_anisotropic_filtering"] ?? "?";
-        const dcTexUpscale         = ejsSettings["reicast_texupscale"]            ?? "?";
-        const dcEnableRttb         = ejsSettings["reicast_enable_rttb"]           ?? "?";
-        const dcAlphaSorting       = ejsSettings["reicast_alpha_sorting"]         ?? "?";
-        const dcFrameSkipping      = ejsSettings["reicast_frame_skipping"]        ?? "?";
+        const dcResolution         = ejsSettings["flycast_internal_resolution"]   ?? "?";
+        const dcThreaded           = ejsSettings["flycast_threaded_rendering"]    ?? "?";
+        const dcMipmap             = ejsSettings["flycast_mipmapping"]            ?? "?";
+        const dcAnisotropic        = ejsSettings["flycast_anisotropic_filtering"] ?? "?";
+        const dcTexUpscale         = ejsSettings["flycast_texupscale"]            ?? "?";
+        const dcEnableRttb         = ejsSettings["flycast_enable_rttb"]           ?? "?";
+        const dcAlphaSorting       = ejsSettings["flycast_alpha_sorting"]         ?? "?";
+        const dcFrameSkipping      = ejsSettings["flycast_frame_skipping"]        ?? "?";
         this.logDiagnostic(
           "performance",
           `DC tier=${tier}: ` +

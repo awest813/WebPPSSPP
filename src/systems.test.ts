@@ -167,9 +167,9 @@ describe('systems performance profiles', () => {
     expect(saturn?.tierSettings?.low?.retroarch_core).toBe('yabause');
     expect(saturn?.tierSettings?.low?.yabause_frameskip).toBe('enabled');
     expect(saturn?.tierSettings?.ultra?.yabause_addon_cartridge).toBe('4M_ram');
-    // Dreamcast uses Flycast (reicast core options)
-    expect(dc?.tierSettings?.low?.reicast_frame_skipping).toBe('enabled');
-    expect(dc?.tierSettings?.ultra?.reicast_internal_resolution).toBe('1920x1440');
+    // Dreamcast uses Flycast core options
+    expect(dc?.tierSettings?.low?.flycast_frame_skipping).toBe('enabled');
+    expect(dc?.tierSettings?.ultra?.flycast_internal_resolution).toBe('1920x1440');
     expect(dc?.coreId).toBe('flycast');
     expect(dc?.corePath).toContain('flycast-wasm.data');
     expect(dc?.needsWebGL2).toBe(true);
@@ -294,8 +294,8 @@ describe('systems performance profiles', () => {
 
     it('uses native resolution on low and medium tiers', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.low?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
-      expect(psx?.tierSettings?.medium?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_internal_resolution).toBe('1x (native)');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_internal_resolution).toBe('1x (native)');
     });
 
     it('uses higher resolution on high and ultra tiers', () => {
@@ -319,7 +319,7 @@ describe('systems performance profiles', () => {
 
     it('getPSXSettingsForTier returns a copy of the correct tier settings', () => {
       const lowSettings = getPSXSettingsForTier('low');
-      expect(lowSettings.beetle_psx_hw_internal_resolution).toBe('1x(native)');
+      expect(lowSettings.beetle_psx_hw_internal_resolution).toBe('1x (native)');
       expect(lowSettings.beetle_psx_hw_frame_duping).toBe('enabled');
 
       const ultraSettings = getPSXSettingsForTier('ultra');
@@ -347,7 +347,7 @@ describe('systems performance profiles', () => {
 
     it('uses valid Lightrec dynarec enum values (not "enabled")', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.low?.beetle_psx_hw_cpu_dynarec).toBe('disabled');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_cpu_dynarec).toBe('execute');
       expect(psx?.tierSettings?.medium?.beetle_psx_hw_cpu_dynarec).toBe('execute');
       expect(psx?.tierSettings?.high?.beetle_psx_hw_cpu_dynarec).toBe('execute');
       expect(psx?.tierSettings?.ultra?.beetle_psx_hw_cpu_dynarec).toBe('execute');
@@ -384,7 +384,7 @@ describe('systems performance profiles', () => {
       expect(settings.retroarch_core).toBe('desmume2015');
       expect(settings.desmume_num_cores).toBe('1');
       expect(settings.desmume_frameskip).toBe('2');
-      expect(settings.desmume_cpu_mode).toBe('interpreter');
+      expect(settings.desmume_cpu_mode).toBe('jit');
       expect(settings.desmume_pointer_type).toBe('touch');
       expect(settings.desmume_color_depth).toBe('16-bit');
     });

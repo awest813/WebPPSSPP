@@ -742,16 +742,17 @@ fn rcas(color: vec3f, uv: vec2f, texel: vec2f, sharpness: f32) -> vec3f {
 }
 
 @fragment fn fs(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {
-  let texel = 1.0 / params.resolution;
-  let uv    = fragCoord.xy / params.resolution;
+  let srcTexel = 1.0 / vec2f(textureDimensions(srcTex));
+  let dstTexel = 1.0 / params.resolution;
+  let uv       = fragCoord.xy / params.resolution;
 
   // EASU upsampling pass
-  let upsampled = easu(uv, texel);
+  let upsampled = easu(uv, srcTexel);
 
   // RCAS sharpening pass (optional — skipped when sharpness is near zero)
   var result = upsampled;
   if (params.fsrSharpness > 0.001) {
-    result = rcas(upsampled, uv, texel, params.fsrSharpness);
+    result = rcas(upsampled, uv, dstTexel, params.fsrSharpness);
   }
 
   return vec4f(result, 1.0);
@@ -1106,11 +1107,11 @@ export function adjustConfigForTier(config: PostProcessConfig): PostProcessConfi
   return adjusted;
 }
 
-export function buildEffectPipeline(
+export async function buildEffectPipeline(
   device: GPUDevice,
   effect: PostProcessEffect,
   format: GPUTextureFormat,
-): EffectPipeline {
+): Promise<EffectPipeline> {
   let fragmentCode: string;
 
   switch (effect) {
@@ -1162,7 +1163,7 @@ export function buildEffectPipeline(
   const bindGroupLayout = device.createBindGroupLayout({ entries });
   const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] });
 
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await device.createRenderPipelineAsync({
     layout: pipelineLayout,
     vertex:   { module: vertModule, entryPoint: "vs" },
     fragment: { module: fragModule, entryPoint: "fs", targets: [{ format }] },
@@ -1354,7 +1355,7 @@ export class WebGPUPostProcessor {
       this._initTimestampQuery();
     }
 
-    this._rebuildPipeline();
+    this._rebuildPipeline().catch(console.error);
     this._active = true;
 
     if (this._config.effect !== "none") {
@@ -1386,7 +1387,7 @@ export class WebGPUPostProcessor {
     Object.assign(this._config, patch);
 
     if (this._config.effect !== prevEffect) {
-      this._rebuildPipeline();
+      this._rebuildPipeline().catch(console.error);
       // Changing the pipeline invalidates the cached bind group because the
       // bind group layout changes with the effect.
       this._invalidateBindGroupCache();
@@ -1466,12 +1467,12 @@ export class WebGPUPostProcessor {
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
-  private _rebuildPipeline(): void {
+  private async _rebuildPipeline(): Promise<void> {
     const prevPipeline = this._effectPipeline;
     this._currentEffect = this._config.effect;
 
     try {
-      this._effectPipeline = buildEffectPipeline(
+      this._effectPipeline = await buildEffectPipeline(
         this._device,
         this._currentEffect,
         this._presentFormat,

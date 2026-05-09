@@ -71,7 +71,27 @@ export function renderRoomCard(
     return;
   }
 
-  // joining state is handled by sharedGetEasyNetplayManager listRooms.
+  const connectedWrap = make("div", { class: "enp-connected-card" });
+  
+  const header = make("div", { class: "enp-connected-card__header" });
+  header.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="enp-connected-icon"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+  header.appendChild(make("h3", { class: "enp-connected-card__title" }, "Connected!"));
+  
+  const infoText = make("p", { class: "enp-room-card__game" }, `Playing ${room.gameName || "Game"}`);
+  const hostText = make("p", { class: "enp-room-card__host" }, `Host: ${room.hostName || "Anonymous"}`);
+  
+  connectedWrap.append(header, infoText, hostText);
+
+  if (opts.showLeaveBtn && opts.easyMgr) {
+    const btnLeave = make("button", { class: "btn btn--danger enp-leave-btn", style: "margin-top: 20px" }, "Disconnect") as HTMLButtonElement;
+    btnLeave.addEventListener("click", async () => {
+      await opts.easyMgr!.leaveRoom();
+      container.innerHTML = "";
+    });
+    connectedWrap.appendChild(btnLeave);
+  }
+  
+  container.appendChild(connectedWrap);
 }
 
 function resolveAssetUrl(path: string): string {

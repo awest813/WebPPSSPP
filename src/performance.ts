@@ -68,14 +68,14 @@ const RESOLUTION_LADDERS: Record<string, { key: string; values: string[] }> = {
   psx: {
     key: "beetle_psx_hw_internal_resolution",
     // Matches Beetle PSX HW libretro steps (preset "4×" maps to index 2 = 4x).
-    values: ["1x(native)", "2x", "4x", "8x", "16x"],
+    values: ["1x (native)", "2x", "4x", "8x", "16x"],
   },
   nds: {
     key: "desmume_internal_resolution",
     values: ["256x192", "512x384", "768x576", "1024x768"],
   },
   segaDC: {
-    key: "reicast_internal_resolution",
+    key: "flycast_internal_resolution",
     values: ["640x480", "1280x960", "1920x1440"],
   },
 };
@@ -199,8 +199,8 @@ export function getGraphicsPresetCoreOptions(
     case "psx":
       Object.assign(out, {
         beetle_psx_hw_filter: preset === "native" ? "nearest" : "bilinear",
-        beetle_psx_hw_dither_mode: preset === "native" ? "1x(native)" : preset === "balanced" ? "internal resolution" : "disabled",
-        beetle_psx_hw_depth: preset === "native" ? "16bpp(native)" : "32bpp",
+        beetle_psx_hw_dither_mode: preset === "native" ? "1x (native)" : preset === "balanced" ? "internal resolution" : "disabled",
+        beetle_psx_hw_depth: preset === "native" ? "16bpp (native)" : "32bpp",
         beetle_psx_hw_pgxp_mode: preset === "ultra" ? "memory + CPU" : preset === "quality" ? "memory only" : "disabled",
         beetle_psx_hw_pgxp_texture: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
         beetle_psx_hw_gte_overclock: preset === "native" ? "disabled" : "enabled",
@@ -219,12 +219,12 @@ export function getGraphicsPresetCoreOptions(
 
     case "segaDC":
       Object.assign(out, {
-        reicast_threaded_rendering: preset === "native" ? "disabled" : "enabled",
-        reicast_mipmapping: preset === "native" ? "disabled" : "enabled",
-        reicast_anisotropic_filtering: preset === "native" ? "1" : preset === "balanced" ? "2" : preset === "quality" ? "4" : "8",
-        reicast_enable_rttb: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
-        reicast_alpha_sorting: preset === "native" || preset === "balanced" ? "per-strip (fast, least accurate)" : "per-triangle (normal)",
-        reicast_frame_skipping: preset === "native" ? "enabled" : "disabled",
+        flycast_threaded_rendering: preset === "native" ? "disabled" : "enabled",
+        flycast_mipmapping: preset === "native" ? "disabled" : "enabled",
+        flycast_anisotropic_filtering: preset === "native" ? "1" : preset === "balanced" ? "2" : preset === "quality" ? "4" : "8",
+        flycast_enable_rttb: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
+        flycast_alpha_sorting: preset === "native" || preset === "balanced" ? "per-strip (fast, least accurate)" : "per-triangle (normal)",
+        flycast_frame_skipping: preset === "native" ? "enabled" : "disabled",
       });
       break;
   }
@@ -264,8 +264,8 @@ export function getTextureUpscalerCoreOptions(
       return { desmume_filtering: upscaler === "off" || upscaler === "sharp" ? "none" : "bilinear" };
     case "segaDC":
       return {
-        reicast_texupscale: upscaler === "off" ? "disabled" : upscaler === "xbrz" ? "4x" : "2x",
-        reicast_mipmapping: upscaler === "off" ? "disabled" : "enabled",
+        flycast_texupscale: upscaler === "off" ? "disabled" : upscaler === "xbrz" ? "4x" : "2x",
+        flycast_mipmapping: upscaler === "off" ? "disabled" : "enabled",
       };
     default:
       return {};

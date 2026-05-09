@@ -1798,7 +1798,7 @@ describe('PSPEmulator', () => {
       const settings = emulator.activeCoreSettings;
       expect(settings).not.toBeNull();
       // The NDS low-tier settings must include the key DeSmuME core options
-      expect(settings?.desmume_cpu_mode).toBe('interpreter');
+      expect(settings?.desmume_cpu_mode).toBe('jit');
       expect(settings?.desmume_frameskip).toBe('2');
       expect(settings?.desmume_pointer_type).toBe('touch');
     });
@@ -1821,7 +1821,7 @@ describe('PSPEmulator', () => {
 
       // The stored value must be unchanged
       const copy2 = emulator.activeCoreSettings!;
-      expect(copy2.desmume_cpu_mode).toBe('interpreter');
+      expect(copy2.desmume_cpu_mode).toBe('jit');
     });
 
     it('sets EmulatorJS default options to the same values as activeCoreSettings after a tier-settings launch', async () => {
@@ -1864,7 +1864,7 @@ describe('PSPEmulator', () => {
       );
       expect(ndsPerfEntry).toBeDefined();
       // Entry must include cpu_mode and frameskip so it is actionable for debugging
-      expect(ndsPerfEntry!.message).toContain('cpu=interpreter');
+      expect(ndsPerfEntry!.message).toContain('cpu=jit');
       expect(ndsPerfEntry!.message).toContain('frameskip=2');
       // Entry must also surface advanced_timing and color_depth for full diagnostics
       expect(ndsPerfEntry!.message).toContain('timing=');

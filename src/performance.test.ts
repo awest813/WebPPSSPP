@@ -2218,11 +2218,11 @@ describe('performance', () => {
     });
 
     it('returns correct Dreamcast 2× option', () => {
-      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({ reicast_internal_resolution: '1280x960' });
+      expect(getResolutionCoreOptions('segaDC', '2x')).toEqual({ flycast_internal_resolution: '1280x960' });
     });
 
     it('returns correct Dreamcast 4×-style option using the highest supported ladder step', () => {
-      expect(getResolutionCoreOptions('segaDC', '4x')).toEqual({ reicast_internal_resolution: '1920x1440' });
+      expect(getResolutionCoreOptions('segaDC', '4x')).toEqual({ flycast_internal_resolution: '1920x1440' });
     });
 
     it('returns empty object for Dreamcast native resolution', () => {
@@ -2231,10 +2231,10 @@ describe('performance', () => {
 
     it('display_match returns a valid resolution option for Dreamcast', () => {
       const result = getResolutionCoreOptions('segaDC', 'display_match');
-      // Must be either {} (native) or { reicast_internal_resolution: ... }
+      // Must be either {} (native) or { flycast_internal_resolution: ... }
       expect(typeof result).toBe('object');
       if (Object.keys(result).length > 0) {
-        expect(Object.keys(result)[0]).toBe('reicast_internal_resolution');
+        expect(Object.keys(result)[0]).toBe('flycast_internal_resolution');
       }
     });
 
@@ -2335,7 +2335,7 @@ describe('performance', () => {
       it('returns the Dreamcast ladder', () => {
         const ladder = getResolutionLadder('segaDC');
         expect(ladder).not.toBeNull();
-        expect(ladder!.key).toBe('reicast_internal_resolution');
+        expect(ladder!.key).toBe('flycast_internal_resolution');
         expect(ladder!.values).toEqual(['640x480', '1280x960', '1920x1440']);
       });
     });
@@ -2360,7 +2360,7 @@ describe('performance', () => {
       it('maps PSX native preset to fastest hardware-renderer options', () => {
         expect(getGraphicsPresetCoreOptions('psx', 'native')).toMatchObject({
           beetle_psx_hw_filter: 'nearest',
-          beetle_psx_hw_dither_mode: '1x(native)',
+          beetle_psx_hw_dither_mode: '1x (native)',
           beetle_psx_hw_pgxp_mode: 'disabled',
         });
       });
@@ -2381,8 +2381,8 @@ describe('performance', () => {
 
       it('maps Dreamcast xBRZ-style choice to max texture upscale', () => {
         expect(getTextureUpscalerCoreOptions('segaDC', 'xbrz')).toEqual({
-          reicast_texupscale: '4x',
-          reicast_mipmapping: 'enabled',
+          flycast_texupscale: '4x',
+          flycast_mipmapping: 'enabled',
         });
       });
 

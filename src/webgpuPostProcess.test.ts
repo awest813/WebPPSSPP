@@ -60,6 +60,7 @@ function createMockGPUDevice() {
     createSampler: vi.fn().mockReturnValue({}),
     createShaderModule: vi.fn().mockReturnValue({}),
     createRenderPipeline: vi.fn().mockReturnValue({}),
+    createRenderPipelineAsync: vi.fn().mockResolvedValue({}),
     createBindGroupLayout: vi.fn().mockReturnValue({}),
     createPipelineLayout: vi.fn().mockReturnValue({}),
     createBindGroup: vi.fn().mockReturnValue({}),
@@ -100,14 +101,14 @@ describe("WebGPUPostProcessor", () => {
   });
 
   describe("construction", () => {
-    it("uses default config when none is provided", () => {
+    it("uses default config when none is provided", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       expect(pp.config).toEqual(DEFAULT_POST_PROCESS_CONFIG);
       expect(pp.active).toBe(false);
     });
 
-    it("accepts partial config overrides", () => {
+    it("accepts partial config overrides", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, {
         effect: "crt",
@@ -118,7 +119,7 @@ describe("WebGPUPostProcessor", () => {
       expect(pp.config.curvature).toBe(DEFAULT_POST_PROCESS_CONFIG.curvature);
     });
 
-    it("exposes lastGPUFrameTimeMs getter (null before any frame)", () => {
+    it("exposes lastGPUFrameTimeMs getter (null before any frame)", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       expect(pp.lastGPUFrameTimeMs).toBeNull();
@@ -126,7 +127,7 @@ describe("WebGPUPostProcessor", () => {
   });
 
   describe("updateConfig", () => {
-    it("merges partial config updates", () => {
+    it("merges partial config updates", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       pp.updateConfig({ effect: "sharpen", sharpenAmount: 1.0 });
@@ -134,40 +135,40 @@ describe("WebGPUPostProcessor", () => {
       expect(pp.config.sharpenAmount).toBe(1.0);
     });
 
-    it("rebuilds pipeline when effect changes (calls createRenderPipeline)", () => {
+    it("rebuilds pipeline when effect changes (calls createRenderPipeline)", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
       // First change builds a pipeline
-      pp.updateConfig({ effect: "crt" });
-      const firstCallCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
+      const firstCallCount = (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(firstCallCount).toBeGreaterThan(0);
 
       // Second change rebuilds
-      pp.updateConfig({ effect: "sharpen" });
-      const secondCallCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      pp.updateConfig({ effect: "sharpen" }); await new Promise(r => setTimeout(r, 0));
+      const secondCallCount = (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(secondCallCount).toBeGreaterThan(firstCallCount);
     });
 
-    it("rebuilds pipeline when switching to lcd effect", () => {
+    it("rebuilds pipeline when switching to lcd effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "lcd" });
-      const callCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      pp.updateConfig({ effect: "lcd" }); await new Promise(r => setTimeout(r, 0));
+      const callCount = (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(callCount).toBeGreaterThan(0);
     });
 
-    it("rebuilds pipeline when switching to bloom effect", () => {
+    it("rebuilds pipeline when switching to bloom effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "bloom" });
-      const callCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      pp.updateConfig({ effect: "bloom" }); await new Promise(r => setTimeout(r, 0));
+      const callCount = (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(callCount).toBeGreaterThan(0);
     });
 
-    it("accepts lcd-specific config parameters", () => {
+    it("accepts lcd-specific config parameters", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       pp.updateConfig({ effect: "lcd", lcdShadowMask: 0.7, lcdPixelScale: 2.0 });
@@ -176,7 +177,7 @@ describe("WebGPUPostProcessor", () => {
       expect(pp.config.lcdPixelScale).toBe(2.0);
     });
 
-    it("accepts bloom-specific config parameters", () => {
+    it("accepts bloom-specific config parameters", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       pp.updateConfig({ effect: "bloom", bloomThreshold: 0.8, bloomIntensity: 1.2 });
@@ -185,28 +186,28 @@ describe("WebGPUPostProcessor", () => {
       expect(pp.config.bloomIntensity).toBe(1.2);
     });
 
-    it("does not rebuild pipeline when only parameters change", () => {
+    it("does not rebuild pipeline when only parameters change", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "crt" });
-      const initialCallCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
+      const initialCallCount = (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mock.calls.length;
 
       pp.updateConfig({ scanlineIntensity: 0.5 });
-      const afterCallCount = (device.createRenderPipeline as ReturnType<typeof vi.fn>).mock.calls.length;
+      const afterCallCount = (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mock.calls.length;
 
       expect(afterCallCount).toBe(initialCallCount);
     });
   });
 
   describe("dispose", () => {
-    it("does not throw when called without attach", () => {
+    it("does not throw when called without attach", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       expect(() => pp.dispose()).not.toThrow();
     });
 
-    it("sets active to false", () => {
+    it("sets active to false", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
       pp.dispose();
@@ -215,7 +216,7 @@ describe("WebGPUPostProcessor", () => {
   });
 
   describe("attach resilience", () => {
-    it("disables post-processing cleanly when WebGPU canvas configure throws", () => {
+    it("disables post-processing cleanly when WebGPU canvas configure throws", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
@@ -315,7 +316,7 @@ describe("WebGPUPostProcessor", () => {
       });
     });
 
-    it("does not throw if device has no lost property", () => {
+    it("does not throw if device has no lost property", async () => {
       const { device } = createMockGPUDevice();
       // Ensure lost is not set
       expect(() => new WebGPUPostProcessor(device as unknown as GPUDevice)).not.toThrow();
@@ -323,7 +324,7 @@ describe("WebGPUPostProcessor", () => {
   });
 
   describe("timestamp queries", () => {
-    it("re-initialises timestamp query resources after detach + reattach", () => {
+    it("re-initialises timestamp query resources after detach + reattach", async () => {
       const { device } = createMockGPUDevice();
       device.features = new Set<string>(["timestamp-query"]);
 
@@ -364,7 +365,7 @@ describe("WebGPUPostProcessor", () => {
   });
 
   describe("render-loop resilience", () => {
-    it("skips frame safely when getCurrentTexture returns undefined", () => {
+    it("skips frame safely when getCurrentTexture returns undefined", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
 
@@ -402,7 +403,7 @@ describe("WebGPUPostProcessor", () => {
       });
     });
 
-    it("skips frame safely when getCurrentTexture throws", () => {
+    it("skips frame safely when getCurrentTexture throws", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
 
@@ -443,12 +444,12 @@ describe("WebGPUPostProcessor", () => {
   });
 
   describe("pipeline building (via updateConfig)", () => {
-    it("creates shader modules for CRT effect", () => {
+    it("creates shader modules for CRT effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
       // Trigger pipeline build by switching from "none" to "crt"
-      pp.updateConfig({ effect: "crt" });
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
 
       const calls = (device.createShaderModule as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls.length).toBeGreaterThanOrEqual(2); // vertex + fragment
@@ -458,21 +459,21 @@ describe("WebGPUPostProcessor", () => {
       expect(allCodes.some((c: string) => c.includes("@fragment"))).toBe(true);
     });
 
-    it("creates shader modules for sharpen effect", () => {
+    it("creates shader modules for sharpen effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "sharpen" });
+      pp.updateConfig({ effect: "sharpen" }); await new Promise(r => setTimeout(r, 0));
 
       const calls = (device.createShaderModule as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("creates shader modules for LCD effect", () => {
+    it("creates shader modules for LCD effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "lcd" });
+      pp.updateConfig({ effect: "lcd" }); await new Promise(r => setTimeout(r, 0));
 
       const calls = (device.createShaderModule as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls.length).toBeGreaterThanOrEqual(2);
@@ -481,11 +482,11 @@ describe("WebGPUPostProcessor", () => {
       expect(allCodes.some((c: string) => c.includes("lcdShadowMask"))).toBe(true);
     });
 
-    it("creates shader modules for bloom effect", () => {
+    it("creates shader modules for bloom effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "bloom" });
+      pp.updateConfig({ effect: "bloom" }); await new Promise(r => setTimeout(r, 0));
 
       const calls = (device.createShaderModule as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls.length).toBeGreaterThanOrEqual(2);
@@ -494,11 +495,11 @@ describe("WebGPUPostProcessor", () => {
       expect(allCodes.some((c: string) => c.includes("bloomThreshold"))).toBe(true);
     });
 
-    it("creates a uniform buffer for CRT effect", () => {
+    it("creates a uniform buffer for CRT effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "crt" });
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
 
       expect(device.createBuffer).toHaveBeenCalled();
       const bufferCalls = (device.createBuffer as ReturnType<typeof vi.fn>).mock.calls;
@@ -509,11 +510,11 @@ describe("WebGPUPostProcessor", () => {
       expect(hasUniform).toBe(true);
     });
 
-    it("creates a uniform buffer for LCD effect", () => {
+    it("creates a uniform buffer for LCD effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "lcd" });
+      pp.updateConfig({ effect: "lcd" }); await new Promise(r => setTimeout(r, 0));
 
       const bufferCalls = (device.createBuffer as ReturnType<typeof vi.fn>).mock.calls;
       const hasUniform = bufferCalls.some(
@@ -522,11 +523,11 @@ describe("WebGPUPostProcessor", () => {
       expect(hasUniform).toBe(true);
     });
 
-    it("creates a uniform buffer for bloom effect", () => {
+    it("creates a uniform buffer for bloom effect", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "bloom" });
+      pp.updateConfig({ effect: "bloom" }); await new Promise(r => setTimeout(r, 0));
 
       const bufferCalls = (device.createBuffer as ReturnType<typeof vi.fn>).mock.calls;
       const hasUniform = bufferCalls.some(
@@ -535,7 +536,7 @@ describe("WebGPUPostProcessor", () => {
       expect(hasUniform).toBe(true);
     });
 
-    it("does not create a uniform buffer for none effect", () => {
+    it("does not create a uniform buffer for none effect", async () => {
       const { device } = createMockGPUDevice();
       // Constructor starts with "none" and does not build a pipeline
       new WebGPUPostProcessor(device as unknown as GPUDevice);
@@ -547,12 +548,12 @@ describe("WebGPUPostProcessor", () => {
       expect(hasUniform).toBe(false);
     });
 
-    it("destroys the old uniform buffer only after the new pipeline is successfully built", () => {
+    it("destroys the old uniform buffer only after the new pipeline is successfully built", async () => {
       const { device, mockBuffer } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
       // Build an initial CRT pipeline — this creates a uniform buffer
-      pp.updateConfig({ effect: "crt" });
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
       const destroyCallsAfterFirstBuild = mockBuffer.destroy.mock.calls.length;
 
       // The old buffer must NOT be destroyed yet (no effect change has happened)
@@ -560,36 +561,36 @@ describe("WebGPUPostProcessor", () => {
 
       // Switch to sharpen — this triggers _rebuildPipeline():
       // the old CRT buffer should be destroyed only AFTER the new pipeline succeeds
-      pp.updateConfig({ effect: "sharpen" });
+      pp.updateConfig({ effect: "sharpen" }); await new Promise(r => setTimeout(r, 0));
       expect(mockBuffer.destroy).toHaveBeenCalled();
     });
 
-    it("destroys the old uniform buffer even when the new pipeline build fails", () => {
+    it("destroys the old uniform buffer even when the new pipeline build fails", async () => {
       const { device, mockBuffer } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
       // Build initial CRT pipeline
-      pp.updateConfig({ effect: "crt" });
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
       expect(mockBuffer.destroy).not.toHaveBeenCalled();
 
       // Make the next pipeline build throw
-      (device.createRenderPipeline as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      (device.createRenderPipelineAsync as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
         throw new Error("GPU pipeline compile failed");
       });
 
       // Switch effect — build will fail, but the old buffer must still be released
-      pp.updateConfig({ effect: "sharpen" });
+      pp.updateConfig({ effect: "sharpen" }); await new Promise(r => setTimeout(r, 0));
       expect(mockBuffer.destroy).toHaveBeenCalled();
     });
   });
 
   describe("bind group caching", () => {
-    it("createBindGroup is not called on every updateConfig call when only params change", () => {
+    it("createBindGroup is not called on every updateConfig call when only params change", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
       // Build the initial CRT pipeline
-      pp.updateConfig({ effect: "crt" });
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
       const bindGroupCallsAfterInit = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
 
       // Changing parameters only should NOT trigger a new bind group
@@ -600,15 +601,15 @@ describe("WebGPUPostProcessor", () => {
       expect(bindGroupCallsAfterParamChanges).toBe(bindGroupCallsAfterInit);
     });
 
-    it("bind group cache is invalidated when effect (pipeline) changes", () => {
+    it("bind group cache is invalidated when effect (pipeline) changes", async () => {
       const { device } = createMockGPUDevice();
       const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-      pp.updateConfig({ effect: "crt" });
+      pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
       const beforeSwitch = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
 
       // Switching effect invalidates the cache — next render will recreate it
-      pp.updateConfig({ effect: "sharpen" });
+      pp.updateConfig({ effect: "sharpen" }); await new Promise(r => setTimeout(r, 0));
       const afterSwitch = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
 
       // The bind group itself is only created on the first _renderFrame call,
@@ -619,24 +620,24 @@ describe("WebGPUPostProcessor", () => {
 });
 
 describe("buildEffectPipeline", () => {
-  it("returns wgslSources with vertex and fragment code for CRT", () => {
+  it("returns wgslSources with vertex and fragment code for CRT", async () => {
     const { device } = createMockGPUDevice();
-    const result = buildEffectPipeline(device as unknown as GPUDevice, "crt", "bgra8unorm");
+    const result = await buildEffectPipeline(device as unknown as GPUDevice, "crt", "bgra8unorm");
     expect(result.wgslSources.vertex).toContain("@vertex");
     expect(result.wgslSources.fragment).toContain("@fragment");
     expect(result.wgslSources.fragment).toContain("scanlineIntensity");
   });
 
-  it("returns wgslSources with vertex and fragment code for sharpen", () => {
+  it("returns wgslSources with vertex and fragment code for sharpen", async () => {
     const { device } = createMockGPUDevice();
-    const result = buildEffectPipeline(device as unknown as GPUDevice, "sharpen", "bgra8unorm");
+    const result = await buildEffectPipeline(device as unknown as GPUDevice, "sharpen", "bgra8unorm");
     expect(result.wgslSources.vertex).toContain("@vertex");
     expect(result.wgslSources.fragment).toContain("sharpenAmount");
   });
 
-  it("returns wgslSources with vertex and fragment code for lcd", () => {
+  it("returns wgslSources with vertex and fragment code for lcd", async () => {
     const { device } = createMockGPUDevice();
-    const result = buildEffectPipeline(device as unknown as GPUDevice, "lcd", "bgra8unorm");
+    const result = await buildEffectPipeline(device as unknown as GPUDevice, "lcd", "bgra8unorm");
     expect(result.wgslSources.vertex).toContain("@vertex");
     expect(result.wgslSources.fragment).toContain("@fragment");
     expect(result.wgslSources.fragment).toContain("lcdShadowMask");
@@ -644,9 +645,9 @@ describe("buildEffectPipeline", () => {
     expect(result.uniformBuffer).not.toBeNull();
   });
 
-  it("returns wgslSources with vertex and fragment code for bloom", () => {
+  it("returns wgslSources with vertex and fragment code for bloom", async () => {
     const { device } = createMockGPUDevice();
-    const result = buildEffectPipeline(device as unknown as GPUDevice, "bloom", "bgra8unorm");
+    const result = await buildEffectPipeline(device as unknown as GPUDevice, "bloom", "bgra8unorm");
     expect(result.wgslSources.vertex).toContain("@vertex");
     expect(result.wgslSources.fragment).toContain("@fragment");
     expect(result.wgslSources.fragment).toContain("bloomThreshold");
@@ -654,17 +655,17 @@ describe("buildEffectPipeline", () => {
     expect(result.uniformBuffer).not.toBeNull();
   });
 
-  it("returns wgslSources for passthrough (none) effect", () => {
+  it("returns wgslSources for passthrough (none) effect", async () => {
     const { device } = createMockGPUDevice();
-    const result = buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
+    const result = await buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
     expect(result.wgslSources.vertex).toContain("@vertex");
     expect(result.wgslSources.fragment).toContain("@fragment");
     expect(result.uniformBuffer).toBeNull();
   });
 
-  it("returns wgslSources with vertex and fragment code for fxaa", () => {
+  it("returns wgslSources with vertex and fragment code for fxaa", async () => {
     const { device } = createMockGPUDevice();
-    const result = buildEffectPipeline(device as unknown as GPUDevice, "fxaa", "bgra8unorm");
+    const result = await buildEffectPipeline(device as unknown as GPUDevice, "fxaa", "bgra8unorm");
     expect(result.wgslSources.vertex).toContain("@vertex");
     expect(result.wgslSources.fragment).toContain("@fragment");
     expect(result.wgslSources.fragment).toContain("fxaaQuality");
@@ -674,7 +675,7 @@ describe("buildEffectPipeline", () => {
 });
 
 describe("DEFAULT_POST_PROCESS_CONFIG", () => {
-  it("has expected default values", () => {
+  it("has expected default values", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.effect).toBe("none");
     expect(DEFAULT_POST_PROCESS_CONFIG.scanlineIntensity).toBe(0.15);
     expect(DEFAULT_POST_PROCESS_CONFIG.curvature).toBe(0.03);
@@ -689,7 +690,7 @@ describe("DEFAULT_POST_PROCESS_CONFIG", () => {
 });
 
 describe("PostProcessConfig typing", () => {
-  it("allows all valid effect values", () => {
+  it("allows all valid effect values", async () => {
     const configs: PostProcessConfig[] = [
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "none" },
       { ...DEFAULT_POST_PROCESS_CONFIG, effect: "crt" },
@@ -705,21 +706,21 @@ describe("PostProcessConfig typing", () => {
 // ── adjustConfigForTier ───────────────────────────────────────────────────────
 
 describe("adjustConfigForTier", () => {
-  it("returns config unchanged for high tier", () => {
+  it("returns config unchanged for high tier", async () => {
     const config = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "high" as const, bloomIntensity: 0.8, curvature: 1.0 };
     const adjusted = adjustConfigForTier(config);
     expect(adjusted.bloomIntensity).toBe(0.8);
     expect(adjusted.curvature).toBe(1.0);
   });
 
-  it("caps bloom and curvature on medium tier", () => {
+  it("caps bloom and curvature on medium tier", async () => {
     const config = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "medium" as const, bloomIntensity: 0.8, curvature: 1.0 };
     const adjusted = adjustConfigForTier(config);
     expect(adjusted.bloomIntensity).toBeLessThanOrEqual(0.3);
     expect(adjusted.curvature).toBeLessThanOrEqual(0.5);
   });
 
-  it("disables bloom and severely caps effects on low tier", () => {
+  it("disables bloom and severely caps effects on low tier", async () => {
     const config = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "low" as const, bloomIntensity: 0.8, curvature: 1.0, scanlineIntensity: 0.8 };
     const adjusted = adjustConfigForTier(config);
     expect(adjusted.bloomIntensity).toBe(0);
@@ -727,7 +728,7 @@ describe("adjustConfigForTier", () => {
     expect(adjusted.scanlineIntensity).toBeLessThanOrEqual(0.3);
   });
 
-  it("returns config unchanged when no tier is set", () => {
+  it("returns config unchanged when no tier is set", async () => {
     const config = { ...DEFAULT_POST_PROCESS_CONFIG, bloomIntensity: 0.8 };
     const adjusted = adjustConfigForTier(config);
     expect(adjusted.bloomIntensity).toBe(0.8);
@@ -737,16 +738,16 @@ describe("adjustConfigForTier", () => {
 // ── FSR 1.0 effect ────────────────────────────────────────────────────────────
 
 describe("FSR effect", () => {
-  it("DEFAULT_POST_PROCESS_CONFIG includes fsrSharpness", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes fsrSharpness", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG).toHaveProperty('fsrSharpness');
     expect(typeof DEFAULT_POST_PROCESS_CONFIG.fsrSharpness).toBe('number');
   });
 
-  it("fsrSharpness default is 0.25", () => {
+  it("fsrSharpness default is 0.25", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.fsrSharpness).toBe(0.25);
   });
 
-  it("adjustConfigForTier zeros fsrSharpness on low tier", () => {
+  it("adjustConfigForTier zeros fsrSharpness on low tier", async () => {
     const config: PostProcessConfig = {
       ...DEFAULT_POST_PROCESS_CONFIG,
       tier: "low",
@@ -756,7 +757,7 @@ describe("FSR effect", () => {
     expect(adjusted.fsrSharpness).toBe(0);
   });
 
-  it("adjustConfigForTier caps fsrSharpness at 0.15 on medium tier", () => {
+  it("adjustConfigForTier caps fsrSharpness at 0.15 on medium tier", async () => {
     const config: PostProcessConfig = {
       ...DEFAULT_POST_PROCESS_CONFIG,
       tier: "medium",
@@ -766,7 +767,7 @@ describe("FSR effect", () => {
     expect(adjusted.fsrSharpness).toBeLessThanOrEqual(0.15);
   });
 
-  it("adjustConfigForTier leaves fsrSharpness unchanged on high tier", () => {
+  it("adjustConfigForTier leaves fsrSharpness unchanged on high tier", async () => {
     const config: PostProcessConfig = {
       ...DEFAULT_POST_PROCESS_CONFIG,
       tier: "high",
@@ -776,32 +777,32 @@ describe("FSR effect", () => {
     expect(adjusted.fsrSharpness).toBe(0.5);
   });
 
-  it("buildEffectPipeline succeeds for 'fsr' effect", () => {
+  it("buildEffectPipeline succeeds for 'fsr' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'fsr' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'fsr' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'fsr' contains 'fsrSharpness'", () => {
+  it("wgslSources.fragment for 'fsr' contains 'fsrSharpness'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("fsrSharpness");
   });
 
-  it("wgslSources.fragment for 'fsr' contains EASU function", () => {
+  it("wgslSources.fragment for 'fsr' contains EASU function", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("easu");
   });
 
-  it("wgslSources.fragment for 'fsr' contains RCAS function", () => {
+  it("wgslSources.fragment for 'fsr' contains RCAS function", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("rcas");
   });
 });
@@ -809,42 +810,42 @@ describe("FSR effect", () => {
 // ── New effects: grain, retro, colorgrade ─────────────────────────────────────
 
 describe("grain effect", () => {
-  it("buildEffectPipeline succeeds for 'grain' effect", () => {
+  it("buildEffectPipeline succeeds for 'grain' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'grain' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'grain' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'grain' contains 'grainIntensity'", () => {
+  it("wgslSources.fragment for 'grain' contains 'grainIntensity'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("grainIntensity");
   });
 
-  it("wgslSources.fragment for 'grain' contains 'grainSize'", () => {
+  it("wgslSources.fragment for 'grain' contains 'grainSize'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("grainSize");
   });
 
-  it("wgslSources.fragment for 'grain' contains hash function", () => {
+  it("wgslSources.fragment for 'grain' contains hash function", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("hash2");
   });
 
-  it("wgslSources.fragment for 'grain' contains animated seed param", () => {
+  it("wgslSources.fragment for 'grain' contains animated seed param", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "grain", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("grainSeed");
   });
 
-  it("updateConfig accepts grain-specific parameters", () => {
+  it("updateConfig accepts grain-specific parameters", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "grain", grainIntensity: 0.15, grainSize: 2.0 });
@@ -855,30 +856,30 @@ describe("grain effect", () => {
 });
 
 describe("retro effect", () => {
-  it("buildEffectPipeline succeeds for 'retro' effect", () => {
+  it("buildEffectPipeline succeeds for 'retro' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'retro' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'retro' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'retro' contains 'retroColors'", () => {
+  it("wgslSources.fragment for 'retro' contains 'retroColors'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("retroColors");
   });
 
-  it("wgslSources.fragment for 'retro' contains Bayer dithering", () => {
+  it("wgslSources.fragment for 'retro' contains Bayer dithering", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "retro", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("bayer4");
   });
 
-  it("updateConfig accepts retro-specific parameters", () => {
+  it("updateConfig accepts retro-specific parameters", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "retro", retroColors: 8 });
@@ -888,36 +889,36 @@ describe("retro effect", () => {
 });
 
 describe("colorgrade effect", () => {
-  it("buildEffectPipeline succeeds for 'colorgrade' effect", () => {
+  it("buildEffectPipeline succeeds for 'colorgrade' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'colorgrade' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'colorgrade' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'colorgrade' contains 'contrast'", () => {
+  it("wgslSources.fragment for 'colorgrade' contains 'contrast'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("contrast");
   });
 
-  it("wgslSources.fragment for 'colorgrade' contains 'saturation'", () => {
+  it("wgslSources.fragment for 'colorgrade' contains 'saturation'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("saturation");
   });
 
-  it("wgslSources.fragment for 'colorgrade' contains 'brightness'", () => {
+  it("wgslSources.fragment for 'colorgrade' contains 'brightness'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "colorgrade", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("brightness");
   });
 
-  it("updateConfig accepts colorgrade-specific parameters", () => {
+  it("updateConfig accepts colorgrade-specific parameters", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "colorgrade", contrast: 1.2, saturation: 0.8, brightness: -0.05 });
@@ -931,7 +932,7 @@ describe("colorgrade effect", () => {
 // ── EFFECT_LABELS ─────────────────────────────────────────────────────────────
 
 describe("EFFECT_LABELS", () => {
-  it("provides a label for every PostProcessEffect", () => {
+  it("provides a label for every PostProcessEffect", async () => {
     const allEffects: PostProcessEffect[] = [
       "none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr",
       "grain", "retro", "colorgrade", "taa",
@@ -942,19 +943,19 @@ describe("EFFECT_LABELS", () => {
     }
   });
 
-  it("none effect label indicates no effect", () => {
+  it("none effect label indicates no effect", async () => {
     expect(EFFECT_LABELS.none).toContain("No effect");
   });
 
-  it("grain effect label indicates film grain", () => {
+  it("grain effect label indicates film grain", async () => {
     expect(EFFECT_LABELS.grain.toLowerCase()).toContain("grain");
   });
 
-  it("retro effect label indicates retro / pixel art", () => {
+  it("retro effect label indicates retro / pixel art", async () => {
     expect(EFFECT_LABELS.retro.toLowerCase()).toMatch(/retro|pixel/);
   });
 
-  it("colorgrade effect label indicates colour grading", () => {
+  it("colorgrade effect label indicates colour grading", async () => {
     expect(EFFECT_LABELS.colorgrade.toLowerCase()).toMatch(/color|colour|grad/);
   });
 });
@@ -962,13 +963,13 @@ describe("EFFECT_LABELS", () => {
 // ── validatePostProcessConfig ─────────────────────────────────────────────────
 
 describe("validatePostProcessConfig", () => {
-  it("returns a new object (does not mutate input)", () => {
+  it("returns a new object (does not mutate input)", async () => {
     const config = { ...DEFAULT_POST_PROCESS_CONFIG };
     const validated = validatePostProcessConfig(config);
     expect(validated).not.toBe(config);
   });
 
-  it("preserves valid values unchanged", () => {
+  it("preserves valid values unchanged", async () => {
     const config = { ...DEFAULT_POST_PROCESS_CONFIG };
     const validated = validatePostProcessConfig(config);
     expect(validated.scanlineIntensity).toBe(config.scanlineIntensity);
@@ -979,57 +980,57 @@ describe("validatePostProcessConfig", () => {
     expect(validated.contrast).toBe(config.contrast);
   });
 
-  it("clamps scanlineIntensity above 1 down to 1", () => {
+  it("clamps scanlineIntensity above 1 down to 1", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, scanlineIntensity: 2.5 };
     expect(validatePostProcessConfig(cfg).scanlineIntensity).toBe(1);
   });
 
-  it("clamps scanlineIntensity below 0 up to 0", () => {
+  it("clamps scanlineIntensity below 0 up to 0", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, scanlineIntensity: -0.5 };
     expect(validatePostProcessConfig(cfg).scanlineIntensity).toBe(0);
   });
 
-  it("clamps sharpenAmount to [0, 2]", () => {
+  it("clamps sharpenAmount to [0, 2]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, sharpenAmount: -1 }).sharpenAmount).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, sharpenAmount: 5 }).sharpenAmount).toBe(2);
   });
 
-  it("clamps grainIntensity to [0, 1]", () => {
+  it("clamps grainIntensity to [0, 1]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainIntensity: -0.1 }).grainIntensity).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainIntensity: 1.5 }).grainIntensity).toBe(1);
   });
 
-  it("clamps grainSize to [0.5, 8]", () => {
+  it("clamps grainSize to [0.5, 8]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainSize: 0 }).grainSize).toBe(0.5);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, grainSize: 100 }).grainSize).toBe(8);
   });
 
-  it("clamps retroColors to [2, 256] and rounds to integer", () => {
+  it("clamps retroColors to [2, 256] and rounds to integer", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, retroColors: 1 }).retroColors).toBe(2);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, retroColors: 999 }).retroColors).toBe(256);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, retroColors: 7.6 }).retroColors).toBe(8);
   });
 
-  it("clamps contrast to [0, 4]", () => {
+  it("clamps contrast to [0, 4]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, contrast: -1 }).contrast).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, contrast: 10 }).contrast).toBe(4);
   });
 
-  it("clamps saturation to [0, 4]", () => {
+  it("clamps saturation to [0, 4]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, saturation: -0.5 }).saturation).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, saturation: 5 }).saturation).toBe(4);
   });
 
-  it("clamps brightness to [-1, 1]", () => {
+  it("clamps brightness to [-1, 1]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, brightness: -2 }).brightness).toBe(-1);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, brightness: 2 }).brightness).toBe(1);
   });
 
-  it("clamps lcdPixelScale minimum to 0.1", () => {
+  it("clamps lcdPixelScale minimum to 0.1", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, lcdPixelScale: 0 }).lcdPixelScale).toBe(0.1);
   });
 
-  it("preserves effect and tier fields", () => {
+  it("preserves effect and tier fields", async () => {
     const cfg: PostProcessConfig = { ...DEFAULT_POST_PROCESS_CONFIG, effect: "crt", tier: "medium" };
     const validated = validatePostProcessConfig(cfg);
     expect(validated.effect).toBe("crt");
@@ -1040,9 +1041,9 @@ describe("validatePostProcessConfig", () => {
 // ── EffectPipeline type export ────────────────────────────────────────────────
 
 describe("EffectPipeline type", () => {
-  it("buildEffectPipeline return value is assignable to EffectPipeline", () => {
+  it("buildEffectPipeline return value is assignable to EffectPipeline", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline: EffectPipeline = buildEffectPipeline(device as unknown as GPUDevice, "crt", "bgra8unorm");
+    const pipeline: EffectPipeline = await buildEffectPipeline(device as unknown as GPUDevice, "crt", "bgra8unorm");
     expect(pipeline).toBeDefined();
     expect(pipeline.pipeline).toBeDefined();
     expect(pipeline.bindGroupLayout).toBeDefined();
@@ -1053,27 +1054,27 @@ describe("EffectPipeline type", () => {
 // ── DEFAULT_POST_PROCESS_CONFIG new fields ────────────────────────────────────
 
 describe("DEFAULT_POST_PROCESS_CONFIG new fields", () => {
-  it("includes grainIntensity with value 0.08", () => {
+  it("includes grainIntensity with value 0.08", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.grainIntensity).toBe(0.08);
   });
 
-  it("includes grainSize with value 1.5", () => {
+  it("includes grainSize with value 1.5", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.grainSize).toBe(1.5);
   });
 
-  it("includes retroColors with value 16", () => {
+  it("includes retroColors with value 16", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.retroColors).toBe(16);
   });
 
-  it("includes contrast with neutral value 1.0", () => {
+  it("includes contrast with neutral value 1.0", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.contrast).toBe(1.0);
   });
 
-  it("includes saturation with neutral value 1.0", () => {
+  it("includes saturation with neutral value 1.0", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.saturation).toBe(1.0);
   });
 
-  it("includes brightness with neutral value 0.0", () => {
+  it("includes brightness with neutral value 0.0", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.brightness).toBe(0.0);
   });
 });
@@ -1087,16 +1088,16 @@ describe("buildEffectPipeline uniform buffer presence", () => {
   ];
 
   for (const effect of effectsWithUniforms) {
-    it(`'${effect}' effect always creates a uniform buffer`, () => {
+    it(`'${effect}' effect always creates a uniform buffer`, async () => {
       const { device } = createMockGPUDevice();
-      const pipeline = buildEffectPipeline(device as unknown as GPUDevice, effect, "bgra8unorm");
+      const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, effect, "bgra8unorm");
       expect(pipeline.uniformBuffer).not.toBeNull();
     });
   }
 
-  it("'none' (passthrough) effect never creates a uniform buffer", () => {
+  it("'none' (passthrough) effect never creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "none", "bgra8unorm");
     expect(pipeline.uniformBuffer).toBeNull();
   });
 });
@@ -1104,44 +1105,44 @@ describe("buildEffectPipeline uniform buffer presence", () => {
 // ── TAA effect ────────────────────────────────────────────────────────────────
 
 describe("taa effect", () => {
-  it("buildEffectPipeline succeeds for 'taa' effect", () => {
+  it("buildEffectPipeline succeeds for 'taa' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'taa' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'taa' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("buildEffectPipeline for 'taa' sets requiresHistoryTexture = true", () => {
+  it("buildEffectPipeline for 'taa' sets requiresHistoryTexture = true", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     expect(pipeline.requiresHistoryTexture).toBe(true);
   });
 
-  it("buildEffectPipeline for non-taa effects does NOT set requiresHistoryTexture", () => {
+  it("buildEffectPipeline for non-taa effects does NOT set requiresHistoryTexture", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "fsr", "bgra8unorm");
     expect(pipeline.requiresHistoryTexture).toBeFalsy();
   });
 
-  it("wgslSources.fragment for 'taa' contains 'taaBlend'", () => {
+  it("wgslSources.fragment for 'taa' contains 'taaBlend'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("taaBlend");
   });
 
-  it("wgslSources.fragment for 'taa' contains 'histTex' history texture binding", () => {
+  it("wgslSources.fragment for 'taa' contains 'histTex' history texture binding", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("histTex");
   });
 
-  it("TAA bind group layout includes extra texture entry (4 entries)", () => {
+  it("TAA bind group layout includes extra texture entry (4 entries)", async () => {
     const { device } = createMockGPUDevice();
-    buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
+    await buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     const calls = (device.createBindGroupLayout as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     const lastCall = calls[calls.length - 1]!;
@@ -1150,7 +1151,7 @@ describe("taa effect", () => {
     expect(entries.length).toBe(4);
   });
 
-  it("updateConfig accepts taaBlend parameter", () => {
+  it("updateConfig accepts taaBlend parameter", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "taa", taaBlend: 0.15 });
@@ -1158,41 +1159,41 @@ describe("taa effect", () => {
     expect(pp.config.taaBlend).toBe(0.15);
   });
 
-  it("EFFECT_LABELS has a label for 'taa'", () => {
+  it("EFFECT_LABELS has a label for 'taa'", async () => {
     expect(EFFECT_LABELS.taa).toBeTruthy();
     expect(EFFECT_LABELS.taa.toLowerCase()).toContain("taa");
   });
 
-  it("DEFAULT_POST_PROCESS_CONFIG includes taaBlend = 0.1", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes taaBlend = 0.1", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.taaBlend).toBe(0.1);
   });
 
-  it("adjustConfigForTier sets taaBlend = 1 on low tier (disables smoothing)", () => {
+  it("adjustConfigForTier sets taaBlend = 1 on low tier (disables smoothing)", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, effect: "taa" as const, taaBlend: 0.1, tier: "low" as const };
     const adjusted = adjustConfigForTier(cfg);
     expect(adjusted.taaBlend).toBe(1);
   });
 
-  it("adjustConfigForTier caps taaBlend minimum to 0.2 on medium tier", () => {
+  it("adjustConfigForTier caps taaBlend minimum to 0.2 on medium tier", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, effect: "taa" as const, taaBlend: 0.05, tier: "medium" as const };
     const adjusted = adjustConfigForTier(cfg);
     expect(adjusted.taaBlend).toBeGreaterThanOrEqual(0.2);
   });
 
-  it("adjustConfigForTier leaves taaBlend unchanged on high tier", () => {
+  it("adjustConfigForTier leaves taaBlend unchanged on high tier", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, effect: "taa" as const, taaBlend: 0.08, tier: "high" as const };
     const adjusted = adjustConfigForTier(cfg);
     expect(adjusted.taaBlend).toBe(0.08);
   });
 
-  it("validatePostProcessConfig clamps taaBlend to [0, 1]", () => {
+  it("validatePostProcessConfig clamps taaBlend to [0, 1]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, taaBlend: -0.5 }).taaBlend).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, taaBlend: 1.5 }).taaBlend).toBe(1);
   });
 
-  it("'taa' effect always creates a uniform buffer", () => {
+  it("'taa' effect always creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "taa", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 });
@@ -1200,30 +1201,30 @@ describe("taa effect", () => {
 // ── New effects: pixelate, ntsc, hdr ─────────────────────────────────────────
 
 describe("pixelate effect", () => {
-  it("buildEffectPipeline succeeds for 'pixelate' effect", () => {
+  it("buildEffectPipeline succeeds for 'pixelate' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'pixelate' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'pixelate' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'pixelate' contains 'pixelateSize'", () => {
+  it("wgslSources.fragment for 'pixelate' contains 'pixelateSize'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("pixelateSize");
   });
 
-  it("wgslSources.fragment for 'pixelate' snaps UV to block centre", () => {
+  it("wgslSources.fragment for 'pixelate' snaps UV to block centre", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("floor");
   });
 
-  it("updateConfig accepts pixelateSize parameter", () => {
+  it("updateConfig accepts pixelateSize parameter", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "pixelate", pixelateSize: 8 });
@@ -1231,72 +1232,72 @@ describe("pixelate effect", () => {
     expect(pp.config.pixelateSize).toBe(8);
   });
 
-  it("EFFECT_LABELS has a label for 'pixelate'", () => {
+  it("EFFECT_LABELS has a label for 'pixelate'", async () => {
     expect(EFFECT_LABELS.pixelate).toBeTruthy();
     expect(EFFECT_LABELS.pixelate.toLowerCase()).toContain("pixel");
   });
 
-  it("DEFAULT_POST_PROCESS_CONFIG includes pixelateSize = 4", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes pixelateSize = 4", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.pixelateSize).toBe(4);
   });
 
-  it("validatePostProcessConfig clamps pixelateSize to [1, 32] and rounds", () => {
+  it("validatePostProcessConfig clamps pixelateSize to [1, 32] and rounds", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, pixelateSize: 0 }).pixelateSize).toBe(1);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, pixelateSize: 100 }).pixelateSize).toBe(32);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, pixelateSize: 5.7 }).pixelateSize).toBe(6);
   });
 
-  it("adjustConfigForTier enforces minimum pixelateSize of 2 on low tier", () => {
+  it("adjustConfigForTier enforces minimum pixelateSize of 2 on low tier", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "low" as const, pixelateSize: 1 };
     const adjusted = adjustConfigForTier(cfg);
     expect(adjusted.pixelateSize).toBeGreaterThanOrEqual(2);
   });
 
-  it("'pixelate' effect always creates a uniform buffer", () => {
+  it("'pixelate' effect always creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "pixelate", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 });
 
 describe("ntsc effect", () => {
-  it("buildEffectPipeline succeeds for 'ntsc' effect", () => {
+  it("buildEffectPipeline succeeds for 'ntsc' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'ntsc' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'ntsc' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'ntsc' contains 'ntscArtifacts'", () => {
+  it("wgslSources.fragment for 'ntsc' contains 'ntscArtifacts'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("ntscArtifacts");
   });
 
-  it("wgslSources.fragment for 'ntsc' contains 'ntscSharpness'", () => {
+  it("wgslSources.fragment for 'ntsc' contains 'ntscSharpness'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("ntscSharpness");
   });
 
-  it("wgslSources.fragment for 'ntsc' contains YIQ colour space conversion", () => {
+  it("wgslSources.fragment for 'ntsc' contains YIQ colour space conversion", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("rgb2yiq");
     expect(pipeline.wgslSources.fragment).toContain("yiq2rgb");
   });
 
-  it("wgslSources.fragment for 'ntsc' contains dot-crawl animation via grainSeed", () => {
+  it("wgslSources.fragment for 'ntsc' contains dot-crawl animation via grainSeed", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "ntsc", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("grainSeed");
   });
 
-  it("updateConfig accepts ntsc-specific parameters", () => {
+  it("updateConfig accepts ntsc-specific parameters", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "ntsc", ntscArtifacts: 0.7, ntscSharpness: 0.3 });
@@ -1305,78 +1306,78 @@ describe("ntsc effect", () => {
     expect(pp.config.ntscSharpness).toBe(0.3);
   });
 
-  it("EFFECT_LABELS has a label for 'ntsc'", () => {
+  it("EFFECT_LABELS has a label for 'ntsc'", async () => {
     expect(EFFECT_LABELS.ntsc).toBeTruthy();
     expect(EFFECT_LABELS.ntsc.toLowerCase()).toContain("ntsc");
   });
 
-  it("DEFAULT_POST_PROCESS_CONFIG includes ntscArtifacts = 0.5", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes ntscArtifacts = 0.5", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.ntscArtifacts).toBe(0.5);
   });
 
-  it("DEFAULT_POST_PROCESS_CONFIG includes ntscSharpness = 0.5", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes ntscSharpness = 0.5", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.ntscSharpness).toBe(0.5);
   });
 
-  it("validatePostProcessConfig clamps ntscArtifacts to [0, 1]", () => {
+  it("validatePostProcessConfig clamps ntscArtifacts to [0, 1]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscArtifacts: -1 }).ntscArtifacts).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscArtifacts: 2 }).ntscArtifacts).toBe(1);
   });
 
-  it("validatePostProcessConfig clamps ntscSharpness to [0, 1]", () => {
+  it("validatePostProcessConfig clamps ntscSharpness to [0, 1]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscSharpness: -0.5 }).ntscSharpness).toBe(0);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, ntscSharpness: 3 }).ntscSharpness).toBe(1);
   });
 
-  it("adjustConfigForTier caps ntscArtifacts at 0.4 on low tier", () => {
+  it("adjustConfigForTier caps ntscArtifacts at 0.4 on low tier", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "low" as const, ntscArtifacts: 0.9 };
     expect(adjustConfigForTier(cfg).ntscArtifacts).toBeLessThanOrEqual(0.4);
   });
 
-  it("adjustConfigForTier caps ntscArtifacts at 0.7 on medium tier", () => {
+  it("adjustConfigForTier caps ntscArtifacts at 0.7 on medium tier", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, tier: "medium" as const, ntscArtifacts: 1.0 };
     expect(adjustConfigForTier(cfg).ntscArtifacts).toBeLessThanOrEqual(0.7);
   });
 });
 
 describe("hdr effect", () => {
-  it("buildEffectPipeline succeeds for 'hdr' effect", () => {
+  it("buildEffectPipeline succeeds for 'hdr' effect", async () => {
     const { device } = createMockGPUDevice();
-    expect(() => buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm")).not.toThrow();
+    await expect(buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm")).resolves.not.toThrow();
   });
 
-  it("buildEffectPipeline for 'hdr' creates a uniform buffer", () => {
+  it("buildEffectPipeline for 'hdr' creates a uniform buffer", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
     expect(pipeline.uniformBuffer).not.toBeNull();
   });
 
-  it("wgslSources.fragment for 'hdr' contains 'hdrExposure'", () => {
+  it("wgslSources.fragment for 'hdr' contains 'hdrExposure'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("hdrExposure");
   });
 
-  it("wgslSources.fragment for 'hdr' contains 'hdrWhitePoint'", () => {
+  it("wgslSources.fragment for 'hdr' contains 'hdrWhitePoint'", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("hdrWhitePoint");
   });
 
-  it("wgslSources.fragment for 'hdr' contains Reinhard tone mapping function", () => {
+  it("wgslSources.fragment for 'hdr' contains Reinhard tone mapping function", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
     expect(pipeline.wgslSources.fragment).toContain("reinhardExtended");
   });
 
-  it("wgslSources.fragment for 'hdr' applies sRGB gamma encoding", () => {
+  it("wgslSources.fragment for 'hdr' applies sRGB gamma encoding", async () => {
     const { device } = createMockGPUDevice();
-    const pipeline = buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
+    const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, "hdr", "bgra8unorm");
     // The shader uses pow() for sRGB gamma approximation
     expect(pipeline.wgslSources.fragment).toContain("pow");
   });
 
-  it("updateConfig accepts hdr-specific parameters", () => {
+  it("updateConfig accepts hdr-specific parameters", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ effect: "hdr", hdrExposure: 1.5, hdrWhitePoint: 2.0 });
@@ -1385,25 +1386,25 @@ describe("hdr effect", () => {
     expect(pp.config.hdrWhitePoint).toBe(2.0);
   });
 
-  it("EFFECT_LABELS has a label for 'hdr'", () => {
+  it("EFFECT_LABELS has a label for 'hdr'", async () => {
     expect(EFFECT_LABELS.hdr).toBeTruthy();
     expect(EFFECT_LABELS.hdr.toLowerCase()).toContain("hdr");
   });
 
-  it("DEFAULT_POST_PROCESS_CONFIG includes hdrExposure = 1.0", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes hdrExposure = 1.0", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.hdrExposure).toBe(1.0);
   });
 
-  it("DEFAULT_POST_PROCESS_CONFIG includes hdrWhitePoint = 1.0", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG includes hdrWhitePoint = 1.0", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.hdrWhitePoint).toBe(1.0);
   });
 
-  it("validatePostProcessConfig clamps hdrExposure to [0.1, 8]", () => {
+  it("validatePostProcessConfig clamps hdrExposure to [0.1, 8]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrExposure: 0 }).hdrExposure).toBe(0.1);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrExposure: 100 }).hdrExposure).toBe(8);
   });
 
-  it("validatePostProcessConfig clamps hdrWhitePoint to [0.1, 8]", () => {
+  it("validatePostProcessConfig clamps hdrWhitePoint to [0.1, 8]", async () => {
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrWhitePoint: -1 }).hdrWhitePoint).toBe(0.1);
     expect(validatePostProcessConfig({ ...DEFAULT_POST_PROCESS_CONFIG, hdrWhitePoint: 20 }).hdrWhitePoint).toBe(8);
   });
@@ -1412,11 +1413,11 @@ describe("hdr effect", () => {
 // ── pixelPerfect sampler mode ─────────────────────────────────────────────────
 
 describe("pixelPerfect mode", () => {
-  it("DEFAULT_POST_PROCESS_CONFIG has pixelPerfect = false", () => {
+  it("DEFAULT_POST_PROCESS_CONFIG has pixelPerfect = false", async () => {
     expect(DEFAULT_POST_PROCESS_CONFIG.pixelPerfect).toBe(false);
   });
 
-  it("updateConfig accepts pixelPerfect toggle", () => {
+  it("updateConfig accepts pixelPerfect toggle", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     pp.updateConfig({ pixelPerfect: true });
@@ -1425,11 +1426,11 @@ describe("pixelPerfect mode", () => {
     expect(pp.config.pixelPerfect).toBe(false);
   });
 
-  it("invalidates bind group cache when pixelPerfect changes", () => {
+  it("invalidates bind group cache when pixelPerfect changes", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
-    pp.updateConfig({ effect: "crt" });
+    pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
 
     // Initial bind group creation count
     const callsBefore = (device.createBindGroup as ReturnType<typeof vi.fn>).mock.calls.length;
@@ -1440,7 +1441,7 @@ describe("pixelPerfect mode", () => {
     expect(callsAfterToggle).toBe(callsBefore); // Bind group is only created on next render
   });
 
-  it("attach() creates both linear and nearest-neighbour samplers", () => {
+  it("attach() creates both linear and nearest-neighbour samplers", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice, { effect: "crt" });
 
@@ -1484,7 +1485,7 @@ describe("pixelPerfect mode", () => {
     Object.defineProperty(navigator, "gpu", { configurable: true, writable: true, value: originalGPU });
   });
 
-  it("validatePostProcessConfig preserves pixelPerfect boolean", () => {
+  it("validatePostProcessConfig preserves pixelPerfect boolean", async () => {
     const cfg = { ...DEFAULT_POST_PROCESS_CONFIG, pixelPerfect: true };
     expect(validatePostProcessConfig(cfg).pixelPerfect).toBe(true);
     const cfg2 = { ...DEFAULT_POST_PROCESS_CONFIG, pixelPerfect: false };
@@ -1575,7 +1576,7 @@ describe("onDeviceLost callback", () => {
 // ── TAA bind group cache (history texture invalidation) ───────────────────────
 
 describe("TAA bind group cache with history texture", () => {
-  it("bind group cache key includes history texture — does not use stale cache on TAA resize", () => {
+  it("bind group cache key includes history texture — does not use stale cache on TAA resize", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
 
@@ -1586,7 +1587,7 @@ describe("TAA bind group cache with history texture", () => {
       _cachedBindGroup: GPUBindGroup | null;
     };
 
-    pp.updateConfig({ effect: "taa" });
+    pp.updateConfig({ effect: "taa" }); await new Promise(r => setTimeout(r, 0));
 
     // _cachedBindGroupHistoryTexture should start as null (no render frame run yet)
     expect(ppAny._cachedBindGroupHistoryTexture).toBeNull();
@@ -1597,7 +1598,7 @@ describe("TAA bind group cache with history texture", () => {
     expect(ppAny._cachedBindGroupHistoryTexture).toBeNull();
   });
 
-  it("invalidates bind group when pixelPerfect toggles (cache key includes sampler)", () => {
+  it("invalidates bind group when pixelPerfect toggles (cache key includes sampler)", async () => {
     const { device } = createMockGPUDevice();
     const pp = new WebGPUPostProcessor(device as unknown as GPUDevice);
     const ppAny = pp as unknown as {
@@ -1605,7 +1606,7 @@ describe("TAA bind group cache with history texture", () => {
       _invalidateBindGroupCache: () => void;
     };
 
-    pp.updateConfig({ effect: "crt" });
+    pp.updateConfig({ effect: "crt" }); await new Promise(r => setTimeout(r, 0));
 
     // Simulate a cached bind group
     ppAny._cachedBindGroup = {} as unknown as GPUBindGroup;
@@ -1619,7 +1620,7 @@ describe("TAA bind group cache with history texture", () => {
 // ── EFFECT_LABELS completeness (including new effects) ────────────────────────
 
 describe("EFFECT_LABELS completeness", () => {
-  it("provides labels for all 14 effects including pixelate, ntsc, hdr", () => {
+  it("provides labels for all 14 effects including pixelate, ntsc, hdr", async () => {
     const allEffects: PostProcessEffect[] = [
       "none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr",
       "grain", "retro", "colorgrade", "taa",
@@ -1637,9 +1638,9 @@ describe("buildEffectPipeline uniform buffer presence (new effects)", () => {
   const newEffects: PostProcessEffect[] = ["pixelate", "ntsc", "hdr"];
 
   for (const effect of newEffects) {
-    it(`'${effect}' effect creates a uniform buffer`, () => {
+    it(`'${effect}' effect creates a uniform buffer`, async () => {
       const { device } = createMockGPUDevice();
-      const pipeline = buildEffectPipeline(device as unknown as GPUDevice, effect, "bgra8unorm");
+      const pipeline = await buildEffectPipeline(device as unknown as GPUDevice, effect, "bgra8unorm");
       expect(pipeline.uniformBuffer).not.toBeNull();
     });
   }

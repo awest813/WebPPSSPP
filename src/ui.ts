@@ -4113,7 +4113,7 @@ async function showInGameMenu(ctx: {
           psx: {
             key: "beetle_psx_hw_internal_resolution",
             options: [
-              { label: "1x (Native)", value: "1x(native)" },
+              { label: "1x (Native)", value: "1x (native)" },
               { label: "2x (HD)", value: "2x" },
               { label: "4x (FHD)", value: "4x" },
               { label: "8x (4K)", value: "8x" },
@@ -4128,7 +4128,7 @@ async function showInGameMenu(ctx: {
             ]
           },
           segaDC: {
-            key: "reicast_internal_resolution",
+            key: "flycast_internal_resolution",
             options: [
               { label: "640x480 (Native)", value: "640x480" },
               { label: "1280x960 (2x)", value: "1280x960" },
