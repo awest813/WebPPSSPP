@@ -1,24 +1,45 @@
-import { NETPLAY_SUPPORTED_SYSTEM_IDS, SYSTEM_LINK_CAPABILITIES, roomDisplayNameForKey } from "../multiplayerUtils.js";
+import {
+  isNetplaySupportedSystemId,
+  NETPLAY_PLATFORM_GROUPS,
+  NETPLAY_SYSTEM_HINTS,
+  roomDisplayNameForKey,
+  SYSTEM_LINK_CAPABILITIES,
+} from "../multiplayerUtils.js";
 import { getSystemById } from "../systems.js";
 import { resolveNetplayRoomKey } from "../multiplayer.js";
 import { createElement as make } from "./dom.js";
 
 export function buildSupportedSystemsSection(appName: string): HTMLElement {
   const section = make("div", { class: "settings-section" });
-  section.appendChild(make("h4", { class: "settings-section__title" }, "Supported Systems"));
+  section.appendChild(make("h4", { class: "settings-section__title" }, "Supported consoles"));
   section.appendChild(make("p", { class: "settings-help" },
-    `${appName} Play Together is available for the systems below. Other systems still run in the app, but online multiplayer is not yet supported there.`
+    `${appName} Play Together works on the EmulatorJS netplay-capable cores below. Matching ROM dumps and similar core settings keep sessions stable — especially for Pokemon-style trades.`,
   ));
 
-  const list = make("div", { class: "netplay-sys-list" });
-  for (const sysId of NETPLAY_SUPPORTED_SYSTEM_IDS) {
-    const sysInfo = getSystemById(sysId);
-    const chip = make("span", { class: "sys-chip" }, sysInfo?.shortName ?? sysId.toUpperCase());
-    if (sysInfo) chip.title = sysInfo.name;
-    list.appendChild(chip);
+  const groups = make("div", { class: "netplay-sys-groups" });
+  for (const group of NETPLAY_PLATFORM_GROUPS) {
+    const box = make("section", { class: "netplay-sys-group", "aria-label": group.title });
+    box.appendChild(make("h5", { class: "netplay-sys-group__title" }, group.title));
+    const grid = make("div", { class: "netplay-sys-group__grid" });
+    for (const sysId of group.ids) {
+      const meta = getSystemById(sysId);
+      const hint = NETPLAY_SYSTEM_HINTS[sysId];
+      const card = make("div", { class: "netplay-sys-card" });
+      const badge = make("span", {
+        class: "netplay-sys-card__badge sys-chip",
+        title: meta?.name ?? sysId,
+      }, meta?.shortName ?? sysId);
+      if (meta?.color) badge.style.setProperty("--sys-color", meta.color);
+      card.appendChild(badge);
+      if (hint) {
+        card.appendChild(make("p", { class: "netplay-sys-card__hint" }, hint));
+      }
+      grid.appendChild(card);
+    }
+    box.appendChild(grid);
+    groups.appendChild(box);
   }
-
-  section.appendChild(list);
+  section.appendChild(groups);
   return section;
 }
 
@@ -31,15 +52,18 @@ export function buildCurrentGameCompatibilitySection(opts: {
   if (!currentGameName || !currentSystemId) return null;
 
   const section = make("div", { class: "settings-section" });
-  section.appendChild(make("h4", { class: "settings-section__title" }, "Current Game"));
+  section.appendChild(make("h4", { class: "settings-section__title" }, "This session"));
 
-  const isNetplaySystem = (NETPLAY_SUPPORTED_SYSTEM_IDS as readonly string[]).includes(currentSystemId);
+  const isNetplaySystem = isNetplaySupportedSystemId(currentSystemId);
   const isLinkCapable = SYSTEM_LINK_CAPABILITIES[currentSystemId] === true;
 
   if (!isNetplaySystem || !isLinkCapable) {
-    const sysName = getSystemById(currentSystemId)?.name ?? currentSystemId.toUpperCase();
+    const sysName = getSystemById(currentSystemId)?.name ?? currentSystemId;
     section.appendChild(make("p", { class: "settings-help" },
-      `This system (${sysName}) does not currently support netplay in this app. ${appName} Play Together isn't available for it yet.`
+      `${currentGameName} is running on ${sysName}, which is not enabled for Play Together in ${appName} yet. Library and saves still work locally.`,
+    ));
+    section.appendChild(make("p", { class: "settings-help netplay-session-note" },
+      "PlayStation (PSX) and some other cores use different networking stacks — watch release notes for new platforms.",
     ));
     return section;
   }
@@ -50,14 +74,19 @@ export function buildCurrentGameCompatibilitySection(opts: {
 
   const gameRow = make("div", { class: "netplay-game-info-row" });
   gameRow.appendChild(make("span", { class: "netplay-game-name" }, currentGameName));
+  const sysMeta = getSystemById(currentSystemId);
+  gameRow.appendChild(make("span", {
+    class: "netplay-sys-pill sys-chip",
+    title: sysMeta?.name ?? currentSystemId,
+  }, sysMeta?.shortName ?? currentSystemId));
   if (hasCompatRoom) {
     gameRow.appendChild(make("span", { class: "netplay-compat-badge" }, displayName));
   }
   section.appendChild(gameRow);
   section.appendChild(make("p", { class: "settings-help" },
     hasCompatRoom
-      ? "This game can share rooms with compatible versions. Players on paired versions will appear in the same lobby."
-      : "This game uses a unique room key. Only players with the same ROM will appear in the same lobby."
+      ? "This title can share lobbies with linked versions (shown on the badge). Everyone still needs compatible ROMs."
+      : "Lobby matching uses your exact game fingerprint — peers need the same title (and usually the same region).",
   ));
 
   return section;

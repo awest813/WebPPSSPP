@@ -1,9 +1,15 @@
 import {
   DEFAULT_ICE_SERVERS,
   NETPLAY_SUPPORTED_SYSTEM_IDS,
-  SYSTEM_LINK_CAPABILITIES
+  isNetplaySupportedSystemId,
+  SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayerUtils.js";
-export { DEFAULT_ICE_SERVERS, NETPLAY_SUPPORTED_SYSTEM_IDS, SYSTEM_LINK_CAPABILITIES };
+export {
+  DEFAULT_ICE_SERVERS,
+  NETPLAY_SUPPORTED_SYSTEM_IDS,
+  SYSTEM_LINK_CAPABILITIES,
+  isNetplaySupportedSystemId,
+};
 
 import compatibilityAliases from "./compatibility_aliases.json";
 
@@ -511,10 +517,9 @@ export class NetplayManager {
    * True when netplay is active and the given system is currently supported.
    */
   isSupportedForSystem(systemId: string): boolean {
-    const normalizedSystemId = systemId.toLowerCase();
     return this.isActive
-      && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(normalizedSystemId as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number])
-      && SYSTEM_LINK_CAPABILITIES[normalizedSystemId] === true;
+      && isNetplaySupportedSystemId(systemId)
+      && SYSTEM_LINK_CAPABILITIES[systemId] === true;
   }
 
   // ── Mutations ──────────────────────────────────────────────────────────────

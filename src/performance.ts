@@ -319,6 +319,19 @@ export function getResolutionLadder(
   return RESOLUTION_LADDERS[systemId] ?? null;
 }
 
+/**
+ * Default for the app setting `dynamicResolutionScaling` when the user has never
+ * set it: prefer automatic resolution step-down on Chromebooks, classified
+ * low-spec hosts, or GPU tiers low/medium. High/ultra desktops default off so
+ * internal resolution stays stable unless the user opts in.
+ */
+export function inferDynamicResolutionScalingDefault(
+  caps: Pick<DeviceCapabilities, "isChromOS" | "isLowSpec" | "tier">,
+): boolean {
+  if (caps.isChromOS || caps.isLowSpec) return true;
+  return caps.tier === "low" || caps.tier === "medium";
+}
+
 const DREAMCAST_VRAM_BUDGETS: Record<string, { pixels: number; vramFloorMB: number }> = {
   "640x480":     { pixels: 640 * 480,     vramFloorMB: 0 },
   "1280x960":    { pixels: 1280 * 960,    vramFloorMB: 256 },

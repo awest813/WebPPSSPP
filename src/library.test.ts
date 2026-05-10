@@ -425,6 +425,45 @@ describe('PerGameGraphicsProfile', () => {
     expect(loaded!.postEffect).toBe('fsr');
   });
 
+  it('drops invalid resolutionPreset from stored JSON while keeping valid fields', () => {
+    localStorage.setItem(
+      "rv:gfx:" + gameId,
+      JSON.stringify({ resolutionPreset: "bogus", postEffect: "crt" }),
+    );
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.resolutionPreset).toBeUndefined();
+    expect(loaded!.postEffect).toBe("crt");
+  });
+
+  it('loads resolutionPreset null as explicit inheritance from tier defaults', () => {
+    localStorage.setItem(
+      "rv:gfx:" + gameId,
+      JSON.stringify({ resolutionPreset: null }),
+    );
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.resolutionPreset).toBeNull();
+  });
+
+  it('normalises invalid postEffect to null while keeping other fields', () => {
+    localStorage.setItem(
+      'rv:gfx:' + gameId,
+      JSON.stringify({ postEffect: 'not-a-real-effect', resolutionPreset: '2x' }),
+    );
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.postEffect).toBeNull();
+    expect(loaded!.resolutionPreset).toBe('2x');
+  });
+
+  it('normalises non-string postEffect to null', () => {
+    localStorage.setItem(
+      'rv:gfx:' + gameId,
+      JSON.stringify({ postEffect: 1, drsEnabled: true }),
+    );
+    const loaded = getGameGraphicsProfile(gameId);
+    expect(loaded!.postEffect).toBeNull();
+    expect(loaded!.drsEnabled).toBe(true);
+  });
+
   it('saves and loads a profile with drsEnabled', () => {
     saveGameGraphicsProfile(gameId, { drsEnabled: true });
     const loaded = getGameGraphicsProfile(gameId);

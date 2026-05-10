@@ -31,7 +31,7 @@
  */
 
 import type { PerformanceTier, ResolutionPreset } from "./performance.js";
-import type { PostProcessEffect } from "./webgpuPostProcess.js";
+import { parsePostProcessEffect, type PostProcessEffect } from "./postProcessEffectSchema.js";
 import { createUuid } from "./uuid.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -690,14 +690,44 @@ export interface PerGameGraphicsProfile {
 
 const GRAPHICS_PROFILE_PREFIX = "rv:gfx:";
 
+/** Valid persisted resolution preset IDs (matches `performance.ResolutionPreset`). */
+const GRAPHICS_PROFILE_RESOLUTION_PRESETS = new Set<string>([
+  "native",
+  "2x",
+  "4x",
+  "display_match",
+]);
+
 export function getGameGraphicsProfile(gameId: string): PerGameGraphicsProfile | null {
   try {
     const raw = localStorage.getItem(GRAPHICS_PROFILE_PREFIX + gameId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return null;
-    // Basic shape validation — unknown keys are tolerated for forward compatibility
-    return parsed as PerGameGraphicsProfile;
+    const o = parsed as Record<string, unknown>;
+    const out: PerGameGraphicsProfile = {};
+    if ("resolutionPreset" in o) {
+      const rp = o.resolutionPreset;
+      if (rp === null) {
+        out.resolutionPreset = null;
+      } else if (typeof rp === "string" && GRAPHICS_PROFILE_RESOLUTION_PRESETS.has(rp)) {
+        out.resolutionPreset = rp as ResolutionPreset;
+      }
+    }
+    if ("drsEnabled" in o && typeof o.drsEnabled === "boolean") {
+      out.drsEnabled = o.drsEnabled;
+    }
+    if ("postEffect" in o) {
+      const pe = o.postEffect;
+      if (pe === null) {
+        out.postEffect = null;
+      } else if (typeof pe === "string") {
+        out.postEffect = parsePostProcessEffect(pe) ?? null;
+      } else {
+        out.postEffect = null;
+      }
+    }
+    return out;
   } catch {
     return null;
   }

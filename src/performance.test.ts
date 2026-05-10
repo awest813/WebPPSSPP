@@ -18,6 +18,7 @@ import {
   formatDetailedSummary,
   resolveMode,
   resolveTier,
+  inferDynamicResolutionScalingDefault,
   estimateConnectionQuality,
   estimateVRAM,
   MemoryMonitor,
@@ -1156,6 +1157,35 @@ describe('performance', () => {
         const caps = { tier } as DeviceCapabilities;
         expect(resolveTier('quality', caps)).toBe('high');
       }
+    });
+  });
+
+  describe('inferDynamicResolutionScalingDefault', () => {
+    it('enables for Chrome OS and classified low-spec regardless of nominal tier', () => {
+      expect(inferDynamicResolutionScalingDefault({
+        isChromOS: true, isLowSpec: false, tier: 'high',
+      })).toBe(true);
+      expect(inferDynamicResolutionScalingDefault({
+        isChromOS: false, isLowSpec: true, tier: 'ultra',
+      })).toBe(true);
+    });
+
+    it('enables for low and medium tiers on typical desktops', () => {
+      expect(inferDynamicResolutionScalingDefault({
+        isChromOS: false, isLowSpec: false, tier: 'low',
+      })).toBe(true);
+      expect(inferDynamicResolutionScalingDefault({
+        isChromOS: false, isLowSpec: false, tier: 'medium',
+      })).toBe(true);
+    });
+
+    it('disables for high and ultra when not Chrome OS or low-spec', () => {
+      expect(inferDynamicResolutionScalingDefault({
+        isChromOS: false, isLowSpec: false, tier: 'high',
+      })).toBe(false);
+      expect(inferDynamicResolutionScalingDefault({
+        isChromOS: false, isLowSpec: false, tier: 'ultra',
+      })).toBe(false);
     });
   });
 

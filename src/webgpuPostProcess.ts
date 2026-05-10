@@ -32,6 +32,15 @@
 
 import { shaderCache } from "./shaderCache.js";
 import type { PerformanceTier } from "./performance.js";
+import type { PostProcessEffect } from "./postProcessEffectSchema.js";
+
+export type { PostProcessEffect } from "./postProcessEffectSchema.js";
+export {
+  ALL_POST_PROCESS_EFFECTS,
+  parsePostProcessEffect,
+  POST_PROCESS_EFFECT_UI_ORDER,
+  POST_PROCESS_PIPELINE_WARMUP_EFFECTS,
+} from "./postProcessEffectSchema.js";
 
 // ── WebGPU enum constants (numeric to avoid runtime dependency on globals) ────
 // These values are stable and part of the WebGPU spec.
@@ -51,25 +60,70 @@ const TEX_RENDER_ATTACH    = 0x10;
 const MAP_MODE_READ = 0x0001;
 const BUFFER_QUERY_RESOLVE = 0x0200;
 
-// ── Effect types ──────────────────────────────────────────────────────────────
-
-export type PostProcessEffect = "none" | "crt" | "sharpen" | "lcd" | "bloom" | "fxaa" | "fsr" | "grain" | "retro" | "colorgrade" | "taa" | "pixelate" | "ntsc" | "hdr";
-
-/**
- * Post-process effects compiled during emulator WebGPU pre-warm so the first
- * in-game effect switch avoids shader stalls. Omits `"none"`.
- */
-export const POST_PROCESS_PIPELINE_WARMUP_EFFECTS: readonly Exclude<
-  PostProcessEffect,
-  "none"
->[] = [
-  "crt", "sharpen", "lcd", "bloom", "fxaa",
-  "fsr", "grain", "retro", "colorgrade", "taa",
-  "pixelate", "ntsc", "hdr",
-];
+// ── Effect types (canonical definitions in postProcessEffectSchema.ts) ───────
 
 /** How many effect pipelines to compile in parallel during pre-warm (balances throughput vs driver contention). */
 export const POST_PROCESS_WARMUP_BATCH_SIZE = 4;
+
+/**
+ * WebGPU filters aimed at 3D (upscaling / temporal AA / HDR). On 2D / pixel cores
+ * they add GPU cost without a good visual match, so we fall back to `"none"` unless
+ * the user is on a 3D system (see {@link effectivePostProcessForSystem}).
+ */
+export const POST_PROCESS_EFFECTS_HEAVY_ON_2D: ReadonlySet<PostProcessEffect> = new Set([
+  "fsr",
+  "taa",
+  "fxaa",
+  "hdr",
+]);
+
+/**
+ * Effects tuned for low-res / pixel 2D output. On 3D cores they usually add GPU cost
+ * at higher internal resolutions without a matching look (see {@link effectivePostProcessForSystem}).
+ */
+export const POST_PROCESS_EFFECTS_HEAVY_ON_3D: ReadonlySet<PostProcessEffect> = new Set([
+  "lcd",
+  "pixelate",
+  "ntsc",
+  "retro",
+]);
+
+/**
+ * Map a stored post-process choice to what we actually run for the active system.
+ * - 2D cores: drop 3D-oriented upscaling / TAA / HDR-style filters.
+ * - 3D cores: drop pixel-grid / NTSC / heavy retro-quantize paths aimed at 2D artists.
+ */
+export function effectivePostProcessForSystem(
+  systemIs3D: boolean,
+  userEffect: PostProcessEffect,
+): PostProcessEffect {
+  if (userEffect === "none") return "none";
+  if (systemIs3D) {
+    if (POST_PROCESS_EFFECTS_HEAVY_ON_3D.has(userEffect)) return "none";
+    return userEffect;
+  }
+  if (POST_PROCESS_EFFECTS_HEAVY_ON_2D.has(userEffect)) return "none";
+  return userEffect;
+}
+
+/**
+ * Skip WebGPU post-processing for 3D sessions on constrained/classified paths so
+ * we do not composite a second full-screen GPU pass on top of heavy cores
+ * (PSP / PS1 / N64 / DS WebGL). Honoured only when the caller has not set an
+ * explicit non-"none" per-game post effect.
+ */
+export function shouldDeferWebGpuPostFor3DSession(
+  systemIs3D: boolean,
+  tier: PerformanceTier,
+  caps: { readonly isChromOS: boolean; readonly isLowSpec: boolean },
+): boolean {
+  if (!systemIs3D) return false;
+  if (tier === "high" || tier === "ultra") return false;
+  if (tier === "low") return true;
+  // medium
+  if (caps.isChromOS || caps.isLowSpec) return true;
+  return false;
+}
 
 export interface PostProcessConfig {
   effect: PostProcessEffect;

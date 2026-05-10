@@ -40,6 +40,7 @@ import { roomDisplayNameForKey, type NetplayManager } from "./multiplayer.js";
 import {
   WebGPUPostProcessor,
   buildEffectPipeline,
+  effectivePostProcessForSystem,
   POST_PROCESS_PIPELINE_WARMUP_EFFECTS,
   POST_PROCESS_WARMUP_BATCH_SIZE,
   type PostProcessConfig,
@@ -520,6 +521,20 @@ const DRS_SYSTEM_THRESHOLDS: Record<string, { stepDownFps: number; stepUpFps: nu
     stepDownFps: 21,
     stepUpFps: 50,
     stepDownMs: 2_500,
+    stepUpMs: 10_000,
+  },
+  /** N64 often hovers below full 60; step before the generic 25 fps floor bites. */
+  n64: {
+    stepDownFps: 24,
+    stepUpFps: 52,
+    stepDownMs: 2_500,
+    stepUpMs: 12_000,
+  },
+  /** PS1 targets ~60/50; step down when averages suggest sustained GPU pressure. */
+  psx: {
+    stepDownFps: 26,
+    stepUpFps: 54,
+    stepDownMs: 2_000,
     stepUpMs: 10_000,
   },
 };
@@ -1197,6 +1212,18 @@ export class PSPEmulator {
   get isDRSEnabled(): boolean { return this._drsEnabled; }
   /** Current DRS step index (0 = native resolution). */
   get drsCurrentStep(): number { return this._drsCurrentStepIdx; }
+
+  /**
+   * Compact DRS line for the FPS overlay (for example "DRS 2/4"), or null when
+   * DRS is off, the system has no multi-step resolution ladder, or no game is running.
+   */
+  get drsOverlayHint(): string | null {
+    if (!this._drsEnabled || !this._currentSystem?.id || this._drsTotalSteps <= 1) {
+      return null;
+    }
+    return `DRS ${this._drsCurrentStepIdx + 1}/${this._drsTotalSteps}`;
+  }
+
   /** Current thermal pressure state (requires Compute Pressure API). */
   get thermalPressureState(): string { return this._thermalMonitor.state; }
   /** Startup profiler for the most recent launch attempt. */
@@ -1213,8 +1240,8 @@ export class PSPEmulator {
    *
    * When enabled, the emulator monitors FPS and fires `onDRSChange` when the
    * resolution should be stepped down (low FPS) or up (recovered FPS).
-   * DRS only has effect for systems that have a resolution ladder (PSP, N64,
-   * PS1). For other systems this is a no-op.
+   * DRS only has effect for systems that have a resolution ladder (PSP, PS1,
+   * N64, NDS, Dreamcast). For other systems this is a no-op.
    */
   enableDRS(enabled: boolean): void {
     this._drsEnabled = enabled;
@@ -2296,6 +2323,11 @@ export class PSPEmulator {
       systemId !== "ps2"
     ) return;
 
+    const chromebookMediumHeavy3D =
+      caps.isChromOS &&
+      tier === "medium" &&
+      (systemId === "psp" || systemId === "psx" || systemId === "n64" || systemId === "nds");
+
     const gpu = caps.gpuCaps;
     const weakWebGL =
       caps.isSoftwareGPU ||
@@ -2323,7 +2355,7 @@ export class PSPEmulator {
         ejsSettings["ppsspp_gpu_anisotropic_filtering"] = formatAnisotropicValue(capped);
       }
 
-      if (weakWebGL) {
+      if (weakWebGL || chromebookMediumHeavy3D) {
         Object.assign(ejsSettings, {
           ppsspp_auto_frameskip: "enabled",
           ppsspp_frameskip: ejsSettings["ppsspp_frameskip"] === "3" ? "3" : "2",
@@ -2340,7 +2372,7 @@ export class PSPEmulator {
         ejsSettings["ppsspp_lazy_texture_caching"] = "enabled";
       }
 
-      if (previousRes !== nextRes || weakWebGL) {
+      if (previousRes !== nextRes || weakWebGL || chromebookMediumHeavy3D) {
         this.logDiagnostic(
           "performance",
           `PSP WebGL clamp: res ${previousRes ?? "?"}->${nextRes}, ` +
@@ -2355,7 +2387,7 @@ export class PSPEmulator {
       if (gpu.maxTextureSize < 4096 || caps.estimatedVRAMMB < 256 || constrainedMemory) {
         maxNdsResIdx = Math.min(maxNdsResIdx, 1);
       }
-      if (!gpu.webgl2 || weakWebGL) {
+      if (!gpu.webgl2 || weakWebGL || chromebookMediumHeavy3D) {
         maxNdsResIdx = 0;
         Object.assign(ejsSettings, {
           desmume_opengl_mode: "disabled",
@@ -2372,7 +2404,7 @@ export class PSPEmulator {
       const nextNdsRes = clampLadderValue(previousNdsRes, NDS_RESOLUTION_STEPS, maxNdsResIdx);
       ejsSettings["desmume_internal_resolution"] = nextNdsRes;
 
-      if (previousNdsRes !== nextNdsRes || !gpu.webgl2 || weakWebGL) {
+      if (previousNdsRes !== nextNdsRes || !gpu.webgl2 || weakWebGL || chromebookMediumHeavy3D) {
         this.logDiagnostic(
           "performance",
           `NDS WebGL clamp: res ${previousNdsRes ?? "?"}->${nextNdsRes}, ` +
@@ -2394,7 +2426,7 @@ export class PSPEmulator {
       const nextRes = clampLadderValue(previousRes, N64_RESOLUTION_STEPS, maxN64ResIdx);
       ejsSettings["mupen64plus-resolution-factor"] = nextRes;
 
-      if (weakWebGL) {
+      if (weakWebGL || chromebookMediumHeavy3D) {
         Object.assign(ejsSettings, {
           "mupen64plus-rdp-plugin": "rice",
           "mupen64plus-EnableFBEmulation": "False",
@@ -2415,7 +2447,7 @@ export class PSPEmulator {
         ejsSettings["mupen64plus-MaxTxCacheSize"] = "2000";
       }
 
-      if (previousRes !== nextRes || weakWebGL) {
+      if (previousRes !== nextRes || weakWebGL || chromebookMediumHeavy3D) {
         this.logDiagnostic(
           "performance",
           `N64 WebGL clamp: res ${previousRes ?? "?"}->${nextRes}, ` +
@@ -2438,7 +2470,7 @@ export class PSPEmulator {
       const nextRes = clampLadderValue(previousRes, PSX_RESOLUTION_STEPS, maxPsxResIdx);
       ejsSettings["beetle_psx_hw_internal_resolution"] = nextRes;
 
-      if (weakWebGL) {
+      if (weakWebGL || chromebookMediumHeavy3D) {
         Object.assign(ejsSettings, {
           beetle_psx_hw_frame_duping: "enabled",
           beetle_psx_hw_filter: "nearest",
@@ -2458,7 +2490,7 @@ export class PSPEmulator {
         ejsSettings["beetle_psx_hw_msaa"] = "disabled";
       }
 
-      if (previousRes !== nextRes || weakWebGL) {
+      if (previousRes !== nextRes || weakWebGL || chromebookMediumHeavy3D) {
         this.logDiagnostic(
           "performance",
           `PS1 WebGL clamp: res ${previousRes ?? "?"}->${nextRes}, ` +
@@ -2820,14 +2852,8 @@ export class PSPEmulator {
       this._resetAdaptiveQualityState();
       this.logDiagnostic("performance", `Resolved tier: ${tier}${opts.tierOverride ? " (override)" : ""}`);
 
-      // ── Initialise DRS state for the active system ──────────────────────
-      // Reset the step index to the bottom of the ladder (native) so DRS
-      // always starts from the tier's chosen resolution and can only step down.
-      const drsLadder = getResolutionLadder(opts.systemId);
-      this._drsTotalSteps    = drsLadder ? drsLadder.values.length : 0;
-      this._drsCurrentStepIdx = 0;
-      this._drsLowFPSStartTime  = 0;
-      this._drsHighFPSStartTime = 0;
+      // DRS ladder length, baseline step index, and timers are applied in
+      // _syncDRSInitialStep once ejsSettings are final.
 
       // Reset audio underrun counter, rate-limit timestamp, and level for the new session
       this._audioUnderruns = 0;
@@ -2997,16 +3023,21 @@ export class PSPEmulator {
       this._applyLightCorePerformanceOverrides(opts.systemId, tier, opts.deviceCaps, ejsSettings);
       this._syncDRSInitialStep(opts.systemId, ejsSettings);
 
-      if (
-        opts.deviceCaps.webgpuAvailable &&
-        system.is3D &&
-        this._postProcessConfig.effect !== "none" &&
-        !this._webgpuDevice
-      ) {
-        const webgpuPowerPref = (opts.deviceCaps.isLowSpec || opts.deviceCaps.isChromOS)
-          ? "low-power"
-          : "high-performance";
-        void this.preWarmWebGPU(webgpuPowerPref).catch(() => {});
+      {
+        const effectivePost = effectivePostProcessForSystem(
+          system.is3D === true,
+          this._postProcessConfig.effect,
+        );
+        if (
+          opts.deviceCaps.webgpuAvailable &&
+          effectivePost !== "none" &&
+          !this._webgpuDevice
+        ) {
+          const webgpuPowerPref = (opts.deviceCaps.isLowSpec || opts.deviceCaps.isChromOS)
+            ? "low-power"
+            : "high-performance";
+          void this.preWarmWebGPU(webgpuPowerPref).catch(() => {});
+        }
       }
 
       if (opts.systemId === "nds") {
@@ -3064,6 +3095,43 @@ export class PSPEmulator {
             `deposterize: ${pspDeposterize}, lower_resolution_for_effects: ${pspLowerEffectsRes}, ` +
             `force_max_fps: ${pspMaxFps}, cpu_clock: ${pspCpuSpeed}, audio_latency: ${pspAudioLatency}, ` +
             `gpu_driver: ${pspDriver}`
+          );
+        }
+      }
+
+      // ── N64 performance diagnostics ─────────────────────────────────────────
+      if (opts.systemId === "n64") {
+        const n64Res   = ejsSettings["mupen64plus-resolution-factor"]   ?? "?";
+        const n64Rdp   = ejsSettings["mupen64plus-rdp-plugin"]          ?? "?";
+        const n64Fb    = ejsSettings["mupen64plus-EnableFBEmulation"]  ?? "?";
+        const n64Cpo   = ejsSettings["mupen64plus-CountPerOp"]         ?? "?";
+        this.logDiagnostic(
+          "performance",
+          `N64 tier=${tier}: res=${n64Res} rdp=${n64Rdp} fbEmu=${n64Fb} CountPerOp=${n64Cpo}`
+        );
+        if (this.verboseLogging) {
+          console.info(
+            `[RetroOasis] N64 performance settings — ` +
+            `resolution_factor: ${n64Res}, rdp: ${n64Rdp}, fb_emulation: ${n64Fb}, CountPerOp: ${n64Cpo}`
+          );
+        }
+      }
+
+      // ── PS1 performance diagnostics ─────────────────────────────────────────
+      if (opts.systemId === "psx") {
+        const psxIr    = ejsSettings["beetle_psx_hw_internal_resolution"] ?? "?";
+        const psxDup   = ejsSettings["beetle_psx_hw_frame_duping"]       ?? "?";
+        const psxPgxp  = ejsSettings["beetle_psx_hw_pgxp_mode"]          ?? "?";
+        const psxMsaa  = ejsSettings["beetle_psx_hw_msaa"]               ?? "?";
+        const psxDyn   = ejsSettings["beetle_psx_hw_cpu_dynarec"]        ?? "?";
+        this.logDiagnostic(
+          "performance",
+          `PS1 tier=${tier}: ir=${psxIr} dup=${psxDup} pgxp=${psxPgxp} msaa=${psxMsaa} dyn=${psxDyn}`
+        );
+        if (this.verboseLogging) {
+          console.info(
+            `[RetroOasis] PS1 performance settings — ` +
+            `internal_res: ${psxIr}, frame_duping: ${psxDup}, pgxp: ${psxPgxp}, msaa: ${psxMsaa}, dynarec: ${psxDyn}`
           );
         }
       }
@@ -3643,9 +3711,9 @@ export class PSPEmulator {
    * so the UI layer can surface a "Switch to Performance mode?" suggestion.
    * A 60-second cooldown prevents spamming the user during loading screens.
    *
-   * When DRS is enabled, sustained low FPS also triggers a resolution step-down
-   * after 2 seconds (faster than the AQ suggestion). Sustained good FPS (≥55)
-   * for 10 seconds triggers a resolution step-up.
+   * When DRS is enabled, sustained low FPS triggers a resolution step-down after a
+   * short window (defaults in {@link DRS_SYSTEM_THRESHOLDS} per PSP / PS1 / N64 /
+   * NDS / DC). Recovery uses a separate step-up FPS and dwell time per system.
    */
   private _checkAdaptiveQuality(averageFPS: number): void {
     const now = performance.now();

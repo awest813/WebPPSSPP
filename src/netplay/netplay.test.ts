@@ -119,9 +119,14 @@ describe("checkSystemSupport", () => {
     expect(result.compatible).toBe(false);
   });
 
-  it("error message includes the system name for an unknown system", () => {
+  it("error message mentions the system id for an unknown platform", () => {
     const result = checkSystemSupport("atari");
-    expect(result.errors[0]).toContain("ATARI");
+    expect(result.errors[0]).toMatch(/atari/i);
+  });
+
+  it("treats mixed-case Sega cores as supported when link capable", () => {
+    expect(checkSystemSupport("segaMD").compatible).toBe(true);
+    expect(checkSystemSupport("segamd").compatible).toBe(false);
   });
 });
 

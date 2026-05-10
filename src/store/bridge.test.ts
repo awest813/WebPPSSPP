@@ -40,6 +40,7 @@ function fullSettings(partial: Partial<SettingsSlice> = {}): SettingsSlice {
     libraryLayout: "list",
     libraryGrouped: false,
     recordPlayHistory: false,
+    dynamicResolutionScaling: true,
     coreOptions: { psx_resolution: "2x" },
     ...partial,
   };
@@ -59,6 +60,7 @@ describe("hydrateSettingsIntoStore", () => {
     expect(s.postProcessEffect).toBe("crt");
     expect(s.netplayIceServers).toEqual([{ urls: "stun:stun.example:3478" }]);
     expect(s.recordPlayHistory).toBe(false);
+    expect(s.dynamicResolutionScaling).toBe(true);
     expect(s.coreOptions).toEqual({ psx_resolution: "2x" });
   });
 

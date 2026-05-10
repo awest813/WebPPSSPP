@@ -32,7 +32,10 @@ import {
   vibratePress,
   vibrateRelease,
   TouchControlsOverlay,
+  getTouchControlsDefaultForSystem,
+  setTouchControlsPreferenceForSystem,
   type TouchButtonDef,
+  type TouchControlsPreferenceSettings,
 } from "./touchControls.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -43,6 +46,72 @@ const LS_KEY_PORTRAIT = (sys: string) => `rv:touch-layout-portrait:${sys}`;
 function cleanLS(sys: string) {
   localStorage.removeItem(LS_KEY(sys));
 }
+
+describe("getTouchControlsDefaultForSystem / setTouchControlsPreferenceForSystem", () => {
+  it("falls back to the global toggle when no system id is supplied", () => {
+    expect(
+      getTouchControlsDefaultForSystem(null, { touchControls: true, touchControlsBySystem: {} }),
+    ).toBe(true);
+    expect(
+      getTouchControlsDefaultForSystem(null, { touchControls: false, touchControlsBySystem: {} }),
+    ).toBe(false);
+  });
+
+  it("respects explicit per-system overrides", () => {
+    const settings: TouchControlsPreferenceSettings = {
+      touchControls: true,
+      touchControlsBySystem: { snes: false },
+    };
+    expect(getTouchControlsDefaultForSystem("snes", settings)).toBe(false);
+    expect(getTouchControlsDefaultForSystem("nes", settings)).toBe(true);
+  });
+
+  it("defaults builtin-touch systems off unless overridden", () => {
+    const settings: TouchControlsPreferenceSettings = {
+      touchControls: true,
+      touchControlsBySystem: {},
+    };
+    expect(getTouchControlsDefaultForSystem("nds", settings)).toBe(false);
+    expect(getTouchControlsDefaultForSystem("n64", settings)).toBe(true);
+  });
+
+  it("writes per-system prefs without touching the global default", () => {
+    const settings: TouchControlsPreferenceSettings = {
+      touchControls: true,
+      touchControlsBySystem: {},
+    };
+    setTouchControlsPreferenceForSystem(settings, "psp", false);
+    expect(settings.touchControls).toBe(true);
+    expect(settings.touchControlsBySystem.psp).toBe(false);
+  });
+
+  it("sets global when system id is null", () => {
+    const settings: TouchControlsPreferenceSettings = {
+      touchControls: true,
+      touchControlsBySystem: {},
+    };
+    setTouchControlsPreferenceForSystem(settings, null, false);
+    expect(settings.touchControls).toBe(false);
+  });
+
+  it("trims system ids when reading overrides and when persisting prefs", () => {
+    const settings: TouchControlsPreferenceSettings = {
+      touchControls: true,
+      touchControlsBySystem: { snes: false },
+    };
+    expect(getTouchControlsDefaultForSystem("  snes  ", settings)).toBe(false);
+    expect(getTouchControlsDefaultForSystem(undefined, settings)).toBe(true);
+
+    const write: TouchControlsPreferenceSettings = {
+      touchControls: true,
+      touchControlsBySystem: {},
+    };
+    setTouchControlsPreferenceForSystem(write, "  nes  ", false);
+    expect(write.touchControlsBySystem.nes).toBe(false);
+
+    expect(getTouchControlsDefaultForSystem("   ", write)).toBe(write.touchControls);
+  });
+});
 
 function makeContainer(): HTMLElement {
   const div = document.createElement("div");

@@ -320,6 +320,14 @@ body.is-playing .app-footer {
 
 body.is-playing .app-main {
   height: 100vh;
+  /* Keep style/layout recalculations from the library subtree from traversing into the game lane. */
+  isolation: isolate;
+  contain: layout;
+}
+
+/* Skip layout work inside the emulator subtree that does not spill into sibling UI chrome. */
+body.is-playing #ejs-container.visible {
+  contain: layout paint;
 }
 
 #landing {
@@ -729,10 +737,84 @@ body.is-playing .app-main {
 #ejs-container.visible { opacity: 1; visibility: visible; }
 #ejs-player { width: 100%; height: 100%; }
 
-.touch-controls { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
+/* ── Per-system emulator viewport (letterboxed, correct aspect) ── */
+#ejs-container[data-emu-viewport] #ejs-player.ejs_parent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+#ejs-container[data-emu-viewport] #ejs-player .ejs_canvas_parent {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: var(--emu-screen-ar, 4 / 3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+#ejs-container[data-emu-viewport] #ejs-player .ejs_canvas_parent canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  object-fit: contain !important;
+}
+
+#ejs-container[data-emu-pixelated] #ejs-player .ejs_canvas_parent canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  opacity: var(--tc-opacity, 0.85);
+  transition: opacity 0.2s ease;
+  /* Keep thumbs off the OS home indicator on notched phones */
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.touch-controls--editing {
+  outline: 1px dashed rgba(255, 255, 255, 0.2);
+  outline-offset: -4px;
+}
+
 .tc-btn {
-  position: absolute; pointer-events: auto; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2);
-  backdrop-filter: blur(8px); border-radius: 50%; color: #fff; font-weight: 900; display: flex; align-items: center; justify-content: center;
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tc-dpad,
+.tc-stick {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  border-radius: 12px;
 }
 
 /* ── Modals ── */
@@ -1423,16 +1505,58 @@ body:has(#ejs-container.visible) .app-header {
 
 .tc-btn {
   background: rgba(255,255,255,0.08);
-  backdrop-filter: blur(12px);
-  border: 2px solid rgba(255,255,255,0.15);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  transition: transform 0.1s ease, background 0.1s ease;
+  backdrop-filter: blur(14px) saturate(140%);
+  border: 2px solid rgba(255,255,255,0.18);
+  box-shadow:
+    0 4px 0 rgba(0,0,0,0.25),
+    0 8px 28px rgba(0,0,0,0.35);
+  transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
+.tc-btn.tc-btn--pressed,
 .tc-btn:active {
-  transform: scale(0.9);
-  background: var(--c-accent-glow);
-  border-color: var(--c-accent);
+  transform: scale(0.92);
+  background: rgba(255, 120, 80, 0.35);
+  border-color: rgba(255, 200, 160, 0.55);
+  box-shadow:
+    0 2px 0 rgba(0,0,0,0.2),
+    0 4px 20px rgba(255, 100, 60, 0.25);
+}
+
+/* D-pad cross */
+.tc-dpad {
+  backdrop-filter: blur(12px) saturate(130%);
+  box-shadow: 0 10px 36px rgba(0,0,0,0.45);
+}
+
+.tc-dpad__arm {
+  transition: filter 0.08s ease, transform 0.08s ease;
+}
+
+.tc-dpad__arm--active {
+  filter: brightness(1.35);
+}
+
+/* Analog stick housing */
+.tc-stick {
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 2px 12px rgba(0,0,0,0.45), 0 8px 28px rgba(0,0,0,0.35);
+}
+
+.tc-stick__knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.35), rgba(80,85,110,0.95));
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.touch-controls--editing .tc-btn,
+.touch-controls--editing .tc-dpad,
+.touch-controls--editing .tc-stick {
+  cursor: grab;
 }
 
 .mobile-fab {
@@ -2822,7 +2946,6 @@ body:has(#ejs-container.visible) .app-header {
   font-weight: 900;
   font-size: 1.4rem;
   color: #fff;
-  flex: 1;
 }
 
 .enp-tabs {
@@ -4535,6 +4658,34 @@ body.using-gamepad .game-card:focus {
   overflow: auto;
 }
 
+.enp-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.enp-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.enp-header__logo {
+  flex-shrink: 0;
+  border-radius: 10px;
+}
+
+.enp-header__subtitle {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--c-text-dim);
+  line-height: 1.25;
+}
+
 .enp-pre-tabs {
   display: flex;
   flex-direction: column;
@@ -5206,6 +5357,108 @@ body.using-gamepad .game-card:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.netplay-sys-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.netplay-sys-group {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--c-surface2) 76%, transparent);
+}
+
+.netplay-sys-group__title {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-dim);
+}
+
+.netplay-sys-group__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.netplay-sys-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border-lt);
+  background: var(--c-surface2);
+}
+
+.netplay-sys-card__hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--c-text-dim);
+  line-height: 1.35;
+}
+
+.netplay-sys-card__badge {
+  justify-self: start;
+}
+
+.netplay-sys-pill {
+  font-weight: 800;
+}
+
+.ingame-netplay-session {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ingame-netplay-session__game {
+  font-weight: 900;
+  font-size: 1rem;
+  color: var(--c-white);
+}
+
+.ingame-netplay-pill {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+}
+
+.ingame-netplay-pill--ok {
+  border-color: color-mix(in srgb, var(--c-success) 45%, var(--c-border));
+  background: color-mix(in srgb, var(--c-success) 12%, transparent);
+  color: var(--c-success);
+}
+
+.ingame-netplay-lead {
+  margin: 0 0 8px;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--c-text);
+}
+
+.ingame-netplay-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ingame-menu__empty-state--netplay {
+  align-items: flex-start;
+}
+
+.netplay-session-note {
+  margin-top: 6px;
 }
 
 .netplay-game-info-row {

@@ -58,10 +58,15 @@ import {
   clearCapabilitiesCache,
   getGraphicsPresetCoreOptions,
   getTextureUpscalerCoreOptions,
+  resolveTier,
   type GraphicsPreset,
   type TextureUpscaler,
 } from "./performance.js";
 import {
+  EFFECT_LABELS,
+  effectivePostProcessForSystem,
+  POST_PROCESS_EFFECT_UI_ORDER,
+  shouldDeferWebGpuPostFor3DSession,
   type PostProcessEffect,
 } from "./webgpuPostProcess.js";
 import {
@@ -73,13 +78,21 @@ import {
   MAX_SAVE_SLOTS,
 } from "./saves.js";
 import type { Settings } from "./main.js";
+import {
+  EMULATOR_JS_CONTAINER_ID,
+  syncEmulatorViewportLayout,
+} from "./emulatorDisplay.js";
 import type { TouchControlsOverlay } from "./touchControls.js";
-import { isTouchDevice, isPortrait } from "./touchControls.js";
+import {
+  getTouchControlsDefaultForSystem,
+  isTouchDevice,
+  isPortrait,
+} from "./touchControls.js";
 import type { NetplayManager } from "./multiplayer.js";
 import {
   DEFAULT_ICE_SERVERS,
   validateIceServerUrl as standaloneValidateIceServerUrl,
-  NETPLAY_SUPPORTED_SYSTEM_IDS,
+  isNetplaySupportedSystemId,
   roomDisplayNameForKey,
 } from "./multiplayerUtils.js";
 import { getNetplayManager, peekNetplayManager, registerNetplayInstance } from "./netplaySingleton.js";
@@ -271,6 +284,7 @@ export function buildDOM(app: HTMLElement): void {
   _libGpRepeatTimer  = 0;
   // Reset DevOverlay cached DOM references (nodes will be recreated below)
   resetDevOverlayCache();
+  _fpsOverlayEls = null;
 
   const archivePickerExts = [
     "zip", "7z", "rar", "tar", "gz", "tgz",
@@ -438,10 +452,10 @@ export function buildDOM(app: HTMLElement): void {
       </section>
 
       <!-- EmulatorJS mount point (hidden until a game launches) -->
-      <div id="ejs-container">
+      <div id="${EMULATOR_JS_CONTAINER_ID}">
         <div id="ejs-player"></div>
         <!-- Premium In-Game Performance Overlay -->
-        <div id="fps-overlay" class="fps-overlay" hidden aria-label="Performance overlay">
+        <div id="fps-overlay" class="fps-overlay" hidden aria-label="Frame rate and performance overlay">
           <div class="fps-current">
             <span id="fps-current-val" class="fps-val">--</span>
             <span class="fps-label">FPS</span>
@@ -449,6 +463,7 @@ export function buildDOM(app: HTMLElement): void {
           <div class="fps-separator"></div>
           <span id="fps-avg" class="fps-detail">avg --</span>
           <span id="fps-tier" class="fps-detail"></span>
+          <span id="fps-drs" class="fps-detail" hidden></span>
           <span id="fps-dropped" class="fps-detail fps-warn" hidden>0 dropped</span>
           <canvas id="fps-visualiser" class="fps-visualiser" width="60" height="18" hidden aria-hidden="true"></canvas>
         </div>
@@ -685,6 +700,19 @@ export function initUI(opts: UIOptions): void {
     openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, getNetplayManager, "multiplayer");
   };
 
+  const openPlayTogetherLobby = (): void => {
+    if (!getNetplayManager) return;
+    void getNetplayManager().then((nm) => {
+      openEasyNetplayModal({
+        netplayManager: nm,
+        currentGameName:  getCurrentGameName?.() ?? null,
+        currentGameId:    getCurrentGameId?.() ?? null,
+        currentSystemId:  getCurrentSystemId?.() ?? null,
+        onOpenPlayTogetherSettings: openPlayTogetherSettings,
+      });
+    });
+  };
+
   // ── File drop / pick ──────────────────────────────────────────────────────
   const fileInput = el<HTMLInputElement>("#file-input");
   const dropZone  = el("#drop-zone");
@@ -823,6 +851,19 @@ export function initUI(opts: UIOptions): void {
     updateDebugConsoleLog(emulator);
   };
 
+  const getEmuJsContainerEl = (): HTMLElement | null =>
+    document.getElementById(EMULATOR_JS_CONTAINER_ID);
+
+  /** Letterbox viewport + toggle touch overlay visibility from resolved per-system prefs. */
+  const syncViewportAndTouchForCurrentGame = (sid: string | null) => {
+    syncEmulatorViewportLayout(getEmuJsContainerEl(), sid);
+    const overlay = getTouchOverlay?.();
+    if (overlay) {
+      if (isTouchDevice() && getTouchControlsDefaultForSystem(sid, settings)) overlay.show();
+      else overlay.hide();
+    }
+  };
+
   // ── Emulator lifecycle → DOM ──────────────────────────────────────────────
   emulator.onStateChange = (state) => {
     updateStatusDot(state);
@@ -850,16 +891,21 @@ export function initUI(opts: UIOptions): void {
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
       getTouchOverlay, openSettingsWith, getNetplayManager, openPlayTogetherSettings,
+      openPlayTogetherLobby,
       getCurrentCoreOptions, onUpdateCoreOption,
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
-    if (settings.touchControls) {
-      const overlay = getTouchOverlay?.();
-      if (overlay) overlay.show();
+    {
+      const sid = getCurrentSystemId?.() ?? emulator.currentSystem?.id ?? null;
+      syncViewportAndTouchForCurrentGame(sid);
     }
     afterNextPaint(() => {
       hideLoadingOverlay();
       requestAnimationFrame(() => {
+        syncEmulatorViewportLayout(
+          getEmuJsContainerEl(),
+          getCurrentSystemId?.() ?? emulator.currentSystem?.id ?? null,
+        );
         // Hide FAB and show rotate-hint when appropriate
         mobileFab?.classList.add("mobile-fab--hidden");
         updateRotateHint();
@@ -882,15 +928,20 @@ export function initUI(opts: UIOptions): void {
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
       getTouchOverlay, openSettingsWithResume, getNetplayManager, openPlayTogetherSettings,
+      openPlayTogetherLobby,
       getCurrentCoreOptions, onUpdateCoreOption,
     );
     showFPSOverlay(settings.showFPS, emulator, settings.showAudioVis);
-    if (settings.touchControls) {
-      const overlay = getTouchOverlay?.();
-      if (overlay) overlay.show();
+    {
+      const sid = getCurrentSystemId?.() ?? emulator.currentSystem?.id ?? null;
+      syncViewportAndTouchForCurrentGame(sid);
     }
     afterNextPaint(() => {
       requestAnimationFrame(() => {
+        syncEmulatorViewportLayout(
+          getEmuJsContainerEl(),
+          getCurrentSystemId?.() ?? emulator.currentSystem?.id ?? null,
+        );
         // Hide FAB and show rotate-hint when appropriate
         mobileFab?.classList.add("mobile-fab--hidden");
         updateRotateHint();
@@ -907,6 +958,7 @@ export function initUI(opts: UIOptions): void {
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName, getCurrentSystemId,
       getTouchOverlay, openSettingsWith, getNetplayManager, openPlayTogetherSettings,
+      openPlayTogetherLobby,
       getCurrentCoreOptions, onUpdateCoreOption,
     );
   };
@@ -994,6 +1046,7 @@ export function initUI(opts: UIOptions): void {
           saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
           getCurrentSystemId, getTouchOverlay, onOpenSettings: openSettingsWith,
           getNetplayManager, onOpenPlayTogetherSettings: openPlayTogetherSettings,
+          onOpenPlayTogetherLobby: openPlayTogetherLobby,
           getCurrentCoreOptions, onUpdateCoreOption,
         });
       }
@@ -2722,10 +2775,10 @@ function getSystemFeaturePills(
       tone: "neutral",
     });
   }
-  if (includeOnline && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(system.id as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number])) {
+  if (includeOnline && isNetplaySupportedSystemId(system.id)) {
     pills.push({
-      label: "Online",
-      title: `${system.name} supports ${APP_NAME} online play.`,
+      label: "Play Together",
+      title: `${system.name} supports ${APP_NAME} Play Together multiplayer.`,
       tone: "accent",
     });
   }
@@ -3570,6 +3623,7 @@ function _isInGameSession(emulator: PSPEmulator): boolean {
   return emulator.state === "running" || emulator.state === "paused";
 }
 
+/** `onOpenPlayTogetherLobby` opens the Host / Join / Browse modal; keep in sync with toolbar Play Together. */
 function buildInGameControls(
   emulator:           PSPEmulator,
   settings:           Settings,
@@ -3584,6 +3638,7 @@ function buildInGameControls(
   onOpenSettings?:    (tab?: SettingsTab) => void,
   getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>,
   onOpenPlayTogetherSettings?: () => void,
+  onOpenPlayTogetherLobby?: () => void,
   getCurrentCoreOptions?: () => Record<string, string>,
   onUpdateCoreOption?: (key: string, value: string) => void,
 ): void {
@@ -3591,10 +3646,7 @@ function buildInGameControls(
   container.innerHTML = "";
   const currentGameName = getCurrentGameName?.()?.trim() || settings.lastGameName?.trim() || "Unknown";
   const currentSystemId = getCurrentSystemId?.() ?? null;
-  const currentSystemInfo = currentSystemId ? getSystemById(currentSystemId) : null;
-  const touchControlsEnabled = currentSystemId
-    ? (settings.touchControlsBySystem[currentSystemId] ?? (currentSystemInfo?.touchControlMode === "builtin" ? false : settings.touchControls))
-    : settings.touchControls;
+  const touchControlsEnabled = getTouchControlsDefaultForSystem(currentSystemId, settings);
 
   const nowPlayingChip = make("div", {
     class: "now-playing-chip header-priority-chip",
@@ -3661,7 +3713,7 @@ function buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
       getCurrentSystemId, getTouchOverlay, onOpenSettings,
-      getNetplayManager, onOpenPlayTogetherSettings,
+      getNetplayManager, onOpenPlayTogetherSettings, onOpenPlayTogetherLobby,
       getCurrentCoreOptions, onUpdateCoreOption,
     });
   }, { signal });
@@ -3671,30 +3723,19 @@ function buildInGameControls(
   if (onOpenSettings || getNetplayManager) {
     const currentSys = getCurrentSystemId?.() ?? null;
     const nm = peekNetplayManager();
-    const isSupported = currentSys != null && NETPLAY_SUPPORTED_SYSTEM_IDS.includes(
-      currentSys as typeof NETPLAY_SUPPORTED_SYSTEM_IDS[number]
-    );
+    const isSupported = isNetplaySupportedSystemId(currentSys);
     const isActive = (nm?.isActive === true) || (settings.netplayEnabled && settings.netplayServerUrl.trim().length > 0);
     const btnNetplay = make("button", {
       class: isActive ? "btn btn--active header-priority-secondary" : "btn header-priority-secondary",
-      title: isSupported ? "Online multiplayer" : "Multiplayer not available for this system",
-      "aria-label": "Open Play Together",
+      title: isSupported
+        ? "Play Together — host, join, or browse rooms"
+        : "Play Together is not enabled for this system yet",
+      "aria-label": "Open Play Together lobby",
     }) as HTMLButtonElement;
-    btnNetplay.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Online`;
-    // Enable button whenever multiplayer is supported for this system
+    btnNetplay.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Play Together`;
     btnNetplay.disabled = !isSupported;
     btnNetplay.addEventListener("click", () => {
-      if (getNetplayManager) {
-        void getNetplayManager().then(nm => {
-          openEasyNetplayModal({
-            netplayManager: nm,
-            currentGameName:  getCurrentGameName?.() ?? null,
-            currentGameId:    getCurrentGameId?.() ?? null,
-            currentSystemId:  getCurrentSystemId?.() ?? null,
-            onOpenPlayTogetherSettings,
-          });
-        });
-      }
+      onOpenPlayTogetherLobby?.();
     }, { signal });
     container.append(btnNetplay);
   }
@@ -3759,7 +3800,7 @@ function buildInGameControls(
       emulator, settings, onSettingsChange, onReturnToLibrary,
       saveLibrary, saveService, getCurrentGameId, getCurrentGameName,
       getCurrentSystemId, getTouchOverlay, onOpenSettings,
-      getNetplayManager, onOpenPlayTogetherSettings,
+      getNetplayManager, onOpenPlayTogetherSettings, onOpenPlayTogetherLobby,
       getCurrentCoreOptions, onUpdateCoreOption,
     });
   }, { signal });
@@ -3790,6 +3831,7 @@ async function showInGameMenu(ctx: {
   onOpenSettings?: (tab?: SettingsTab) => void;
   getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>;
   onOpenPlayTogetherSettings?: () => void;
+  onOpenPlayTogetherLobby?: () => void;
   getCurrentCoreOptions?: () => Record<string, string>;
   onUpdateCoreOption?: (key: string, value: string) => void;
 }): Promise<void> {
@@ -4076,6 +4118,41 @@ async function showInGameMenu(ctx: {
       }, { signal });
       grid.appendChild(fpsRow);
 
+      // On-screen touch overlay (quick toggle; respects per-system prefs)
+      if (isTouchDevice()) {
+        let touchEnabled = getTouchControlsDefaultForSystem(systemId, ctx.settings);
+        const touchSys = getSystemById(systemId);
+        const touchDesc =
+          touchSys?.touchControlMode === "builtin"
+            ? "Optional RetroOasis layer on top of native touch controls."
+            : "Virtual buttons over the game. Turn off for gamepads, keyboards, or a clear screen.";
+        const touchRow = make("div", { class: "ingame-menu__setting-item" });
+        touchRow.innerHTML = `
+          <div class="ingame-menu__setting-info">
+            <div class="ingame-menu__setting-name">On-screen controls</div>
+            <div class="ingame-menu__setting-desc">${touchDesc}</div>
+          </div>
+          <div class="ingame-menu__setting-control">
+            <button type="button" class="ingame-menu__toggle ${touchEnabled ? "on" : "off"}" aria-pressed="${touchEnabled ? "true" : "false"}">${touchEnabled ? "On" : "Off"}</button>
+          </div>`;
+        const tBtn = touchRow.querySelector("button")!;
+        tBtn.addEventListener("click", () => {
+          const next = !getTouchControlsDefaultForSystem(systemId, ctx.settings);
+          const touchPrefKey = systemId.trim() || systemId;
+          ctx.onSettingsChange({
+            touchControlsBySystem: {
+              ...ctx.settings.touchControlsBySystem,
+              [touchPrefKey]: next,
+            },
+          });
+          touchEnabled = getTouchControlsDefaultForSystem(systemId, ctx.settings);
+          tBtn.className = `ingame-menu__toggle ${touchEnabled ? "on" : "off"}`;
+          tBtn.textContent = touchEnabled ? "On" : "Off";
+          tBtn.setAttribute("aria-pressed", String(touchEnabled));
+        }, { signal });
+        grid.appendChild(touchRow);
+      }
+
       // Performance Mode
       const perfRow = make("div", { class: "ingame-menu__setting-item" });
       perfRow.innerHTML = `
@@ -4097,30 +4174,49 @@ async function showInGameMenu(ctx: {
       }, { signal });
       grid.appendChild(perfRow);
 
-      // Post Process Filter
+      // Post Process Filter — same catalogue as Settings → Visual Effects (when WebGPU is available)
+      const gpuFxAvailable = ctx.settings.useWebGPU && ctx.emulator.webgpuAvailable;
       const fxRow = make("div", { class: "ingame-menu__setting-item" });
-      fxRow.innerHTML = `
-        <div class="ingame-menu__setting-info">
-          <div class="ingame-menu__setting-name">Visual Filter</div>
-        </div>
-        <div class="ingame-menu__setting-control">
-          <select class="ingame-menu__select" aria-label="Visual Filter">
-            <option value="none" ${ctx.settings.postProcessEffect === "none" ? "selected" : ""}>None (Raw)</option>
-            <option value="crt" ${ctx.settings.postProcessEffect === "crt" ? "selected" : ""}>CRT Simulation</option>
-            <option value="lcd" ${ctx.settings.postProcessEffect === "lcd" ? "selected" : ""}>Handheld LCD</option>
-            <option value="sharpen" ${ctx.settings.postProcessEffect === "sharpen" ? "selected" : ""}>Adaptive Sharpen</option>
-            <option value="fxaa" ${ctx.settings.postProcessEffect === "fxaa" ? "selected" : ""}>Anti-Aliasing (FXAA)</option>
-            <option value="retro" ${ctx.settings.postProcessEffect === "retro" ? "selected" : ""}>Retro Pixel-Art</option>
-          </select>
-        </div>
-      `;
-      const fxSel = fxRow.querySelector("select") as HTMLSelectElement;
+      const fxRowInfo = make("div", { class: "ingame-menu__setting-info" });
+      fxRowInfo.appendChild(make("div", { class: "ingame-menu__setting-name" }, "Visual Filter"));
+      if (!gpuFxAvailable) {
+        fxRowInfo.appendChild(
+          make(
+            "div",
+            { class: "ingame-menu__setting-desc" },
+            "Turn on GPU visual effects (and ensure WebGPU works on this device) in Settings to use filters during play.",
+          ),
+        );
+      }
+      const fxControl = make("div", { class: "ingame-menu__setting-control" });
+      const fxSel = make("select", {
+        class: "ingame-menu__select",
+        "aria-label": "Visual Filter",
+      }) as HTMLSelectElement;
+      fxSel.disabled = !gpuFxAvailable;
+      for (const effect of POST_PROCESS_EFFECT_UI_ORDER) {
+        const opt = document.createElement("option");
+        opt.value = effect;
+        opt.textContent = EFFECT_LABELS[effect];
+        if (ctx.settings.postProcessEffect === effect) opt.selected = true;
+        fxSel.appendChild(opt);
+      }
+      fxControl.appendChild(fxSel);
+      fxRow.append(fxRowInfo, fxControl);
       fxSel.addEventListener("change", () => {
         const effect = fxSel.value as PostProcessEffect;
         ctx.onSettingsChange({ postProcessEffect: effect });
-        ctx.emulator.setPostProcessEffect(effect);
-        const text = fxSel.options[fxSel.selectedIndex]?.text ?? effect;
-        showInfoToast(`Filter: ${text}`);
+        const systemIs3D = systemInfo?.is3D === true;
+        const resolved = effectivePostProcessForSystem(systemIs3D, effect);
+        const label = EFFECT_LABELS[effect];
+        if (resolved !== effect) {
+          showInfoToast(
+            `${EFFECT_LABELS[resolved]} active — ${label} is off for this type of core.`,
+            "info",
+          );
+        } else {
+          showInfoToast(`Filter: ${label}`);
+        }
       }, { signal });
       grid.appendChild(fxRow);
 
@@ -4281,55 +4377,109 @@ async function showInGameMenu(ctx: {
     else if (type === "multiplayer") {
       const nmPromise = ctx.getNetplayManager?.();
       if (!nmPromise) {
-        body.innerHTML = `<div class="ingame-menu__empty-state">Netplay is not available in the current environment or for this core.</div>`;
+        body.innerHTML =
+          `<div class="ingame-menu__empty-state ingame-menu__empty-state--netplay"><p>${APP_NAME} could not load the multiplayer manager in this session.</p></div>`;
         return;
       }
 
       const nm = await nmPromise;
       const isConfigured = nm.isActive;
+      const sidRaw = ctx.getCurrentSystemId?.() ?? systemId ?? null;
+      const npOk = sidRaw !== "unknown" && isNetplaySupportedSystemId(sidRaw);
 
       const container = make("div", { class: "ingame-menu__multiplayer" });
       body.appendChild(container);
 
-      if (!isConfigured) {
-        container.innerHTML = `
-          <div class="ingame-menu__empty-state">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <p>Play Together is currently disabled or unconfigured.</p>
-            <button class="ingame-menu__btn">Go to Play Together Settings</button>
-          </div>
-        `;
-        container.querySelector("button")?.addEventListener("click", () => {
+      if (!npOk) {
+        const wrap = make("div", { class: "ingame-menu__empty-state ingame-menu__empty-state--netplay" });
+        wrap.appendChild(make("p", { class: "ingame-netplay-lead" },
+          "This core is not part of Play Together yet.",
+        ));
+        wrap.appendChild(make("p", { class: "settings-help" },
+          "Sony PS1 and several other platforms still run locally only. Supported consoles are grouped under Settings → Play Together.",
+        ));
+        const row = make("div", { class: "ingame-menu__multiplayer-actions" });
+        const btnLobby = make("button", {
+          type: "button",
+          class: "ingame-menu__btn",
+        }, "View supported consoles") as HTMLButtonElement;
+        btnLobby.addEventListener("click", () => {
           closeMenu();
           ctx.onOpenSettings?.("multiplayer");
         }, { signal });
-      } else {
-        const stats = make("div", { class: "ingame-menu__netplay-status" });
-        const roomKey = nm.roomKeyFor(gameId, systemId);
-        
-        stats.innerHTML = `
-          <div class="ingame-menu__stat-card">
-            <div class="ingame-menu__stat-val">${_escHtml(roomDisplayNameForKey(roomKey))}</div>
-            <div class="ingame-menu__stat-label">Service Namespace</div>
-          </div>
-          <div class="ingame-menu__stat-card">
-            <div class="ingame-menu__stat-val">${nm.enabled ? "Enabled" : "Disabled"}</div>
-            <div class="ingame-menu__stat-label">Discovery Status</div>
-          </div>
-        `;
-        container.appendChild(stats);
-
-        const actions = make("div", { class: "ingame-menu__multiplayer-actions" });
-        actions.innerHTML = `
-          <button class="ingame-menu__btn ingame-menu__btn--primary">Manage Play Together Room</button>
-          <p class="settings-help ingame-menu__multiplayer-help">Use the game's built-in multiplayer interface to join a specific room, or the ${APP_NAME} Play Together lobby for automatic matchmaking. Play Together is separate from in-game Wi-Fi or WFC features built into the ROM.</p>
-        `;
-        actions.querySelector("button")?.addEventListener("click", () => {
-          closeMenu();
-          ctx.onOpenPlayTogetherSettings?.();
-        }, { signal });
-        container.appendChild(actions);
+        row.appendChild(btnLobby);
+        wrap.appendChild(row);
+        container.appendChild(wrap);
+        return;
       }
+
+      const sessionHdr = make("div", { class: "ingame-netplay-session" });
+      sessionHdr.appendChild(make("span", { class: "ingame-netplay-session__game" }, _escHtml(gameName)));
+      sessionHdr.appendChild(make("span", {
+        class: "ingame-netplay-pill ingame-netplay-pill--ok",
+      }, "Play Together ready"));
+      container.appendChild(sessionHdr);
+
+      if (!isConfigured) {
+        const wrap = make("div", { class: "ingame-menu__empty-state ingame-menu__empty-state--netplay" });
+        wrap.appendChild(make("p", { class: "ingame-netplay-lead" }, "Finish setup once, then reuse for every supported game."));
+        wrap.appendChild(make("p", { class: "settings-help" },
+          "Turn on Online play and paste the WebSocket URL your group shares. ROM-based Wi‑Fi menus inside games are unrelated.",
+        ));
+        const btn = make("button", {
+          type: "button",
+          class: "ingame-menu__btn ingame-menu__btn--primary",
+        }, "Open Play Together settings") as HTMLButtonElement;
+        btn.addEventListener("click", () => {
+          closeMenu();
+          ctx.onOpenSettings?.("multiplayer");
+        }, { signal });
+        wrap.appendChild(btn);
+        container.appendChild(wrap);
+        return;
+      }
+
+      const stats = make("div", { class: "ingame-menu__netplay-status" });
+      const roomKey = nm.roomKeyFor(gameId, systemId);
+
+      stats.innerHTML = `
+        <div class="ingame-menu__stat-card">
+          <div class="ingame-menu__stat-val">${_escHtml(roomDisplayNameForKey(roomKey))}</div>
+          <div class="ingame-menu__stat-label">Lobby namespace</div>
+        </div>
+        <div class="ingame-menu__stat-card">
+          <div class="ingame-menu__stat-val">${nm.enabled ? "Online" : "Paused"}</div>
+          <div class="ingame-menu__stat-label">Signalling</div>
+        </div>
+      `;
+      container.appendChild(stats);
+
+      const actions = make("div", { class: "ingame-menu__multiplayer-actions" });
+      const row = make("div", { class: "ingame-netplay-quick-actions" });
+      const lobbyBtn = make("button", {
+        type: "button",
+        class: "ingame-menu__btn ingame-menu__btn--primary",
+      }, "Open lobby") as HTMLButtonElement;
+      lobbyBtn.addEventListener("click", () => {
+        closeMenu();
+        ctx.onOpenPlayTogetherLobby?.();
+      }, { signal });
+      const settingsBtn = make("button", {
+        type: "button",
+        class: "ingame-menu__btn",
+      }, "Server & ICE settings") as HTMLButtonElement;
+      settingsBtn.addEventListener("click", () => {
+        closeMenu();
+        ctx.onOpenPlayTogetherSettings?.();
+      }, { signal });
+      row.append(lobbyBtn, settingsBtn);
+      actions.appendChild(row);
+      actions.appendChild(make("p", {
+        class: "settings-help ingame-menu__multiplayer-help",
+      },
+        `${APP_NAME} routes traffic through EmulatorJS netplay globals. It does not replace in-ROM Nintendo WFC menus.`,
+      ));
+      container.appendChild(actions);
     }
   };
 
@@ -4864,6 +5014,13 @@ function buildPerfTab(
     perfSection.appendChild(row);
   }
 
+  perfSection.appendChild(buildToggleRow(
+    "Dynamic resolution",
+    "For PSP, PS1, Nintendo 64, DS, and Dreamcast, lowers internal resolution automatically when FPS stays below a steady threshold, then ramps back when performance recovers. A per-game graphics profile can turn this off for that title.",
+    settings.dynamicResolutionScaling,
+    (v) => onSettingsChange({ dynamicResolutionScaling: v }),
+  ));
+
   // Device info
   const deviceSection = make("div", { class: "settings-section" });
   deviceSection.appendChild(make("h4", { class: "settings-section__title" }, "Your Device"));
@@ -5016,9 +5173,7 @@ function buildDisplayTab(
   const mobileSection = make("div", { class: "settings-section" });
   mobileSection.appendChild(make("h4", { class: "settings-section__title" }, "Mobile & Touch"));
   const activeSystem = emulatorRef?.currentSystem ?? null;
-  const activeSystemTouchControlsEnabled = activeSystem
-    ? (settings.touchControlsBySystem[activeSystem.id] ?? (activeSystem.touchControlMode === "builtin" ? false : settings.touchControls))
-    : settings.touchControls;
+  const activeSystemTouchControlsEnabled = getTouchControlsDefaultForSystem(activeSystem?.id ?? null, settings);
   const touchControlsHelp = activeSystem?.touchControlMode === "builtin"
     ? `This system has built-in touch controls, so ${APP_NAME} keeps its overlay off by default. Turn this on if you want ${APP_NAME}'s buttons too, then use 🎮 Edit to reposition them.`
     : `${APP_NAME} shows its on-screen buttons on touch devices when they help. Turn this off to hide them, or turn it on for systems that need an overlay you can reposition with 🎮 Edit.`;
@@ -5051,7 +5206,18 @@ function buildDisplayTab(
     "On-screen buttons",
     touchControlsHelp,
     activeSystemTouchControlsEnabled,
-    (v) => onSettingsChange({ touchControls: v })
+    (v) => {
+      if (activeSystem?.id) {
+        onSettingsChange({
+          touchControlsBySystem: {
+            ...settings.touchControlsBySystem,
+            [activeSystem.id]: v,
+          },
+        });
+      } else {
+        onSettingsChange({ touchControls: v });
+      }
+    },
   ));
 
   // Button opacity slider
@@ -5116,14 +5282,24 @@ function buildDisplayTab(
       "Apply extra visual effects to your games using your GPU. These are purely cosmetic — they don't affect gameplay."
     ));
 
+    {
+      const tierForHint = resolveTier(settings.performanceMode, deviceCaps);
+      if (shouldDeferWebGpuPostFor3DSession(true, tierForHint, deviceCaps)) {
+        gpuSection.appendChild(make("p", { class: "settings-help" },
+          "On this performance tier, WebGPU overlays stay off during demanding 3D systems (PSP, PS1, N64, DS) so more GPU time goes to the emulator. " +
+          "Set a per-game visual effect in that game’s graphics profile if you want an effect anyway."
+        ));
+      }
+    }
+
     gpuSection.appendChild(buildToggleRow(
       "Enable GPU effects",
-      "Unlock the visual effect options below (experimental — requires a modern GPU)",
+      "Unlock the visual effect options below (experimental — requires a modern GPU). When an effect is skipped in-game, the choice here is still saved.",
       settings.useWebGPU,
       (v) => onSettingsChange({ useWebGPU: v })
     ));
 
-    type FxOption = { value: string; label: string; desc: string };
+    type FxOption = { value: PostProcessEffect; label: string; desc: string };
     const fxOptions: FxOption[] = [
       { value: "none",       label: "No effect",        desc: "Clean output — exactly as the game renders it" },
       { value: "fsr",        label: "FSR 1.0",          desc: "Edge-adaptive upsampling + sharpening — AMD FidelityFX inspired" },
@@ -5136,7 +5312,19 @@ function buildDisplayTab(
       { value: "grain",      label: "Film grain",       desc: "Cinematic noise overlay — adds texture to flat backgrounds" },
       { value: "retro",      label: "Retro pixel art",  desc: "Limited palette with ordered dithering — classic console look" },
       { value: "colorgrade", label: "Color grading",    desc: "Adjust contrast, saturation, and brightness for a custom look" },
+      { value: "pixelate",   label: "Pixelate",         desc: "Blocky upscale — emphasises hard pixel edges (mostly 2D-friendly)" },
+      { value: "ntsc",       label: "NTSC composite",   desc: "Colour bleed and composite artifacts — CRT broadcast look" },
+      { value: "hdr",        label: "HDR tone map",     desc: "Brighter highlights — intended for 3D; often disabled on 2D cores automatically" },
     ];
+    if (import.meta.env.DEV) {
+      fxOptions.forEach((o, i) => {
+        if (POST_PROCESS_EFFECT_UI_ORDER[i] !== o.value) {
+          throw new Error(
+            `[RetroOasis] Visual Effects UI list diverged from POST_PROCESS_EFFECT_UI_ORDER at index ${i}`,
+          );
+        }
+      });
+    }
     for (const opt of fxOptions) {
       const row   = make("label", { class: "radio-row" });
       const radio = make("input", { type: "radio", name: "postfx-mode", value: opt.value }) as HTMLInputElement;
@@ -5457,8 +5645,23 @@ export function openEasyNetplayModal(opts: {
 
   // ── Header ───────────────────────────────────────────────────────────────
   const header = make("div", { class: "enp-header" });
-  header.innerHTML = `<img src="${resolveAssetUrl("assets/netplay_icon_premium_1775434064140.png")}" width="22" height="22" style="margin-right:10px" />`;
-  header.appendChild(make("span", { class: "enp-title" }, "Play Together Lobby"));
+  const brand = make("div", { class: "enp-header-brand" });
+  const logoImg = make("img", {
+    class:       "enp-header__logo",
+    src:         resolveAssetUrl("assets/netplay_icon_premium_1775434064140.png"),
+    width:       "24",
+    height:      "24",
+    alt:         "",
+    "aria-hidden": "true",
+    decoding:    "async",
+  }) as HTMLImageElement;
+  const titleStack = make("div", { class: "enp-header-titles" });
+  titleStack.append(
+    make("span", { class: "enp-title" }, "Play Together"),
+    make("span", { class: "enp-header__subtitle" }, "Host, paste join codes, use LANemu, browse rooms, or spectate"),
+  );
+  brand.append(logoImg, titleStack);
+  header.appendChild(brand);
   const btnCopyDiagnostics = make("button", {
     class: "enp-copy-diag",
     "aria-label": "Copy multiplayer diagnostics",
@@ -5546,11 +5749,11 @@ export function openEasyNetplayModal(opts: {
 
   // ── Tab bar ──────────────────────────────────────────────────────────────
   const tabs: Array<{ id: string; label: string }> = [
-    { id: "host",    label: "🎮 Host"    },
-    { id: "join",    label: "🔗 Join"    },
-    { id: "lanemu",  label: "🏠 LAN Rooms" },
-    { id: "browse",  label: "📋 Browse"  },
-    { id: "watch",   label: "👁 Watch"   },
+    { id: "host",    label: "Host"        },
+    { id: "join",    label: "Join code"   },
+    { id: "lanemu",  label: "LAN / Wi-Fi" },
+    { id: "browse",  label: "Browse"      },
+    { id: "watch",   label: "Spectate"    },
   ];
   const tabBar     = make("div", { class: "enp-tabs",  role: "tablist" });
   const panelWrap  = make("div", { class: "enp-panels" });
@@ -6998,11 +7201,11 @@ function buildMultiplayerTab(
   };
 
   // Intro section
-  const introSection = make("div", { class: "settings-section" });
-  introSection.appendChild(make("h4", { class: "settings-section__title" }, "Online play with friends"));
+  const introSection = make("div", { class: "settings-section settings-section--playtogether-intro" });
+  introSection.appendChild(make("h4", { class: "settings-section__title" }, "Play Together overview"));
   introSection.appendChild(make("p", { class: "settings-help" },
-    `${APP_NAME} Play Together lets you play the same game with someone else over the internet. Turn on Online play below, paste the WebSocket URL from whoever runs your server, ` +
-    "then use Multiplayer on the home screen or Online in the game toolbar to host or join."
+    "Point every device at the same WebSocket server, load the same ROM, then host or join via the lobby modal. " +
+    `This stack is separate from in-game Nintendo WFC menus or other ROM-local Wi-Fi setups.`,
   ));
 
   // Status badge — shows whether netplay is ready to use
@@ -7038,6 +7241,7 @@ function buildMultiplayerTab(
   ));
 
   container.appendChild(introSection);
+  container.appendChild(buildSupportedSystemsSection(APP_NAME));
 
   // Server URL section — hidden when netplay is disabled
   const serverSection = make("div", { class: "settings-section" });
@@ -7447,9 +7651,6 @@ function buildMultiplayerTab(
   urlInput.addEventListener("change", syncLobbyVisibility);
 
   container.append(lobbySection);
-
-  // === Supported systems section ============================================
-  container.appendChild(buildSupportedSystemsSection(APP_NAME));
 
   // === Current game compatibility section ====================================
   const gameCompatSection = buildCurrentGameCompatibilitySection({
@@ -7972,7 +8173,9 @@ export async function showTierDowngradePrompt(
     `${tierNames[currentTier] ?? currentTier} quality tier.\n\n` +
     `Switching to the ${tierNames[targetTier] ?? targetTier} tier will reduce rendering ` +
     `quality but should provide a smoother experience on this device. ` +
-    `This preference will be remembered for this game.`;
+    `This preference will be remembered for this game.\n\n` +
+    `Tip: turn on \"Dynamic resolution\" in Settings → Performance so supported 3D systems ` +
+    `can scale internal resolution automatically before you change tiers.`;
   return showConfirmDialog(message, {
     title: "Low Frame Rate Detected",
     confirmLabel: `Switch to ${tierNames[targetTier] ?? targetTier} Tier`,
@@ -7997,17 +8200,31 @@ function updateFPSOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
       val: document.getElementById("fps-current-val"),
       avg: document.getElementById("fps-avg"),
       tier: document.getElementById("fps-tier"),
+      drs: document.getElementById("fps-drs"),
       dropped: document.getElementById("fps-dropped"),
     };
   }
-  const { val: valEl, avg: avgEl, tier: tierEl, dropped: droppedEl } = _fpsOverlayEls;
+  const { val: valEl, avg: avgEl, tier: tierEl, drs: drsEl, dropped: droppedEl } = _fpsOverlayEls;
 
   if (valEl) {
     valEl.textContent = `${snapshot.current}`;
     valEl.className = `fps-val ${snapshot.current >= 50 ? "fps-good" : snapshot.current >= 30 ? "fps-ok" : "fps-bad"}`;
   }
   if (avgEl) avgEl.textContent = `avg ${snapshot.average}`;
-  if (tierEl && emulator.activeTier) tierEl.textContent = formatTierLabel(emulator.activeTier);
+  if (tierEl) {
+    tierEl.textContent =
+      emulator.activeTier !== null ? formatTierLabel(emulator.activeTier) : "";
+  }
+  if (drsEl) {
+    const drsHint = emulator.drsOverlayHint;
+    if (drsHint) {
+      drsEl.textContent = drsHint;
+      drsEl.hidden = false;
+    } else {
+      drsEl.textContent = "";
+      drsEl.hidden = true;
+    }
+  }
   if (droppedEl) {
     if (snapshot.droppedFrames > 0) { 
       droppedEl.textContent = `${snapshot.droppedFrames} dropped`; 
@@ -8034,7 +8251,7 @@ function showPerfSuggestion(): void {
 
   const toast = make("div", { id: "perf-suggestion", class: "perf-suggestion", role: "status" });
   toast.innerHTML =
-    `<span class="perf-suggestion__msg">Game running slowly? Try <strong>Performance mode</strong> in ⚡ Settings for a smoother experience.${mobileTip}</span>` +
+    `<span class="perf-suggestion__msg">Game running slowly? Try <strong>Performance mode</strong> or turn on <strong>Dynamic resolution</strong> under ⚡ Settings → Performance.${mobileTip}</span>` +
     `<button class="perf-suggestion__close" aria-label="Dismiss">✕</button>`;
   document.body.appendChild(toast);
 
@@ -8700,8 +8917,12 @@ export function hideLoadingOverlay(): void {
     sub.setAttribute("hidden", "true");
   }
 }
-function showEjsContainer(): void  { document.getElementById("ejs-container")?.classList.add("visible"); }
-function hideEjsContainer(): void  { document.getElementById("ejs-container")?.classList.remove("visible"); }
+function showEjsContainer(): void  {
+  document.getElementById(EMULATOR_JS_CONTAINER_ID)?.classList.add("visible");
+}
+function hideEjsContainer(): void  {
+  document.getElementById(EMULATOR_JS_CONTAINER_ID)?.classList.remove("visible");
+}
 
 function transitionToGame(): void {
   document.body.classList.add("is-playing");
@@ -8711,6 +8932,7 @@ function transitionToGame(): void {
 
 export function transitionToLibrary(): void {
   document.body.classList.remove("is-playing");
+  syncEmulatorViewportLayout(document.getElementById(EMULATOR_JS_CONTAINER_ID), null);
   hideEjsContainer();
   requestAnimationFrame(() => showLanding());
 }

@@ -287,6 +287,7 @@ export function showFPSOverlay(show: boolean, emulatorRef?: PSPEmulator, showAud
 /**
  * Reset the element cache after the DOM is rebuilt (e.g. buildDOM() call).
  * Must be called whenever #dev-overlay and #fps-visualiser are recreated.
+ * `ui.buildDOM` also nulls the FPS text readout cache alongside this call.
  */
 export function resetDevOverlayCache(): void {
   _devOverlayEls = null;

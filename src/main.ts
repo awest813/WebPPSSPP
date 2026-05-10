@@ -29,7 +29,15 @@ import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsPr
 import { getSystemById } from "./systems.js";
 import { BiosLibrary }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
-import { detectCapabilitiesCached, formatDetailedSummary, scheduleIdleTask, getResolutionCoreOptions } from "./performance.js";
+import {
+  detectCapabilitiesCached,
+  formatDetailedSummary,
+  scheduleIdleTask,
+  getResolutionCoreOptions,
+  getResolutionLadder,
+  inferDynamicResolutionScalingDefault,
+  resolveTier,
+} from "./performance.js";
 import { LEGACY_APP_GLOBALS, LEGACY_EVENTS, LEGACY_STORAGE_KEYS } from "./legacy.js";
 import { gameCompatibilityDb } from "./compatibility.js";
 import { buildDOM, initUI,
@@ -42,7 +50,11 @@ import { buildDOM, initUI,
           openEasyNetplayModal,
           TOUCH_CONTROLS_CHANGED_EVENT } from "./ui.js";
 import { extractJoinCodeFromUrl } from "./netplay/signalingClient.js";
-import { isTouchDevice } from "./touchControls.js";
+import {
+  getTouchControlsDefaultForSystem,
+  isTouchDevice,
+  setTouchControlsPreferenceForSystem,
+} from "./touchControls.js";
 import { sessionTracker } from "./sessionTracker.js";
 import { store } from "./store/index.js";
 import type { NetplayIceServer } from "./store/index.js";
@@ -55,7 +67,13 @@ import {
 import { optimizeChromePerformance } from "./performance.js";
 optimizeChromePerformance();
 import type { PerformanceMode, PerformanceTier } from "./performance.js";
-import type { PostProcessEffect } from "./webgpuPostProcess.js";
+import {
+  effectivePostProcessForSystem,
+  parsePostProcessEffect,
+  shouldDeferWebGpuPostFor3DSession,
+  type PostProcessEffect,
+} from "./webgpuPostProcess.js";
+import { EMULATOR_JS_CONTAINER_ID } from "./emulatorDisplay.js";
 import { getApiKeyStore } from "./ui/coverArtRegistry.js";
 import { parseRAKey } from "./achievements.js";
 
@@ -152,6 +170,12 @@ export interface Settings {
    * When disabled, no new sessions are written; existing history is unaffected.
    */
   recordPlayHistory: boolean;
+  /**
+   * When the active system exposes scalable internal resolution (PSP, PS1,
+   * N64, DS, Dreamcast), allow automatic step-down during sustained low FPS.
+   * Per-game graphics profiles can override with `drsEnabled`.
+   */
+  dynamicResolutionScaling: boolean;
 }
 
 const STORAGE_KEY = LEGACY_STORAGE_KEYS.settings;
@@ -184,14 +208,19 @@ const DEFAULT_SETTINGS: Settings = {
   libraryGrouped: true,
   coreOptions: {},
   recordPlayHistory: true,
+  dynamicResolutionScaling: false,
 };
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
-function loadSettings(): Settings {
+function loadSettings(deviceCaps?: import("./performance.js").DeviceCapabilities): Settings {
   try {
     const raw    = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
+    if (!raw) {
+      const s = { ...DEFAULT_SETTINGS };
+      if (deviceCaps) s.dynamicResolutionScaling = inferDynamicResolutionScalingDefault(deviceCaps);
+      return s;
+    }
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const validModes: PerformanceMode[] = ["auto", "performance", "quality"];
     return {
@@ -214,9 +243,8 @@ function loadSettings(): Settings {
       useWebGPU: typeof parsed.useWebGPU === "boolean"
         ? parsed.useWebGPU
         : DEFAULT_SETTINGS.useWebGPU,
-      postProcessEffect: (["none", "crt", "sharpen", "lcd", "bloom", "fxaa", "fsr", "grain", "retro", "colorgrade", "taa"] as PostProcessEffect[]).includes(parsed.postProcessEffect as PostProcessEffect)
-        ? (parsed.postProcessEffect as PostProcessEffect)
-        : DEFAULT_SETTINGS.postProcessEffect,
+      postProcessEffect: parsePostProcessEffect(parsed.postProcessEffect)
+        ?? DEFAULT_SETTINGS.postProcessEffect,
       autoSaveEnabled: typeof parsed.autoSaveEnabled === "boolean"
         ? parsed.autoSaveEnabled
         : DEFAULT_SETTINGS.autoSaveEnabled,
@@ -278,9 +306,16 @@ function loadSettings(): Settings {
       recordPlayHistory: typeof parsed.recordPlayHistory === "boolean"
         ? parsed.recordPlayHistory
         : DEFAULT_SETTINGS.recordPlayHistory,
+      dynamicResolutionScaling: typeof parsed.dynamicResolutionScaling === "boolean"
+        ? parsed.dynamicResolutionScaling
+        : (deviceCaps
+          ? inferDynamicResolutionScalingDefault(deviceCaps)
+          : DEFAULT_SETTINGS.dynamicResolutionScaling),
     };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    const s = { ...DEFAULT_SETTINGS };
+    if (deviceCaps) s.dynamicResolutionScaling = inferDynamicResolutionScalingDefault(deviceCaps);
+    return s;
   }
 }
 
@@ -289,30 +324,6 @@ function saveSettings(s: Settings): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   } catch {
     showError("Could not persist settings to localStorage.");
-  }
-}
-
-function getTouchControlsDefaultForSystem(systemId: string | null, settings: Settings): boolean {
-  if (!systemId) return settings.touchControls;
-  const override = settings.touchControlsBySystem[systemId];
-  if (typeof override === "boolean") return override;
-  const system = getSystemById(systemId);
-  if (system?.touchControlMode === "builtin") return false;
-  return settings.touchControls;
-}
-
-function setTouchControlsPreferenceForSystem(
-  settings: Settings,
-  systemId: string | null,
-  enabled: boolean,
-): void {
-  if (systemId) {
-    settings.touchControlsBySystem = {
-      ...settings.touchControlsBySystem,
-      [systemId]: enabled,
-    };
-  } else {
-    settings.touchControls = enabled;
   }
 }
 
@@ -385,7 +396,7 @@ async function main(): Promise<void> {
   }
 
   // 3. Load settings
-  const settings = loadSettings();
+  const settings = loadSettings(deviceCaps);
 
   // Hydrate the RetroOasisStore from the loaded settings in a single atomic
   // batch so any pre-wired subscribers see exactly one notification.  The
@@ -477,6 +488,83 @@ async function main(): Promise<void> {
   // Lazy-create the touch controls overlay only when a game starts on a touch device
   let touchOverlay: import("./touchControls.js").TouchControlsOverlay | null = null;
 
+  /**
+   * Apply WebGPU post-processing for the active (or pending) system:
+   * `effectivePostProcessForSystem`, shell defer policy, and per-game overrides.
+   * Pass `tierHint` when Graphics Mode changed mid-session so defer tracks the new mode
+   * before the next launch refreshes `emulator.activeTier`.
+   */
+  const syncEmulatorPostProcessFromSettings = (
+    perGameEffectOverride?: PostProcessEffect | null,
+    opts?: { tierHint?: PerformanceTier },
+  ): void => {
+    if (!settings.useWebGPU || !emulator.webgpuAvailable) {
+      emulator.setPostProcessEffect("none");
+      return;
+    }
+    const baseEffect: PostProcessEffect =
+      perGameEffectOverride ?? settings.postProcessEffect;
+
+    const tier =
+      opts?.tierHint ??
+      emulator.activeTier ??
+      resolveTier(settings.performanceMode, deviceCaps);
+    const systemMeta = currentSystemId ? getSystemById(currentSystemId) : undefined;
+    const systemIs3D = systemMeta?.is3D === true;
+    const explicitPerGameFx =
+      perGameEffectOverride != null && perGameEffectOverride !== "none";
+
+    let effectAfterShellPolicy = baseEffect;
+    if (
+      baseEffect !== "none" &&
+      !explicitPerGameFx &&
+      shouldDeferWebGpuPostFor3DSession(systemIs3D, tier, deviceCaps)
+    ) {
+      effectAfterShellPolicy = "none";
+    }
+
+    if (effectAfterShellPolicy === "none") {
+      emulator.setPostProcessEffect("none");
+      return;
+    }
+
+    const resolved =
+      systemMeta === undefined
+        ? effectAfterShellPolicy
+        : effectivePostProcessForSystem(systemIs3D, effectAfterShellPolicy);
+    emulator.setPostProcessEffect(resolved);
+  };
+
+  /** Refresh touch overlay visibility and lazy-create overlay when prefs change mid-session. */
+  const refreshTouchOverlayFromSettings = (): void => {
+    void (async () => {
+      if (!isTouchDevice()) return;
+
+      if (getTouchControlsDefaultForSystem(currentSystemId, settings)) {
+        if (!touchOverlay && currentSystemId && (emulator.state === "running" || emulator.state === "paused")) {
+          const ejsContainer = document.getElementById(EMULATOR_JS_CONTAINER_ID);
+          if (ejsContainer) {
+            const { TouchControlsOverlay } = await import("./touchControls.js");
+            touchOverlay = new TouchControlsOverlay(
+              ejsContainer, currentSystemId, settings.hapticFeedback,
+              settings.touchOpacity, settings.touchButtonScale,
+            );
+          }
+        }
+        if (touchOverlay) {
+          if (currentSystemId) touchOverlay.setSystem(currentSystemId);
+          touchOverlay.setHapticEnabled(settings.hapticFeedback);
+          touchOverlay.setOpacity(settings.touchOpacity);
+          touchOverlay.setScale(settings.touchButtonScale);
+          touchOverlay.show();
+        }
+      } else {
+        touchOverlay?.hide();
+      }
+      document.dispatchEvent(new CustomEvent(TOUCH_CONTROLS_CHANGED_EVENT));
+    })();
+  };
+
   // 4a. Preconnect to CDN early for faster game launches
   emulator.preconnect();
 
@@ -494,10 +582,7 @@ async function main(): Promise<void> {
   if (settings.useWebGPU && deviceCaps.webgpuAvailable) {
     const webgpuPowerPref = (deviceCaps.isLowSpec || deviceCaps.isChromOS) ? "low-power" : "high-performance";
     emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
-      // Apply stored post-processing effect after device is ready
-      if (settings.postProcessEffect !== "none") {
-        emulator.setPostProcessEffect(settings.postProcessEffect);
-      }
+      syncEmulatorPostProcessFromSettings();
     }).catch(() => {});
   }
 
@@ -573,7 +658,7 @@ async function main(): Promise<void> {
 
     // Touch controls
     if (isTouchDevice() && getTouchControlsDefaultForSystem(systemId, settings)) {
-      const ejsContainer = document.getElementById("ejs-container");
+      const ejsContainer = document.getElementById(EMULATOR_JS_CONTAINER_ID);
       if (ejsContainer) {
         if (!touchOverlay) {
           const { TouchControlsOverlay } = await import("./touchControls.js");
@@ -658,7 +743,14 @@ async function main(): Promise<void> {
         const presetOptions = getResolutionCoreOptions(systemId, gfxProfile.resolutionPreset);
         Object.assign(coreSettingsOverride, presetOptions);
       }
-      if (typeof gfxProfile.drsEnabled === "boolean") emulator.enableDRS(gfxProfile.drsEnabled);
+    }
+
+    if (typeof gfxProfile?.drsEnabled === "boolean") {
+      emulator.enableDRS(gfxProfile.drsEnabled);
+    } else {
+      const ladder = getResolutionLadder(systemId);
+      const canDrs = ladder !== null && ladder.values.length > 1;
+      emulator.enableDRS(canDrs && settings.dynamicResolutionScaling);
     }
 
     let biosAsset: Blob | undefined;
@@ -718,8 +810,8 @@ async function main(): Promise<void> {
       currentGameFileName = materialised.name;
     }
 
-    if (gfxProfile?.postEffect && emulator.state !== "error") {
-      emulator.updatePostProcessConfig({ effect: gfxProfile.postEffect });
+    if (emulator.state !== "error") {
+      syncEmulatorPostProcessFromSettings(gfxProfile?.postEffect);
     }
 
     if (emulator.state === "error") {
@@ -873,17 +965,39 @@ async function main(): Promise<void> {
   // Previously the event listeners used a simplified handler that skipped syncing
   // emulator state (WebGPU, post-process effects, touch controls, verbose logging).
   const onSettingsChange = (patch: Partial<Settings>): void => {
+    const prevGlobalTouch = settings.touchControls;
+    const playingOrPaused =
+      emulator.state === "running" || emulator.state === "paused";
     Object.assign(settings, patch);
-    if (patch.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable) {
-      const webgpuPowerPref = (deviceCaps.isLowSpec || deviceCaps.isChromOS) ? "low-power" : "high-performance";
-      emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
-        if (settings.postProcessEffect !== "none") {
-          emulator.setPostProcessEffect(settings.postProcessEffect);
-        }
-      }).catch(() => {});
+    // Legacy `{ touchControls }` patches while in-game scoped to `currentSystemId` must not clobber global default.
+    // (On the library screen `currentSystemId` can remain set from the last session, so gate on emulator state.)
+    if (
+      typeof patch.touchControls === "boolean" &&
+      currentSystemId &&
+      playingOrPaused
+    ) {
+      setTouchControlsPreferenceForSystem(settings, currentSystemId, patch.touchControls);
+      settings.touchControls = prevGlobalTouch;
     }
-    if (patch.postProcessEffect !== undefined) {
-      emulator.setPostProcessEffect(patch.postProcessEffect);
+    if (
+      patch.useWebGPU !== undefined ||
+      patch.postProcessEffect !== undefined ||
+      patch.performanceMode !== undefined
+    ) {
+      const postSyncOpts =
+        patch.performanceMode !== undefined
+          ? { tierHint: resolveTier(settings.performanceMode, deviceCaps) }
+          : undefined;
+      const needAsyncPrewarm =
+        settings.useWebGPU && deviceCaps.webgpuAvailable && !emulator.webgpuAvailable;
+      if (needAsyncPrewarm) {
+        const webgpuPowerPref = (deviceCaps.isLowSpec || deviceCaps.isChromOS) ? "low-power" : "high-performance";
+        emulator.preWarmWebGPU(webgpuPowerPref).then(() => {
+          syncEmulatorPostProcessFromSettings(undefined, postSyncOpts);
+        }).catch(() => {});
+      } else {
+        syncEmulatorPostProcessFromSettings(undefined, postSyncOpts);
+      }
     }
     // Sync haptic feedback setting to the active overlay in real time
     if (typeof patch.hapticFeedback === "boolean" && touchOverlay) {
@@ -896,36 +1010,12 @@ async function main(): Promise<void> {
     if (typeof patch.touchButtonScale === "number" && touchOverlay) {
       touchOverlay.setScale(patch.touchButtonScale);
     }
-    // Show or hide the touch controls overlay immediately when the setting changes
-    // while a game is running so the user sees the effect without relaunching.
-    if (typeof patch.touchControls === "boolean") {
-      setTouchControlsPreferenceForSystem(settings, currentSystemId, patch.touchControls);
-      void (async () => {
-        if (!isTouchDevice()) return;
-
-        if (getTouchControlsDefaultForSystem(currentSystemId, settings)) {
-          if (!touchOverlay && currentSystemId && (emulator.state === "running" || emulator.state === "paused")) {
-            const ejsContainer = document.getElementById("ejs-container");
-            if (ejsContainer) {
-              const { TouchControlsOverlay } = await import("./touchControls.js");
-              touchOverlay = new TouchControlsOverlay(
-                ejsContainer, currentSystemId, settings.hapticFeedback,
-                settings.touchOpacity, settings.touchButtonScale,
-              );
-            }
-          }
-          if (touchOverlay) {
-            if (currentSystemId) touchOverlay.setSystem(currentSystemId);
-            touchOverlay.setHapticEnabled(settings.hapticFeedback);
-            touchOverlay.setOpacity(settings.touchOpacity);
-            touchOverlay.setScale(settings.touchButtonScale);
-            touchOverlay.show();
-          }
-        } else {
-          touchOverlay?.hide();
-        }
-        document.dispatchEvent(new CustomEvent(TOUCH_CONTROLS_CHANGED_EVENT));
-      })();
+    // Show or hide the touch overlay when global default, per-system map, or session changes mid-game.
+    if (
+      typeof patch.touchControls === "boolean" ||
+      patch.touchControlsBySystem !== undefined
+    ) {
+      refreshTouchOverlayFromSettings();
     }
     // Sync verbose logging flag so debug output can be toggled without reload.
     if (typeof patch.verboseLogging === "boolean") {
@@ -944,6 +1034,12 @@ async function main(): Promise<void> {
     // UI Mode change
     if (patch.uiMode !== undefined) {
       updateUILite();
+    }
+    if (typeof patch.dynamicResolutionScaling === "boolean" && playingOrPaused && currentSystemId) {
+      const ladder = getResolutionLadder(currentSystemId);
+      const canDrs = ladder !== null && ladder.values.length > 1;
+      // Always sync (including off) so we never leave stale DRS when switching tiers or unsupported systems.
+      emulator.enableDRS(canDrs && settings.dynamicResolutionScaling);
     }
     // Mirror the patch into the RetroOasisStore so subscribers react to the
     // same change that `saveSettings` persists to localStorage.

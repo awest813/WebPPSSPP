@@ -5,6 +5,7 @@ import {
   DEFAULT_ICE_SERVERS,
   NETPLAY_SUPPORTED_SYSTEM_IDS,
   SYSTEM_LINK_CAPABILITIES,
+  isNetplaySupportedSystemId,
   validateIceServerUrl,
   resolveNetplayRoomKey,
   stripRegionSuffix,
@@ -18,6 +19,14 @@ import {
   netplayErrorMessage,
   NetplayMetricsCollector,
 } from "./multiplayer.js";
+
+describe("isNetplaySupportedSystemId", () => {
+  it("matches core ids exactly (Sega systems use mixed case)", () => {
+    expect(isNetplaySupportedSystemId("segaMD")).toBe(true);
+    expect(isNetplaySupportedSystemId("segamd")).toBe(false);
+    expect(isNetplaySupportedSystemId("psp")).toBe(true);
+  });
+});
 
 // ── validateIceServerUrl (standalone) ────────────────────────────────────────
 
@@ -196,6 +205,14 @@ describe('NetplayManager', () => {
     expect(mgr.isSupportedForSystem('nds')).toBe(true);
   });
 
+
+  it('isSupportedForSystem returns true for segaMD when netplay active', () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl('wss://demo.example.com/');
+    expect(mgr.isSupportedForSystem('segaMD')).toBe(true);
+    expect(mgr.isSupportedForSystem('segamd')).toBe(false);
+  });
 
   it('isSupportedForSystem includes gba and gbc for handheld link play', () => {
     const mgr = new NetplayManager();

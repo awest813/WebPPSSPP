@@ -4,6 +4,13 @@ import {
   DEFAULT_POST_PROCESS_CONFIG,
   POST_PROCESS_PIPELINE_WARMUP_EFFECTS,
   POST_PROCESS_WARMUP_BATCH_SIZE,
+  POST_PROCESS_EFFECTS_HEAVY_ON_2D,
+  POST_PROCESS_EFFECTS_HEAVY_ON_3D,
+  ALL_POST_PROCESS_EFFECTS,
+  POST_PROCESS_EFFECT_UI_ORDER,
+  parsePostProcessEffect,
+  effectivePostProcessForSystem,
+  shouldDeferWebGpuPostFor3DSession,
   buildEffectPipeline,
   adjustConfigForTier,
   validatePostProcessConfig,
@@ -79,6 +86,86 @@ function createMockGPUDevice() {
 
   return { device, mockTexture, mockBuffer, mockEncoder };
 }
+
+describe("effectivePostProcessForSystem", () => {
+  it("keeps global user choice on 3D cores", () => {
+    expect(effectivePostProcessForSystem(true, "fsr")).toBe("fsr");
+    expect(effectivePostProcessForSystem(true, "hdr")).toBe("hdr");
+    expect(effectivePostProcessForSystem(true, "crt")).toBe("crt");
+  });
+
+  it("drops 2D-pixel-style heavy filters on 3D cores", () => {
+    for (const e of POST_PROCESS_EFFECTS_HEAVY_ON_3D) {
+      expect(effectivePostProcessForSystem(true, e)).toBe("none");
+    }
+  });
+
+  it("drops 3D-oriented heavy filters on 2D cores", () => {
+    for (const e of POST_PROCESS_EFFECTS_HEAVY_ON_2D) {
+      expect(effectivePostProcessForSystem(false, e)).toBe("none");
+    }
+  });
+
+  it("leaves crt-style filters on 2D cores when user picked them", () => {
+    expect(effectivePostProcessForSystem(false, "crt")).toBe("crt");
+    expect(effectivePostProcessForSystem(false, "ntsc")).toBe("ntsc");
+    expect(effectivePostProcessForSystem(false, "sharpen")).toBe("sharpen");
+  });
+
+  it("preserves none on 2D and 3D", () => {
+    expect(effectivePostProcessForSystem(false, "none")).toBe("none");
+    expect(effectivePostProcessForSystem(true, "none")).toBe("none");
+  });
+});
+
+describe("shouldDeferWebGpuPostFor3DSession", () => {
+  const desk = { isChromOS: false, isLowSpec: false };
+
+  it("never defers non-3D shells", () => {
+    expect(shouldDeferWebGpuPostFor3DSession(false, "low", desk)).toBe(false);
+    expect(shouldDeferWebGpuPostFor3DSession(false, "medium", { isChromOS: true, isLowSpec: false })).toBe(false);
+  });
+
+  it("defers 3D on low tier", () => {
+    expect(shouldDeferWebGpuPostFor3DSession(true, "low", desk)).toBe(true);
+    expect(shouldDeferWebGpuPostFor3DSession(true, "low", { isChromOS: true, isLowSpec: true })).toBe(true);
+  });
+
+  it("defers 3D on medium when ChromeOS or classified low-spec", () => {
+    expect(shouldDeferWebGpuPostFor3DSession(true, "medium", { isChromOS: true, isLowSpec: false })).toBe(true);
+    expect(shouldDeferWebGpuPostFor3DSession(true, "medium", { isChromOS: false, isLowSpec: true })).toBe(true);
+  });
+
+  it("does not defer 3D on medium desktop or high/ultra", () => {
+    expect(shouldDeferWebGpuPostFor3DSession(true, "medium", desk)).toBe(false);
+    expect(shouldDeferWebGpuPostFor3DSession(true, "high", desk)).toBe(false);
+    expect(shouldDeferWebGpuPostFor3DSession(true, "ultra", { isChromOS: true, isLowSpec: true })).toBe(false);
+  });
+});
+
+describe("parsePostProcessEffect / ALL_POST_PROCESS_EFFECTS / UI order", () => {
+  it("accepts every canonical effect string", () => {
+    for (const e of ALL_POST_PROCESS_EFFECTS) {
+      expect(parsePostProcessEffect(e)).toBe(e);
+    }
+  });
+
+  it("rejects unknown or non-string values", () => {
+    expect(parsePostProcessEffect("")).toBeNull();
+    expect(parsePostProcessEffect("fsr2")).toBeNull();
+    expect(parsePostProcessEffect("hdr ")).toBeNull();
+    expect(parsePostProcessEffect(1)).toBeNull();
+    expect(parsePostProcessEffect(null)).toBeNull();
+  });
+
+  it("POST_PROCESS_EFFECT_UI_ORDER lists every effect exactly once", () => {
+    expect(POST_PROCESS_EFFECT_UI_ORDER.length).toBe(ALL_POST_PROCESS_EFFECTS.size);
+    expect(new Set(POST_PROCESS_EFFECT_UI_ORDER).size).toBe(POST_PROCESS_EFFECT_UI_ORDER.length);
+    for (const e of ALL_POST_PROCESS_EFFECTS) {
+      expect(POST_PROCESS_EFFECT_UI_ORDER).toContain(e);
+    }
+  });
+});
 
 describe("POST_PROCESS_PIPELINE_WARMUP_EFFECTS", () => {
   it("lists every non-none effect once", () => {

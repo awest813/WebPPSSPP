@@ -59,6 +59,7 @@ function makeSettings(overrides: Partial<Settings> = {}): Settings {
     libraryGrouped: true,
     coreOptions: {},
     recordPlayHistory: true,
+    dynamicResolutionScaling: false,
   };
   return {
     ...settings,
@@ -2342,6 +2343,14 @@ describe("F3 developer debug overlay", () => {
     expect(overlay!.hidden).toBe(true);
   });
 
+  it("buildDOM wires the FPS overlay with DRS detail slot", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    expect(document.getElementById("fps-overlay")).toBeTruthy();
+    expect(document.getElementById("fps-drs")).toBeTruthy();
+  });
+
   it("toggleDevOverlay shows the overlay on first call", () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
@@ -2630,19 +2639,20 @@ describe("buildMultiplayerTab — supported systems section", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows a supported systems section with system chips", () => {
+  it("shows a supported systems section grouped by platform", () => {
     openMultiplayerTabWith();
     const panel = document.getElementById("tab-panel-multiplayer")!;
-    const sysList = panel.querySelector<HTMLElement>(".netplay-sys-list");
-    expect(sysList).toBeTruthy();
-    const chips = Array.from(sysList!.querySelectorAll(".sys-chip"));
+    const groups = panel.querySelector<HTMLElement>(".netplay-sys-groups");
+    expect(groups).toBeTruthy();
+    const chips = Array.from(groups!.querySelectorAll(".sys-chip"));
     expect(chips.length).toBeGreaterThan(0);
+    expect(groups!.textContent).toMatch(/Nintendo handhelds/i);
   });
 
-  it("supported systems include GBA, GBC, GB, NDS, N64, PSP chips", () => {
+  it("supported systems include GBA, GBC, GB, DS, N64, PSP chips", () => {
     openMultiplayerTabWith();
     const panel = document.getElementById("tab-panel-multiplayer")!;
-    const chipLabels = Array.from(panel.querySelectorAll<HTMLElement>(".netplay-sys-list .sys-chip"))
+    const chipLabels = Array.from(panel.querySelectorAll<HTMLElement>(".netplay-sys-groups .sys-chip"))
       .map(c => c.textContent?.trim() ?? "");
     expect(chipLabels).toContain("GBA");
     expect(chipLabels).toContain("GBC");
@@ -2680,7 +2690,7 @@ describe("buildMultiplayerTab — supported systems section", () => {
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
     const gameSection = sections.find(s =>
-      s.querySelector("h4")?.textContent?.includes("Current Game")
+      s.querySelector("h4")?.textContent?.includes("This session")
     );
     expect(gameSection).toBeUndefined();
   });
@@ -2690,7 +2700,7 @@ describe("buildMultiplayerTab — supported systems section", () => {
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const sections = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"));
     const gameSection = sections.find(s =>
-      s.querySelector("h4")?.textContent?.includes("Current Game")
+      s.querySelector("h4")?.textContent?.includes("This session")
     );
     expect(gameSection).toBeTruthy();
     expect(gameSection!.textContent).toContain("My GBA Game");
@@ -2718,24 +2728,24 @@ describe("buildMultiplayerTab — supported systems section", () => {
     const badge = panel.querySelector<HTMLElement>(".netplay-compat-badge");
     expect(badge).toBeNull();
     const gameSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
-      .find(s => s.querySelector("h4")?.textContent?.includes("Current Game"));
-    expect(gameSection!.textContent).toContain("unique room key");
+      .find(s => s.querySelector("h4")?.textContent?.includes("This session"));
+    expect(gameSection!.textContent).toMatch(/fingerprint|lobby/i);
   });
 
   it("shows incompatibility message for unsupported system (PSX)", () => {
     openMultiplayerTabWith("Metal Gear Solid (USA)", "psx");
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const gameSection = Array.from(panel.querySelectorAll<HTMLElement>(".settings-section"))
-      .find(s => s.querySelector("h4")?.textContent?.includes("Current Game"));
+      .find(s => s.querySelector("h4")?.textContent?.includes("This session"));
     expect(gameSection).toBeTruthy();
-    expect(gameSection!.textContent).toContain("does not currently support netplay");
+    expect(gameSection!.textContent).toMatch(/not.*Play Together|not enabled/i);
   });
 
-  it("intro section uses the Online play heading", () => {
+  it("intro section leads with the Play Together overview", () => {
     openMultiplayerTabWith();
     const panel = document.getElementById("tab-panel-multiplayer")!;
     const heading = panel.querySelector<HTMLElement>("h4");
-    expect(heading!.textContent).toContain("Online play");
+    expect(heading!.textContent).toContain("Play Together overview");
   });
 });
 
@@ -2819,8 +2829,8 @@ describe("buildInGameControls — Netplay button", () => {
     expect(btn).toBeTruthy();
   });
 
-  it("opens a Play Together section from the in-game menu for unsupported systems", () => {
-    const { emulatorMock } = triggerGameStart({ systemId: "snes" });
+  it("opens a Play Together section from the in-game menu for unsupported systems", async () => {
+    const { emulatorMock } = triggerGameStart({ systemId: "psx" });
     if (typeof (emulatorMock as unknown as { onGameStart: () => void }).onGameStart === "function") {
       (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
     }
@@ -2832,6 +2842,9 @@ describe("buildInGameControls — Netplay button", () => {
     const multiplayerBtn = Array.from(document.querySelectorAll<HTMLButtonElement>(".ingame-menu__sidebar-btn"))
       .find((button) => button.textContent?.includes("Play Together"));
     expect(multiplayerBtn).toBeTruthy();
+    multiplayerBtn!.click();
+    await flushUI();
+    expect(document.body.textContent).toMatch(/not part of Play Together/i);
   });
 
   it("renders one clean in-game menu action per destination", () => {
@@ -2871,9 +2884,9 @@ describe("buildInGameControls — Netplay button", () => {
     multiplayerBtn!.click();
     await flushUI();
 
-    const manageBtn = Array.from(document.querySelectorAll<HTMLButtonElement>(".ingame-menu__multiplayer-actions button"))
-      .find((button) => button.textContent?.includes("Manage Play Together Room"));
-    expect(manageBtn).toBeTruthy();
+    const lobbyBtn = Array.from(document.querySelectorAll<HTMLButtonElement>(".ingame-netplay-quick-actions button"))
+      .find((button) => button.textContent?.includes("Open lobby"));
+    expect(lobbyBtn).toBeTruthy();
   });
 });
 
@@ -3764,13 +3777,15 @@ describe("openEasyNetplayModal", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders all three tabs: Host, Join, Browse", () => {
+  it("renders lobby tabs for host, join, LAN, browse, and spectate", () => {
     openEasyNetplayModal({});
     const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
     const labels = Array.from(tabs).map(t => t.textContent ?? "");
     expect(labels.some(l => l.includes("Host"))).toBe(true);
     expect(labels.some(l => l.includes("Join"))).toBe(true);
     expect(labels.some(l => l.includes("Browse"))).toBe(true);
+    expect(labels.some(l => l.includes("LAN")) || labels.some(l => l.includes("Wi-Fi"))).toBe(true);
+    expect(labels.some(l => l.includes("Spectate"))).toBe(true);
   });
 
   it("renders a diagnostics copy button in the modal header", () => {
@@ -3808,7 +3823,7 @@ describe("openEasyNetplayModal", () => {
     mgr.setServerUrl("wss://netplay.example.com");
     openEasyNetplayModal({ netplayManager: mgr });
     const hostPanel   = document.querySelectorAll<HTMLElement>(".enp-panel")[0]!;
-    const browsePanel = document.querySelectorAll<HTMLElement>(".enp-panel")[2]!;
+    const browsePanel = document.querySelectorAll<HTMLElement>(".enp-panel")[3]!;
     expect(hostPanel.querySelector(".enp-server-warn")).toBeNull();
     expect(browsePanel.querySelector(".enp-server-warn")).toBeNull();
   });
@@ -3986,7 +4001,7 @@ describe("openEasyNetplayModal", () => {
   it("LAN Rooms tab is present and can be activated", async () => {
     openEasyNetplayModal({});
     const tabs = document.querySelectorAll<HTMLButtonElement>(".enp-tab");
-    const lanemuTab = Array.from(tabs).find(t => t.textContent?.includes("LAN Rooms"));
+    const lanemuTab = Array.from(tabs).find(t => t.textContent?.includes("LAN"));
     expect(lanemuTab).toBeTruthy();
     
     lanemuTab!.click();

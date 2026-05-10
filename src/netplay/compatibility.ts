@@ -6,8 +6,8 @@
  * and return human-readable results that are surfaced directly in the UI.
  */
 
+import { isNetplaySupportedSystemId } from "../multiplayerUtils.js";
 import {
-  NETPLAY_SUPPORTED_SYSTEM_IDS,
   SYSTEM_LINK_CAPABILITIES,
   canonicalizeGameId,
 } from "../multiplayer.js";
@@ -33,16 +33,15 @@ export interface CompatibilityResult {
  * unsupported, or a clean compatible result otherwise.
  */
 export function checkSystemSupport(systemId: string): CompatibilityResult {
-  const id = systemId.toLowerCase();
   const isSupported =
-    (NETPLAY_SUPPORTED_SYSTEM_IDS as readonly string[]).includes(id) &&
-    SYSTEM_LINK_CAPABILITIES[id] === true;
+    isNetplaySupportedSystemId(systemId) &&
+    SYSTEM_LINK_CAPABILITIES[systemId] === true;
 
   if (!isSupported) {
     return {
       compatible: false,
       warnings:   [],
-      errors:     [`This system (${systemId.toUpperCase()}) doesn't support RetroOasis Play Together multiplayer.`],
+      errors:     [`This system (${systemId}) doesn't support Play Together multiplayer in this app.`],
     };
   }
   return { compatible: true, warnings: [], errors: [] };

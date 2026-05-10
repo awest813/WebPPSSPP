@@ -14,6 +14,55 @@ export const NETPLAY_SUPPORTED_SYSTEM_IDS = [
   "nes", "snes", "segaMD", "segaMS", "segaGG",
 ] as const;
 
+/** Narrow type for IDs that participate in Play Together cores. */
+export type NetplaySupportedSystemId = (typeof NETPLAY_SUPPORTED_SYSTEM_IDS)[number];
+
+/** True when `id` is a Play Together–enabled core id (exact match — ids are mixed-case). */
+export function isNetplaySupportedSystemId(id: string | null | undefined): id is NetplaySupportedSystemId {
+  if (id == null || String(id).length === 0) return false;
+  return (NETPLAY_SUPPORTED_SYSTEM_IDS as readonly string[]).includes(id as string);
+}
+
+/**
+ * Platform groupings for settings / help UI (subset of supported ids per group).
+ */
+export const NETPLAY_PLATFORM_GROUPS: readonly {
+  title: string;
+  ids: readonly NetplaySupportedSystemId[];
+}[] = [
+  {
+    title: "Nintendo handhelds",
+    ids: ["gb", "gbc", "gba", "nds"],
+  },
+  {
+    title: "Nintendo consoles",
+    ids: ["nes", "snes", "n64"],
+  },
+  {
+    title: "Sega (Genesis / MS / Game Gear)",
+    ids: ["segaMD", "segaMS", "segaGG"],
+  },
+  {
+    title: "Sony",
+    ids: ["psp"],
+  },
+];
+
+/** One-line hint per system for the Play Together settings panel. */
+export const NETPLAY_SYSTEM_HINTS: Partial<Record<NetplaySupportedSystemId, string>> = {
+  gb:     "Classic link-cable titles (typically 2 players)",
+  gbc:    "Match ROM & core revision with friends",
+  gba:    "Low latency networks work best",
+  nds:    "Matching game region avoids desync",
+  nes:    "Up to supported controller count per core",
+  snes:   "Supports multitap-style games via core options",
+  n64:    "Match ROM hashes and accessory settings",
+  segaMD: "Two-player Genesis / Mega Drive",
+  segaMS: "Master System two-player titles",
+  segaGG: "VS and link-supported Game Gear games",
+  psp:    "PPSSPP ad-hoc over the internet path",
+};
+
 export const SYSTEM_LINK_CAPABILITIES: Record<string, boolean> = {
   nes:    true,    // FCEUmm supports 2–4 player netplay
   snes:   true,    // Snes9x supports 2–5 player netplay

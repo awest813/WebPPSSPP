@@ -3882,6 +3882,19 @@ describe('PSPEmulator', () => {
       expect(emulator.drsCurrentStep).toBe(0);
     });
 
+    it('drsOverlayHint is null when DRS is off', () => {
+      expect(emulator.drsOverlayHint).toBeNull();
+    });
+
+    it('drsOverlayHint shows 1-based ladder position when DRS is active', () => {
+      const internal = emulator as unknown as EmuInternal;
+      internal._currentSystem = { id: 'psp' };
+      internal._drsTotalSteps = 4;
+      internal._drsCurrentStepIdx = 1;
+      emulator.enableDRS(true);
+      expect(emulator.drsOverlayHint).toBe('DRS 2/4');
+    });
+
     it('enableDRS(true) sets isDRSEnabled to true', () => {
       emulator.enableDRS(true);
       expect(emulator.isDRSEnabled).toBe(true);

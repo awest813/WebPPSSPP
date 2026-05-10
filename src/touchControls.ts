@@ -1,3 +1,5 @@
+import { getSystemById } from "./systems.js";
+
 /**
  * touchControls.ts — Virtual gamepad overlay for touch devices
  *
@@ -49,6 +51,45 @@
  * The D-pad directions (up/down/left/right) are also present here so that
  * the cross-shaped D-pad element can fire the correct key events.
  */
+/** Minimal settings shape for resolving per-system on-screen control defaults. */
+export interface TouchControlsPreferenceSettings {
+  touchControls: boolean;
+  touchControlsBySystem: Record<string, boolean>;
+}
+
+/**
+ * Effective on/off for the overlay: per-system override, then built-in touch cores, then global default.
+ */
+export function getTouchControlsDefaultForSystem(
+  systemId: string | null | undefined,
+  settings: TouchControlsPreferenceSettings,
+): boolean {
+  const id = typeof systemId === "string" ? systemId.trim() || null : systemId ?? null;
+  if (!id) return settings.touchControls;
+  const override = settings.touchControlsBySystem[id];
+  if (typeof override === "boolean") return override;
+  const system = getSystemById(id);
+  if (system?.touchControlMode === "builtin") return false;
+  return settings.touchControls;
+}
+
+/** Persist preference for the active system without clobbering the global default when scoped to a game. */
+export function setTouchControlsPreferenceForSystem(
+  settings: TouchControlsPreferenceSettings,
+  systemId: string | null | undefined,
+  enabled: boolean,
+): void {
+  const id = typeof systemId === "string" ? systemId.trim() || null : systemId ?? null;
+  if (id) {
+    settings.touchControlsBySystem = {
+      ...settings.touchControlsBySystem,
+      [id]: enabled,
+    };
+  } else {
+    settings.touchControls = enabled;
+  }
+}
+
 const KEY_MAP: Record<string, { key: string; code: string }> = {
   up:          { key: "ArrowUp",    code: "ArrowUp"    },
   down:        { key: "ArrowDown",  code: "ArrowDown"  },

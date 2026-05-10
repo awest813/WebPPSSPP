@@ -18,3 +18,5 @@ data/cores/*
 dist/
 coverage/
 jsdoc/
+playwright-report/
+test-results/
