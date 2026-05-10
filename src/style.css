@@ -3444,6 +3444,42 @@ body:has(#ejs-container.visible) .app-header {
   letter-spacing: 0.05em;
 }
 
+.settings-core-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.settings-core-heading__icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-lt);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-core-heading__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-core-heading__title {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--c-text);
+}
+
+.settings-core-heading__meta {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--c-text-dim);
+  line-height: 1.4;
+}
+
 .radio-row {
   background: var(--c-surface2);
   padding: 20px 32px;
@@ -6056,17 +6092,106 @@ body.using-gamepad .game-card:focus {
   min-height: auto;
 }
 
-.game-picker-list {
+.game-picker-list,
+.system-picker-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 300px;
+  gap: 10px;
+  max-height: min(52vh, 420px);
   overflow-y: auto;
+  padding-right: 4px;
 }
 
-.game-picker-btn {
+/* Archive entry picker — simple badge + label row */
+.game-picker-btn:not(.system-pick-btn) {
   text-align: left;
   padding: 10px 14px;
+}
+
+.system-pick-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--c-border-lt);
+  background: var(--c-surface2);
+  color: var(--c-text);
+  cursor: pointer;
+  font: inherit;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    transform var(--transition-fast);
+}
+
+.system-pick-btn:hover {
+  background: var(--c-surface3);
+  border-color: color-mix(in srgb, var(--c-accent) 35%, var(--c-border-lt));
+}
+
+.system-pick-btn:active {
+  transform: translateY(1px);
+}
+
+.system-pick-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.system-pick-btn__visual {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--c-border-lt);
+  overflow: hidden;
+}
+
+.system-pick-btn__icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.system-pick-btn__badge-fallback {
+  font-size: 0.65rem;
+  padding: 3px 8px;
+}
+
+.system-pick-btn__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.system-pick-btn__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.system-pick-btn__headline {
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.25;
+  color: var(--c-text);
+}
+
+.system-pick-btn__meta {
+  font-size: 0.78rem;
+  color: var(--c-text-dim);
+  line-height: 1.35;
 }
 
 .multidisc-row {

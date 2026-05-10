@@ -1,6 +1,91 @@
 import { formatBytes, type GameMetadata } from "../library.js";
 import type { SystemInfo } from "../systems.js";
 import { getSystemById, getSystemFeatureSummary } from "../systems.js";
+
+/**
+ * Shared picker row (ambiguous extension + duplicate library entries): premium
+ * system icon when available, consistent typography and experimental badge.
+ */
+function wireSystemPickerRow(
+  btn: HTMLButtonElement,
+  system: SystemInfo | undefined,
+  opts: {
+    headline: string;
+    /** When set, overrides automatic feature summary for the meta line. */
+    metaLine?: string | null;
+    /** Short label when `system` is missing (unknown `systemId`). */
+    fallbackShort?: string;
+  },
+): void {
+  const short = system?.shortName ?? opts.fallbackShort ?? "?";
+  const color = system?.color ?? "#555";
+
+  const visual = createElement("div", { class: "system-pick-btn__visual" });
+  if (system?.iconUrl) {
+    const img = createElement("img", {
+      class: "system-pick-btn__icon",
+      src: system.iconUrl,
+      alt: "",
+      loading: "lazy",
+      decoding: "async",
+    }) as HTMLImageElement;
+    img.addEventListener(
+      "error",
+      () => {
+        img.remove();
+        const fb = createElement("span", { class: "sys-badge system-pick-btn__badge-fallback" }, short);
+        fb.style.setProperty("--sys-color", color);
+        fb.style.background = color;
+        visual.appendChild(fb);
+      },
+      { once: true },
+    );
+    visual.appendChild(img);
+  } else {
+    const badge = createElement("span", { class: "sys-badge system-pick-btn__badge-fallback" }, short);
+    badge.style.setProperty("--sys-color", color);
+    badge.style.background = color;
+    visual.appendChild(badge);
+  }
+
+  const content = createElement("div", { class: "system-pick-btn__content" });
+  const titleRow = createElement("div", { class: "system-pick-btn__title-row" });
+  titleRow.appendChild(createElement("span", { class: "system-pick-btn__headline" }, opts.headline));
+  if (system?.experimental) {
+    titleRow.appendChild(
+      createElement(
+        "span",
+        {
+          class: "sys-badge sys-badge--experimental",
+          title: system.stabilityNotice ?? "Experimental support",
+        },
+        "EXP",
+      ),
+    );
+  }
+  content.appendChild(titleRow);
+
+  const summary =
+    opts.metaLine !== undefined
+      ? opts.metaLine
+      : system
+        ? getSystemFeatureSummary(system).join(" • ")
+        : "";
+  if (summary) {
+    const metaTitle = system?.experimental
+      ? (system.stabilityNotice ?? summary)
+      : summary;
+    content.appendChild(
+      createElement(
+        "span",
+        { class: "system-pick-btn__meta", title: metaTitle },
+        summary,
+      ),
+    );
+  }
+
+  btn.append(visual, content);
+}
 import type { ArchiveFormat } from "../archive.js";
 import { createElement } from "./dom.js";
 import type { RAProgress, SGDBAssets, IGDBMetadata, IGDBGenre, RAAchievement } from "../types/metadata.js";
@@ -76,25 +161,8 @@ export function pickSystem(
     list.innerHTML = "";
     const fragment = document.createDocumentFragment();
     for (const system of candidates) {
-      const btn = createElement("button", { class: "system-pick-btn" });
-      const badge = createElement("span", { class: "sys-badge" }, system.shortName);
-      badge.style.background = system.color;
-      const content = createElement("span", { class: "system-pick-btn__content" });
-      content.appendChild(createElement("span", {}, system.name));
-      const summary = getSystemFeatureSummary(system);
-      if (summary.length > 0) {
-        content.appendChild(
-          createElement(
-            "span",
-            {
-              class: "system-pick-btn__meta",
-              title: system.stabilityNotice ?? "Experimental support",
-            },
-            summary.join(" • "),
-          ),
-        );
-      }
-      btn.append(badge, content);
+      const btn = createElement("button", { class: "system-pick-btn", type: "button" });
+      wireSystemPickerRow(btn, system, { headline: system.name });
       btn.addEventListener("click", () => close(system));
       fragment.appendChild(btn);
     }
@@ -145,10 +213,14 @@ export function showGamePickerDialog(
     const fragment = document.createDocumentFragment();
     for (const game of games) {
       const system = getSystemById(game.systemId);
-      const btn = createElement("button", { class: "game-picker-btn" });
-      const badge = createElement("span", { class: "sys-badge" }, system?.shortName ?? game.systemId);
-      badge.style.background = system?.color ?? "#555";
-      btn.append(badge, document.createTextNode(` ${game.name}`));
+      const btn = createElement("button", { class: "system-pick-btn", type: "button" });
+      wireSystemPickerRow(btn, system, {
+        headline: game.name,
+        metaLine: system
+          ? getSystemFeatureSummary(system).join(" • ")
+          : game.systemId,
+        fallbackShort: game.systemId,
+      });
       btn.addEventListener("click", () => close(game));
       fragment.appendChild(btn);
     }

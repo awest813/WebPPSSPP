@@ -256,7 +256,7 @@ describe("showGamePickerDialog", () => {
     ];
     const promise = showGamePickerDialog("Pick a game", "Choose one:", games);
 
-    const btns = document.querySelectorAll<HTMLButtonElement>(".game-picker-btn");
+    const btns = document.querySelectorAll<HTMLButtonElement>(".system-pick-btn");
     expect(btns.length).toBe(2);
     btns[1]!.click();
 
@@ -268,7 +268,7 @@ describe("showGamePickerDialog", () => {
     const games = [{ id: "g1", name: "Mario", systemId: "nes", fileName: "mario.nes", size: 512, addedAt: 0, lastPlayedAt: null }];
     const promise = showGamePickerDialog("Pick", "Choose:", games);
 
-    const cancelBtn = document.querySelector<HTMLButtonElement>(".btn:not(.game-picker-btn)");
+    const cancelBtn = document.querySelector<HTMLButtonElement>(".confirm-box .btn");
     cancelBtn!.click();
 
     expect(await promise).toBeNull();

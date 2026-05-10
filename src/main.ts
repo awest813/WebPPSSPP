@@ -330,6 +330,22 @@ function saveSettings(s: Settings): void {
   }
 }
 
+/**
+ * Align {@link NetplayManager} with persisted {@link Settings} so EmulatorJS
+ * receives correct globals on launch even when the manager had not been loaded yet
+ * (the singleton is lazy — previously we only synced when `peekNetplayManager()`
+ * was already non-null, which skipped first-time launches).
+ */
+async function syncNetplayManagerFromSettings(s: Settings): Promise<void> {
+  const nm = await getNetplayManager();
+  nm.setEnabled(s.netplayEnabled);
+  nm.setServerUrl(s.netplayServerUrl);
+  nm.setUsername(s.netplayUsername);
+  const ice = fromNetplayIceServers(s.netplayIceServers);
+  if (ice.length > 0) nm.setIceServers(ice);
+  else nm.resetIceServers();
+}
+
 // ── PWA install prompt ────────────────────────────────────────────────────────
 
 /**
@@ -391,6 +407,10 @@ async function main(): Promise<void> {
   // sync via `mirrorSettingsPatchToStore` inside `onSettingsChange`.
   hydrateSettingsIntoStore(settings, store);
 
+  // Prime NetplayManager from Settings once at boot so `peekNetplayManager()` and
+  // Play Together UI match persisted relay / ICE / username before any game launch.
+  await syncNetplayManagerFromSettings(settings);
+
   // UI-lite mode trims expensive visual effects on constrained devices or when
   // the user explicitly asks for lower data/motion usage.
   const navConnection = (navigator as Navigator & {
@@ -433,8 +453,8 @@ async function main(): Promise<void> {
       : null,
   });
   
-  // NetplayManager remains lazily instantiated by the singleton helper.
-  // Don't instantiate yet — getNetplayManager() will do it on demand.
+  // NetplayManager is instantiated during `syncNetplayManagerFromSettings` at boot
+  // and on demand elsewhere via `getNetplayManager()`.
 
   // Bridge `store.settings.netplayIceServers` → `NetplayManager.setIceServers()`
   // so any consumer that writes ICE servers through the store (e.g. the
@@ -759,12 +779,7 @@ async function main(): Promise<void> {
       // BIOS asset lookup failed — launch without BIOS (best-effort).
     }
 
-    const nm = peekNetplayManager();
-    if (nm) {
-      nm.setEnabled(settings.netplayEnabled);
-      nm.setServerUrl(settings.netplayServerUrl);
-      nm.setUsername(settings.netplayUsername);
-    }
+    await syncNetplayManagerFromSettings(settings);
 
     const apiStore = getApiKeyStore();
     const raState = apiStore.getState("retroachievements");
@@ -1041,6 +1056,16 @@ async function main(): Promise<void> {
       // Always sync (including off) so we never leave stale DRS when switching tiers or unsupported systems.
       emulator.enableDRS(canDrs && settings.dynamicResolutionScaling);
     }
+    // Keep NetplayManager storage in sync with persisted Settings whenever
+    // multiplayer-related fields change (including imports / programmatic patches).
+    if (
+      patch.netplayEnabled !== undefined ||
+      patch.netplayServerUrl !== undefined ||
+      patch.netplayUsername !== undefined ||
+      patch.netplayIceServers !== undefined
+    ) {
+      void syncNetplayManagerFromSettings(settings).catch(() => {});
+    }
     // Mirror the patch into the RetroOasisStore so subscribers react to the
     // same change that `saveSettings` persists to localStorage.
     mirrorSettingsPatchToStore(patch, store);
@@ -1127,17 +1152,19 @@ async function main(): Promise<void> {
       // to settle) rather than setTimeout(0) so the open is tied to the
       // rendering pipeline instead of event-loop timing heuristics.
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        openEasyNetplayModal({
-          netplayManager: peekNetplayManager() ?? undefined,
-          currentGameName: settings.lastGameName,
-          currentGameId: null,
-          currentSystemId: null,
-          initialJoinCode: joinCode,
-          onOpenPlayTogetherSettings: () => {
-            document.dispatchEvent(new CustomEvent(LEGACY_EVENTS.closeEasyNetplay));
-            openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, getNetplayManager, "multiplayer");
-          },
-        });
+        void syncNetplayManagerFromSettings(settings).then(() => {
+          openEasyNetplayModal({
+            netplayManager: peekNetplayManager() ?? undefined,
+            currentGameName: settings.lastGameName,
+            currentGameId: null,
+            currentSystemId: null,
+            initialJoinCode: joinCode,
+            onOpenPlayTogetherSettings: () => {
+              document.dispatchEvent(new CustomEvent(LEGACY_EVENTS.closeEasyNetplay));
+              openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, getNetplayManager, "multiplayer");
+            },
+          });
+        }).catch(() => {});
       }));
     }
   } catch {
