@@ -967,6 +967,12 @@ body.is-playing #ejs-container.visible {
     height: 100vh;
     border-radius: 0;
   }
+
+  .settings-modal-box .modal-header {
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-right: max(32px, env(safe-area-inset-right, 0px));
+    padding-left: max(32px, env(safe-area-inset-left, 0px));
+  }
 }
 
 .settings-modal-box .modal-header {
@@ -1152,7 +1158,10 @@ body.is-playing #ejs-container.visible {
   .app-header {
     height: auto;
     min-height: 72px;
-    padding: 10px 16px;
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: 10px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
     gap: 12px;
     align-items: flex-start;
   }
@@ -1173,8 +1182,8 @@ body.is-playing #ejs-container.visible {
   }
 
   .app-header__actions .btn {
-    min-height: 32px;
-    padding: 0 10px;
+    min-height: 44px;
+    padding: 0 12px;
     font-size: 0.86rem;
   }
 
@@ -1230,7 +1239,29 @@ body.is-playing #ejs-container.visible {
   .library-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 24px; }
   .library-hero__content { max-width: 100%; padding: 32px 24px; }
   .library-hero__title { font-size: 2.2rem; }
-  #landing { padding: 16px 16px 88px; }
+
+  #landing {
+    padding-top: max(16px, env(safe-area-inset-top, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(88px, calc(72px + env(safe-area-inset-bottom, 0px)));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+  }
+
+  .modal-box:not(.settings-modal-box) {
+    max-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    padding-top: max(48px, calc(32px + env(safe-area-inset-top, 0px)));
+    padding-right: max(48px, calc(24px + env(safe-area-inset-right, 0px)));
+    padding-bottom: max(48px, calc(32px + env(safe-area-inset-bottom, 0px)));
+    padding-left: max(48px, calc(24px + env(safe-area-inset-left, 0px)));
+  }
+
+  .confirm-box {
+    padding-top: max(32px, env(safe-area-inset-top, 0px));
+    padding-right: max(32px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(32px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(32px, env(safe-area-inset-left, 0px));
+  }
 }
 
 @media (max-width: 480px) {
@@ -1241,6 +1272,37 @@ body.is-playing #ejs-container.visible {
   
   .app-footer { padding: 0 16px; }
   .footer-right { display: none; }
+}
+
+/* ── Tablet & touch Chromebook: stack library toolbar (narrow + coarse pointer) ── */
+
+@media (max-width: 1024px) and ((pointer: coarse) or (hover: none)) {
+  .library-toolbar {
+    position: static;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    margin: 0 0 24px;
+    padding: 0 0 20px;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .library-controls {
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .library-search-wrap {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  #landing {
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
 }
 
 /* ── In-Game Menu Overlay (NSO Console Style) ── */
@@ -1284,15 +1346,16 @@ body.is-playing #ejs-container.visible {
 
 .ingame-menu {
   position: relative;
-  width: min(1400px, 90vw);
+  /* Slightly narrower max width for readable settings columns; a bit more horizontal margin on laptop widths */
+  width: min(1200px, 92vw);
   box-sizing: border-box;
   /* dvh avoids mobile browser UI clipping; vh fallback for older engines */
-  height: 80vh;
-  height: 80dvh;
+  height: 85vh;
+  height: 85dvh;
   max-height: 100vh;
   max-height: 100dvh;
   background: var(--c-bg);
-  border-radius: 40px;
+  border-radius: 36px;
   border: 4px solid var(--c-surface3);
   display: flex;
   overflow: hidden;
@@ -1350,6 +1413,23 @@ body.is-playing #ejs-container.visible {
 
 .ingame-menu-overlay--visible .ingame-menu {
   transform: scale(1) translateY(0);
+}
+
+/* Short laptop / small-window desktop: reclaim vertical space without touching tablet full-screen (≤1024px) */
+@media (min-width: 1025px) and (max-height: 780px) {
+  .ingame-menu {
+    height: min(92vh, calc(100vh - 32px));
+    height: min(92dvh, calc(100dvh - 32px));
+    border-radius: 28px;
+  }
+}
+
+@media (min-width: 1025px) and (max-height: 640px) {
+  .ingame-menu {
+    height: min(96vh, calc(100vh - 24px));
+    height: min(96dvh, calc(100dvh - 24px));
+    border-radius: 24px;
+  }
 }
 
 /* Sidebar Navigation */
@@ -2057,7 +2137,7 @@ body:has(#ejs-container.visible) .app-header {
 .rotate-hint {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--footer-h) + 24px);
+  bottom: calc(var(--footer-h) + max(24px, env(safe-area-inset-bottom, 0px)));
   z-index: 60;
   display: none;
   align-items: center;
@@ -5115,6 +5195,22 @@ body.using-gamepad .game-card:focus {
   justify-content: flex-end;
 }
 
+/* Touch / stylus: ~44px targets (modal chrome + confirm actions) */
+@media (hover: none), (pointer: coarse) {
+  .modal-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .confirm-footer .btn,
+  .confirm-box__actions .btn {
+    min-height: 44px;
+    padding-inline: 18px;
+  }
+}
+
 /* ── Library Rows ──────────────────────────────────────────── */
 
 .library-row {
@@ -6217,6 +6313,11 @@ body.using-gamepad .game-card:focus {
   font-size: 0.78rem;
   color: var(--c-text-dim);
   line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 
 .multidisc-row {
@@ -6751,7 +6852,10 @@ body.using-gamepad .game-card:focus {
 
   .confirm-box {
     width: 95%;
-    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
   }
 
   .multiplayer-card {
@@ -6850,8 +6954,8 @@ body.using-gamepad .game-card:focus {
   }
 
   main#landing {
-    padding-top: 24px;
-    padding-bottom: 60px;
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(60px, env(safe-area-inset-bottom, 0px));
   }
 
   .drop-zone {

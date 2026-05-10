@@ -1,6 +1,9 @@
 import { formatBytes, type GameMetadata } from "../library.js";
+import type { ArchiveFormat } from "../archive.js";
 import type { SystemInfo } from "../systems.js";
 import { getSystemById, getSystemFeatureSummary } from "../systems.js";
+import { createElement } from "./dom.js";
+import type { RAProgress, SGDBAssets, IGDBMetadata, IGDBGenre, RAAchievement } from "../types/metadata.js";
 
 /**
  * Shared picker row (ambiguous extension + duplicate library entries): premium
@@ -67,28 +70,32 @@ function wireSystemPickerRow(
 
   const summary =
     opts.metaLine !== undefined
-      ? opts.metaLine
+      ? (opts.metaLine ?? "")
       : system
         ? getSystemFeatureSummary(system).join(" • ")
         : "";
-  if (summary) {
+  const trimmed = summary.trim();
+  if (trimmed) {
     const metaTitle = system?.experimental
-      ? (system.stabilityNotice ?? summary)
-      : summary;
+      ? (system.stabilityNotice ?? trimmed)
+      : trimmed;
     content.appendChild(
       createElement(
         "span",
         { class: "system-pick-btn__meta", title: metaTitle },
-        summary,
+        trimmed,
       ),
     );
   }
 
+  const ariaLabel =
+    trimmed && trimmed !== opts.headline
+      ? `${opts.headline}. ${trimmed}`
+      : opts.headline;
+  btn.setAttribute("aria-label", ariaLabel);
+
   btn.append(visual, content);
 }
-import type { ArchiveFormat } from "../archive.js";
-import { createElement } from "./dom.js";
-import type { RAProgress, SGDBAssets, IGDBMetadata, IGDBGenre, RAAchievement } from "../types/metadata.js";
 
 export function isTopmostOverlay(overlay: HTMLElement): boolean {
   const all = document.querySelectorAll<HTMLElement>(".confirm-overlay");
@@ -160,7 +167,8 @@ export function pickSystem(
     subtitle.textContent = subtitleText ?? `The file "${fileName}" could belong to several systems. Choose one:`;
     list.innerHTML = "";
     const fragment = document.createDocumentFragment();
-    for (const system of candidates) {
+    const sorted = [...candidates].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    for (const system of sorted) {
       const btn = createElement("button", { class: "system-pick-btn", type: "button" });
       wireSystemPickerRow(btn, system, { headline: system.name });
       btn.addEventListener("click", () => close(system));
@@ -225,11 +233,13 @@ export function showGamePickerDialog(
       fragment.appendChild(btn);
     }
     list.appendChild(fragment);
-    box.appendChild(list);
 
-    const cancelBtn = createElement("button", { class: "btn" }, "Cancel");
+    const footer = createElement("div", { class: "confirm-footer" });
+    const cancelBtn = createElement("button", { class: "btn", type: "button" }, "Cancel");
     cancelBtn.addEventListener("click", () => close(null));
-    box.appendChild(cancelBtn);
+    footer.appendChild(cancelBtn);
+    box.appendChild(list);
+    box.appendChild(footer);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
@@ -252,7 +262,8 @@ export function showGamePickerDialog(
     document.addEventListener("keydown", onKey, { capture: true });
     requestAnimationFrame(() => {
       overlay.classList.add("confirm-overlay--visible");
-      cancelBtn.focus();
+      const firstBtn = list.querySelector<HTMLButtonElement>(".system-pick-btn");
+      (firstBtn ?? cancelBtn).focus();
     });
   });
 }

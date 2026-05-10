@@ -57,6 +57,7 @@ import {
   formatTierLabel,
   isLikelyIOS,
   isLikelyAndroid,
+  isChromebookLowRamProfile,
   clearCapabilitiesCache,
   getGraphicsPresetCoreOptions,
   getTextureUpscalerCoreOptions,
@@ -2468,7 +2469,7 @@ function buildGameCard(
     meta.append(make("span", { class: "sys-badge sys-badge--experimental", title: system.stabilityNotice ?? "Experimental support" }, "EXP"));
   }
 
-  const featureRow = buildSystemFeatureRow(system, { includeExperimental: false, max: 3, includeOnline: true });
+  const featureRow = buildSystemFeatureRow(system, { includeExperimental: false, max: 5, includeOnline: true });
   const played = make("div", { class: "game-card__played" },
     game.lastPlayedAt
       ? `Played ${formatRelativeTime(game.lastPlayedAt)}`
@@ -2921,6 +2922,27 @@ function getSystemFeaturePills(
       label: "WebGL 2",
       title: `${system.name} needs WebGL 2 support in the browser.`,
       tone: "neutral",
+    });
+  }
+  if (system.needsThreads) {
+    pills.push({
+      label: "Threaded core",
+      title: "Uses additional CPU threads and requires SharedArrayBuffer (cross-origin isolation).",
+      tone: "neutral",
+    });
+  }
+  if (system.touchControlMode === "builtin") {
+    pills.push({
+      label: "Touch UI",
+      title: "The core provides its own touch layout; RetroOasis hides its overlay by default.",
+      tone: "neutral",
+    });
+  }
+  if (system.hasAchievements) {
+    pills.push({
+      label: "RetroAchievements",
+      title: "Games may unlock RetroAchievements.org rewards when you are logged in.",
+      tone: "accent",
     });
   }
   if (includeOnline && isNetplaySupportedSystemId(system.id)) {
@@ -5373,12 +5395,30 @@ function buildDisplayTab(
     : `${APP_NAME} shows its on-screen buttons on touch devices when they help. Turn this off to hide them, or turn it on for systems that need an overlay you can reposition with Edit controls in the game toolbar.`;
 
   const installRow = make("div", { class: "pwa-install-row" });
+  const pwaInstallFallbackHelp = (): string => {
+    if (deviceCaps.isChromOS) {
+      const lowRam = isChromebookLowRamProfile(deviceCaps);
+      return (
+        `Install ${APP_NAME} from the Chrome menu (⋮): choose Install ${APP_NAME}…, or Save and Share → Create shortcut → Open as window. ` +
+        `Launch from the shelf instead of a crowded browser tab.` +
+        (lowRam ? " Especially helpful on 2 GB Chromebooks where fewer tabs leave more RAM for games." : "")
+      );
+    }
+    if (deviceCaps.isAndroid || isLikelyAndroid()) {
+      return `Install ${APP_NAME} on Android: open in Chrome or Edge, tap the browser menu → Install app or Add to Home screen.`;
+    }
+    if (deviceCaps.isIOS || isLikelyIOS()) {
+      return `Install ${APP_NAME} on iPhone or iPad: tap Share → Add to Home Screen.`;
+    }
+    return (
+      `Install ${APP_NAME} on desktop: Chrome or Edge menu (⋮) → Install ${APP_NAME}… ` +
+      `(or Apps → Install this site as an app).`
+    );
+  };
   const buildInstallBtn = () => {
     installRow.innerHTML = "";
     if (!_canInstallPWA?.()) {
-      installRow.appendChild(make("p", { class: "settings-help" },
-        `Install ${APP_NAME} as an app on your phone: open in Chrome or Edge on Android, then tap the browser menu → "Add to Home Screen".`
-      ));
+      installRow.appendChild(make("p", { class: "settings-help" }, pwaInstallFallbackHelp()));
       return;
     }
     const btnInstall = make("button", { class: "btn btn--primary pwa-install-btn" });

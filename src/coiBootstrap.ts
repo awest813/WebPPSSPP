@@ -31,6 +31,8 @@ export function registerCOIServiceWorker(): void {
       }
     } catch (err) {
       console.warn("[coi-sw] Service worker registration failed:", err);
+      // Surfaces in DevTools / selectors when COI cannot activate (e.g. file://, blocked SW).
+      document.documentElement.dataset.coiSw = "failed";
     }
   })();
 }

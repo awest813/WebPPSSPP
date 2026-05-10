@@ -606,6 +606,16 @@ export function isLikelyChromeOS(): boolean {
   return /CrOS/.test(navigator.userAgent);
 }
 
+/**
+ * Chrome OS with {@link Navigator.deviceMemory} ≤ 2 (bucketed). Used for
+ * first-run performance defaults, lite UI, and tier caps on budget Chromebooks.
+ */
+export function isChromebookLowRamProfile(
+  caps: Pick<DeviceCapabilities, "isChromOS" | "deviceMemoryGB">,
+): boolean {
+  return caps.isChromOS && caps.deviceMemoryGB !== null && caps.deviceMemoryGB <= 2;
+}
+
 // ── iOS / Android detection ───────────────────────────────────────────────────
 
 /**
@@ -1194,6 +1204,12 @@ function classifyTier(
   else if (points >= 50) tier = "high";
   else if (points >= 25) tier = "medium";
   else tier = "low";
+
+  // Budget Chromebooks reporting ≤2 GB via `navigator.deviceMemory`: cap tier so
+  // defaults (profiles, DRS, UI) never assume desktop-class RAM/GPU headroom.
+  if (chromeos && memoryGB !== null && memoryGB <= 2) {
+    if (tier === "ultra" || tier === "high") tier = "medium";
+  }
 
   // Mobile cap: even high-end phones run inside a browser with restricted heap
   // memory (iOS Safari caps at ~1.5 GB; Android Chrome has tighter limits than

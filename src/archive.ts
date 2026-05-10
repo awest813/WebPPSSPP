@@ -58,9 +58,6 @@ const IOS_LARGE_ARCHIVE_WARNING_BYTES = 400 * 1024 * 1024;
 /** Above this size, use random-access ZIP/TAR parsing on mobile instead of loading the whole blob. */
 const MOBILE_STREAMING_ARCHIVE_MIN_BYTES = 96 * 1024;
 
-/** @deprecated alias for {@link MOBILE_STREAMING_ARCHIVE_MIN_BYTES} */
-const IOS_STREAMING_ZIP_MIN_BYTES = MOBILE_STREAMING_ARCHIVE_MIN_BYTES;
-
 // Yield to the event loop occasionally while inflating on constrained mobile hosts so
 // WebKit / Chromium are less likely to watchdog-freeze the tab on large entries.
 const IOS_DECOMPRESS_YIELD_CHUNK_COUNT = 24;

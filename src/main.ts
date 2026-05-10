@@ -36,6 +36,7 @@ import {
   getResolutionCoreOptions,
   getResolutionLadder,
   inferDynamicResolutionScalingDefault,
+  isChromebookLowRamProfile,
   resolveTier,
 } from "./performance.js";
 import { LEGACY_APP_GLOBALS, LEGACY_EVENTS, LEGACY_STORAGE_KEYS } from "./legacy.js";
@@ -221,7 +222,12 @@ function loadSettings(deviceCaps?: import("./performance.js").DeviceCapabilities
     const raw    = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       const s = { ...DEFAULT_SETTINGS };
-      if (deviceCaps) s.dynamicResolutionScaling = inferDynamicResolutionScalingDefault(deviceCaps);
+      if (deviceCaps) {
+        s.dynamicResolutionScaling = inferDynamicResolutionScalingDefault(deviceCaps);
+        if (isChromebookLowRamProfile(deviceCaps)) {
+          s.performanceMode = "performance";
+        }
+      }
       return s;
     }
     const parsed = JSON.parse(raw) as Partial<Settings>;
@@ -385,6 +391,34 @@ export function canInstallPWA(): boolean {
   return _deferredInstallEvent !== null;
 }
 
+function wirePwaFileLaunchQueue(onFileChosen: (file: File) => Promise<void>): void {
+  try {
+    const w = window as unknown as {
+      launchQueue?: {
+        setConsumer: (
+          cb: (params: { files?: readonly FileSystemFileHandle[] }) => void | Promise<void>,
+        ) => void;
+      };
+    };
+    if (!w.launchQueue?.setConsumer) return;
+    w.launchQueue.setConsumer(async (params) => {
+      const files = params.files;
+      if (!files?.length) return;
+      for (const handle of files) {
+        try {
+          const file = await handle.getFile();
+          await onFileChosen(file);
+        } catch {
+          /* ignore invalid handles */
+        }
+        break;
+      }
+    });
+  } catch {
+    /* Launch Queue unsupported */
+  }
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -419,6 +453,7 @@ async function main(): Promise<void> {
   
   const updateUILite = () => {
     let useLiteUI = false;
+    const chromebookLowRam = isChromebookLowRamProfile(deviceCaps);
     if (settings.uiMode === "lite") {
       useLiteUI = true;
     } else if (settings.uiMode === "quality") {
@@ -427,6 +462,7 @@ async function main(): Promise<void> {
       // "auto" mode logic
       useLiteUI =
         deviceCaps.isLowSpec ||
+        chromebookLowRam ||
         deviceCaps.connectionQuality === "slow" ||
         deviceCaps.prefersReducedMotion ||
         navConnection?.saveData === true;
@@ -434,6 +470,16 @@ async function main(): Promise<void> {
     document.documentElement.classList.toggle("lite-ui", useLiteUI);
   };
   updateUILite();
+
+  /** Installed PWA / Chrome OS window-controls-overlay — hook for CSS if needed */
+  try {
+    const pwaChrome =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      window.matchMedia("(display-mode: window-controls-overlay)").matches;
+    document.documentElement.classList.toggle("pwa-standalone", pwaChrome);
+  } catch {
+    /* ignore */
+  }
 
   // 4. Instantiate services
   const emulator      = new PSPEmulator("ejs-player");
@@ -1193,6 +1239,8 @@ async function main(): Promise<void> {
   } catch {
     // Non-fatal — caches API unavailable in some environments.
   }
+
+  wirePwaFileLaunchQueue(onFileChosen);
 
   if (import.meta.env.DEV) {
     window[LEGACY_APP_GLOBALS.devConsole] = { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps };

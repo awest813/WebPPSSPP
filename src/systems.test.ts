@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { SYSTEMS, detectSystem, getSystemById, getPSPSettingsForTier, getNDSSettingsForTier, getGBASettingsForTier, getPSXSettingsForTier, getGBSettingsForTier, getGBCSettingsForTier, type SystemInfo } from "./systems.js";
+import {
+  SYSTEMS,
+  detectSystem,
+  getSystemById,
+  getSystemFeatureSummary,
+  getPSPSettingsForTier,
+  getNDSSettingsForTier,
+  getGBASettingsForTier,
+  getPSXSettingsForTier,
+  getGBSettingsForTier,
+  getGBCSettingsForTier,
+  type SystemInfo,
+} from "./systems.js";
 
 describe('systems performance profiles', () => {
   describe('detectSystem', () => {
@@ -149,6 +161,17 @@ describe('systems performance profiles', () => {
       // detectSystem correctly returns null.
       const detected = detectSystem('.gitignore');
       expect(detected).toBeNull();
+    });
+  });
+
+  describe('getSystemFeatureSummary', () => {
+    it('includes threaded core and RetroAchievements where applicable', () => {
+      const psp = getSystemById('psp')!;
+      expect(getSystemFeatureSummary(psp)).toContain('Multi-threaded');
+      const gba = getSystemById('gba')!;
+      expect(getSystemFeatureSummary(gba)).toContain('RetroAchievements');
+      const nds = getSystemById('nds')!;
+      expect(getSystemFeatureSummary(nds)).toContain('Built-in touch');
     });
   });
 

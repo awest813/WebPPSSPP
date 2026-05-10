@@ -165,7 +165,8 @@ describe("pickSystem", () => {
     await new Promise((r) => requestAnimationFrame(r));
     const btns = document.querySelectorAll<HTMLButtonElement>(".system-pick-btn");
     expect(btns.length).toBe(2);
-    btns[1]!.click();
+    // Candidates are sorted A–Z by display name (NES before PSP).
+    btns[0]!.click();
 
     const result = await promise;
     expect(result?.id).toBe("nes");

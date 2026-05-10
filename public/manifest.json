@@ -12,6 +12,9 @@
   "background_color": "#121212",
   "theme_color": "#e60012",
   "orientation": "any",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "icons": [
     {
       "src": "./icon-192.png",
@@ -65,6 +68,27 @@
     }
   ],
   "prefer_related_applications": false,
+  "file_handlers": [
+    {
+      "action": "./",
+      "accept": {
+        "application/zip": [".zip"],
+        "application/x-zip-compressed": [".zip"],
+        "application/x-7z-compressed": [".7z"],
+        "application/octet-stream": [
+          ".nes", ".fds", ".unf", ".unif",
+          ".smc", ".sfc", ".fig", ".swc",
+          ".gba", ".gb", ".gbc",
+          ".nds", ".n64", ".z64", ".v64",
+          ".pbp", ".cso", ".iso",
+          ".cue", ".bin", ".chd", ".img", ".mdf", ".ccd",
+          ".md", ".smd", ".gen", ".gg", ".sms",
+          ".a26", ".a78", ".lnx", ".ngp", ".ngc", ".ngpc",
+          ".gdi", ".cdi", ".elf"
+        ]
+      }
+    }
+  ],
   "share_target": {
     "action": "./?share-target",
     "method": "POST",

@@ -4,6 +4,7 @@ import {
   detectCapabilitiesCached,
   clearCapabilitiesCache,
   isLikelyChromeOS,
+  isChromebookLowRamProfile,
   isLikelyIOS,
   isLikelyAndroid,
   isLikelySafari,
@@ -406,6 +407,16 @@ describe('performance', () => {
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/604.1'
       );
       expect(isLikelyChromeOS()).toBe(false);
+    });
+  });
+
+  describe('isChromebookLowRamProfile', () => {
+    it('is true only on Chrome OS with deviceMemory ≤ 2', () => {
+      expect(isChromebookLowRamProfile({ isChromOS: true, deviceMemoryGB: 2 })).toBe(true);
+      expect(isChromebookLowRamProfile({ isChromOS: true, deviceMemoryGB: 1 })).toBe(true);
+      expect(isChromebookLowRamProfile({ isChromOS: true, deviceMemoryGB: 4 })).toBe(false);
+      expect(isChromebookLowRamProfile({ isChromOS: false, deviceMemoryGB: 2 })).toBe(false);
+      expect(isChromebookLowRamProfile({ isChromOS: true, deviceMemoryGB: null })).toBe(false);
     });
   });
 
@@ -1000,6 +1011,11 @@ describe('performance', () => {
         maxColorAttachments: 1, multiDraw: false,
       };
       const tier = __classifyTierForTests(4, 4, false, 0, basicCaps, false, true);
+      expect(tier).toBe('medium');
+    });
+
+    it('caps Chrome OS + 2 GB RAM at medium even when the GPU score would reach high/ultra', () => {
+      const tier = __classifyTierForTests(4, 2, false, 80, makeHighEndGPUCaps(), true, false);
       expect(tier).toBe('medium');
     });
   });

@@ -1690,5 +1690,8 @@ export function getSystemFeatureSummary(
   else features.push("2D core");
   if (system.needsBios) features.push("BIOS");
   if (system.needsWebGL2) features.push("WebGL 2");
+  if (system.needsThreads) features.push("Multi-threaded");
+  if (system.touchControlMode === "builtin") features.push("Built-in touch");
+  if (system.hasAchievements) features.push("RetroAchievements");
   return features;
 }
