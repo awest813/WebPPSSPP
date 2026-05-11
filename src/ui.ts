@@ -92,7 +92,7 @@ import {
   getTouchControlsDefaultForSystem,
   isTouchDevice,
   isPortrait,
-} from "./touchControls.js";
+} from "./touch/preferences.js";
 import type { NetplayManager } from "./multiplayer.js";
 import {
   DEFAULT_ICE_SERVERS,
@@ -175,9 +175,6 @@ import {
   type CoverArtCandidate,
 } from "./coverArt.js";
 import {
-  buildAboutTab as buildAboutTabContent,
-} from "./ui/settingsTabs.js";
-import {
   getApiKeyStore,
   getCoverArtProvider,
   getKeyedProviders,
@@ -206,6 +203,7 @@ import {
 } from "./modules/DevOverlay.js";
 import { VirtualGrid, VIRTUAL_THRESHOLD } from "./ui/virtualGrid.js";
 import { buildHighlightsPanel, MAX_SESSIONS as HIGHLIGHTS_MAX_SESSIONS } from "./ui/highlightsPanel.js";
+import { parseRAKey } from "./raCredentials.js";
 // Re-export DevOverlay public API so external callers that imported from ui.ts
 // continue to work without changes (e.g. ui.test.ts).
 export { toggleDevOverlay, isDevOverlayVisible } from "./modules/DevOverlay.js";
@@ -253,6 +251,8 @@ let _settingsPanelEscHandler: ((e: KeyboardEvent) => void) | null = null;
 let _settingsPanelFocusTrap: ((e: KeyboardEvent) => void) | null = null;
 let _settingsPanelSearchShortcutHandler: ((e: KeyboardEvent) => void) | null = null;
 let _settingsTabBarRo: ResizeObserver | null = null;
+let _settingsContentCleanups: Array<() => void> = [];
+let _settingsContentToken = 0;
 
 // ── API key store + cover-art provider registry ──────────────────────────────
 // Registry singletons live in ./ui/coverArtRegistry.ts; see there for the
@@ -2941,7 +2941,7 @@ function buildGameCard(
         const state = store.getState("retroachievements");
         if (!state.enabled || !state.key) return null;
         
-        const { getRAClient, parseRAKey } = await import("./achievements.js");
+        const { getRAClient } = await import("./achievements.js");
         const { calculateMD5 } = await import("./crypto.js");
         
         const creds = parseRAKey(state.key);
@@ -4954,6 +4954,11 @@ export function openSettingsPanel(
     }
     _settingsTabBarRo?.disconnect();
     _settingsTabBarRo = null;
+    _settingsContentCleanups.forEach((fn) => {
+      try { fn(); } catch { /* ignore stale settings cleanup */ }
+    });
+    _settingsContentCleanups = [];
+    _settingsContentToken += 1;
     previousFocus?.focus();
   };
 
@@ -5015,6 +5020,11 @@ function buildSettingsContent(
   getNetplayManager?: () => Promise<import("./multiplayer.js").NetplayManager>,
   initialTab?:      SettingsTab
 ): void {
+  _settingsContentCleanups.forEach((fn) => {
+    try { fn(); } catch { /* ignore stale settings cleanup */ }
+  });
+  _settingsContentCleanups = [];
+  const settingsContentToken = ++_settingsContentToken;
   container.innerHTML = "";
 
   const settingsShell = make("div", { class: "settings-shell" });
@@ -5177,21 +5187,25 @@ function buildSettingsContent(
   buildCloudTab(panels[3]!, settings, library, onSettingsChange);
   buildMultiplayerTab(panels[5]!, settings, onSettingsChange, getNetplayManager, settings.lastGameName, emulatorRef?.currentSystem?.id);
   buildDebugTab(panels[8]!, settings, onSettingsChange, deviceCaps, emulatorRef, getNetplayManager, biosLibrary);
-  buildAboutTabContent(panels[9]!, APP_NAME);
+  panels[9]!.appendChild(make("p", { class: "settings-help", role: "status" }, "Loading help..."));
 
   try {
     void _loadSettingsTabs().then((st) => {
       if (!st) return;
+      if (settingsContentToken !== _settingsContentToken) return;
       st.buildBiosTab(panels[4]!, biosLibrary, { appName: APP_NAME, onError: showError });
       st.buildAchievementsTab(panels[6]!, getApiKeyStore(), {
         appName: APP_NAME,
         onError: showError,
       });
-      st.buildApiKeysTab(panels[7]!, getApiKeyStore(), {
+      const apiKeysCleanup = st.buildApiKeysTab(panels[7]!, getApiKeyStore(), {
         appName: APP_NAME,
         getTester: (id: string) => getKeyedProviders().get(id) ?? null,
         onError: showError,
       });
+      _settingsContentCleanups.push(apiKeysCleanup);
+      panels[9]!.textContent = "";
+      st.buildAboutTab(panels[9]!, APP_NAME);
     }).catch(() => {
       // Dynamic import failed (e.g. test environment) — tabs will render without lazy content.
     });
@@ -6251,9 +6265,22 @@ export function openEasyNetplayModal(opts: {
   }));
 
   // ── LANemu panel ────────────────────────────────────────────────────────
-  void import("./multiplayer/ui/MultiplayerHome.js").then(({ buildMultiplayerHome }) => {
-    buildMultiplayerHome(panels[2]!);
-  });
+  panels[2]!.appendChild(make("p", { class: "enp-panel-desc", role: "status" }, "Loading LAN rooms..."));
+  void import("./multiplayer/ui/MultiplayerHome.js")
+    .then(({ buildMultiplayerHome }) => {
+      const cleanup = buildMultiplayerHome(panels[2]!);
+      if (closed) {
+        cleanup();
+      } else {
+        panelCleanups.push(cleanup);
+      }
+    })
+    .catch(() => {
+      panels[2]!.textContent = "";
+      panels[2]!.appendChild(make("p", { class: "enp-server-warn", role: "alert" },
+        "LAN rooms could not load. Close this panel and try again."
+      ));
+    });
 
   // ── Browse panel ─────────────────────────────────────────────────────────
   // Watch-tab pre-fill refs

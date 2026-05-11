@@ -1857,7 +1857,7 @@ describe("Help tab keyboard shortcut descriptions", () => {
     buildDOM(app);
   });
 
-  it("lists F9 as opening Settings on the Advanced tab", () => {
+  it("lists F9 as opening Settings on the Advanced tab", async () => {
     openSettingsPanel(
       makeSettings(),
       caps,
@@ -1871,11 +1871,13 @@ describe("Help tab keyboard shortcut descriptions", () => {
       "about"
     );
     const aboutPanel = document.getElementById("tab-panel-about")!;
-    expect(aboutPanel.textContent).toContain("F9");
+    await vi.waitFor(() => {
+      expect(aboutPanel.textContent).toContain("F9");
+    });
     expect(aboutPanel.textContent).toContain("Advanced tab");
   });
 
-  it("describes F3 as toggling the on-screen debug overlay", () => {
+  it("describes F3 as toggling the on-screen debug overlay", async () => {
     openSettingsPanel(
       makeSettings(),
       caps,
@@ -1889,7 +1891,9 @@ describe("Help tab keyboard shortcut descriptions", () => {
       "about"
     );
     const aboutPanel = document.getElementById("tab-panel-about")!;
-    expect(aboutPanel.textContent).toContain("F3");
+    await vi.waitFor(() => {
+      expect(aboutPanel.textContent).toContain("F3");
+    });
     expect(aboutPanel.textContent).toContain("on-screen debug overlay");
   });
 });
@@ -4037,7 +4041,9 @@ describe("openEasyNetplayModal", () => {
     expect(lanemuTab!.getAttribute("aria-selected")).toBe("true");
     
     // Should show the LAN Rooms content (MultiplayerHome)
-    expect(document.querySelector(".multiplayer-dashboard-header")).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".multiplayer-dashboard-header")).toBeTruthy();
+    });
   });
 });
 

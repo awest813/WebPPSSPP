@@ -6,6 +6,7 @@
  */
 
 import type { RAUserSummary } from "./types/metadata.js";
+export { parseRAKey } from "./raCredentials.js";
 
 export interface Achievement {
   id: number;
@@ -146,13 +147,4 @@ export function getRAClient(username?: string, apiKey?: string): RAClient | null
     _raClient = new RAClient(username, apiKey);
   }
   return _raClient;
-}
-
-/**
- * Helper to parse the 'username:apikey' format used in ApiKeyStore.
- */
-export function parseRAKey(raw: string): { username: string; apiKey: string } | null {
-  const parts = raw.split(":");
-  if (parts.length !== 2) return null;
-  return { username: parts[0]!.trim(), apiKey: parts[1]!.trim() };
 }

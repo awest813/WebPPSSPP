@@ -10,8 +10,10 @@ import { getLanemuService } from "../lanemu/LanemuSingleton.js";
 import type { LanemuStatus } from "../lanemu/LanemuStatus.js";
 import { store } from "../../store/index.js";
 
-export function buildMultiplayerHome(container: HTMLElement): void {
+export function buildMultiplayerHome(container: HTMLElement): () => void {
   const service = getLanemuService();
+  let disposed = false;
+  let unsubscribeStatus: (() => void) | null = null;
   
   const renderHome = () => {
     container.innerHTML = "";
@@ -58,8 +60,11 @@ export function buildMultiplayerHome(container: HTMLElement): void {
       }
     };
 
-    void service.getStatus().then(updateStatus);
-    service.onStatusChange(updateStatus);
+    void service.getStatus().then((status) => {
+      if (!disposed) updateStatus(status);
+    });
+    unsubscribeStatus?.();
+    unsubscribeStatus = service.onStatusChange(updateStatus);
 
     // ── Game context banner ──
     const session = store.get("session");
@@ -144,4 +149,9 @@ export function buildMultiplayerHome(container: HTMLElement): void {
   };
 
   renderHome();
+  return () => {
+    disposed = true;
+    unsubscribeStatus?.();
+    unsubscribeStatus = null;
+  };
 }

@@ -2,6 +2,7 @@ import { BiosLibrary, BIOS_REQUIREMENTS } from "../bios.js";
 import { SYSTEMS } from "../systems.js";
 import { createElement as make } from "./dom.js";
 import type { RAUserSummary, RARecentAchievement } from "../types/metadata.js";
+import { parseRAKey } from "../raCredentials.js";
 import {
   ApiKeyStore,
   redactKey,
@@ -316,7 +317,7 @@ export function buildAchievementsTab(
   container.appendChild(dashboard);
 
   // Lazy load achievements data
-  void import("../achievements.js").then(({ getRAClient, parseRAKey }) => {
+  void import("../achievements.js").then(({ getRAClient }) => {
     const creds = parseRAKey(raState.key);
     if (!creds) return;
     const client = getRAClient(creds.username, creds.apiKey);
@@ -416,7 +417,7 @@ export function buildApiKeysTab(
     getTester(providerId: string): ApiKeyProviderTester | null;
     onError(message: string): void;
   },
-): void {
+): () => void {
   const { appName, getTester, onError } = opts;
 
   // Clear any prior content so the tab is safe to rebuild.
@@ -813,5 +814,5 @@ export function buildApiKeysTab(
   container.appendChild(footer);
 
   rebuild();
-  store.subscribe(() => rebuild());
+  return store.subscribe(() => rebuild());
 }

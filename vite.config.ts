@@ -127,9 +127,6 @@ export default defineConfig({
           if (id.includes("/src/archive.") || id.includes("/src/patcher.")) {
             return "tools";
           }
-          if (id.includes("/src/touchControls.")) {
-            return "touch";
-          }
           if (id.includes("/src/multiplayer.") || id.includes("/src/netplay/")) {
             return "multiplayer";
           }
@@ -138,9 +135,6 @@ export default defineConfig({
           }
           if (id.includes("/src/ui/modals.")) {
             return "modals";
-          }
-          if (id.includes("/src/ui/settingsTabs.") || id.includes("/src/ui/coverArtRegistry.")) {
-            return "settings";
           }
           if (id.includes("/src/ui/virtualGrid.")) {
             return "virtualgrid";

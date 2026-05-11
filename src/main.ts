@@ -55,7 +55,7 @@ import {
   getTouchControlsDefaultForSystem,
   isTouchDevice,
   setTouchControlsPreferenceForSystem,
-} from "./touchControls.js";
+} from "./touch/preferences.js";
 import { sessionTracker } from "./sessionTracker.js";
 import { store } from "./store/index.js";
 import type { NetplayIceServer } from "./store/index.js";
@@ -78,7 +78,7 @@ import {
 } from "./webgpuPostProcess.js";
 import { EMULATOR_JS_CONTAINER_ID } from "./emulatorDisplay.js";
 import { getApiKeyStore } from "./ui/coverArtRegistry.js";
-import { parseRAKey } from "./achievements.js";
+import { parseRAKey } from "./raCredentials.js";
 import { installWebGlContextPolicy } from "./webglContextPolicy.js";
 
 const APP_NAME = "RetroOasis";
