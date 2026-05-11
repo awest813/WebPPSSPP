@@ -703,7 +703,11 @@ export function initUI(opts: UIOptions): void {
   // Align the repeating interval to the next wall-clock minute so the display
   // never lags more than ~1 s behind the actual time.
   const msToNextMinute = 60_000 - (Date.now() % 60_000);
-  let clockInterval: ReturnType<typeof setInterval> | undefined;
+  // clockInterval is assigned inside clockAlignTimeout; the cleanup fn always
+  // runs after initUI returns, so by then the timeout has either fired (and
+  // clockInterval is set) or is still pending (in which case clearInterval(0)
+  // is a safe no-op on all platforms).
+  let clockInterval: ReturnType<typeof setInterval> = 0 as unknown as ReturnType<typeof setInterval>;
   const clockAlignTimeout = setTimeout(() => {
     updateClock();
     clockInterval = setInterval(updateClock, 60_000);
@@ -731,7 +735,7 @@ export function initUI(opts: UIOptions): void {
   });
 
   const cleanupFns: Array<() => void> = [
-    () => { clearTimeout(clockAlignTimeout); if (clockInterval !== undefined) clearInterval(clockInterval); }
+    () => { clearTimeout(clockAlignTimeout); clearInterval(clockInterval); }
   ];
   const bindEvent = (
     target: EventTarget,

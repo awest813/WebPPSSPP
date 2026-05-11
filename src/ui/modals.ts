@@ -789,15 +789,19 @@ export function showCoverArtCandidatePicker(
       const emptyP = createElement("p", { class: "cover-art-no-results__text" });
       const gameNameStrong = createElement("strong", {});
       gameNameStrong.textContent = `"${gameName}"`;
+      const uploadStrong = createElement("strong", {});
+      uploadStrong.textContent = "Upload image";
+      const urlStrong = createElement("strong", {});
+      urlStrong.textContent = "image URL";
       emptyP.append(
         document.createTextNode("No covers found for "),
         gameNameStrong,
         document.createTextNode("."),
         createElement("br", {}),
         document.createTextNode("Use "),
-        Object.assign(createElement("strong", {}), { textContent: "Upload image" }),
+        uploadStrong,
         document.createTextNode(" or a direct "),
-        Object.assign(createElement("strong", {}), { textContent: "image URL" }),
+        urlStrong,
         document.createTextNode(" from the cover menu."),
       );
       empty.append(emptyIcon, emptyP);
