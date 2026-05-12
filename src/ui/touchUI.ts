@@ -1,35 +1,23 @@
 import { getSystemById, type SystemInfo } from "../systems.js";
 import type { DeviceCapabilities } from "../performance.js";
+import { isChromebookLowRamProfile, isLikelyIOS, isLikelyAndroid } from "../performance.js";
 import { getTouchControlsDefaultForSystem, isTouchDevice } from "../touch/preferences.js";
 import type { TouchControlsOverlay } from "../touchControls.js";
 import type { Settings } from "../main.js";
-import { createElement as make } from "./dom.js";
+import { createElement as make, buildToggleRow } from "./dom.js";
+import { ICON_PWA_INSTALL_SVG } from "../chromeIcons.js";
+import { LEGACY_EVENTS } from "../legacy.js";
 
-function buildToggleRow(label: string, desc: string, checked: boolean, onChange: (v: boolean) => void): HTMLElement {
-  const row = make("label", { class: "toggle-row" });
-  const left = make("span", { class: "toggle-row__text" });
-  left.append(make("span", { class: "radio-row__label" }, label), make("span", { class: "radio-row__desc" }, desc));
-  const toggle = make("span", { class: "toggle-switch" });
-  const input  = make("input", { type: "checkbox" }) as HTMLInputElement;
-  input.checked = checked;
-  input.setAttribute("aria-label", label);
-  const knob = make("span", { class: "toggle-switch__knob" });
-  toggle.classList.toggle("is-checked", checked);
-  toggle.append(input, knob);
-  input.addEventListener("change", () => {
-    toggle.classList.toggle("is-checked", input.checked);
-    onChange(input.checked);
-  });
-  row.append(left, toggle);
-  return row;
-}
+const APP_NAME = "RetroOasis";
 
 export function buildMobileSection(
   mobileSection: HTMLElement,
   settings: Settings,
-  _deviceCaps: DeviceCapabilities,
+  deviceCaps: DeviceCapabilities,
   onSettingsChange: (patch: Partial<Settings>) => void,
   emulatorRef?: { currentSystem?: SystemInfo | null },
+  canInstallPWA?: () => boolean,
+  onInstallPWA?: () => Promise<boolean>,
 ): void {
   mobileSection.appendChild(make("h4", { class: "settings-section__title" }, "Mobile & Touch"));
 
@@ -40,7 +28,49 @@ export function buildMobileSection(
     : `On-screen buttons over the game — defaults match each console. Turn off to hide them, or use Edit controls in the toolbar to reposition per console.`;
 
   const installRow = make("div", { class: "pwa-install-row" });
-  installRow.innerHTML = `<p class="settings-help">Install as app: use your browser's install command in the address bar or menu.</p>`;
+  const pwaInstallFallbackHelp = (): string => {
+    if (deviceCaps.isChromOS) {
+      const lowRam = isChromebookLowRamProfile(deviceCaps);
+      return (
+        `Install ${APP_NAME} from the Chrome menu (\u22EE): choose Install ${APP_NAME}\u2026, or Save and Share \u2192 Create shortcut \u2192 Open as window. ` +
+        `Launch from the shelf instead of a crowded browser tab.` +
+        (lowRam ? " Especially helpful on 2 GB Chromebooks where fewer tabs leave more RAM for games." : "")
+      );
+    }
+    if (deviceCaps.isAndroid || isLikelyAndroid()) {
+      return `Install ${APP_NAME} on Android: open in Chrome or Edge, tap the browser menu \u2192 Install app or Add to Home screen.`;
+    }
+    if (deviceCaps.isIOS || isLikelyIOS()) {
+      return `Install ${APP_NAME} on iPhone or iPad: tap Share \u2192 Add to Home Screen.`;
+    }
+    return (
+      `Install ${APP_NAME} on desktop: Chrome or Edge menu (\u22EE) \u2192 Install ${APP_NAME}\u2026 ` +
+      `(or Apps \u2192 Install this site as an app).`
+    );
+  };
+  const buildInstallBtn = () => {
+    installRow.innerHTML = "";
+    if (!canInstallPWA?.()) {
+      installRow.appendChild(make("p", { class: "settings-help" }, pwaInstallFallbackHelp()));
+      return;
+    }
+    const btnInstall = make("button", { class: "btn btn--primary pwa-install-btn" });
+    const iconSpan = make("span", { class: "pwa-install__icon", "aria-hidden": "true" });
+    iconSpan.innerHTML = ICON_PWA_INSTALL_SVG;
+    const labelSpan = make("span", { class: "pwa-install__label" }, "Install as App");
+    btnInstall.append(iconSpan, labelSpan);
+    btnInstall.addEventListener("click", async () => {
+      if (!onInstallPWA) return;
+      const installed = await onInstallPWA();
+      if (installed) {
+        labelSpan.textContent = "Installing\u2026";
+        btnInstall.disabled = true;
+      }
+    });
+    installRow.appendChild(btnInstall);
+  };
+  buildInstallBtn();
+  document.addEventListener(LEGACY_EVENTS.installPromptReady, () => buildInstallBtn(), { once: true });
   mobileSection.appendChild(installRow);
 
   mobileSection.appendChild(buildToggleRow(

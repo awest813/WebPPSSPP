@@ -154,7 +154,7 @@ import { createUuid } from "./uuid.js";
 import { SaveGameService } from "./saveService.js";
 import type { ArchiveExtractProgress, ArchiveFormat } from "./archive.js";
 import { LEGACY_EVENTS } from "./legacy.js";
-import { queryRequired as el, createElement as make } from "./ui/dom.js";
+import { queryRequired as el, createElement as make, buildToggleRow } from "./ui/dom.js";
 import {
   getEasyNetplayManager as sharedGetEasyNetplayManager,
   renderEasyDiagnosticEntry as sharedRenderEasyDiagnosticEntry,
@@ -238,8 +238,8 @@ const resolveAssetUrl = (path: string): string => {
 };
 
 // ── PWA install callbacks (set once from initUI) ───────────────────────────────
-// PWA install UI now lives in buildMobileSection (src/ui/touchUI.ts).
-// Keep the parameters in initUI's signature so callers don't break.
+let _canInstallPWA: (() => boolean) | undefined;
+let _onInstallPWA:  (() => Promise<boolean>) | undefined;
 
 // ── Settings opener callback (set once from initUI, used by showError action buttons) ──
 let _openSettingsFn: ((tab?: string) => void) | null = null;
@@ -721,7 +721,9 @@ export function initUI(opts: UIOptions): void {
           onApplyPatch, onFileChosen,
           getCurrentGameId, getCurrentGameName, getCurrentSystemId,
           getCurrentCoreOptions, onUpdateCoreOption,
-          getTouchOverlay, canInstallPWA, onInstallPWA } = opts;
+          getTouchOverlay } = opts;
+  _canInstallPWA = opts.canInstallPWA;
+  _onInstallPWA  = opts.onInstallPWA;
 
   const saveService = opts.saveService ?? new SaveGameService({
     saveLibrary,
@@ -784,8 +786,6 @@ export function initUI(opts: UIOptions): void {
   };
   bindEvent(document, LEGACY_EVENTS.libraryCatalogNeedsRefresh, refreshLibraryCatalog);
 
-  void canInstallPWA;
-  void onInstallPWA;
   _openSettingsFn = (tab?: string) =>
     openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, getNetplayManager, tab as SettingsTab | undefined);
 
@@ -5481,7 +5481,7 @@ function buildDisplayTab(
   audioSection.appendChild(cutoffRow);
 
   const mobileSection = make("div", { class: "settings-section" });
-  buildMobileSection(mobileSection, settings, deviceCaps, onSettingsChange, emulatorRef);
+  buildMobileSection(mobileSection, settings, deviceCaps, onSettingsChange, emulatorRef, _canInstallPWA, _onInstallPWA);
 
   container.append(overlaySection, audioSection, mobileSection);
 
@@ -8594,28 +8594,6 @@ function buildDebugTab(
 }
 
 // ── About tab ─────────────────────────────────────────────────────────────────
-
-function buildToggleRow(label: string, desc: string, checked: boolean, onChange: (v: boolean) => void): HTMLElement {
-  const row = make("label", { class: "toggle-row" });
-
-  const left = make("span", { class: "toggle-row__text" });
-  left.append(make("span", { class: "radio-row__label" }, label), make("span", { class: "radio-row__desc" }, desc));
-
-  const toggle = make("span", { class: "toggle-switch" });
-  const input  = make("input", { type: "checkbox" }) as HTMLInputElement;
-  input.checked = checked;
-  input.setAttribute("aria-label", label);
-  const knob = make("span", { class: "toggle-switch__knob" });
-  toggle.classList.toggle("is-checked", checked);
-  toggle.append(input, knob);
-
-  input.addEventListener("change", () => {
-    toggle.classList.toggle("is-checked", input.checked);
-    onChange(input.checked);
-  });
-  row.append(left, toggle);
-  return row;
-}
 
 // ── Multi-disc helpers ────────────────────────────────────────────────────────
 

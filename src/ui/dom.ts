@@ -4,6 +4,25 @@ export function queryRequired<T extends HTMLElement = HTMLElement>(selector: str
   return node;
 }
 
+export function buildToggleRow(label: string, desc: string, checked: boolean, onChange: (v: boolean) => void): HTMLElement {
+  const row = createElement("label", { class: "toggle-row" });
+  const left = createElement("span", { class: "toggle-row__text" });
+  left.append(createElement("span", { class: "radio-row__label" }, label), createElement("span", { class: "radio-row__desc" }, desc));
+  const toggle = createElement("span", { class: "toggle-switch" });
+  const input  = createElement("input", { type: "checkbox" }) as HTMLInputElement;
+  input.checked = checked;
+  input.setAttribute("aria-label", label);
+  const knob = createElement("span", { class: "toggle-switch__knob" });
+  toggle.classList.toggle("is-checked", checked);
+  toggle.append(input, knob);
+  input.addEventListener("change", () => {
+    toggle.classList.toggle("is-checked", input.checked);
+    onChange(input.checked);
+  });
+  row.append(left, toggle);
+  return row;
+}
+
 export function createElement<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string> = {},
