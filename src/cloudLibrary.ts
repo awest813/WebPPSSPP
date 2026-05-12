@@ -717,10 +717,13 @@ export class MegaLibraryProvider implements CloudProvider {
     return MegaLibraryProvider._uint8ToBase64(uhBytes);
   }
 
-  /**
-   * Minimal AES-ECB single-block encryption (16 bytes).
-   * Uses the AES S-box and key schedule directly for a pure-JS implementation
-   * that works in any browser without WebCrypto (which doesn't expose ECB).
+/**
+   * AES-ECB encryption of a single 16-byte block.
+   *
+   * Invariant: caller guarantees `block` is exactly 16 bytes and `key` is
+   * exactly 16 bytes (128-bit). `_aesExpandKey` always produces a 176-byte
+   * expanded key for a 128-bit key (10 rounds + 1), so `expandedKey[i]!`
+   * accesses inside the round loop are always defined.
    */
   static _aesEcbEncryptBlock(block: Uint8Array, key: Uint8Array): Uint8Array {
     const expandedKey = MegaLibraryProvider._aesExpandKey(key);

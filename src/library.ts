@@ -262,7 +262,12 @@ export class GameLibrary {
     const meta = await this.getAllGamesMetadata();
     const match = meta.find(g => g.cloudId === cloudId && g.remotePath === remotePath);
     if (!match) return null;
-    return this.getGame(match.id);
+    const entry = await this.getGame(match.id);
+    if (!entry) {
+      invalidateMetadataCache();
+      return null;
+    }
+    return entry;
   }
 
   /**
