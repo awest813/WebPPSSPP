@@ -677,7 +677,7 @@ async function main(): Promise<void> {
             `[${APP_NAME}] Cloud save-state sync completed with slot errors before launch.`,
             result,
           );
-          showInfoToast(`Cloud sync had ${result.errors} error(s) — open Save States to retry.`);
+          showInfoToast(`Cloud sync had ${result.errors} error(s) — open the Save States panel to retry.`);
         } else if (result.pulled > 0 || result.pushed > 0) {
           const parts: string[] = [];
           if (result.pulled > 0) parts.push(`${result.pulled} pulled from cloud`);
