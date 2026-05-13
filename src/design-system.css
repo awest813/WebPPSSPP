@@ -93,10 +93,15 @@
   --safe-right:  env(safe-area-inset-right, 0px);
 
   /* ── Layout ── */
-  --header-h:     72px;
-  --footer-h:     64px;
+  --header-h:     clamp(64px, 6vw, 72px);
+  --footer-h:     clamp(56px, 5vw, 64px);
   --sidebar-w:    300px;
-  --settings-sidebar-w: 162px;
+  --settings-sidebar-w: clamp(248px, 22vw, 320px);
+  --shell-gutter: clamp(16px, 3vw, 40px);
+  --shell-gutter-lg: clamp(24px, 5vw, 72px);
+  --section-gap: clamp(16px, 2.5vw, 32px);
+  --library-shell-max-w: min(1320px, calc(100vw - (var(--shell-gutter) * 2)));
+  --content-max-w: min(800px, calc(100vw - (var(--shell-gutter) * 2)));
   --toast-bottom: calc(var(--footer-h) + var(--safe-bottom) + 14px);
 
   /* ── Transitions ── */
@@ -126,7 +131,7 @@
   --font-sans:    "Inter", system-ui, -apple-system, "Segoe UI", "Trebuchet MS", sans-serif;
   --font-mono:    "SF Mono", "Fira Code", "JetBrains Mono", "Consolas", monospace;
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: clamp(14px, 0.35vw + 13px, 16px);
   color: var(--c-text);
   background: var(--c-bg);
   color-scheme: dark;
