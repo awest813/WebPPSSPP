@@ -3194,11 +3194,30 @@ const EXTRACTABLE_ARCHIVE_FORMATS = new Set<ArchiveFormat>(["zip", "7z", "rar", 
 
 /** Extensions that are definitively unsupported archive formats (not ROM native packages). */
 const UNSUPPORTED_ARCHIVE_EXT_SET = new Set(["zst", "lz", "lzma", "cab"]);
+/**
+ * Minimum BIN candidate count before treating ZIP/7z contents as a likely
+ * native arcade-style package.
+ * A threshold of 4 avoids misclassifying small user-created archives while
+ * still catching typical multi-chip arcade ROM sets.
+ */
+const MIN_NATIVE_PACKAGE_BIN_ENTRY_COUNT = 4;
+const NATIVE_PACKAGE_BIN_EXT = "bin";
+const NATIVE_PACKAGE_ARCHIVE_SUFFIX_RE = /\.(zip|7z)$/i;
 
 function fileExt(fileName: string): string {
   const dotIdx = fileName.lastIndexOf(".");
   if (dotIdx <= 0 || dotIdx >= fileName.length - 1) return "";
   return fileName.substring(dotIdx + 1).toLowerCase();
+}
+
+/**
+ * Returns true when an archive filename already includes a known ROM extension
+ * before the final archive suffix (e.g. "game.nes.zip").
+ */
+function hasKnownRomHintInArchiveName(fileName: string): boolean {
+  const stem = fileName.replace(NATIVE_PACKAGE_ARCHIVE_SUFFIX_RE, "");
+  const stemExt = fileExt(stem);
+  return stemExt !== "" && ALL_EXTENSIONS.includes(stemExt);
 }
 
 function inferFileForSystem(original: File, system: SystemInfo): File {
@@ -3405,7 +3424,22 @@ export async function resolveSystemAndAdd(
 
       if (extracted) {
         const extractedCandidates = extracted.candidates ?? [];
-        if (extractedCandidates.length > 1) {
+        const shouldPreferNativePackageRouting =
+          (archiveFormat === "zip" || archiveFormat === "7z") &&
+          !hasKnownRomHintInArchiveName(file.name) &&
+          extractedCandidates.length >= MIN_NATIVE_PACKAGE_BIN_ENTRY_COUNT &&
+          extractedCandidates.every((candidate) => fileExt(candidate.name) === NATIVE_PACKAGE_BIN_EXT);
+
+        if (shouldPreferNativePackageRouting) {
+          resolvedFile = file;
+          setLoadingMessage("Detected native package archive — using original file…");
+          setLoadingSubtitle("");
+          logImport(
+            emulatorRef,
+            settings,
+            `${archiveFormat.toUpperCase()} appears to be a native package set (${extractedCandidates.length} BIN entries); skipping inner extraction routing`,
+          );
+        } else if (extractedCandidates.length > 1) {
           const savedPick = ArchiveSelectionStore.get(file.name, file.size);
           const pickedCandidate = savedPick 
             ? extractedCandidates.find(c => c.name === savedPick)

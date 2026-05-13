@@ -484,6 +484,51 @@ describe("resolveSystemAndAdd mobile archive handling", () => {
     expect(onLaunchGame).toHaveBeenCalledWith(expect.any(File), "nes", "game-rar-1");
   });
 
+  it("keeps native ZIP package routing for BIN-heavy arcade-style archives", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("zip");
+    vi.spyOn(archive, "extractFromArchive").mockResolvedValue({
+      format: "zip",
+      name: "a.bin",
+      blob: new Blob([new Uint8Array([0x01])], { type: "application/octet-stream" }),
+      candidates: [
+        { name: "a.bin", blob: new Blob([new Uint8Array([0x01])]), size: 1 },
+        { name: "b.bin", blob: new Blob([new Uint8Array([0x02])]), size: 1 },
+        { name: "c.bin", blob: new Blob([new Uint8Array([0x03])]), size: 1 },
+        { name: "d.bin", blob: new Blob([new Uint8Array([0x04])]), size: 1 },
+      ],
+    });
+
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "game-zip-native-1",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    // ZIP file signature (PK\x03\x04)
+    const file = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "sf2.zip", { type: "application/zip" });
+
+    const importPromise = resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame);
+    await new Promise(r => setTimeout(r, 0));
+
+    const systemButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".system-pick-btn"));
+    expect(systemButtons.length).toBeGreaterThan(0);
+    const arcadeButton = systemButtons.find((btn) => btn.textContent?.includes("Arcade")) ?? systemButtons[0];
+    arcadeButton?.click();
+
+    await importPromise;
+
+    expect(archive.extractFromArchive).toHaveBeenCalledWith(file, expect.any(Object));
+    expect(onLaunchGame).toHaveBeenCalledTimes(1);
+    const [launchedFile] = onLaunchGame.mock.calls[0] as unknown as [File, string, string?];
+    expect(launchedFile.name).toBe("sf2.zip");
+  });
+
   it("shows a clear error for .zst files (Zstandard, unsupported)", async () => {
     vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
 
