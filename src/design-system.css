@@ -131,7 +131,7 @@
   --font-sans:    "Inter", system-ui, -apple-system, "Segoe UI", "Trebuchet MS", sans-serif;
   --font-mono:    "SF Mono", "Fira Code", "JetBrains Mono", "Consolas", monospace;
   font-family: var(--font-sans);
-  font-size: clamp(14px, 0.35vw + 13px, 16px);
+  font-size: clamp(14px, 0.14vw + 13.1px, 15px);
   color: var(--c-text);
   background: var(--c-bg);
   color-scheme: dark;
