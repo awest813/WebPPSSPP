@@ -96,11 +96,11 @@
   --header-h:     clamp(64px, 6vw, 72px);
   --footer-h:     clamp(56px, 5vw, 64px);
   --sidebar-w:    300px;
-  --settings-sidebar-w: clamp(216px, 22vw, 320px);
+  --settings-sidebar-w: clamp(162px, 22vw, 320px);
   --shell-gutter: clamp(16px, 3vw, 40px);
   --shell-gutter-lg: clamp(24px, 5vw, 72px);
   --section-gap: clamp(16px, 2.5vw, 32px);
-  --library-shell-max-w: min(1320px, calc(100vw - (var(--shell-gutter) * 2)));
+  --library-shell-max-w: min(1200px, calc(100vw - (var(--shell-gutter) * 2)));
   --content-max-w: min(800px, calc(100vw - (var(--shell-gutter) * 2)));
   --toast-bottom: calc(var(--footer-h) + var(--safe-bottom) + 14px);
 

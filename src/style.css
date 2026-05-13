@@ -430,7 +430,10 @@ body.is-playing #landing.hidden {
   background: var(--c-surface2);
   border: 3px solid var(--c-border);
   border-radius: 999px;
-  padding: clamp(12px, 1.8vw, 14px) clamp(18px, 2vw, 24px) clamp(12px, 1.8vw, 14px) clamp(40px, 4vw, 48px);
+  padding-top: clamp(12px, 1.8vw, 14px);
+  padding-right: clamp(18px, 2vw, 24px);
+  padding-bottom: clamp(12px, 1.8vw, 14px);
+  padding-left: clamp(40px, 4vw, 48px);
   color: #fff;
   font-size: 1rem;
   transition: all 0.3s ease;
