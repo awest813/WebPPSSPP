@@ -680,8 +680,11 @@ async function main(): Promise<void> {
           if (result.pushed > 0) parts.push(`${result.pushed} uploaded to cloud`);
           showInfoToast(`Save states updated · ${parts.join(" · ")}`);
         }
-      } catch {
-        // Cloud sync is best-effort; continue launching with local save states.
+      } catch (error) {
+        console.warn(
+          `[${APP_NAME}] Cloud save-state sync failed before launch; continuing with local save states.`,
+          error,
+        );
       }
       setLoadingSubtitle("Preparing the emulator and loading your game…");
     }

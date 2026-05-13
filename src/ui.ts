@@ -6316,7 +6316,7 @@ function showCloudConnectDialog(): Promise<boolean> {
       box.setAttribute("aria-labelledby", titleId);
       box.appendChild(make("h3", { id: titleId, class: "confirm-box__title" }, "Connect Cloud Save Backup"));
       box.appendChild(make("p", { class: "confirm-box__body" },
-        "Choose a cloud provider to mirror RetroOasis save states across devices. Core-managed save files and memory cards stay local to this browser session."
+        "Choose a cloud provider to mirror RetroOasis save states across devices. Core-managed save files and memory cards stay local to this browser on this device."
       ));
 
       const providerGrid = make("div", { class: "cloud-provider-grid" });
