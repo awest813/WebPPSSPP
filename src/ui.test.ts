@@ -11,6 +11,7 @@ import type { SaveStateLibrary } from "./saves.js";
 import type { Settings } from "./main.js";
 import { UIDirtyFlags, UIDirtyTracker, type DeviceCapabilities } from "./performance.js";
 import { store } from "./store/index.js";
+import { LEGACY_EVENTS } from "./legacy.js";
 
 function makeSaveLibraryStub(overrides: Partial<SaveStateLibrary> = {}): SaveStateLibrary {
   return {
@@ -2198,6 +2199,17 @@ describe("F3 developer debug overlay", () => {
     expect(document.getElementById("fps-drs")).toBeTruthy();
   });
 
+  it("buildDOM includes the in-game session overlay hidden by default", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const overlay = document.getElementById("in-game-overlay");
+    expect(overlay).toBeTruthy();
+    expect(overlay!.hidden).toBe(true);
+    expect(overlay!.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("buildDOM includes footer connectivity status for network UX", () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
@@ -2275,6 +2287,21 @@ describe("F3 developer debug overlay", () => {
     expect(document.getElementById("dev-memory")).toBeTruthy();
     expect(document.getElementById("dev-state")).toBeTruthy();
     expect(document.getElementById("dev-framegraph")).toBeTruthy();
+  });
+
+  it("toggles aria-hidden with the dev overlay visibility", () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const overlay = document.getElementById("dev-overlay")!;
+    toggleDevOverlay();
+    expect(overlay.hidden).toBe(false);
+    expect(overlay.getAttribute("aria-hidden")).toBe("false");
+
+    toggleDevOverlay();
+    expect(overlay.hidden).toBe(true);
+    expect(overlay.getAttribute("aria-hidden")).toBe("true");
   });
 });
 
@@ -2887,6 +2914,50 @@ describe("in-game UI — rotate hint, keyboard reset, save gallery", () => {
     }
 
     expect(emulatorMock.reset).not.toHaveBeenCalled();
+  });
+
+  it("shows accessible in-game overlay controls while playing and hides them on return", () => {
+    const onReturnToLibrary = vi.fn();
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    initUI({
+      ...makeOpts(makeSettings({ lastGameName: "Crisis Core" })),
+      emulator: emulatorMock,
+      onReturnToLibrary,
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+
+    const overlay = document.getElementById("in-game-overlay")!;
+    expect(overlay.hidden).toBe(false);
+    expect(overlay.getAttribute("aria-hidden")).toBe("false");
+    expect(overlay.textContent).toContain("Now playing · Crisis Core");
+
+    const libraryButton = Array.from(overlay.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("Library"));
+    expect(libraryButton?.type).toBe("button");
+    libraryButton?.click();
+    expect(onReturnToLibrary).toHaveBeenCalled();
+
+    document.dispatchEvent(new CustomEvent(LEGACY_EVENTS.returnToLibrary));
+    expect(overlay.hidden).toBe(true);
+    expect(overlay.getAttribute("aria-hidden")).toBe("true");
   });
 
 

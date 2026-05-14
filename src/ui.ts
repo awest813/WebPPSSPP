@@ -482,8 +482,9 @@ export function buildDOM(app: HTMLElement): void {
       <!-- EmulatorJS mount point (hidden until a game launches) -->
       <div id="${EMULATOR_JS_CONTAINER_ID}">
         <div id="ejs-player"></div>
+        <div id="in-game-overlay" class="in-game-overlay" hidden aria-label="In-game session controls" aria-hidden="true"></div>
         <!-- Premium In-Game Performance Overlay -->
-        <div id="fps-overlay" class="fps-overlay" hidden aria-label="Frame rate and performance overlay">
+        <div id="fps-overlay" class="fps-overlay" hidden role="status" aria-label="Frame rate and performance overlay" aria-live="polite" aria-atomic="true" aria-hidden="true">
           <div class="fps-current">
             <span id="fps-current-val" class="fps-val">--</span>
             <span class="fps-label">FPS</span>
@@ -496,7 +497,7 @@ export function buildDOM(app: HTMLElement): void {
           <canvas id="fps-visualiser" class="fps-visualiser" width="60" height="18" hidden aria-hidden="true"></canvas>
         </div>
         <!-- High-Fidelity Developer Dashboard (F3) -->
-        <div id="dev-overlay" class="dev-overlay" hidden aria-label="System diagnostic dashboard" aria-live="off">
+        <div id="dev-overlay" class="dev-overlay" hidden role="status" aria-label="System diagnostic dashboard" aria-live="off" aria-hidden="true">
           <div class="dev-overlay__title">System Diagnostic</div>
           <div class="dev-overlay__grid">
             <span class="dev-overlay__label">Frame Time</span><span id="dev-frame-time" class="dev-overlay__value">--ms</span>
@@ -3925,7 +3926,7 @@ function _isInGameSession(emulator: PSPEmulator): boolean {
   return emulator.state === "running" || emulator.state === "paused";
 }
 
-/** Minimal in-game header: "Now playing" chip + "← Library" button. EmulatorJS handles the rest. */
+/** Minimal in-game overlay: "Now playing" chip + quick actions. EmulatorJS handles the rest. */
 function buildInGameControls(
   _emulator:          PSPEmulator,
   settings:           Settings,
@@ -3943,8 +3944,14 @@ function buildInGameControls(
   _getCurrentCoreOptions?: () => Record<string, string>,
   _onUpdateCoreOption?: (key: string, value: string) => void,
 ): void {
-  const container = el("#header-actions");
-  container.innerHTML = "";
+  const headerContainer = el("#header-actions");
+  headerContainer.innerHTML = "";
+  const overlayContainer = document.getElementById("in-game-overlay");
+  if (overlayContainer) {
+    overlayContainer.innerHTML = "";
+    overlayContainer.hidden = false;
+    overlayContainer.setAttribute("aria-hidden", "false");
+  }
   const currentGameName = getCurrentGameName?.()?.trim() || settings.lastGameName?.trim() || "Unknown";
 
   if (_inGameControlsAc) {
@@ -3953,25 +3960,54 @@ function buildInGameControls(
   _inGameControlsAc = new AbortController();
   const signal = _inGameControlsAc.signal;
 
-  const nowPlayingChip = make("div", {
-    class: "now-playing-chip header-priority-chip",
-    role: "status",
-    "aria-live": "polite",
-    "aria-label": `Now playing ${currentGameName}`,
-  });
-  nowPlayingChip.textContent = `Now playing · ${currentGameName}`;
-  container.append(nowPlayingChip);
+  const buildNowPlayingChip = () => {
+    const chip = make("div", {
+      class: "now-playing-chip header-priority-chip",
+      role: "status",
+      "aria-live": "polite",
+      "aria-label": `Now playing ${currentGameName}`,
+      title: currentGameName,
+    });
+    chip.textContent = `Now playing · ${currentGameName}`;
+    return chip;
+  };
 
-  const btnLibrary = make("button", {
-    class: "btn btn--gradient header-priority-primary",
-    title: "Back to Library (Esc)",
-    "aria-label": "Back to Library",
-  });
-  btnLibrary.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Library`;
-  btnLibrary.addEventListener("click", () => onReturnToLibrary(), { signal });
-  container.append(btnLibrary);
+  const buildLibraryButton = (className: string) => {
+    const btnLibrary = make("button", {
+      class: className,
+      type: "button",
+      title: "Back to Library (Esc)",
+      "aria-label": "Back to Library",
+    });
+    btnLibrary.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Library`;
+    btnLibrary.addEventListener("click", () => onReturnToLibrary(), { signal });
+    return btnLibrary;
+  };
+
+  headerContainer.append(buildNowPlayingChip(), buildLibraryButton("btn btn--gradient header-priority-primary"));
+
+  if (overlayContainer) {
+    const actions = make("div", { class: "in-game-overlay__actions", role: "group", "aria-label": "In-game quick actions" });
+    if (_onOpenSettings) {
+      const btnSettings = make("button", {
+        class: "btn btn--ghost in-game-overlay__btn",
+        type: "button",
+        title: "Open Settings (F9)",
+        "aria-label": "Open Settings",
+      }, "Settings");
+      btnSettings.addEventListener("click", () => _onOpenSettings("performance"), { signal });
+      actions.append(btnSettings);
+    }
+    actions.append(buildLibraryButton("btn btn--gradient in-game-overlay__btn"));
+    overlayContainer.append(buildNowPlayingChip(), actions);
+  }
 
   document.addEventListener(LEGACY_EVENTS.returnToLibrary, () => {
+    if (overlayContainer) {
+      overlayContainer.hidden = true;
+      overlayContainer.setAttribute("aria-hidden", "true");
+      overlayContainer.innerHTML = "";
+    }
     _inGameControlsAc?.abort();
     _inGameControlsAc = null;
   }, { once: true, signal });

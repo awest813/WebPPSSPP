@@ -188,7 +188,10 @@ function _getDevOverlayEls(): Record<string, HTMLElement | null> {
 export function toggleDevOverlay(): void {
   _devOverlayVisible = !_devOverlayVisible;
   const el = document.getElementById("dev-overlay");
-  if (el) el.hidden = !_devOverlayVisible;
+  if (el) {
+    el.hidden = !_devOverlayVisible;
+    el.setAttribute("aria-hidden", String(!_devOverlayVisible));
+  }
 }
 
 /** Return whether the developer debug overlay is currently shown. */
@@ -265,7 +268,10 @@ export function updateDevOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): 
  */
 export function showFPSOverlay(show: boolean, emulatorRef?: PSPEmulator, showAudioVis?: boolean): void {
   const overlay = document.getElementById("fps-overlay");
-  if (overlay) overlay.hidden = !show;
+  if (overlay) {
+    overlay.hidden = !show;
+    overlay.setAttribute("aria-hidden", String(!show));
+  }
   if (show && showAudioVis) startAudioVisualiser(emulatorRef); else stopAudioVisualiser();
 }
 

@@ -1291,10 +1291,68 @@ body.is-playing #landing.hidden {
 
 /* ── In-Game Overlays (HUD) ── */
 
+.in-game-overlay {
+  position: absolute;
+  top: max(clamp(12px, 2vw, 18px), env(safe-area-inset-top, 0px));
+  left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
+  right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
+  z-index: 620;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(10px, 2vw, 16px);
+  pointer-events: none;
+}
+
+.in-game-overlay[hidden] {
+  display: none;
+}
+
+.in-game-overlay > * {
+  pointer-events: auto;
+}
+
+.in-game-overlay .now-playing-chip {
+  max-width: min(52vw, 520px);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-text);
+  background: rgba(18,18,18,0.76);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.in-game-overlay .now-playing-chip::before {
+  flex: 0 0 auto;
+}
+
+.in-game-overlay__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-pill);
+  background: rgba(18,18,18,0.62);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  backdrop-filter: blur(14px) saturate(130%);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.32);
+}
+
+.in-game-overlay__btn {
+  min-height: 38px;
+  padding-inline: 14px;
+}
+
 .fps-overlay {
   position: absolute;
-  top: calc(var(--header-h) + clamp(12px, 2vw, 16px));
-  right: var(--shell-gutter);
+  top: max(clamp(70px, 10vw, 82px), calc(env(safe-area-inset-top, 0px) + 66px));
+  right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
   background: rgba(0,0,0,0.7);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
@@ -1316,8 +1374,8 @@ body.is-playing #landing.hidden {
 
 .dev-overlay {
   position: absolute;
-  top: calc(var(--header-h) + clamp(16px, 3vw, 24px));
-  right: var(--shell-gutter);
+  top: max(clamp(106px, 13vw, 124px), calc(env(safe-area-inset-top, 0px) + 96px));
+  right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
   width: 240px;
   background: rgba(18,18,18,0.9);
   -webkit-backdrop-filter: blur(12px);
@@ -1355,6 +1413,43 @@ body.is-playing #landing.hidden {
   margin-top: 16px;
   background: rgba(255,255,255,0.05);
   border-radius: 8px;
+}
+
+@media (max-width: 700px) {
+  .in-game-overlay {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .in-game-overlay .now-playing-chip,
+  .in-game-overlay__actions {
+    max-width: none;
+    width: 100%;
+  }
+
+  .in-game-overlay__actions {
+    justify-content: space-between;
+  }
+
+  .in-game-overlay__btn {
+    flex: 1 1 0;
+  }
+
+  .fps-overlay {
+    top: max(clamp(132px, 30vw, 152px), calc(env(safe-area-inset-top, 0px) + 124px));
+    left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
+    right: auto;
+    max-width: calc(100% - (var(--shell-gutter) * 2));
+    flex-wrap: wrap;
+  }
+
+  .dev-overlay {
+    top: max(clamp(186px, 44vw, 216px), calc(env(safe-area-inset-top, 0px) + 178px));
+    left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
+    right: auto;
+    width: min(240px, calc(100% - (var(--shell-gutter) * 2)));
+    padding: 18px;
+  }
 }
 
 /* ── Now Playing & Header HUD ── */
@@ -6225,6 +6320,10 @@ body.using-gamepad .game-card:focus {
   }
 
   .mobile-fab {
+    animation: none;
+  }
+
+  .now-playing-chip::before {
     animation: none;
   }
 
