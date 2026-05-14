@@ -135,6 +135,9 @@
   color: var(--c-text);
   background: var(--c-bg);
   color-scheme: dark;
+  /* ── Easing helpers ── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
   /* ── Premium Console Helpers ── */
   --bg-gradient: radial-gradient(circle at top left, #1a1a1a 0%, #121212 100%);
   --accent-gradient: linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-dark) 100%);

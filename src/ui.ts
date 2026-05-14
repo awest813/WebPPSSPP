@@ -151,6 +151,7 @@ import {
   showCoverArtCandidatePicker,
   showGameDetails,
   isTopmostOverlay,
+  type CoverArtPickResult,
 } from "./ui/modals.js";
 import {
   fetchAndValidateCoverArt,
@@ -311,6 +312,7 @@ export function buildDOM(app: HTMLElement): void {
   // Reset DevOverlay cached DOM references (nodes will be recreated below)
   resetDevOverlayCache();
   _fpsOverlayEls = null;
+  resetPerfSuggestion();
 
   const archivePickerExts = [
     "zip", "7z", "rar", "tar", "gz", "tgz",
@@ -1047,7 +1049,7 @@ export function initUI(opts: UIOptions): void {
   // Ensure overlay work is paused while browsing the library.
   const onReturnToLibraryEvent = () => {
     showFPSOverlay(false);
-    // Reveal the FAB and hide the rotate hint when back on the library page.
+    resetPerfSuggestion();
     mobileFab?.classList.remove("mobile-fab--hidden");
     updateRotateHint();
   };
@@ -1511,6 +1513,8 @@ export async function renderLibrary(
     for (const sid of systemIds) { emulatorRef.prefetchCore(sid); }
   }
 
+  const gridImgs = grid.querySelectorAll<HTMLImageElement>('img[src^="blob:"]');
+  for (const img of gridImgs) URL.revokeObjectURL(img.src);
   grid.innerHTML = "";
   _libGpCachedCards = null;
 
@@ -2536,6 +2540,17 @@ function buildGameCard(
     loading: "lazy",
   }) as HTMLImageElement;
 
+  const restoreFallback = () => {
+    icon.classList.remove("game-card__icon--has-art");
+    if (coverArtImg.parentNode) coverArtImg.parentNode.removeChild(coverArtImg);
+    fallback.classList.remove("game-card__fallback--hidden");
+    if (coverArtObjectUrl) {
+      URL.revokeObjectURL(coverArtObjectUrl);
+      coverArtObjectUrl = null;
+    }
+  };
+  coverArtImg.onerror = restoreFallback;
+
   const applyCoverArt = (src: string) => {
     coverArtImg.src = src;
     icon.classList.add("game-card__icon--has-art");
@@ -2548,6 +2563,7 @@ function buildGameCard(
   if (game.hasCoverArt) {
     void library.getCoverArt(game.id).then((blob) => {
       if (!blob) return;
+      if (!icon.isConnected) return;
       coverArtObjectUrl = URL.createObjectURL(blob);
       applyCoverArt(coverArtObjectUrl);
     });
@@ -2695,18 +2711,10 @@ function buildGameCard(
       : `Set cover art for ${game.name}`,
   }, "");
 
-  btnArt.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    const result = await showCoverArtPickerDialog(
-      game.name,
-      !!(game.hasCoverArt || game.thumbnailUrl),
-    );
+  const handleCoverArtResult = async (result: CoverArtPickResult | null, artBtn: HTMLButtonElement): Promise<void> => {
     if (result === null) return;
-
     try {
       if (result.type === "remove") {
-        // When only a remote thumbnail URL was present (no local blob), also
-        // clear it from the DB so the removal persists across re-renders.
         const hadOnlyThumbnail = !game.hasCoverArt && !!game.thumbnailUrl;
         await library.setCoverArt(game.id, null);
         if (hadOnlyThumbnail) {
@@ -2717,16 +2725,13 @@ function buildGameCard(
         coverArtImg.remove();
         showInfoToast(`Cover art removed for "${game.name}".`, "info");
         game.hasCoverArt = false;
-        // If a thumbnailUrl still exists (e.g. game had local blob + remote URL,
-        // only the blob was removed), restore the remote thumbnail display and
-        // leave the button in "Change" mode.
         if (game.thumbnailUrl) {
           applyCoverArt(game.thumbnailUrl);
-          btnArt.title = "Change cover art";
-          btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+          artBtn.title = "Change cover art";
+          artBtn.setAttribute("aria-label", `Change cover art for ${game.name}`);
         } else {
-          btnArt.title = "Set cover art";
-          btnArt.setAttribute("aria-label", `Set cover art for ${game.name}`);
+          artBtn.title = "Set cover art";
+          artBtn.setAttribute("aria-label", `Set cover art for ${game.name}`);
         }
 
       } else if (result.type === "file") {
@@ -2737,20 +2742,17 @@ function buildGameCard(
         else coverArtImg.src = coverArtObjectUrl;
         showInfoToast(`Cover art set for "${game.name}".`, "success");
         game.hasCoverArt = true;
-        btnArt.title = "Change cover art";
-        btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+        artBtn.title = "Change cover art";
+        artBtn.setAttribute("aria-label", `Change cover art for ${game.name}`);
 
       } else if (result.type === "auto") {
-        // ── Auto-fetch: query the provider, let the user pick, then store ──
         const provider = getCoverArtProvider();
         let candidates: CoverArtCandidate[] = [];
 
-        // Show a loading state — search can take a few seconds
-        btnArt.classList.add("game-card__art-btn--loading");
-        btnArt.setAttribute("aria-busy", "true");
-        btnArt.disabled = true;
+        artBtn.classList.add("game-card__art-btn--loading");
+        artBtn.setAttribute("aria-busy", "true");
+        artBtn.disabled = true;
 
-        // Calculate MD5 hash for providers that need it (ScreenScraper)
         let hashes: { md5?: string } | undefined;
         const store = getApiKeyStore();
         if (store.getState("screenscraper").enabled) {
@@ -2772,15 +2774,14 @@ function buildGameCard(
             hashes,
             fileName: game.fileName,
           });
-          // ScreenScraper hash matches (score=1.0) naturally sort first
           candidates.sort((a, b) => b.score - a.score);
         } catch (err) {
           showError(`Cover art search failed: ${err instanceof Error ? err.message : String(err)}`);
           return;
         } finally {
-          btnArt.classList.remove("game-card__art-btn--loading");
-          btnArt.removeAttribute("aria-busy");
-          btnArt.disabled = false;
+          artBtn.classList.remove("game-card__art-btn--loading");
+          artBtn.removeAttribute("aria-busy");
+          artBtn.disabled = false;
         }
         const pickedUrl = await showCoverArtCandidatePicker(
           game.name,
@@ -2810,8 +2811,8 @@ function buildGameCard(
         else coverArtImg.src = coverArtObjectUrl;
         showInfoToast(`Cover art set for "${game.name}".`, "success");
         game.hasCoverArt = true;
-        btnArt.title = "Change cover art";
-        btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+        artBtn.title = "Change cover art";
+        artBtn.setAttribute("aria-label", `Change cover art for ${game.name}`);
 
       } else if (result.type === "url") {
         let fetchedBlob: Blob;
@@ -2831,12 +2832,21 @@ function buildGameCard(
         else coverArtImg.src = coverArtObjectUrl;
         showInfoToast(`Cover art set for "${game.name}".`, "success");
         game.hasCoverArt = true;
-        btnArt.title = "Change cover art";
-        btnArt.setAttribute("aria-label", `Change cover art for ${game.name}`);
+        artBtn.title = "Change cover art";
+        artBtn.setAttribute("aria-label", `Change cover art for ${game.name}`);
       }
     } catch (err) {
       showError(`Cover art update failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+  };
+
+  btnArt.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const result = await showCoverArtPickerDialog(
+      game.name,
+      !!(game.hasCoverArt || game.thumbnailUrl),
+    );
+    await handleCoverArtResult(result, btnArt);
   });
 
   card.append(icon, scanline, info);
@@ -2885,13 +2895,12 @@ function buildGameCard(
     void showGameDetails(game, {
       system: system ?? null,
       formatBytes,
+      coverArtSrc: coverArtObjectUrl || game.thumbnailUrl || undefined,
       onLaunch:    () => { void launch(); },
       onRemove:    () => btnRemove.click(),
       onToggleFav: () => btnFav.click(),
       onEditArt:   () => {
-        void showCoverArtPickerDialog(game.name, !!coverArtObjectUrl).then(res => {
-          if (!res) return;
-        });
+        void showCoverArtPickerDialog(game.name, !!coverArtObjectUrl).then(res => handleCoverArtResult(res, btnArt));
       },
       getRAProgress: system?.hasAchievements ? async () => {
         const cached = getCachedRAProgress(game.id);
@@ -7792,9 +7801,12 @@ function showPerfSuggestion(): void {
     `<button class="perf-suggestion__close" aria-label="Dismiss">${ICON_CLOSE_X_SVG}</button>`;
   document.body.appendChild(toast);
 
-  const dismiss = () => { toast.classList.add("perf-suggestion--hiding"); setTimeout(() => toast.remove(), PERF_SUGGESTION_FADE_DELAY_MS); };
+  let autoDismissTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => { autoDismissTimer = null; dismiss(); }, PERF_SUGGESTION_AUTO_DISMISS_MS);
+  const dismiss = () => {
+    if (autoDismissTimer !== null) { clearTimeout(autoDismissTimer); autoDismissTimer = null; }
+    toast.classList.add("perf-suggestion--hiding"); setTimeout(() => toast.remove(), PERF_SUGGESTION_FADE_DELAY_MS);
+  };
   toast.querySelector(".perf-suggestion__close")?.addEventListener("click", dismiss);
-  setTimeout(dismiss, PERF_SUGGESTION_AUTO_DISMISS_MS);
   requestAnimationFrame(() => toast.classList.add("perf-suggestion--visible"));
 }
 

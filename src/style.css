@@ -206,7 +206,7 @@ button {
 
 .btn--hero {
   min-height: 48px;
-  padding: 0 32px;
+  padding: 0 clamp(24px, 3vw, 32px);
   font-size: 1.1rem;
   background: var(--c-accent);
   border: none;
@@ -953,8 +953,8 @@ body.is-playing #landing.hidden {
 
   .settings-modal-box .modal-header {
     padding-top: max(24px, env(safe-area-inset-top, 0px));
-    padding-right: max(32px, env(safe-area-inset-right, 0px));
-    padding-left: max(32px, env(safe-area-inset-left, 0px));
+    padding-right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
+    padding-left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
   }
 }
 
@@ -1140,11 +1140,11 @@ body.is-playing #landing.hidden {
 @media (max-width: 768px) {
   .app-header {
     height: auto;
-    min-height: 72px;
+    min-height: var(--header-h);
     padding-top: max(10px, env(safe-area-inset-top, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
     padding-bottom: 10px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
     gap: 12px;
     align-items: flex-start;
   }
@@ -1224,10 +1224,10 @@ body.is-playing #landing.hidden {
   .library-hero__title { font-size: 2.2rem; }
 
   #landing {
-    padding-top: max(16px, env(safe-area-inset-top, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-    padding-bottom: max(88px, calc(72px + env(safe-area-inset-bottom, 0px)));
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-top: max(var(--section-gap), env(safe-area-inset-top, 0px));
+    padding-right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
+    padding-bottom: max(calc(var(--footer-h) + 24px), calc(var(--footer-h) + env(safe-area-inset-bottom, 0px)));
+    padding-left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
   }
 
   .modal-box:not(.settings-modal-box) {
@@ -1240,10 +1240,10 @@ body.is-playing #landing.hidden {
   }
 
   .confirm-box {
-    padding-top: max(32px, env(safe-area-inset-top, 0px));
-    padding-right: max(32px, env(safe-area-inset-right, 0px));
-    padding-bottom: max(32px, env(safe-area-inset-bottom, 0px));
-    padding-left: max(32px, env(safe-area-inset-left, 0px));
+    padding-top: max(var(--section-gap), env(safe-area-inset-top, 0px));
+    padding-right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
+    padding-bottom: max(var(--section-gap), env(safe-area-inset-bottom, 0px));
+    padding-left: max(var(--shell-gutter), env(safe-area-inset-left, 0px));
   }
 }
 
@@ -1253,7 +1253,7 @@ body.is-playing #landing.hidden {
   .game-card__info { padding: 16px; }
   .game-card__name { font-size: 1.1rem; }
   
-  .app-footer { padding: 0 16px; }
+  .app-footer { padding: 0 var(--shell-gutter); }
   .footer-right { display: none; }
 }
 
@@ -1316,8 +1316,8 @@ body.is-playing #landing.hidden {
 
 .dev-overlay {
   position: absolute;
-  top: 150px;
-  right: 32px;
+  top: calc(var(--header-h) + clamp(16px, 3vw, 24px));
+  right: var(--shell-gutter);
   width: 240px;
   background: rgba(18,18,18,0.9);
   -webkit-backdrop-filter: blur(12px);
@@ -1392,9 +1392,9 @@ body:has(#ejs-container.visible) .app-header {
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   border-bottom: none;
-  margin: 16px 32px;
+  margin: 16px var(--shell-gutter);
   border-radius: 20px;
-  width: calc(100% - 64px);
+  width: calc(100% - (var(--shell-gutter) * 2));
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
 
@@ -1457,7 +1457,7 @@ body:has(#ejs-container.visible) .app-header {
 .mobile-fab {
   position: fixed;
   bottom: max(100px, calc(88px + env(safe-area-inset-bottom, 0px)));
-  right: max(32px, env(safe-area-inset-right, 0px));
+  right: max(var(--shell-gutter), env(safe-area-inset-right, 0px));
   width: 72px;
   height: 72px;
   background: var(--c-accent);
@@ -2678,7 +2678,7 @@ body:has(#ejs-container.visible) .app-header {
 
 #settings-content {
   width: 100%;
-  max-width: 1200px;
+  max-width: var(--library-shell-max-w);
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
@@ -4947,7 +4947,7 @@ body.using-gamepad .game-card:focus {
 .perf-suggestion {
   position: fixed;
   left: 50%;
-  bottom: 80px;
+  bottom: var(--toast-bottom);
   z-index: 2200;
   display: flex;
   align-items: center;

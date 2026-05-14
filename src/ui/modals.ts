@@ -841,12 +841,15 @@ export function showGameDetails(
     onRemove: () => void;
     onToggleFav: () => void;
     onEditArt: () => void;
+    coverArtSrc?: string;
     getRAProgress?: () => Promise<RAProgress | null>;
     getSGDBAssets?: () => Promise<SGDBAssets | null>;
     getIGDBMetadata?: () => Promise<IGDBMetadata | null>;
   }
 ): Promise<void> {
-  const { system, formatBytes, onLaunch, onRemove, onToggleFav, onEditArt, getRAProgress, getSGDBAssets, getIGDBMetadata } = opts;
+  const { system, formatBytes, onLaunch, onRemove, onToggleFav, onEditArt, coverArtSrc, getRAProgress, getSGDBAssets, getIGDBMetadata } = opts;
+
+  const coverSrc = coverArtSrc ?? game.thumbnailUrl;
 
   return new Promise((resolve) => {
     const ac = new AbortController();
@@ -868,7 +871,7 @@ export function showGameDetails(
     
     // Background Blur of the cover art
     const bg = createElement("div", { class: "details-bg" });
-    if (game.thumbnailUrl) bg.style.backgroundImage = `url(${game.thumbnailUrl})`;
+    if (coverSrc) bg.style.backgroundImage = `url(${coverSrc})`;
     box.appendChild(bg);
 
     const content = createElement("div", { class: "details-content" });
@@ -876,8 +879,15 @@ export function showGameDetails(
     // Left: High-res Cover + System Badge
     const left = createElement("div", { class: "details-left" });
     const coverWrap = createElement("div", { class: "details-cover-wrap" });
-    if (game.thumbnailUrl) {
-      coverWrap.appendChild(createElement("img", { src: game.thumbnailUrl, class: "details-cover", alt: "" }));
+    if (coverSrc) {
+      const detailImg = createElement("img", { src: coverSrc, class: "details-cover", alt: "" }) as HTMLImageElement;
+      const placeholder = createElement("div", { class: "details-cover-placeholder" }, "No Art");
+      placeholder.style.display = "none";
+      detailImg.onerror = () => {
+        detailImg.style.display = "none";
+        placeholder.style.display = "";
+      };
+      coverWrap.append(detailImg, placeholder);
     } else {
       coverWrap.appendChild(createElement("div", { class: "details-cover-placeholder" }, "No Art"));
     }

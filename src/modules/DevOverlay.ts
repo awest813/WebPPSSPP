@@ -14,10 +14,6 @@
  */
 
 import type { PSPEmulator, FPSSnapshot } from "../emulator.js";
-import {
-  UIDirtyFlags,
-  UIDirtyTracker,
-} from "../performance.js";
 
 // ── Module-level state ────────────────────────────────────────────────────────
 
@@ -42,11 +38,6 @@ const DEV_FT_GRAPH_MAX = 50;
  */
 const _devFrameGraph = new Float64Array(DEV_FRAME_GRAPH_SAMPLES);
 let   _devFrameGraphHead = 0;
-
-// ── UIDirtyTracker singleton ──────────────────────────────────────────────────
-
-/** Module-level dirty tracker wired to the dev overlay and FPS overlay. */
-export const _uiDirtyTracker = new UIDirtyTracker();
 
 // ── AudioVisualiser ───────────────────────────────────────────────────────────
 
@@ -198,7 +189,6 @@ export function toggleDevOverlay(): void {
   _devOverlayVisible = !_devOverlayVisible;
   const el = document.getElementById("dev-overlay");
   if (el) el.hidden = !_devOverlayVisible;
-  if (_devOverlayVisible) _uiDirtyTracker.mark(UIDirtyFlags.DEV_OVERLAY);
 }
 
 /** Return whether the developer debug overlay is currently shown. */
@@ -214,17 +204,10 @@ export function isDevOverlayVisible(): boolean {
 export function updateDevOverlay(snapshot: FPSSnapshot, emulator: PSPEmulator): void {
   if (!_devOverlayVisible) return;
 
-  // Push the current frame time into the ring buffer for the mini graph.
   const frameTimeMs = snapshot.current > 0 ? Math.round(1000 / snapshot.current) : 0;
   _devFrameGraph[_devFrameGraphHead] = frameTimeMs;
   _devFrameGraphHead = (_devFrameGraphHead + 1) % DEV_FRAME_GRAPH_SAMPLES;
 
-  // Mark dirty so the render block below runs exactly once per tick.
-  _uiDirtyTracker.mark(UIDirtyFlags.DEV_OVERLAY);
-
-  if (!_uiDirtyTracker.consume(UIDirtyFlags.DEV_OVERLAY)) return;
-
-  // ── Scalar Metrics ─────────────────────────────────────────────────────────
   const els = _getDevOverlayEls();
 
   if (els.ft) els.ft.textContent = `${frameTimeMs}ms`;
@@ -294,4 +277,8 @@ export function showFPSOverlay(show: boolean, emulatorRef?: PSPEmulator, showAud
 export function resetDevOverlayCache(): void {
   _devOverlayEls = null;
   _devOverlayVisible = false;
+  // Clear the frame graph ring buffer so stale data from a previous session
+  // doesn't render garbage in the mini graph after a DOM rebuild.
+  _devFrameGraph.fill(0);
+  _devFrameGraphHead = 0;
 }
