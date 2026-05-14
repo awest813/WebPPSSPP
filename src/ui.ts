@@ -482,7 +482,7 @@ export function buildDOM(app: HTMLElement): void {
       <!-- EmulatorJS mount point (hidden until a game launches) -->
       <div id="${EMULATOR_JS_CONTAINER_ID}">
         <div id="ejs-player"></div>
-        <div id="in-game-overlay" class="in-game-overlay" hidden aria-label="In-game session controls"></div>
+        <div id="in-game-overlay" class="in-game-overlay" hidden role="region" aria-label="In-game session controls"></div>
         <!-- Premium In-Game Performance Overlay -->
         <div id="fps-overlay" class="fps-overlay" hidden role="status" aria-label="Frame rate and performance overlay" aria-live="polite" aria-atomic="true">
           <div class="fps-current">
