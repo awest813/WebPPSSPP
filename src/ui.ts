@@ -243,10 +243,23 @@ let _settingsContentToken = 0;
 
 /** True when the primary input is a touchscreen (not a mouse). */
 function isTouchDevice(): boolean {
-  return (
-    "ontouchstart" in window ||
-    navigator.maxTouchPoints > 0
-  );
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) return true;
+  // Chromebooks in tablet mode expose a coarse pointer even though the
+  // screen supports both touch and stylus.
+  try {
+    return window.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+}
+
+/** True when the app is running in installed PWA mode (standalone or WCO). */
+function isPwaDisplayMode(): boolean {
+  try {
+    return window.matchMedia("(display-mode: standalone), (display-mode: window-controls-overlay)").matches;
+  } catch {
+    return false;
+  }
 }
 
 /** True when the viewport is currently in portrait orientation. */
@@ -325,6 +338,11 @@ export function buildDOM(app: HTMLElement): void {
   const hintExts = SYSTEMS.slice(0, 8).map(s => `.${s.extensions[0]}`).join(" · ");
   const formatHint = `${hintExts} + more · ZIP auto-extracted · 7Z/RAR/TAR/GZ supported`;
   const touchUI = isTouchDevice();
+  const pwaMode = isPwaDisplayMode();
+
+  if (touchUI || pwaMode) {
+    document.documentElement.classList.add("touch-ui");
+  }
 
   app.innerHTML = `
     <!-- Skip navigation link for keyboard users -->
@@ -751,6 +769,21 @@ export function initUI(opts: UIOptions): void {
         });
       })
       .catch(() => { /* Battery API unavailable or denied — keep element hidden */ });
+  }
+
+  // ── Chromebook tablet mode listener ──────────────────────────────────────────
+  // When a Chromebook switches between laptop and tablet mode, the pointer type
+  // changes from "fine" (trackpad) to "coarse" (touch). Toggle the touch-ui class
+  // so the UI can adapt: show the FAB, use 44px tap targets, etc.
+  try {
+    const coarseMq = window.matchMedia("(pointer: coarse)");
+    const onCoarseChange = () => {
+      document.documentElement.classList.toggle("touch-ui", coarseMq.matches);
+    };
+    coarseMq.addEventListener("change", onCoarseChange);
+    cleanupFns.push(() => coarseMq.removeEventListener("change", onCoarseChange));
+  } catch {
+    // matchMedia not supported (SSR, old browser)
   }
 
   const applyConnectivityFooter = (online: boolean): void => {

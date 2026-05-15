@@ -1288,6 +1288,87 @@ body.is-playing #landing.hidden {
   }
 }
 
+/* ── Touch / tablet mode (.touch-ui) ───────────────────────────── */
+
+html.touch-ui {
+  /* Increase tap target minimums for touch — 44px per Apple HIG + WCAG 2.5.8 */
+  --touch-min: 44px;
+}
+
+/* Show the FAB (hidden by default on pointer:fine devices) */
+html.touch-ui .fab {
+  display: flex;
+}
+
+html.touch-ui .fab--mobile {
+  display: flex;
+}
+
+/* 44px minimum tap targets for all interactive elements */
+html.touch-ui button,
+html.touch-ui .btn,
+html.touch-ui select,
+html.touch-ui .settings-input,
+html.touch-ui .settings-select,
+html.touch-ui .game-card,
+html.touch-ui .cloud-provider-card,
+html.touch-ui .library-toolbar .btn,
+html.touch-ui .confirm-box__actions .btn,
+html.touch-ui .modal-close {
+  min-height: var(--touch-min);
+}
+
+html.touch-ui .btn {
+  padding-block: 10px;
+}
+
+html.touch-ui .game-card:focus-visible {
+  outline-offset: 3px;
+}
+
+/* Push library controls down so they have room for bigger tap targets */
+html.touch-ui .library-toolbar {
+  gap: 14px;
+}
+
+html.touch-ui .library-search-wrap {
+  min-height: var(--touch-min);
+}
+
+html.touch-ui #library-search {
+  min-height: var(--touch-min);
+  font-size: 1rem; /* prevents iOS zoom on focus */
+}
+
+/* Larger game card spacing for touch scrolling */
+html.touch-ui .library-grid {
+  gap: clamp(14px, 2.5vw, 24px);
+}
+
+html.touch-ui .library-row {
+  margin-bottom: 40px;
+}
+
+/* Remove hover-only effects that clutter touch interaction */
+html.touch-ui .game-card:hover {
+  transform: none;
+}
+
+html.touch-ui .game-card:hover .game-card__overlay {
+  opacity: 0;
+}
+
+/* On-screen gamepad: show automatically in touch mode */
+html.touch-ui .in-game-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Smooth scroll behavior for touch panning */
+html.touch-ui #landing {
+  -webkit-overflow-scrolling: touch;
+}
+
 
 /* ── In-Game Overlays (HUD) ── */
 
