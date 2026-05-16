@@ -146,6 +146,7 @@ import {
   resetDevOverlayCache,
 } from "./modules/DevOverlay.js";
 import { VirtualGrid, VIRTUAL_THRESHOLD } from "./ui/virtualGrid.js";
+import { InputRouter } from "./ui/InputRouter.js";
 import { buildHighlightsPanel, MAX_SESSIONS as HIGHLIGHTS_MAX_SESSIONS } from "./ui/highlightsPanel.js";
 import { parseRAKey } from "./raCredentials.js";
 // Re-export DevOverlay public API so external callers that imported from ui.ts
@@ -1062,107 +1063,54 @@ export function initUI(opts: UIOptions): void {
   // player element). Calling stopPropagation() here prevents F5/F7/F1/F9/Esc
   // from ever reaching EmulatorJS while all other keys (game controls) pass
   // through normally and are handled by EmulatorJS as expected.
-  const onGlobalShortcutKeydown = (event: Event) => {
-    const e = event as KeyboardEvent;
-    if (
-      ((e.key === "/" && !e.shiftKey) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) &&
-      !_isEditableTarget(e.target) &&
-      !document.querySelector(".confirm-overlay, .easy-netplay-overlay, #settings-panel:not([hidden]), #system-picker:not([hidden])")
-    ) {
-      if (_focusLibrarySearch()) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-    }
-    // F9 opens the Debug tab from anywhere (landing or in-game)
-    if (e.key === "F9") {
-      e.preventDefault();
-      e.stopPropagation();
-      openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, getNetplayManager, "debug");
-      return;
-    }
-    // F3 toggles the developer debug overlay from anywhere
-    if (e.key === "F3") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.shiftKey) {
-        toggleDebugConsole(emulator);
-      } else {
-        toggleDevOverlay();
-      }
-      return;
-    }
 
-    // â”€â”€ Escape â€” return to library when playing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    if (e.key === "Escape") {
+  const inputRouter = new InputRouter();
+  // Global shortcuts context — always active. Handlers return true when they
+  // consume the event so the router stops dispatch.
+  inputRouter.register("global", [
+    // Ctrl+K / / — focus library search (when no modal/panel is open)
+    (e) => {
+      if (
+        ((e.key === "/" && !e.shiftKey) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) &&
+        !_isEditableTarget(e.target) &&
+        !document.querySelector(".confirm-overlay, .easy-netplay-overlay, #settings-panel:not([hidden]), #system-picker:not([hidden])")
+      ) {
+        if (_focusLibrarySearch()) return true;
+      }
+      return false;
+    },
+    // F9 — open Debug tab
+    (e) => { if (e.key === "F9") { openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, saveLibrary, getNetplayManager, "debug"); return true; } return false; },
+    // F3 — toggle dev overlay; Shift+F3 toggles debug console
+    (e) => { if (e.key === "F3") { if (e.shiftKey) toggleDebugConsole(emulator); else toggleDevOverlay(); return true; } return false; },
+    // Escape — dismiss error banner or return to library
+    (e) => {
+      if (e.key !== "Escape") return false;
       const t = e.target;
-      if (t instanceof HTMLElement && t.closest(".confirm-overlay--visible")) return;
-
+      if (t instanceof HTMLElement && t.closest(".confirm-overlay--visible")) return false;
       const errorBanner = document.getElementById("error-banner");
-      if (errorBanner?.classList.contains("visible")) {
-        e.preventDefault();
-        hideError();
-        return;
+      if (errorBanner?.classList.contains("visible")) { hideError(); return true; }
+      const settingsEl = document.getElementById("settings-panel");
+      if (settingsEl && !settingsEl.hidden) return false;
+      if (document.querySelector("#system-picker:not([hidden])")) return false;
+      if (document.querySelector(".easy-netplay-overlay")) return false;
+      if (document.body.classList.contains("is-playing")) { onReturnToLibrary(); return true; }
+      return false;
+    },
+    // F5, F7, F8, F1 — in-game save/load/reset (only when game is active)
+    (e) => {
+      if (!_isInGameSession(emulator)) return false;
+      switch (e.key) {
+        case "F5": void saveService.saveSlot(1).then((entry) => { if (entry) showInfoToast("Saved to Slot 1"); else showError("Quick save failed — add this game to your library or wait for the core to finish starting."); }); return true;
+        case "F7": void saveService.loadSlot(1).then((ok) => { if (ok) showInfoToast("Loaded Slot 1"); else showError("Nothing saved in Slot 1 yet, or the emulator is still starting."); }); return true;
+        case "F8": void saveService.findNextSlot().then((slot) => { void saveService.saveSlot(slot).then((entry) => { if (entry) showInfoToast(`Saved to Slot ${slot}`); else showError("Save failed — wait for the core to finish starting."); }); }); return true;
+        case "F1": void (async () => { const confirmed = await showConfirmDialog("Unsaved progress will be lost.", { title: "Reset Game?", confirmLabel: "Reset", isDanger: true }); if (confirmed) emulator.reset(); })(); return true;
       }
+      return false;
+    },
+  ]);
 
-      const settingsPanel = document.getElementById("settings-panel");
-      if (settingsPanel && !settingsPanel.hidden) return;
-      if (document.querySelector("#system-picker:not([hidden])")) return;
-      if (document.querySelector(".easy-netplay-overlay")) return;
-
-      if (document.body.classList.contains("is-playing")) {
-        e.preventDefault();
-        e.stopPropagation();
-        onReturnToLibrary();
-      }
-      return;
-    }
-
-    if (!_isInGameSession(emulator)) return;
-    switch (e.key) {
-      case "F5":
-        e.preventDefault();
-        e.stopPropagation();
-        void saveService.saveSlot(1).then((entry) => {
-          if (entry) showInfoToast("Saved to Slot 1");
-          else showError("Quick save failed â€” add this game to your library or wait for the core to finish starting.");
-        });
-        break;
-      case "F7":
-        e.preventDefault();
-        e.stopPropagation();
-        void saveService.loadSlot(1).then((ok) => {
-          if (ok) showInfoToast("Loaded Slot 1");
-          else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
-        });
-        break;
-      case "F8":
-        e.preventDefault();
-        e.stopPropagation();
-        void saveService.findNextSlot().then((slot) => {
-          void saveService.saveSlot(slot).then((entry) => {
-            if (entry) showInfoToast(`Saved to Slot ${slot}`);
-            else showError("Save failed â€” wait for the core to finish starting.");
-          });
-        });
-        break;
-      case "F1":
-        e.preventDefault();
-        e.stopPropagation();
-        void (async () => {
-          const confirmed = await showConfirmDialog(
-            "Unsaved progress will be lost.",
-            { title: "Reset Game?", confirmLabel: "Reset", isDanger: true }
-          );
-          if (confirmed) emulator.reset();
-        })();
-        break;
-    }
-  };
-  bindEvent(document, "keydown", onGlobalShortcutKeydown, { capture: true });
-
-  // â”€â”€ Landing header controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Landing header controls ─────────────────────────────────────────────
   buildLandingControls(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulator, onLaunchGame, undefined, saveLibrary, getNetplayManager, openPlayTogetherSettings);
 
   if (typeof ResizeObserver !== "undefined") {
@@ -1178,10 +1126,9 @@ export function initUI(opts: UIOptions): void {
   _initUICleanup = () => {
     cleanupFns.forEach((cleanup) => cleanup());
     cleanupFns.length = 0;
-    // Abort any stale in-game controls AbortController so that window/document
-    // keydown handlers registered by buildInGameControls are cleaned up too.
     _inGameControlsAc?.abort();
     _inGameControlsAc = null;
+    inputRouter.destroy();
   };
 
   void renderLibrary(library, settings, onLaunchGame, emulator, onApplyPatch);
