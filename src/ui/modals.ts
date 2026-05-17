@@ -598,7 +598,7 @@ export function showCoverArtPickerDialog(
     ));
     const autoHint = createElement("p", {
       class: "cover-art-panel__hint",
-    }, "Searches your configured cover providers (GitHub collection, Libretro, and any APIs you enable). Use Configure API keys below if you use RAWG, MobyGames, TheGamesDB, or similar.");
+    }, "Searches your configured cover providers (Libretro, GitHub collection, Wikimedia, and any APIs you enable). Use Configure API keys below if you use RAWG, MobyGames, TheGamesDB, or similar.");
     const btnAuto = createElement(
       "button",
       {
@@ -972,7 +972,9 @@ export function showGameDetails(
         }
         
         const bar = createElement("div", { class: "ach-progress-bar" });
-        const pct = (data.numUnlocked / data.numAchievements) * 100;
+        const pct = data.numAchievements > 0
+          ? Math.max(0, Math.min(100, (data.numUnlocked / data.numAchievements) * 100))
+          : 0;
         bar.innerHTML = `<div class="ach-progress-fill" style="width: ${pct}%"></div>`;
         
         const label = createElement("div", { class: "ach-progress-label" }, 

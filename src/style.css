@@ -5191,17 +5191,51 @@ body.using-gamepad .game-card:focus {
   padding: 16px;
 }
 
+.api-key-row--disabled {
+  opacity: 0.72;
+}
+
+.api-key-row--dragging {
+  opacity: 0.55;
+}
+
+.api-key-row--drag-over {
+  border-color: var(--c-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
+
 .api-key-row__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.api-key-row__drag {
+  color: var(--c-text-dim);
+  cursor: grab;
+  font-size: 1rem;
+  line-height: 1;
+  user-select: none;
+}
+
+.api-key-row__name {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--c-text);
 }
 
 .api-key-row__title {
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--c-text);
+}
+
+.api-key-row__desc {
+  margin-bottom: 12px;
 }
 
 .api-key-row__input-wrap {
@@ -5243,20 +5277,34 @@ body.using-gamepad .game-card:focus {
 }
 
 .api-key-status {
-  font-size: 0.8rem;
-  margin-top: 8px;
+  flex: 0 0 auto;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--c-surface3) 82%, transparent);
+  color: var(--c-text-dim);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .api-key-status--valid { color: var(--c-success); }
+.api-key-status--active { border-color: color-mix(in srgb, var(--c-success) 45%, var(--c-border)); color: var(--c-success); }
+.api-key-status--missing { color: var(--c-text-dim); }
 .api-key-status--invalid { color: var(--c-danger); }
+.api-key-status--disabled { color: var(--c-text-muted); }
 .api-key-status--checking { color: var(--c-warn); }
+.api-key-status--testing { border-color: color-mix(in srgb, var(--c-warn) 45%, var(--c-border)); color: var(--c-warn); }
 
 .api-key-row__test-msg {
   font-size: 0.8rem;
   margin-top: 8px;
+  min-height: 1.1em;
 }
 
 .api-key-row__test-msg--success { color: var(--c-success); }
+.api-key-row__test-msg--ok { color: var(--c-success); }
 .api-key-row__test-msg--error { color: var(--c-danger); }
 
 .api-key-row__warn {
@@ -5277,7 +5325,30 @@ body.using-gamepad .game-card:focus {
 .api-keys-footer {
   margin-top: 16px;
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
+}
+
+.api-key-row__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.api-key-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-text-dim);
+  font-size: 0.85rem;
+}
+
+.api-key-row__reorder {
+  min-width: 34px;
+  padding-inline: 8px;
 }
 
 /* ── Netplay / Easy Netplay ────────────────────────────────── */

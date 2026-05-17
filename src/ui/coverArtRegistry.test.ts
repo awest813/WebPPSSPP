@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   getApiKeyStore,
+  getApiKeyTester,
   getKeyedProviders,
   getCoverArtProvider,
   rebuildCoverArtProvider,
@@ -21,11 +22,22 @@ describe("coverArtRegistry", () => {
     expect(a).toBe(b);
   });
 
-  it("registers rawg, mobygames, and thegamesdb keyed providers", () => {
+  it("registers keyed cover-art providers", () => {
     const providers = getKeyedProviders();
     expect(providers.has("rawg")).toBe(true);
     expect(providers.has("mobygames")).toBe(true);
     expect(providers.has("thegamesdb")).toBe(true);
+    expect(providers.has("steamgriddb")).toBe(true);
+    expect(providers.has("screenscraper")).toBe(true);
+  });
+
+  it("provides a RetroAchievements connection tester", () => {
+    const store = getApiKeyStore();
+    expect(store.setKey("retroachievements", "player:apikey")).toBe(true);
+
+    const tester = getApiKeyTester("retroachievements");
+    expect(tester).not.toBeNull();
+    expect(typeof tester?.testConnection).toBe("function");
   });
 
   it("builds a composed CoverArtProvider", () => {

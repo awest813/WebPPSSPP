@@ -203,12 +203,15 @@ export function diceCoefficient(a: string, b: string): number {
 const SYSTEM_FOLDER_MAP: Readonly<Record<string, readonly string[]>> = Object.freeze({
   nes:         ["NES", "Nintendo Entertainment System", "Famicom"],
   snes:        ["SNES", "Super Nintendo Entertainment System", "Super Famicom"],
+  snesBsnes:   ["SNES", "Super Nintendo Entertainment System", "Super Famicom"],
   gb:          ["Game Boy", "GB", "GameBoy"],
   gbc:         ["Game Boy Color", "GBC", "GameBoy Color"],
   gba:         ["Game Boy Advance", "GBA", "GameBoy Advance"],
   nds:         ["Nintendo DS", "NDS", "DS"],
+  "3ds":       ["Nintendo 3DS", "3DS"],
   n64:         ["Nintendo 64", "N64"],
   segaMD:      ["Sega Genesis", "Mega Drive", "Genesis", "Sega Mega Drive"],
+  segaMDWide:  ["Sega Genesis", "Mega Drive", "Genesis", "Sega Mega Drive"],
   segaMS:      ["Sega Master System", "Master System"],
   segaGG:      ["Sega Game Gear", "Game Gear"],
   segaSaturn:  ["Sega Saturn", "Saturn"],
@@ -217,6 +220,8 @@ const SYSTEM_FOLDER_MAP: Readonly<Record<string, readonly string[]>> = Object.fr
   psp:         ["Sony PSP", "PSP", "PlayStation Portable"],
   atari2600:   ["Atari 2600", "2600"],
   atari7800:   ["Atari 7800", "7800"],
+  intv:         ["Intellivision", "Mattel Intellivision"],
+  dos:          ["DOS", "MS-DOS", "PC"],
   lynx:        ["Atari Lynx", "Lynx"],
   ngp:         ["Neo Geo Pocket", "NGP", "Neo Geo Pocket Color"],
   arcade:      ["Arcade", "FBNeo", "MAME"],
@@ -634,12 +639,15 @@ export const AUTO_APPLY_CONFIDENCE_THRESHOLD = 0.85;
 const LIBRETRO_SYSTEM_MAP: Readonly<Record<string, readonly string[]>> = Object.freeze({
   nes:        ["Nintendo - Nintendo Entertainment System"],
   snes:       ["Nintendo - Super Nintendo Entertainment System"],
+  snesBsnes:  ["Nintendo - Super Nintendo Entertainment System"],
   gb:         ["Nintendo - Game Boy"],
   gbc:        ["Nintendo - Game Boy Color"],
   gba:        ["Nintendo - Game Boy Advance"],
   nds:        ["Nintendo - Nintendo DS"],
+  "3ds":      ["Nintendo - Nintendo 3DS"],
   n64:        ["Nintendo - Nintendo 64"],
   segaMD:     ["Sega - Mega Drive - Genesis"],
+  segaMDWide: ["Sega - Mega Drive - Genesis"],
   segaMS:     ["Sega - Master System - Mark III"],
   segaGG:     ["Sega - Game Gear"],
   segaSaturn: ["Sega - Saturn"],
@@ -648,6 +656,8 @@ const LIBRETRO_SYSTEM_MAP: Readonly<Record<string, readonly string[]>> = Object.
   psp:        ["Sony - PlayStation Portable"],
   atari2600:  ["Atari - 2600"],
   atari7800:  ["Atari - 7800"],
+  intv:        ["Mattel - Intellivision"],
+  dos:         ["DOS"],
   lynx:       ["Atari - Lynx"],
   ngp:        ["SNK - Neo Geo Pocket Color"],
   arcade:     ["FBNeo - Arcade Games"],
@@ -804,6 +814,93 @@ export class LibretroCoverArtProvider implements CoverArtProvider {
 
     candidates.sort((a, b) => b.score - a.score);
     return candidates.slice(0, limit);
+  }
+}
+
+// ── Wikimedia / Wikipedia provider ────────────────────────────────────────────
+
+interface WikimediaQueryResponse {
+  query?: {
+    pages?: Record<string, {
+      title?: string;
+      extract?: string;
+      pageid?: number;
+      thumbnail?: { source?: string };
+      original?: { source?: string };
+    }>;
+  };
+}
+
+export interface WikimediaCoverArtProviderOptions {
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * No-key Wikimedia image fallback. It asks Wikipedia for likely game pages and
+ * uses their page image when one is available. The image may be a logo,
+ * screenshot, or freely licensed cover, so its confidence stays below exact
+ * Libretro/GitHub filename hits but it is useful for obscure/homebrew titles.
+ */
+export class WikimediaCoverArtProvider implements CoverArtProvider {
+  readonly id = "wikimedia";
+  readonly name = "Wikimedia";
+
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(opts: WikimediaCoverArtProviderOptions = {}) {
+    this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
+  }
+
+  async search(
+    name: string,
+    systemId: string,
+    opts: { limit?: number; signal?: AbortSignal } = {},
+  ): Promise<CoverArtCandidate[]> {
+    if (opts.signal?.aborted) return [];
+    const normQuery = normalizeRomName(name);
+    if (!normQuery) return [];
+    const limit = Math.max(1, Math.min(20, opts.limit ?? 6));
+
+    const params = new URLSearchParams({
+      action: "query",
+      generator: "search",
+      gsrsearch: `${normQuery} video game`,
+      gsrlimit: String(Math.min(limit, 8)),
+      prop: "pageimages|extracts",
+      piprop: "thumbnail|original",
+      pithumbsize: "600",
+      exintro: "1",
+      explaintext: "1",
+      redirects: "1",
+      format: "json",
+      origin: "*",
+    });
+
+    let body: WikimediaQueryResponse;
+    try {
+      const resp = await this.fetchImpl(`https://en.wikipedia.org/w/api.php?${params.toString()}`, {
+        signal: opts.signal,
+      });
+      if (!resp.ok) return [];
+      body = (await resp.json()) as WikimediaQueryResponse;
+    } catch {
+      return [];
+    }
+
+    const out: CoverArtCandidate[] = [];
+    const seen = new Set<string>();
+    for (const page of Object.values(body.query?.pages ?? {})) {
+      const title = typeof page.title === "string" ? page.title : "";
+      const imageUrl = page.original?.source || page.thumbnail?.source || "";
+      if (!title || !imageUrl || seen.has(imageUrl)) continue;
+      const score = Math.min(0.86, diceCoefficient(normQuery, normalizeRomName(title)) + 0.08);
+      if (score <= 0.2) continue;
+      seen.add(imageUrl);
+      out.push({ title, systemId, imageUrl, sourceName: this.name, score });
+    }
+
+    out.sort((a, b) => b.score - a.score);
+    return out.slice(0, limit);
   }
 }
 
@@ -1476,6 +1573,176 @@ export class TheGamesDBCoverArtProvider implements ApiKeyedProvider {
       return true;
     } catch (err) {
       return `Could not reach TheGamesDB: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+}
+
+// ── SteamGridDB ───────────────────────────────────────────────────────────────
+
+/** Tunable options for `SteamGridDBCoverArtProvider`. */
+export interface SteamGridDBProviderOptions {
+  getApiKey: () => string;
+  fetchImpl?: typeof fetch;
+  cacheTtlMs?: number;
+}
+
+interface SteamGridDBResponse<T> {
+  success?: boolean;
+  data?: T;
+  errors?: string[];
+}
+
+interface SteamGridDBGameSummary {
+  id?: number;
+  name?: string;
+}
+
+interface SteamGridDBGridAsset {
+  id?: number;
+  url?: string;
+  thumb?: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * SteamGridDB-backed cover provider. SteamGridDB's "grid" assets include
+ * portrait-style Steam library covers; these are useful when classic box-art
+ * sources miss modern fan art, homebrew, translations, or PC-adjacent entries.
+ */
+export class SteamGridDBCoverArtProvider implements ApiKeyedProvider {
+  readonly id = "steamgriddb";
+  readonly name = "SteamGridDB";
+  readonly requiresApiKey = true as const;
+  readonly providerId = "steamgriddb";
+  readonly signupUrl = "https://www.steamgriddb.com/profile/api";
+
+  private readonly getApiKey: () => string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly cache: KeyedProviderCache;
+
+  constructor(opts: SteamGridDBProviderOptions) {
+    this.getApiKey = opts.getApiKey;
+    this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
+    this.cache = new KeyedProviderCache(opts.cacheTtlMs);
+  }
+
+  isAvailable(): boolean {
+    return this.getApiKey().trim() !== "";
+  }
+
+  async search(
+    name: string,
+    systemId: string,
+    opts: { limit?: number; signal?: AbortSignal } = {},
+  ): Promise<CoverArtCandidate[]> {
+    if (opts.signal?.aborted) return [];
+    const key = this.getApiKey().trim();
+    if (!key) return [];
+    const normQuery = normalizeRomName(name);
+    if (!normQuery) return [];
+
+    const limit = Math.max(1, Math.min(20, opts.limit ?? 6));
+    const cacheKey = `sgdb|${systemId}|${normQuery}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached) return cached.slice(0, limit);
+
+    const searchUrl =
+      "https://www.steamgriddb.com/api/v2/search/autocomplete/" +
+      encodeURIComponent(normQuery);
+
+    let games: SteamGridDBGameSummary[];
+    try {
+      const resp = await this.fetchImpl(searchUrl, {
+        signal: opts.signal,
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!resp.ok) return [];
+      const body = (await resp.json()) as SteamGridDBResponse<SteamGridDBGameSummary[]>;
+      games = Array.isArray(body.data) ? body.data : [];
+    } catch {
+      return [];
+    }
+
+    const rankedGames = games
+      .map((g) => {
+        const title = typeof g.name === "string" ? g.name : "";
+        const id = typeof g.id === "number" ? g.id : NaN;
+        const score = diceCoefficient(normQuery, normalizeRomName(title));
+        return { id, title, score };
+      })
+      .filter((g) => Number.isFinite(g.id) && g.title && g.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.min(limit, 4));
+
+    if (rankedGames.length === 0) return [];
+
+    const out: CoverArtCandidate[] = [];
+    const seen = new Set<string>();
+    for (const game of rankedGames) {
+      if (opts.signal?.aborted) return [];
+      const gridsUrl =
+        `https://www.steamgriddb.com/api/v2/grids/game/${game.id}` +
+        "?dimensions=600x900,342x482,660x930,512x512" +
+        "&types=static";
+      let grids: SteamGridDBGridAsset[];
+      try {
+        const resp = await this.fetchImpl(gridsUrl, {
+          signal: opts.signal,
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (!resp.ok) continue;
+        const body = (await resp.json()) as SteamGridDBResponse<SteamGridDBGridAsset[]>;
+        grids = Array.isArray(body.data) ? body.data : [];
+      } catch {
+        continue;
+      }
+
+      const sortedGrids = grids
+        .filter((grid) => typeof grid.url === "string" && grid.url)
+        .sort((a, b) => {
+          const portraitA = (a.height ?? 0) > (a.width ?? 0) ? 1 : 0;
+          const portraitB = (b.height ?? 0) > (b.width ?? 0) ? 1 : 0;
+          return portraitB - portraitA;
+        });
+
+      for (const grid of sortedGrids) {
+        const imageUrl = grid.url!;
+        if (seen.has(imageUrl)) continue;
+        seen.add(imageUrl);
+        const portraitBonus = (grid.height ?? 0) > (grid.width ?? 0) ? 0 : -0.08;
+        out.push({
+          title: game.title,
+          systemId,
+          imageUrl,
+          sourceName: this.name,
+          score: Math.max(0, game.score + portraitBonus),
+        });
+        if (out.length >= limit) break;
+      }
+      if (out.length >= limit) break;
+    }
+
+    out.sort((a, b) => b.score - a.score);
+    const trimmed = out.slice(0, limit);
+    this.cache.set(cacheKey, trimmed);
+    return trimmed;
+  }
+
+  async testConnection(opts: { signal?: AbortSignal } = {}): Promise<true | string> {
+    const key = this.getApiKey().trim();
+    if (!key) return "No API key configured.";
+    const url = "https://www.steamgriddb.com/api/v2/search/autocomplete/portal";
+    try {
+      const resp = await this.fetchImpl(url, {
+        signal: opts.signal,
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (resp.status === 401 || resp.status === 403) return "SteamGridDB rejected the API key.";
+      if (!resp.ok) return `SteamGridDB returned HTTP ${resp.status}.`;
+      return true;
+    } catch (err) {
+      return `Could not reach SteamGridDB: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 }

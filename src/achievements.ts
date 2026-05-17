@@ -61,14 +61,18 @@ interface RAAchievementProgressEntry {
   DateEarned?: string | null;
 }
 
+type FetchImpl = typeof fetch;
+
 export class RAClient {
   private readonly baseUrl = "https://retroachievements.org/API/";
   private username: string = "";
   private apiKey: string = "";
+  private readonly fetchImpl: FetchImpl;
 
-  constructor(username: string, apiKey: string) {
+  constructor(username: string, apiKey: string, opts: { fetchImpl?: FetchImpl } = {}) {
     this.username = username;
     this.apiKey = apiKey;
+    this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
   get isConfigured(): boolean {
@@ -83,12 +87,37 @@ export class RAClient {
       url.searchParams.set(k, String(v));
     }
 
-    const response = await fetch(url.toString());
+    const response = await this.fetchImpl(url.toString());
     if (!response.ok) {
       throw new Error(`RetroAchievements API error: ${response.statusText}`);
     }
     const data: unknown = await response.json();
+    if (
+      data &&
+      typeof data === "object" &&
+      "Error" in data &&
+      typeof (data as { Error?: unknown }).Error === "string"
+    ) {
+      throw new Error((data as { Error: string }).Error);
+    }
     return data as T;
+  }
+
+  async testConnection(): Promise<true | string> {
+    if (!this.isConfigured) return "No RetroAchievements username/API key saved.";
+    try {
+      const profile = await this.getUserProfile();
+      if (!profile || typeof profile.User !== "string" || profile.User.length === 0) {
+        return "RetroAchievements did not return a valid profile for this login.";
+      }
+      return true;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (/invalid|denied|unauthori[sz]ed|forbidden|key|token/i.test(detail)) {
+        return "RetroAchievements rejected this username/API key.";
+      }
+      return `Could not reach RetroAchievements: ${detail}`;
+    }
   }
 
   /** Get user's basic profile info. */

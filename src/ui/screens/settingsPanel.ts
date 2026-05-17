@@ -9,7 +9,7 @@ import { createElement as make } from "../dom.js";
 import { trapFocus, isEditableTarget, FOCUSABLE_SELECTOR, safeScrollIntoView } from "../viewHelpers.js";
 import { showError } from "../toasts.js";
 import { registerNetplayInstance } from "../../netplaySingleton.js";
-import { getApiKeyStore, getKeyedProviders } from "../coverArtRegistry.js";
+import { getApiKeyStore, getApiKeyTester } from "../coverArtRegistry.js";
 import type { Settings } from "../../types/settings.js";
 import type { DeviceCapabilities } from "../../performance.js";
 import type { GameLibrary } from "../../library.js";
@@ -253,7 +253,7 @@ function buildSettingsContent(
       });
       const apiKeysCleanup = st.buildApiKeysTab(panels[7]!, getApiKeyStore(), {
         appName: APP_NAME,
-        getTester: (id: string) => getKeyedProviders().get(id) ?? null,
+        getTester: (id: string) => getApiKeyTester(id),
         onError: showError,
       });
       _settingsContentCleanups.push(apiKeysCleanup);

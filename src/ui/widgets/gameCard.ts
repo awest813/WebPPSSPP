@@ -578,18 +578,21 @@ export function buildGameCard(
       getIGDBMetadata: async () => {
         const store = getApiKeyStore();
         const state = store.getState("igdb");
-        if (!state.enabled || !state.key) return null;
 
-        const { IGDBClient } = await import("../../igdb.js");
-        const client = new IGDBClient(state.key);
+        if (state.enabled && state.key) {
+          const { IGDBClient } = await import("../../igdb.js");
+          const client = new IGDBClient(state.key);
 
-        try {
-          const games = await client.searchGame(game.name);
-          return games[0] || null;
-        } catch (err) {
-          console.error("IGDB fetch failed:", err);
-          return null;
+          try {
+            const games = await client.searchGame(game.name);
+            if (games[0]) return games[0];
+          } catch (err) {
+            console.error("IGDB fetch failed:", err);
+          }
         }
+
+        const { WikipediaMetadataClient } = await import("../../freeMetadata.js");
+        return new WikipediaMetadataClient().searchGame(game.name);
       }
     });
   });

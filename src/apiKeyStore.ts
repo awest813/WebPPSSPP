@@ -321,7 +321,7 @@ export const DEFAULT_API_KEY_PROVIDERS: readonly ApiKeyProviderConfig[] = Object
   {
     id: "retroachievements",
     name: "RetroAchievements",
-    description: "Track your achievements as you play. Requires your RA Username and Web API Key (found in RA Settings). Format: username:apikey",
+    description: "Track achievements as you play. Enter your RetroAchievements username and Web API Key from your RA control panel. Format: username:apikey",
     signupUrl: "https://retroachievements.org/controlpanel.php",
     validate: (val: string) => {
       const parts = val.split(":");

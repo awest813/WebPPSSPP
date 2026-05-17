@@ -288,6 +288,15 @@ export function buildAchievementsTab(
   container.innerHTML = "";
 
   const raState = store.getState("retroachievements");
+  const showSetupButton = (label = "Set up RetroAchievements") => {
+    const setupBtn = make("button", { class: "btn btn--primary" }, label);
+    setupBtn.addEventListener("click", () => {
+      const apiKeysTab = document.getElementById("tab-apikeys");
+      apiKeysTab?.click();
+    });
+    return setupBtn;
+  };
+
   if (!raState.enabled || !raState.key) {
     const empty = make("div", { class: "settings-section achievements-empty" });
     empty.appendChild(make("h4", { class: "settings-section__title" }, "RetroAchievements"));
@@ -295,14 +304,20 @@ export function buildAchievementsTab(
       "Connect your RetroAchievements account to track progress, earn trophies, and see your rank. " +
       "You'll need a free account from retroachievements.org."
     ));
-    const setupBtn = make("button", { class: "btn btn--primary" }, "Set up RetroAchievements");
-    setupBtn.addEventListener("click", () => {
-      // Find the API Keys tab button and click it
-      const apiKeysTab = document.getElementById("tab-apikeys");
-      apiKeysTab?.click();
-    });
-    empty.appendChild(setupBtn);
+    empty.appendChild(showSetupButton());
     container.appendChild(empty);
+    return;
+  }
+
+  const parsedCreds = parseRAKey(raState.key);
+  if (!parsedCreds) {
+    const invalid = make("div", { class: "settings-section achievements-empty" });
+    invalid.appendChild(make("h4", { class: "settings-section__title" }, "RetroAchievements"));
+    invalid.appendChild(make("p", { class: "settings-help" },
+      "Your saved RetroAchievements login is not in the expected username:apikey format."
+    ));
+    invalid.appendChild(showSetupButton("Fix RetroAchievements login"));
+    container.appendChild(invalid);
     return;
   }
 
@@ -318,8 +333,7 @@ export function buildAchievementsTab(
 
   // Lazy load achievements data
   void import("../achievements.js").then(({ getRAClient }) => {
-    const creds = parseRAKey(raState.key);
-    if (!creds) return;
+    const creds = parsedCreds;
     const client = getRAClient(creds.username, creds.apiKey);
     if (!client) return;
 
@@ -359,6 +373,9 @@ export function buildAchievementsTab(
       header.querySelector(".settings-help")!.textContent = "Failed to fetch achievements data. Check your API key.";
       console.error(err);
     });
+  }).catch(err => {
+    header.querySelector(".settings-help")!.textContent = "Could not load RetroAchievements tools.";
+    console.error(err);
   });
 }
 
@@ -583,9 +600,14 @@ export function buildApiKeysTab(
 
     const enabledId = `api-key-enabled-${cfg.id}`;
     const enabledWrap = make("label", { class: "api-key-enabled", for: enabledId });
+    const enableLabel = cfg.id === "retroachievements"
+      ? `Use ${cfg.name} for achievement tracking`
+      : cfg.id === "igdb"
+        ? `Use ${cfg.name} for game metadata`
+        : `Use ${cfg.name} for cover art`;
     const enabledBox = make("input", {
       id: enabledId, type: "checkbox", class: "api-key-enabled__box",
-      "aria-label": `Use ${cfg.name} for cover art`,
+      "aria-label": enableLabel,
     }) as HTMLInputElement;
     enabledBox.checked = state.enabled;
     enabledBox.addEventListener("change", () => {
@@ -788,6 +810,13 @@ export function buildApiKeysTab(
           renderStatus("invalid");
           onError(`${cfg.name}: ${result}`);
         }
+      } catch (err) {
+        const message = `Could not test ${cfg.name}: ${err instanceof Error ? err.message : String(err)}`;
+        lastTestMsg.set(cfg.id, { kind: "error", text: message });
+        testMsg.classList.add("api-key-row__test-msg--error");
+        testMsg.textContent = message;
+        renderStatus("invalid");
+        onError(message);
       } finally {
         testBtn.disabled = false;
         testBtn.classList.remove("is-loading");
@@ -806,7 +835,7 @@ export function buildApiKeysTab(
   });
   footer.append(
     make("p", { class: "settings-help" },
-      "Providers run in the order shown above. Free sources (Libretro Thumbnails, cover-art-collection) " +
+      "Providers run in the order shown above. Free sources (Libretro Thumbnails, cover-art-collection, Wikimedia) " +
       "always run first and are not affected by this list.",
     ),
     resetBtn,

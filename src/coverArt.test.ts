@@ -16,6 +16,8 @@ import {
   RawgCoverArtProvider,
   MobyGamesCoverArtProvider,
   TheGamesDBCoverArtProvider,
+  SteamGridDBCoverArtProvider,
+  WikimediaCoverArtProvider,
   systemIdToRawgPlatformId,
   systemIdToMobyPlatformId,
   systemIdToTgdbPlatformId,
@@ -1045,5 +1047,102 @@ describe("TheGamesDBCoverArtProvider", () => {
     expect(systemIdToTgdbPlatformId("snes")).toBe(6);
     expect(systemIdToTgdbPlatformId("psx")).toBe(10);
     expect(systemIdToTgdbPlatformId("unknown")).toBeUndefined();
+  });
+});
+
+// ── SteamGridDBCoverArtProvider ───────────────────────────────────────────────
+
+describe("SteamGridDBCoverArtProvider", () => {
+  it("isAvailable() is false when no key is set", () => {
+    const p = new SteamGridDBCoverArtProvider({ getApiKey: () => "" });
+    expect(p.isAvailable()).toBe(false);
+  });
+
+  it("search() returns [] with no key without calling fetch", async () => {
+    let called = 0;
+    const fetchImpl = (async () => { called++; return new Response("", { status: 200 }); }) as unknown as typeof fetch;
+    const p = new SteamGridDBCoverArtProvider({ getApiKey: () => "", fetchImpl });
+    expect(await p.search("Portal", "psp")).toEqual([]);
+    expect(called).toBe(0);
+  });
+
+  it("searches games then returns portrait grid candidates", async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("/search/autocomplete/")) {
+        return new Response(JSON.stringify({
+          success: true,
+          data: [
+            { id: 1, name: "Portal" },
+            { id: 2, name: "Portal Knights" },
+          ],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        data: [
+          { id: 9, url: "https://cdn.sgdb/landscape.png", width: 920, height: 430 },
+          { id: 10, url: "https://cdn.sgdb/portrait.png", width: 600, height: 900 },
+        ],
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const p = new SteamGridDBCoverArtProvider({ getApiKey: () => "k".repeat(32), fetchImpl });
+    const results = await p.search("Portal", "psp", { limit: 2 });
+
+    expect(urls[0]).toContain("/search/autocomplete/portal");
+    expect(urls[1]).toContain("/grids/game/1");
+    expect(results.map(r => r.imageUrl)).toContain("https://cdn.sgdb/portrait.png");
+    expect(results[0]!.imageUrl).toBe("https://cdn.sgdb/portrait.png");
+    expect(results[0]!.sourceName).toBe("SteamGridDB");
+  });
+
+  it("testConnection() reports success, auth failure, and network error", async () => {
+    const ok = (async () => new Response(JSON.stringify({ success: true, data: [] }), { status: 200 })) as unknown as typeof fetch;
+    const bad = (async () => new Response("", { status: 403 })) as unknown as typeof fetch;
+    const boom = (async () => { throw new Error("x"); }) as unknown as typeof fetch;
+    expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "k".repeat(32), fetchImpl: ok }).testConnection()).toBe(true);
+    expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "k".repeat(32), fetchImpl: bad }).testConnection()).toMatch(/rejected/i);
+    expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "k".repeat(32), fetchImpl: boom }).testConnection()).toMatch(/Could not reach/i);
+    expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "" }).testConnection()).toMatch(/No API key/);
+  });
+});
+
+// ── WikimediaCoverArtProvider ─────────────────────────────────────────────────
+
+describe("WikimediaCoverArtProvider", () => {
+  it("returns page-image candidates without an API key", async () => {
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      expect(url).toContain("origin=*");
+      expect(url).toContain("generator=search");
+      return new Response(JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "Crisis Core: Final Fantasy VII",
+              thumbnail: { source: "https://upload.wikimedia.org/thumb.jpg" },
+              extract: "Crisis Core is an action role-playing video game.",
+            },
+          },
+        },
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const p = new WikimediaCoverArtProvider({ fetchImpl });
+    const results = await p.search("Crisis Core - Final Fantasy VII.iso", "psp");
+    expect(results.length).toBe(1);
+    expect(results[0]!.sourceName).toBe("Wikimedia");
+    expect(results[0]!.imageUrl).toContain("upload.wikimedia.org");
+  });
+
+  it("maps 4.3-pre alias systems to existing free thumbnail folders", () => {
+    expect(systemIdToCollectionFolders("snesBsnes")).toEqual(systemIdToCollectionFolders("snes"));
+    expect(systemIdToLibretroSystems("segaMDWide")).toEqual(systemIdToLibretroSystems("segaMD"));
+    expect(systemIdToLibretroSystems("intv")).toContain("Mattel - Intellivision");
+    expect(systemIdToLibretroSystems("3ds")).toContain("Nintendo - Nintendo 3DS");
+    expect(systemIdToLibretroSystems("dos")).toContain("DOS");
   });
 });

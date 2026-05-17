@@ -90,6 +90,26 @@ export interface SystemInfo {
   tierSettings?: Record<PerformanceTier, Record<string, string>>;
 }
 
+function fixedCoreTierSettings(
+  retroarchCore: string,
+  extra: Record<string, string> = {},
+): Record<PerformanceTier, Record<string, string>> {
+  const make = (): Record<string, string> => ({ retroarch_core: retroarchCore, ...extra });
+  return { low: make(), medium: make(), high: make(), ultra: make() };
+}
+
+function overrideRetroarchCore(
+  base: Record<PerformanceTier, Record<string, string>>,
+  retroarchCore: string,
+): Record<PerformanceTier, Record<string, string>> {
+  return {
+    low:    { ...base.low,    retroarch_core: retroarchCore },
+    medium: { ...base.medium, retroarch_core: retroarchCore },
+    high:   { ...base.high,   retroarch_core: retroarchCore },
+    ultra:  { ...base.ultra,  retroarch_core: retroarchCore },
+  };
+}
+
 // ── PPSSPP tier-specific core options ─────────────────────────────────────────
 
 /**
@@ -100,7 +120,7 @@ export interface SystemInfo {
  *   ppsspp_block_transfer_gpu           — Use GPU for block transfers (faster rendering)
  *   ppsspp_gpu_hardware_transform       — Hardware vertex transform (vs software)
  *   ppsspp_vertex_cache                 — Cache transformed vertices (faster)
- *   ppsspp_rendering_mode               — Buffered vs non-buffered rendering
+ *   ppsspp_rendering_mode               — Hardware backend (OpenGL for the web build)
  *   ppsspp_inflight_frames              — CPU-GPU pipeline depth (improves throughput)
  *   ppsspp_lower_resolution_for_effects — Reduce resolution for post-processing
  *   ppsspp_skip_buffer_effects          — Skip expensive framebuffer effects
@@ -161,7 +181,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "2",
     ppsspp_inflight_frames: "1",
-    ppsspp_rendering_mode: "buffered",
+    ppsspp_rendering_mode: "OpenGL",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "2",
     ppsspp_audio_resampling: "disabled",
@@ -200,7 +220,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "0",
     ppsspp_inflight_frames: "2",
-    ppsspp_rendering_mode: "buffered",
+    ppsspp_rendering_mode: "OpenGL",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "1",
     ppsspp_audio_resampling: "enabled",
@@ -239,7 +259,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "0",
     ppsspp_inflight_frames: "2",
-    ppsspp_rendering_mode: "buffered",
+    ppsspp_rendering_mode: "OpenGL",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "1",
     ppsspp_audio_resampling: "enabled",
@@ -278,7 +298,7 @@ const PSP_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: "0",
     ppsspp_inflight_frames: "2",
-    ppsspp_rendering_mode: "buffered",
+    ppsspp_rendering_mode: "OpenGL",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: "0",
     ppsspp_audio_resampling: "enabled",
@@ -826,6 +846,8 @@ const SNES_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
+const SNES_BSNES_TIER_SETTINGS = fixedCoreTierSettings("bsnes");
+
 // ── Game Boy (Gambatte) tier settings ─────────────────────────────────────────
 //
 // Gambatte is the precision GB/GBC core. Key options for the original Game Boy:
@@ -1194,6 +1216,14 @@ const GENESIS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
 
 // ── Dreamcast (Flycast / reicast) tier settings ───────────────────────────────
 
+const GENESIS_WIDE_TIER_SETTINGS = overrideRetroarchCore(GENESIS_TIER_SETTINGS, "genesis_plus_gx_wide");
+
+const INTELLIVISION_TIER_SETTINGS = fixedCoreTierSettings("freeintv");
+
+const N3DS_TIER_SETTINGS = fixedCoreTierSettings("azahar");
+
+const DOS_TIER_SETTINGS = fixedCoreTierSettings("dosbox_pure");
+
 const DREAMCAST_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   low: {
     flycast_cable_type:            "VGA",
@@ -1294,6 +1324,7 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: true,
     needsWebGL2: true,
     is3D: true,
+    hasAchievements: true,
     screenscraperId: 61,
     qualitySettings: {
       ppsspp_internal_resolution: "2",
@@ -1339,6 +1370,24 @@ export const SYSTEMS: SystemInfo[] = [
     qualitySettings: SNES_TIER_SETTINGS.high,
     perfSettings: SNES_TIER_SETTINGS.low,
     tierSettings: SNES_TIER_SETTINGS,
+  },
+  {
+    id: "snesBsnes",
+    coreId: "snes",
+    name: "Super Nintendo (bsnes)",
+    shortName: "SNES bsnes",
+    iconUrl: "/assets/snes_system_icon_premium_1775434976156.png",
+    experimental: true,
+    stabilityNotice: "Uses the EmulatorJS 4.3-pre bsnes core. Prefer the standard SNES profile unless you specifically want bsnes accuracy testing.",
+    extensions: ["snes", "smc", "sfc", "fig", "bs"],
+    color: "#6e49b7",
+    needsThreads: false,
+    needsWebGL2: false,
+    hasAchievements: true,
+    screenscraperId: 4,
+    qualitySettings: SNES_BSNES_TIER_SETTINGS.high,
+    perfSettings: SNES_BSNES_TIER_SETTINGS.low,
+    tierSettings: SNES_BSNES_TIER_SETTINGS,
   },
   {
     id: "gba",
@@ -1402,6 +1451,23 @@ export const SYSTEMS: SystemInfo[] = [
     tierSettings: NDS_TIER_SETTINGS,
   },
   {
+    id: "3ds",
+    name: "Nintendo 3DS",
+    shortName: "3DS",
+    iconUrl: "/assets/nds_system_icon_premium_1775435000887.png",
+    experimental: true,
+    stabilityNotice: "Experimental: 3DS support uses the new EmulatorJS 4.3-pre Azahar core and requires threaded WebGL 2 support.",
+    extensions: ["3ds", "cci", "cxi", "app"],
+    color: "#c62828",
+    needsThreads: true,
+    needsWebGL2: true,
+    is3D: true,
+    touchControlMode: "builtin",
+    qualitySettings: N3DS_TIER_SETTINGS.high,
+    perfSettings: N3DS_TIER_SETTINGS.low,
+    tierSettings: N3DS_TIER_SETTINGS,
+  },
+  {
     id: "n64",
     name: "Nintendo 64",
     shortName: "N64",
@@ -1411,6 +1477,7 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: false,
     needsWebGL2: false,
     is3D: true,
+    hasAchievements: true,
     qualitySettings: N64_TIER_SETTINGS.high,
     perfSettings: N64_TIER_SETTINGS.low,
     tierSettings: N64_TIER_SETTINGS,
@@ -1425,6 +1492,7 @@ export const SYSTEMS: SystemInfo[] = [
     needsThreads: false,
     needsWebGL2: false,
     is3D: true,
+    hasAchievements: true,
     qualitySettings: PSX_TIER_SETTINGS.high,
     perfSettings: PSX_TIER_SETTINGS.low,
     tierSettings: PSX_TIER_SETTINGS,
@@ -1438,9 +1506,27 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#1a1ae6",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
     qualitySettings: GENESIS_TIER_SETTINGS.high,
     perfSettings: GENESIS_TIER_SETTINGS.low,
     tierSettings: GENESIS_TIER_SETTINGS,
+  },
+  {
+    id: "segaMDWide",
+    coreId: "segaMD",
+    name: "Sega Genesis / Mega Drive (Wide)",
+    shortName: "Genesis Wide",
+    iconUrl: "/assets/genesis_system_icon_premium_1775435147615.png",
+    experimental: true,
+    stabilityNotice: "Uses the EmulatorJS 4.3-pre Genesis Plus GX Wide core for widescreen-compatible games.",
+    extensions: ["md", "smd", "gen"],
+    color: "#263bdc",
+    needsThreads: false,
+    needsWebGL2: false,
+    hasAchievements: true,
+    qualitySettings: GENESIS_WIDE_TIER_SETTINGS.high,
+    perfSettings: GENESIS_WIDE_TIER_SETTINGS.low,
+    tierSettings: GENESIS_WIDE_TIER_SETTINGS,
   },
   {
     id: "segaGG",
@@ -1451,6 +1537,7 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#e64a1a",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
     qualitySettings: GENESIS_TIER_SETTINGS.high,
     perfSettings: GENESIS_TIER_SETTINGS.low,
     tierSettings: GENESIS_TIER_SETTINGS,
@@ -1464,6 +1551,7 @@ export const SYSTEMS: SystemInfo[] = [
     color: "#2255cc",
     needsThreads: false,
     needsWebGL2: false,
+    hasAchievements: true,
     qualitySettings: GENESIS_TIER_SETTINGS.high,
     perfSettings: GENESIS_TIER_SETTINGS.low,
     tierSettings: GENESIS_TIER_SETTINGS,
@@ -1480,6 +1568,34 @@ export const SYSTEMS: SystemInfo[] = [
     qualitySettings: ATARI2600_TIER_SETTINGS.high,
     perfSettings: ATARI2600_TIER_SETTINGS.low,
     tierSettings: ATARI2600_TIER_SETTINGS,
+  },
+  {
+    id: "intv",
+    name: "Intellivision",
+    shortName: "INTV",
+    iconUrl: "/assets/arcade_system_icon_premium.png",
+    extensions: ["int", "itv", "rom"],
+    color: "#7b4a22",
+    needsThreads: false,
+    needsWebGL2: false,
+    qualitySettings: INTELLIVISION_TIER_SETTINGS.high,
+    perfSettings: INTELLIVISION_TIER_SETTINGS.low,
+    tierSettings: INTELLIVISION_TIER_SETTINGS,
+  },
+  {
+    id: "dos",
+    name: "MS-DOS (DOSBox Pure)",
+    shortName: "DOS",
+    iconUrl: "/assets/arcade_system_icon_premium.png",
+    experimental: true,
+    stabilityNotice: "Experimental: DOS support uses EmulatorJS 4.3-pre DOSBox Pure with generated BOOTUP.BAT startup support.",
+    extensions: ["zip", "dosz", "exe", "com", "bat", "conf"],
+    color: "#2f6f55",
+    needsThreads: true,
+    needsWebGL2: false,
+    qualitySettings: DOS_TIER_SETTINGS.high,
+    perfSettings: DOS_TIER_SETTINGS.low,
+    tierSettings: DOS_TIER_SETTINGS,
   },
   {
     id: "arcade",

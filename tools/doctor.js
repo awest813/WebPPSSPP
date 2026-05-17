@@ -95,11 +95,20 @@ addCheck('Emulator core runtime wiring', () => {
   if (!runtime.includes('"segaDC": ["flycast"]')) {
     missing.push('Dreamcast Flycast registration');
   }
-  if (!runtime.includes('const requiresWebGL2 = ["ppsspp", "flycast"]')) {
+  if (!runtime.includes('"3ds": ["azahar"]')) {
+    missing.push('Azahar 3DS registration');
+  }
+  if (!runtime.includes('const requiresThreads = ["ppsspp", "dosbox_pure", "azahar"]')) {
+    missing.push('Azahar/DOSBox threaded core guard');
+  }
+  if (!runtime.includes('const requiresWebGL2 = ["ppsspp", "flycast", "azahar"]')) {
     missing.push('Flycast WebGL2 guard');
   }
   if (!runtime.includes('[EJS Core] Downloading external core:')) {
     missing.push('external core download path');
+  }
+  if (!runtime.includes('const filePathKey = path.split("/").pop().split("?")[0].split("#")[0];')) {
+    missing.push('core report EJS_paths query stripping');
   }
 
   if (missing.length) {
@@ -110,6 +119,50 @@ addCheck('Emulator core runtime wiring', () => {
   }
 
   return { status: PASS, message: 'Bundled runtime can pass and load external Flycast core bundles.' };
+});
+
+addCheck('4.3-pre core routing', () => {
+  const wrapperPath = 'src/emulator.ts';
+  const systemsPath = 'src/systems.ts';
+  if (!existsSync(wrapperPath)) {
+    return {
+      status: FAIL,
+      message: `Missing ${wrapperPath}; cannot verify PSP core channel.`
+    };
+  }
+  if (!existsSync(systemsPath)) {
+    return {
+      status: FAIL,
+      message: `Missing ${systemsPath}; cannot verify PSP hardware-rendering options.`
+    };
+  }
+
+  const wrapper = readFileSync(wrapperPath, 'utf8');
+  const systems = readFileSync(systemsPath, 'utf8');
+  const required = [
+    'EJS_NIGHTLY_CDN_BASE',
+    'ppsspp: EJS_NIGHTLY_CDN_BASE',
+    'azahar: EJS_NIGHTLY_CDN_BASE',
+    'bsnes: EJS_NIGHTLY_CDN_BASE',
+    'dosbox_pure: EJS_NIGHTLY_CDN_BASE',
+    'freeintv: EJS_NIGHTLY_CDN_BASE',
+    'genesis_plus_gx_wide: EJS_NIGHTLY_CDN_BASE',
+    'EJS_disableAutoUnload = true',
+    'EJS_askBeforeExit = true'
+  ];
+  const missing = required.filter((needle) => !wrapper.includes(needle));
+  if (!systems.includes('ppsspp_rendering_mode: "OpenGL"')) {
+    missing.push('PSP OpenGL hardware-rendering backend');
+  }
+
+  if (missing.length) {
+    return {
+      status: FAIL,
+      message: `4.3-pre compatibility wiring missing: ${missing.join(', ')}.`
+    };
+  }
+
+  return { status: PASS, message: '4.3-pre-only core bundles are routed to the EmulatorJS nightly channel.' };
 });
 
 console.log('RetroOasis environment doctor\n');

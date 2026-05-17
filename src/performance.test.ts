@@ -2398,6 +2398,7 @@ describe('performance', () => {
       it('maps PSP quality preset to resolution and filtering options', () => {
         expect(getGraphicsPresetCoreOptions('psp', 'quality')).toMatchObject({
           ppsspp_internal_resolution: '2',
+          ppsspp_rendering_mode: 'OpenGL',
           ppsspp_gpu_anisotropic_filtering: '8x',
           ppsspp_texture_scaling_level: '2',
         });

@@ -21,6 +21,20 @@ describe('systems performance profiles', () => {
       expect(detected && !Array.isArray(detected) ? detected.id : null).toBe('nds');
     });
 
+    it('detects new EmulatorJS 4.3-pre system file types', () => {
+      const intv = detectSystem('night-stalker.int');
+      expect(Array.isArray(intv)).toBe(false);
+      expect(intv && !Array.isArray(intv) ? intv.id : null).toBe('intv');
+
+      const n3ds = detectSystem('pilotwings-resort.3ds');
+      expect(Array.isArray(n3ds)).toBe(false);
+      expect(n3ds && !Array.isArray(n3ds) ? n3ds.id : null).toBe('3ds');
+
+      const dos = detectSystem('duke3d.bat');
+      expect(Array.isArray(dos)).toBe(false);
+      expect(dos && !Array.isArray(dos) ? dos.id : null).toBe('dos');
+    });
+
     it('detects unique extensions correctly', () => {
       // .cso is unique to PSP (ISO compressed)
       const pspDetected = detectSystem('game.cso');
@@ -170,6 +184,11 @@ describe('systems performance profiles', () => {
       expect(getSystemFeatureSummary(psp)).toContain('Multi-threaded');
       const gba = getSystemById('gba')!;
       expect(getSystemFeatureSummary(gba)).toContain('RetroAchievements');
+      expect(getSystemFeatureSummary(psp)).toContain('RetroAchievements');
+      const psx = getSystemById('psx')!;
+      expect(getSystemFeatureSummary(psx)).toContain('RetroAchievements');
+      const genesis = getSystemById('segaMD')!;
+      expect(getSystemFeatureSummary(genesis)).toContain('RetroAchievements');
       const nds = getSystemById('nds')!;
       expect(getSystemFeatureSummary(nds)).toContain('Built-in touch');
     });
@@ -185,6 +204,8 @@ describe('systems performance profiles', () => {
     expect(psp?.tierSettings?.low?.ppsspp_internal_resolution).toBe('1');
     expect(nds?.tierSettings?.low?.desmume_frameskip).toBe('2');
     expect(nds?.tierSettings?.ultra?.desmume_internal_resolution).toBe('1024x768');
+    expect(getSystemById('3ds')?.tierSettings?.low?.retroarch_core).toBe('azahar');
+    expect(getSystemById('dos')?.tierSettings?.low?.retroarch_core).toBe('dosbox_pure');
     expect(n64?.tierSettings?.low?.['mupen64plus-rdp-plugin']).toBe('rice');
     expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('4');
     expect(saturn?.tierSettings?.low?.retroarch_core).toBe('yabause');
@@ -224,6 +245,17 @@ describe('systems performance profiles', () => {
     expect(getSystemById('atari7800')?.tierSettings?.high?.retroarch_core).toBe('prosystem');
     expect(getSystemById('lynx')?.tierSettings?.high?.handy_rot).toBe('None');
     expect(getSystemById('ngp')?.tierSettings?.high?.ngp_language).toBe('english');
+    expect(getSystemById('intv')?.tierSettings?.high?.retroarch_core).toBe('freeintv');
+  });
+
+  it('exposes 4.3-pre alternate cores as explicit selectable profiles', () => {
+    expect(getSystemById('snesBsnes')?.coreId).toBe('snes');
+    expect(getSystemById('snesBsnes')?.tierSettings?.high?.retroarch_core).toBe('bsnes');
+    expect(getSystemById('segaMDWide')?.coreId).toBe('segaMD');
+    expect(getSystemById('segaMDWide')?.tierSettings?.high?.retroarch_core).toBe('genesis_plus_gx_wide');
+    expect(getSystemById('3ds')?.experimental).toBe(true);
+    expect(getSystemById('3ds')?.needsThreads).toBe(true);
+    expect(getSystemById('dos')?.needsThreads).toBe(true);
   });
 
   describe('PSP audio latency settings', () => {
@@ -265,6 +297,14 @@ describe('systems performance profiles', () => {
   });
 
   describe('PSP 3D performance settings', () => {
+    it('uses the 4.3-pre PPSSPP OpenGL backend on every tier', () => {
+      const psp = getSystemById('psp');
+      expect(psp?.tierSettings?.low?.ppsspp_rendering_mode).toBe('OpenGL');
+      expect(psp?.tierSettings?.medium?.ppsspp_rendering_mode).toBe('OpenGL');
+      expect(psp?.tierSettings?.high?.ppsspp_rendering_mode).toBe('OpenGL');
+      expect(psp?.tierSettings?.ultra?.ppsspp_rendering_mode).toBe('OpenGL');
+    });
+
     it('caps FPS to 30 on low tier for consistent 3D rendering on low-spec hardware', () => {
       const psp = getSystemById('psp');
       // 30 fps gives the GPU twice as much time per frame vs 60 fps, improving

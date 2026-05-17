@@ -71,11 +71,22 @@ declare global {
     /** EmulatorJS loader default core options. */
     EJS_defaultOptions?: Record<string, string>;
     EJS_Settings?:     Record<string, string>;
+    /** Optional EmulatorJS cheat database base URL. */
+    EJS_cheatPath?:    string;
+    /** Disable EmulatorJS's own beforeunload handler; RetroOasis owns auto-save UX. */
+    EJS_disableAutoUnload?: boolean;
+    /** Whether EmulatorJS should ask before the in-emulator exit action closes. */
+    EJS_askBeforeExit?: boolean;
+    /** Fixed interval in ms for EmulatorJS to flush in-game save files. */
+    EJS_fixedSaveInterval?: number;
+    /** Disable DOSBox Pure's generated BOOTUP.BAT helper. */
+    EJS_disableBatchBootup?: boolean;
     EJS_biosUrl?:      string | File;
     /** Override path to the core `.data` bundle (absolute URL). Used for cores not on the CDN. */
     EJS_corePath?:     string;
     EJS_ready?:        () => void;
     EJS_onGameStart?:  () => void;
+    EJS_onExit?:       () => void;
     EJS_emulator?:     EJSEmulatorInstance;
     /** Netplay signalling server WebSocket URL (set when netplay is active). */
     EJS_netplayServer?:     string;
@@ -440,6 +451,7 @@ interface EJSEmulatorInstance {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 export const EJS_CDN_BASE = "https://cdn.emulatorjs.org/stable/data/";
+export const EJS_NIGHTLY_CDN_BASE = "https://cdn.emulatorjs.org/nightly/data/";
 export const EJS_DATA_BASE = new URL(/* @vite-ignore */ "../data/", import.meta.url).toString();
 
 /** Warn when a ROM file exceeds this size (500 MB). */
@@ -557,16 +569,39 @@ const CORE_PREFETCH_MAP: Record<string, string> = {
   gbc:        "cores/gambatte-wasm.data",
   nes:        "cores/fceumm-wasm.data",
   snes:       "cores/snes9x-wasm.data",
+  snesBsnes:  "cores/bsnes-wasm.data",
   segaMD:     "cores/genesis_plus_gx-wasm.data",
+  segaMDWide: "cores/genesis_plus_gx_wide-wasm.data",
   segaGG:     "cores/genesis_plus_gx-wasm.data",
   segaMS:     "cores/genesis_plus_gx-wasm.data",
   arcade:     "cores/fbneo-wasm.data",
   segaSaturn: "cores/yabause-wasm.data",
   mame2003:   "cores/mame2003_plus-wasm.data",
   atari7800:  "cores/prosystem-wasm.data",
+  intv:       "cores/freeintv-wasm.data",
+  dos:        "cores/dosbox_pure-thread-wasm.data",
   lynx:       "cores/handy-wasm.data",
   ngp:        "cores/mednafen_ngp-wasm.data",
   atari2600:  "cores/stella2014-wasm.data",
+  "3ds":      "cores/azahar-thread-wasm.data",
+};
+
+/**
+ * Core-specific CDN channel overrides.
+ *
+ * RetroOasis currently ships the 4.3-pre-compatible source runtime, but keeps
+ * most systems on stable core bundles. PPSSPP is the one deliberate exception:
+ * upstream's 4.3-pre work materially improves PSP hardware rendering and
+ * fast-forward behavior, and PPSSPP cores are not interchangeable across the
+ * 4.2/4.3 boundary.
+ */
+const CORE_CDN_BASE_OVERRIDES: Record<string, string> = {
+  ppsspp: EJS_NIGHTLY_CDN_BASE,
+  azahar: EJS_NIGHTLY_CDN_BASE,
+  bsnes: EJS_NIGHTLY_CDN_BASE,
+  dosbox_pure: EJS_NIGHTLY_CDN_BASE,
+  freeintv: EJS_NIGHTLY_CDN_BASE,
+  genesis_plus_gx_wide: EJS_NIGHTLY_CDN_BASE,
 };
 
 function coreNameForSystem(system: SystemInfo, ejsSettings: Record<string, string>): string {
@@ -577,6 +612,10 @@ function coreNameForSystem(system: SystemInfo, ejsSettings: Record<string, strin
     return fileName.replace(/(?:-thread)?(?:-legacy)?-wasm\.data$/, "");
   }
   return system.coreId ?? system.id;
+}
+
+function cdnBaseForCore(coreName: string): string {
+  return CORE_CDN_BASE_OVERRIDES[coreName] ?? EJS_CDN_BASE;
 }
 
 /**
@@ -1314,18 +1353,18 @@ export class PSPEmulator {
   prefetchCore(systemId: string): void {
     if (this._prefetchedCores.has(systemId)) return;
     const relPath = CORE_PREFETCH_MAP[systemId];
+    const system = getSystemById(systemId);
     // For systems not in the CDN map (e.g. Flycast/Dreamcast), fall back to the
     // system-level corePath which already contains the absolute bundle URL.
-    const sys = !relPath ? getSystemById(systemId) : null;
-    const fallbackUrl = sys?.corePath ?? null;
-    if (!relPath && !fallbackUrl) return;
+    const fallbackUrl = !relPath ? (system?.corePath ?? null) : null;
+    if ((relPath && !system) || (!relPath && !fallbackUrl)) return;
 
     this._prefetchedCores.add(systemId);
 
     // Entries starting with "https://" are absolute URLs (e.g. external WASM cores);
     // all others are CDN-relative paths.
     const blobUrl = relPath
-      ? (relPath.startsWith("https://") ? relPath : `${EJS_CDN_BASE}${relPath}`)
+      ? (relPath.startsWith("https://") ? relPath : `${cdnBaseForCore(coreNameForSystem(system!, {}))}${relPath}`)
       : fallbackUrl!;
 
     if (!document.querySelector(`link[href="${blobUrl}"]`)) {
@@ -3170,13 +3209,14 @@ export class PSPEmulator {
         const pspMaxFps             = ejsSettings["ppsspp_force_max_fps"]         ?? "?";
         const pspCpuSpeed           = ejsSettings["ppsspp_change_emulated_psp_cpu_clock"] ?? "?";
         const pspAudioLatency       = ejsSettings["ppsspp_audio_latency"]          ?? "?";
+        const pspBackend            = ejsSettings["ppsspp_rendering_mode"]         ?? "?";
         const pspDriver             = ejsSettings["ppsspp_gpu_driver"]             ?? "?";
         this.logDiagnostic(
           "performance",
           `PSP tier=${tier}: res=${pspResolution} fs=${pspAutoFrameskip}/${pspFrameskip} ` +
           `cpu=${pspCpuCore} af=${pspAnisotropic} tex=${pspTexScale}/${pspTexType} ` +
           `deposterize=${pspDeposterize} lowerfx=${pspLowerEffectsRes} maxfps=${pspMaxFps} ` +
-          `cpuspeed=${pspCpuSpeed} audio=${pspAudioLatency} driver=${pspDriver}`
+          `cpuspeed=${pspCpuSpeed} audio=${pspAudioLatency} backend=${pspBackend} driver=${pspDriver}`
         );
         if (this.verboseLogging) {
           console.info(
@@ -3185,7 +3225,7 @@ export class PSPEmulator {
             `cpu_core: ${pspCpuCore}, anisotropic: ${pspAnisotropic}, texture_scaling: ${pspTexScale}/${pspTexType}, ` +
             `deposterize: ${pspDeposterize}, lower_resolution_for_effects: ${pspLowerEffectsRes}, ` +
             `force_max_fps: ${pspMaxFps}, cpu_clock: ${pspCpuSpeed}, audio_latency: ${pspAudioLatency}, ` +
-            `gpu_driver: ${pspDriver}`
+            `rendering_mode: ${pspBackend}, gpu_driver: ${pspDriver}`
           );
         }
       }
@@ -3285,13 +3325,20 @@ export class PSPEmulator {
       } else {
         delete window.EJS_corePath;
         const selectedCore = coreNameForSystem(system, ejsSettings);
+        const coreCdnBase = cdnBaseForCore(selectedCore);
         window.EJS_paths = {
-          [`${selectedCore}-wasm.data`]:               `${EJS_CDN_BASE}cores/${selectedCore}-wasm.data`,
-          [`${selectedCore}-legacy-wasm.data`]:        `${EJS_CDN_BASE}cores/${selectedCore}-legacy-wasm.data`,
-          [`${selectedCore}-thread-wasm.data`]:        `${EJS_CDN_BASE}cores/${selectedCore}-thread-wasm.data`,
-          [`${selectedCore}-thread-legacy-wasm.data`]: `${EJS_CDN_BASE}cores/${selectedCore}-thread-legacy-wasm.data`,
+          [`${selectedCore}.json`]:                    `${coreCdnBase}cores/reports/${selectedCore}.json`,
+          [`${selectedCore}-wasm.data`]:               `${coreCdnBase}cores/${selectedCore}-wasm.data`,
+          [`${selectedCore}-legacy-wasm.data`]:        `${coreCdnBase}cores/${selectedCore}-legacy-wasm.data`,
+          [`${selectedCore}-thread-wasm.data`]:        `${coreCdnBase}cores/${selectedCore}-thread-wasm.data`,
+          [`${selectedCore}-thread-legacy-wasm.data`]: `${coreCdnBase}cores/${selectedCore}-thread-legacy-wasm.data`,
         };
       }
+
+      window.EJS_disableAutoUnload = true;
+      window.EJS_askBeforeExit = true;
+      window.EJS_fixedSaveInterval = 30_000;
+      window.EJS_disableBatchBootup = false;
 
       if (opts.biosAsset instanceof Blob) {
         this._biosUrl = URL.createObjectURL(opts.biosAsset);
@@ -4130,6 +4177,7 @@ export class PSPEmulator {
     delete ejsWindow.EJS_emulator;
     delete ejsWindow.EJS_ready;
     delete ejsWindow.EJS_onGameStart;
+    delete ejsWindow.EJS_onExit;
     delete ejsWindow.EJS_player;
     delete ejsWindow.EJS_core;
     delete ejsWindow.EJS_gameUrl;
@@ -4142,6 +4190,11 @@ export class PSPEmulator {
     delete ejsWindow.EJS_paths;
     delete ejsWindow.EJS_biosUrl;
     delete ejsWindow.EJS_corePath;
+    delete ejsWindow.EJS_cheatPath;
+    delete ejsWindow.EJS_disableAutoUnload;
+    delete ejsWindow.EJS_askBeforeExit;
+    delete ejsWindow.EJS_fixedSaveInterval;
+    delete ejsWindow.EJS_disableBatchBootup;
     delete ejsWindow.EJS_defaultOptions;
     delete ejsWindow.EJS_Settings;
     delete ejsWindow.EJS_netplayServer;

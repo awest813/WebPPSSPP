@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   PSPEmulator,
   EJS_CDN_BASE,
+  EJS_NIGHTLY_CDN_BASE,
   EJS_DATA_BASE,
   clearWebGL2SupportCache,
   wasmCorePackageNameFor,
@@ -316,7 +317,7 @@ describe('PSPEmulator', () => {
     });
 
     it('prefetches the threaded PPSSPP core blob for psp system id', () => {
-      const blobUrl = `${EJS_CDN_BASE}cores/ppsspp-thread-wasm.data`;
+      const blobUrl = `${EJS_NIGHTLY_CDN_BASE}cores/ppsspp-thread-wasm.data`;
 
       emulator.prefetchCore('psp');
 
@@ -325,6 +326,26 @@ describe('PSPEmulator', () => {
       expect(link).not.toBeNull();
       expect(link?.getAttribute('rel')).toBe('prefetch');
       expect(link?.getAttribute('as')).toBe('fetch');
+    });
+
+    it('prefetches new 4.3-pre cores from the nightly channel', () => {
+      emulator.prefetchCore('3ds');
+      emulator.prefetchCore('intv');
+      emulator.prefetchCore('snesBsnes');
+      emulator.prefetchCore('segaMDWide');
+      emulator.prefetchCore('dos');
+
+      for (const rel of [
+        'cores/azahar-thread-wasm.data',
+        'cores/freeintv-wasm.data',
+        'cores/bsnes-wasm.data',
+        'cores/genesis_plus_gx_wide-wasm.data',
+        'cores/dosbox_pure-thread-wasm.data',
+      ]) {
+        const link = document.head.querySelector(`link[href="${EJS_NIGHTLY_CDN_BASE}${rel}"]`);
+        expect(link, rel).not.toBeNull();
+        expect(link?.getAttribute('as')).toBe('fetch');
+      }
     });
 
     it('prefetches the Flycast core for segaDC using the system corePath fallback', () => {
@@ -685,6 +706,7 @@ describe('PSPEmulator', () => {
     // Shared fake caps for a system that passes all pre-flight checks in jsdom.
     // NES does not need SharedArrayBuffer or WebGL2, so it launches cleanly.
     const nesFile  = new File(['data'], 'game.nes');
+    const pspFile  = new File(['data'], 'game.iso');
     const nesCaps = {
       deviceMemoryGB: 4,
       cpuCores: 4,
@@ -709,6 +731,11 @@ describe('PSPEmulator', () => {
       webgpuAvailable: false,
       connectionQuality: 'unknown' as const,
       jsHeapLimitMB: null, estimatedVRAMMB: 768,
+    };
+    const pspCaps = {
+      ...nesCaps,
+      gpuCaps: { ...nesCaps.gpuCaps, webgl2: true },
+      tier: 'high' as const,
     };
 
     beforeEach(() => {
@@ -741,8 +768,56 @@ describe('PSPEmulator', () => {
       expect(scriptSrc).toBe(`${EJS_DATA_BASE}loader.js`);
       expect(window.EJS_pathtodata).toBe(EJS_DATA_BASE);
       expect(window.EJS_DEBUG_XX).toBe(true);
+      expect(window.EJS_paths?.['fceumm.json']).toBe(`${EJS_CDN_BASE}cores/reports/fceumm.json`);
       expect(window.EJS_paths?.['fceumm-wasm.data']).toBe(`${EJS_CDN_BASE}cores/fceumm-wasm.data`);
       expect(window.EJS_paths?.['fceumm-legacy-wasm.data']).toBe(`${EJS_CDN_BASE}cores/fceumm-legacy-wasm.data`);
+      expect(emulator.state).toBe('running');
+    });
+
+    it('routes PSP core bundles to the EmulatorJS nightly channel', async () => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({}) as never);
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      await emulator.launch({
+        file:            pspFile,
+        volume:          0.7,
+        systemId:        'psp',
+        performanceMode: 'auto',
+        deviceCaps:      pspCaps,
+      });
+
+      expect(window.EJS_paths?.['ppsspp-thread-wasm.data']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/ppsspp-thread-wasm.data`);
+      expect(window.EJS_paths?.['ppsspp-wasm.data']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/ppsspp-wasm.data`);
+      expect(window.EJS_paths?.['ppsspp.json']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/reports/ppsspp.json`);
+      expect(window.EJS_Settings?.ppsspp_rendering_mode).toBe('OpenGL');
+      expect(window.EJS_disableAutoUnload).toBe(true);
+      expect(window.EJS_askBeforeExit).toBe(true);
+      expect(window.EJS_fixedSaveInterval).toBe(30000);
+      expect(window.EJS_disableBatchBootup).toBe(false);
+      expect(emulator.state).toBe('running');
+    });
+
+    it('routes new 4.3-pre selected cores to the EmulatorJS nightly channel', async () => {
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      await emulator.launch({
+        file:            new File(['rom'], 'night-stalker.int'),
+        volume:          0.7,
+        systemId:        'intv',
+        performanceMode: 'auto',
+        deviceCaps:      nesCaps,
+      });
+
+      expect(window.EJS_paths?.['freeintv.json']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/reports/freeintv.json`);
+      expect(window.EJS_paths?.['freeintv-wasm.data']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/freeintv-wasm.data`);
       expect(emulator.state).toBe('running');
     });
 
@@ -1955,6 +2030,30 @@ describe('PSPEmulator', () => {
       // boot, while EJS_Settings is retained for diagnostics/backwards compat.
       expect(window.EJS_defaultOptions).toEqual(active);
       expect(window.EJS_Settings).toEqual(active);
+    });
+
+    it('adds RetroAchievements core options when launch credentials are provided', async () => {
+      emulator.onError = () => {};
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => { await Promise.resolve(); window.EJS_onGameStart?.(); };
+
+      await emulator.launch({
+        file:            new File(['data'], 'game.gba'),
+        volume:          0.7,
+        systemId:        'gba',
+        performanceMode: 'auto',
+        deviceCaps:      { ...fakeCaps, tier: 'medium' as const },
+        achievements: {
+          username: "player",
+          apiKey: "apikey",
+          hardcore: true,
+        },
+      });
+
+      expect(window.EJS_defaultOptions?.cheevos_enable).toBe("true");
+      expect(window.EJS_defaultOptions?.cheevos_username).toBe("player");
+      expect(window.EJS_defaultOptions?.cheevos_password).toBe("apikey");
+      expect(window.EJS_defaultOptions?.cheevos_hardcore_mode_enable).toBe("true");
     });
 
     it('records an NDS performance diagnostic event with tier, cpu_mode, frameskip, resolution, timing, depth, and touchscreen mode', async () => {
@@ -4425,5 +4524,12 @@ describe("wasmCorePackageNameFor", () => {
   it("uses CORE_PREFETCH_MAP when retroarch_core is absent", () => {
     const nes = getSystemById("nes")!;
     expect(wasmCorePackageNameFor(nes, {})).toBe("fceumm");
+  });
+
+  it("resolves 4.3-pre alternate profiles to their selected core packages", () => {
+    expect(wasmCorePackageNameFor(getSystemById("snesBsnes")!, { retroarch_core: "bsnes" })).toBe("bsnes");
+    expect(wasmCorePackageNameFor(getSystemById("segaMDWide")!, { retroarch_core: "genesis_plus_gx_wide" })).toBe("genesis_plus_gx_wide");
+    expect(wasmCorePackageNameFor(getSystemById("3ds")!, { retroarch_core: "azahar" })).toBe("azahar");
+    expect(wasmCorePackageNameFor(getSystemById("dos")!, { retroarch_core: "dosbox_pure" })).toBe("dosbox_pure");
   });
 });

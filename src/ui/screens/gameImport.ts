@@ -56,6 +56,7 @@ import {
 import { showError } from "../toasts.js";
 
 const FILE_SIZE_DECIMALS = 1;
+const DOS_NATIVE_PACKAGE_EXTS = new Set(["exe", "com", "bat", "conf"]);
 
 function parseM3U(content: string): string[] {
   return content
@@ -164,15 +165,20 @@ export async function resolveSystemAndAddImpl(
           !hasKnownRomHintInArchiveName(file.name) &&
           extractedCandidates.length >= MIN_NATIVE_PACKAGE_BIN_ENTRY_COUNT &&
           extractedCandidates.every((candidate) => fileExt(candidate.name) === NATIVE_PACKAGE_BIN_EXT);
+        const shouldPreferDosPackageRouting =
+          archiveFormat === "zip" &&
+          extractedCandidates.some((candidate) => DOS_NATIVE_PACKAGE_EXTS.has(fileExt(candidate.name)));
 
-        if (shouldPreferNativePackageRouting) {
+        if (shouldPreferNativePackageRouting || shouldPreferDosPackageRouting) {
           resolvedFile = file;
           setLoadingMessage("Detected native package archive — using original file…");
           setLoadingSubtitle("");
           logImport(
             emulatorRef,
             settings,
-            `${archiveFormat.toUpperCase()} appears to be a native package set (${extractedCandidates.length} BIN entries); skipping inner extraction routing`,
+            shouldPreferDosPackageRouting
+              ? `${archiveFormat.toUpperCase()} appears to be a DOS package; skipping inner extraction routing`
+              : `${archiveFormat.toUpperCase()} appears to be a native package set (${extractedCandidates.length} BIN entries); skipping inner extraction routing`,
           );
         } else if (extractedCandidates.length > 1) {
           const savedPick = ArchiveSelectionStore.get(file.name, file.size);

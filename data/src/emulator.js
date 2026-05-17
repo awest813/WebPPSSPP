@@ -38,7 +38,8 @@ class EmulatorJS {
             "plus4": ["vice_xplus4"],
             "vic20": ["vice_xvic"],
             "dos": ["dosbox_pure"],
-            "intv": ["freeintv"]
+            "intv": ["freeintv"],
+            "3ds": ["azahar"]
         };
         if (this.isSafari && this.isMobile) {
             rv.n64 = rv.n64.reverse();
@@ -46,11 +47,11 @@ class EmulatorJS {
         return rv;
     }
     requiresThreads(core) {
-        const requiresThreads = ["ppsspp", "dosbox_pure"];
+        const requiresThreads = ["ppsspp", "dosbox_pure", "azahar"];
         return requiresThreads.includes(core);
     }
     requiresWebGL2(core) {
-        const requiresWebGL2 = ["ppsspp", "flycast"];
+        const requiresWebGL2 = ["ppsspp", "flycast", "azahar"];
         return requiresWebGL2.includes(core);
     }
     getCore(generic) {
@@ -123,8 +124,9 @@ class EmulatorJS {
             // Construct the full path/URL
             const basePath = notWithPath ? "" : this.config.dataPath;
             let fullPath = basePath + path;
-            if (!notWithPath && this.config.filePaths && typeof this.config.filePaths[path.split("/").pop()] === "string") {
-                fullPath = this.config.filePaths[path.split("/").pop()];
+            const filePathKey = path.split("/").pop().split("?")[0].split("#")[0];
+            if (!notWithPath && this.config.filePaths && typeof this.config.filePaths[filePathKey] === "string") {
+                fullPath = this.config.filePaths[filePathKey];
             }
 
             // Delegate all URL downloads (http, https, blob, data, etc.) to EJS_Download

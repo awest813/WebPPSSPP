@@ -91,6 +91,7 @@ import {
 import { getApiKeyStore } from "./ui/coverArtRegistry.js";
 import { parseRAKey } from "./raCredentials.js";
 import { installWebGlContextPolicy } from "./webglContextPolicy.js";
+import { getSystemById } from "./systems.js";
 
 const APP_NAME = "RetroOasis";
 registerCOIServiceWorker();
@@ -725,7 +726,10 @@ async function main(): Promise<void> {
 
     const apiStore = getApiKeyStore();
     const raState = apiStore.getState("retroachievements");
-    const raCreds = (raState.enabled && raState.key) ? parseRAKey(raState.key) : null;
+    const launchSystem = getSystemById(systemId);
+    const raCreds = (launchSystem?.hasAchievements && raState.enabled && raState.key)
+      ? parseRAKey(raState.key)
+      : null;
 
     await emulator.launch({
       file,

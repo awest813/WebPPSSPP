@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { buildApiKeysTab } from "./settingsTabs.js";
+import { buildAchievementsTab, buildApiKeysTab } from "./settingsTabs.js";
 import { ApiKeyStore, type ApiKeyProviderConfig } from "../apiKeyStore.js";
 
 function makeStorage(): Storage {
@@ -26,6 +26,14 @@ const cfgs: ApiKeyProviderConfig[] = [
     validate: (k) => (k.length >= 16 ? true : "too short"),
   },
 ];
+
+const raCfg: ApiKeyProviderConfig = {
+  id: "retroachievements",
+  name: "RetroAchievements",
+  description: "RA desc",
+  signupUrl: "https://retroachievements.org/controlpanel.php",
+  validate: () => true,
+};
 
 function mount(): { container: HTMLElement; store: ApiKeyStore; errors: string[] } {
   document.body.innerHTML = "";
@@ -165,6 +173,33 @@ describe("buildApiKeysTab", () => {
     expect(errors.some((e) => /MobyGames/.test(e))).toBe(true);
   });
 
+  it("Test button reports a clean inline error when a tester throws", async () => {
+    document.body.innerHTML = "";
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const store = new ApiKeyStore({ storage: makeStorage(), providers: cfgs });
+    const errors: string[] = [];
+    buildApiKeysTab(container, store, {
+      appName: "RetroOasis",
+      getTester: () => ({
+        testConnection: async () => { throw new Error("network down"); },
+      }),
+      onError: (m) => errors.push(m),
+    });
+
+    store.setKey("rawg", "0123456789abcdef0123456789abcdef");
+    const row = container.querySelector<HTMLElement>('[data-provider-id="rawg"]')!;
+    const testBtn = Array.from(row.querySelectorAll("button")).find((b) => b.textContent === "Test") as HTMLButtonElement;
+    testBtn.click();
+    await Promise.resolve(); await Promise.resolve();
+
+    const msg = container.querySelector('[data-provider-id="rawg"] .api-key-row__test-msg')!;
+    expect(msg.textContent).toContain("Could not test RAWG: network down");
+    expect(msg.className).toMatch(/--error/);
+    expect(errors.some((e) => /network down/.test(e))).toBe(true);
+    expect(testBtn.disabled).toBe(false);
+  });
+
   it("typing a URL shows a warning hint", () => {
     const { container } = mount();
     const input = container.querySelector('[data-provider-id="rawg"] .api-key-input') as HTMLInputElement;
@@ -194,6 +229,54 @@ describe("buildApiKeysTab", () => {
     resetBtn.click();
     // Order defaults to registration order.
     expect(store.getOrder()).toEqual(["rawg", "mobygames"]);
+  });
+
+  it("mentions Wikimedia in the always-on free source footer", () => {
+    const { container } = mount();
+    expect(container.querySelector(".api-keys-footer")?.textContent).toContain("Wikimedia");
+  });
+
+  it("uses purpose-specific enable labels for achievements and metadata providers", () => {
+    document.body.innerHTML = "";
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const store = new ApiKeyStore({
+      storage: makeStorage(),
+      providers: [
+        raCfg,
+        {
+          id: "igdb", name: "IGDB", description: "IGDB desc",
+          signupUrl: "https://api-docs.igdb.com/",
+          validate: () => true,
+        },
+      ],
+    });
+    buildApiKeysTab(container, store, {
+      appName: "RetroOasis",
+      getTester: () => null,
+      onError: vi.fn(),
+    });
+
+    expect(container.querySelector<HTMLInputElement>("#api-key-enabled-retroachievements")?.getAttribute("aria-label"))
+      .toBe("Use RetroAchievements for achievement tracking");
+    expect(container.querySelector<HTMLInputElement>("#api-key-enabled-igdb")?.getAttribute("aria-label"))
+      .toBe("Use IGDB for game metadata");
+  });
+});
+
+describe("buildAchievementsTab", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  it("surfaces a malformed saved RetroAchievements login", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const store = new ApiKeyStore({ storage: makeStorage(), providers: [raCfg] });
+    store.setKey("retroachievements", "not-valid");
+
+    buildAchievementsTab(container, store, { appName: "RetroOasis", onError: vi.fn() });
+
+    expect(container.textContent).toContain("expected username:apikey format");
+    expect(container.textContent).toContain("Fix RetroAchievements login");
   });
 });
 

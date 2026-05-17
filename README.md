@@ -6,7 +6,7 @@
 ![Tests](https://img.shields.io/badge/tests-1775%20passing-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-18%2B-339933.svg)
 
-RetroOasis is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/) stable (`cdn.emulatorjs.org/stable`). Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
+RetroOasis is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/). Most cores use the stable CDN channel (`cdn.emulatorjs.org/stable`); PSP intentionally uses the EmulatorJS nightly PPSSPP bundle so RetroOasis can pick up the 4.3-pre hardware-rendering and fast-forward improvements without moving every system to pre-release cores. Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
 
 ## Overview
 
@@ -43,8 +43,8 @@ Open `http://localhost:5173`.
 
 ### Emulation
 
-- **Many systems** via EmulatorJS — PSP (PPSSPP), N64, PS1 (Beetle PSX HW), NDS (DeSmuME 2015), GBA, SNES, NES, Sega Genesis / Saturn (Yabause), arcade (FBNeo / MAME 2003+), Atari, Neo Geo Pocket, and more
-- **Core alignment**: NDS tier tables force `desmume2015` (EmulatorJS otherwise prefers melonDS first). Saturn uses Yabause with RetroOasis-specific `yabause_*` tier presets (not Beetle Saturn).
+- **Many systems** via EmulatorJS — PSP (PPSSPP), N64, PS1 (Beetle PSX HW), NDS (DeSmuME 2015), experimental 3DS (Azahar), DOS (DOSBox Pure), GBA, SNES / bsnes, NES, Sega Genesis / Genesis Wide, Intellivision, Saturn (Yabause), arcade (FBNeo / MAME 2003+), Atari, Neo Geo Pocket, and more
+- **Core alignment**: NDS tier tables force `desmume2015` (EmulatorJS otherwise prefers melonDS first). Saturn uses Yabause with RetroOasis-specific `yabause_*` tier presets (not Beetle Saturn). 4.3-pre-only cores (`ppsspp`, `azahar`, `bsnes`, `dosbox_pure`, `freeintv`, `genesis_plus_gx_wide`) are routed to the nightly CDN while older cores stay on stable.
 - **Dreamcast**: available through an external Flycast WASM core with ROM-type and BIOS support, but it is **experimental** and still being stabilized; some games may boot slowly, glitch, or crash.
 - **Archive support**: ZIP, 7z, and RAR files are transparently extracted before launch
 - **Soft-patch support**: Full IPS, BPS, and UPS patcher with CRC verification
@@ -65,7 +65,7 @@ Open `http://localhost:5173`.
 
 - **ROM library**: drag-and-drop import, IndexedDB blob storage, metadata cache
 - **BIOS management**: per-file status display, upload controls, and `EJS_biosUrl` wiring
-- **Cover art auto-fetch**: one-click online lookup against the community [cover-art-collection](https://github.com/ramiabraham/cover-art-collection); per-game picker plus a toolbar "Fetch covers" bulk action for all games missing art
+- **Cover art auto-fetch**: one-click online lookup against Libretro Thumbnails, Wikimedia, and the community [cover-art-collection](https://github.com/ramiabraham/cover-art-collection); per-game picker plus a toolbar "Fetch covers" bulk action for all games missing art
 - **Save-state gallery**: 5-slot gallery with 160×120 JPEG thumbnails, timestamps, and export/import
 - **Auto-save on close**: saves to slot 0 on tab close/hide; offers crash-recovery restore on next launch
 - **Cloud save sync**: WebDAV adapter with conflict resolution; extensible provider interface
@@ -259,10 +259,11 @@ self.crossOriginIsolated // should be true
 
 ## Cover art & metadata (bring your own API key)
 
-RetroOasis automatically fetches cover art from two key-less community sources:
+RetroOasis automatically fetches cover art from three key-less community sources:
 
 - [Libretro Thumbnails](https://thumbnails.libretro.com/)
 - [ramiabraham/cover-art-collection](https://github.com/ramiabraham/cover-art-collection)
+- [Wikimedia / Wikipedia](https://www.wikipedia.org/) page images and summary metadata
 
 Users who want broader coverage can plug in additional providers by pasting a
 free-tier API key into **Settings → API Keys**:
@@ -270,6 +271,8 @@ free-tier API key into **Settings → API Keys**:
 - [**RAWG**](https://rawg.io/apidocs) — box art, header art, and screenshots. Free tier: 20,000 requests / month.
 - [**MobyGames**](https://www.mobygames.com/info/api/) — platform-accurate box covers sourced from the MobyGames database.
 - [**TheGamesDB**](https://thegamesdb.net/) — community-driven database with front / back boxart and screenshots. Personal-use keys are free.
+- [**SteamGridDB**](https://www.steamgriddb.com/profile/api) — high-resolution portrait grids, hero backgrounds, and transparent logos.
+- [**ScreenScraper.fr**](https://www.screenscraper.fr/) — hash-assisted retro covers when you enter your `userid:password` credentials.
 
 Keys are stored **only** in your browser's `localStorage` and are sent directly
 from the browser to the provider they belong to — RetroOasis has no backend,

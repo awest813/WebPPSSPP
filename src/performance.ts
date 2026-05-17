@@ -159,6 +159,7 @@ case "psp":
           ppsspp_texture_deposterize: "disabled",
           ppsspp_lower_resolution_for_effects: "2",
           ppsspp_vertex_range_inline: "enabled",
+          ppsspp_rendering_mode: "OpenGL",
           ppsspp_gpu_driver: "OpenGL",
         });
       } else if (preset === "balanced") {
@@ -170,6 +171,7 @@ case "psp":
           ppsspp_texture_deposterize: "enabled",
           ppsspp_lower_resolution_for_effects: "0",
           ppsspp_vertex_range_inline: "enabled",
+          ppsspp_rendering_mode: "OpenGL",
           ppsspp_gpu_driver: "OpenGL",
         });
       } else if (preset === "quality") {
@@ -181,6 +183,7 @@ case "psp":
           ppsspp_texture_deposterize: "enabled",
           ppsspp_lower_resolution_for_effects: "0",
           ppsspp_vertex_range_inline: "enabled",
+          ppsspp_rendering_mode: "OpenGL",
           ppsspp_gpu_driver: "OpenGL",
         });
       } else {
@@ -192,6 +195,7 @@ case "psp":
           ppsspp_texture_deposterize: "enabled",
           ppsspp_lower_resolution_for_effects: "0",
           ppsspp_vertex_range_inline: "enabled",
+          ppsspp_rendering_mode: "OpenGL",
           ppsspp_gpu_driver: "OpenGL",
         });
       }
@@ -428,7 +432,7 @@ export function getPSPAutoSettings(
     ppsspp_io_timing_method: "Fast",
     ppsspp_lower_resolution_for_effects: isLowEnd ? "2" : "0",
     ppsspp_inflight_frames: isLowEnd ? "1" : "2",
-    ppsspp_rendering_mode: "buffered",
+    ppsspp_rendering_mode: "OpenGL",
     ppsspp_cpu_core: "JIT",
     ppsspp_audio_latency: isLowEnd ? "2" : isMidRange ? "1" : "0",
     ppsspp_audio_resampling: isLowEnd ? "disabled" : "enabled",

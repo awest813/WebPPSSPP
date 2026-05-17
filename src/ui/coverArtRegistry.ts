@@ -26,16 +26,23 @@ import {
   MobyGamesCoverArtProvider,
   RawgCoverArtProvider,
   ScreenScraperCoverArtProvider,
+  SteamGridDBCoverArtProvider,
   TheGamesDBCoverArtProvider,
+  WikimediaCoverArtProvider,
   type ApiKeyedProvider,
   type CoverArtProvider,
 } from "../coverArt.js";
 import { ApiKeyStore, DEFAULT_API_KEY_PROVIDERS } from "../apiKeyStore.js";
+import { parseRAKey } from "../raCredentials.js";
 
 let _apiKeyStore:   ApiKeyStore | null = null;
 let _keyedProviders: Map<string, ApiKeyedProvider> | null = null;
 let _coverArtProvider: CoverArtProvider | null = null;
 let _subscribed = false;
+
+export interface ApiKeyTester {
+  testConnection(opts?: { signal?: AbortSignal }): Promise<true | string>;
+}
 
 /** Single shared store for bring-your-own API keys (RAWG, MobyGames, …). */
 export function getApiKeyStore(): ApiKeyStore {
@@ -53,9 +60,31 @@ export function getKeyedProviders(): Map<string, ApiKeyedProvider> {
     _keyedProviders.set("rawg",       new RawgCoverArtProvider({       getApiKey: () => store.getKey("rawg") }));
     _keyedProviders.set("mobygames",  new MobyGamesCoverArtProvider({  getApiKey: () => store.getKey("mobygames") }));
     _keyedProviders.set("thegamesdb", new TheGamesDBCoverArtProvider({ getApiKey: () => store.getKey("thegamesdb") }));
+    _keyedProviders.set("steamgriddb", new SteamGridDBCoverArtProvider({ getApiKey: () => store.getKey("steamgriddb") }));
     _keyedProviders.set("screenscraper", new ScreenScraperCoverArtProvider(() => store.getKey("screenscraper")));
   }
   return _keyedProviders;
+}
+
+/** Return a connection tester for any configured API-key provider. */
+export function getApiKeyTester(providerId: string): ApiKeyTester | null {
+  const keyed = getKeyedProviders().get(providerId);
+  if (keyed) return keyed;
+
+  if (providerId === "retroachievements") {
+    return {
+      async testConnection(): Promise<true | string> {
+        const state = getApiKeyStore().getState("retroachievements");
+        if (!state.enabled || !state.key) return "No RetroAchievements login saved.";
+        const creds = parseRAKey(state.key);
+        if (!creds) return "Format must be 'username:apikey'.";
+        const { RAClient } = await import("../achievements.js");
+        return new RAClient(creds.username, creds.apiKey).testConnection();
+      },
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -76,6 +105,7 @@ export function rebuildCoverArtProvider(): void {
   _coverArtProvider = new ChainedCoverArtProvider([
     new LibretroCoverArtProvider(),
     new GitHubCoverArtProvider(),
+    new WikimediaCoverArtProvider(),
     ...ordered,
   ]);
 }
