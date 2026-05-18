@@ -346,7 +346,8 @@ IF EXIST AUTORUN.BAT CALL AUTORUN.BAT
     loadPpssppAssets() {
         return new Promise(async (resolve, reject) => {
             try {
-                const cacheItem = await this.EJS.downloader.downloadFile("data/cores/ppsspp-assets.zip", this.EJS.downloadType.core.name, "GET", {}, null, null, null, 30000, "arraybuffer", false, this.EJS.downloadType.core.dontCache);
+                const assetPath = this.EJS.config?.filePaths?.["ppsspp-assets.zip"] || "data/cores/ppsspp-assets.zip";
+                const cacheItem = await this.EJS.downloader.downloadFile(assetPath, this.EJS.downloadType.core.name, "GET", {}, null, null, null, 30000, "arraybuffer", false, this.EJS.downloadType.core.dontCache);
 
                 if (this.EJS.debug) console.log(cacheItem);
                 

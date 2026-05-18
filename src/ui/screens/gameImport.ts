@@ -53,9 +53,10 @@ import {
   showGamePickerDialog as showGamePickerDialogImpl,
   showMultiDiscPicker as showMultiDiscPickerImpl,
 } from "../modals.js";
-import { showError } from "../toasts.js";
+import { showError, showInfoToast } from "../toasts.js";
 
 const FILE_SIZE_DECIMALS = 1;
+const IMMEDIATE_LAUNCH_IMPORT_BYTES = 256 * 1024 * 1024;
 const DOS_NATIVE_PACKAGE_EXTS = new Set(["exe", "com", "bat", "conf"]);
 
 function parseM3U(content: string): string[] {
@@ -371,20 +372,36 @@ export async function resolveSystemAndAddImpl(
   setLoadingSubtitle("This only takes a moment the first time");
 
   try {
-    const entry = await withRetry(
-      () => library.addGame(resolvedFile, system.id),
-      {
-        isRetryable: isTransientImportError,
-        onRetry: (attempt, _err) => {
-          setLoadingMessage(`Saving game to library… (retry ${attempt})`);
-          logImportWarn(
-            emulatorRef,
-            settings,
-            `library.addGame failed on attempt ${attempt}; retrying…`,
-          );
-        },
-      },
-    );
+    const shouldLaunchBeforeBlobPersist = resolvedFile.size >= IMMEDIATE_LAUNCH_IMPORT_BYTES;
+    const entry = shouldLaunchBeforeBlobPersist
+      ? await withRetry(
+          () => library.addGameForImmediateLaunch(resolvedFile, system.id),
+          {
+            isRetryable: isTransientImportError,
+            onRetry: (attempt, _err) => {
+              setLoadingMessage(`Saving game to library… (retry ${attempt})`);
+              logImportWarn(
+                emulatorRef,
+                settings,
+                `library.addGameForImmediateLaunch failed on attempt ${attempt}; retrying…`,
+              );
+            },
+          },
+        )
+      : await withRetry(
+          () => library.addGame(resolvedFile, system.id),
+          {
+            isRetryable: isTransientImportError,
+            onRetry: (attempt, _err) => {
+              setLoadingMessage(`Saving game to library… (retry ${attempt})`);
+              logImportWarn(
+                emulatorRef,
+                settings,
+                `library.addGame failed on attempt ${attempt}; retrying…`,
+              );
+            },
+          },
+        );
     settings.lastGameName = entry.name;
     logImport(
       emulatorRef,
@@ -394,6 +411,23 @@ export async function resolveSystemAndAddImpl(
     onRenderLibrary();
     setLoadingMessage(`Starting ${entry.name}…`);
     setLoadingSubtitle("Getting ready to play");
+    if (shouldLaunchBeforeBlobPersist) {
+      setTimeout(() => {
+        void library.updateGameFile(entry.id, resolvedFile).then((updated) => {
+          if (updated) onRenderLibrary();
+        }).catch((error) => {
+          logImportWarn(
+            emulatorRef,
+            settings,
+            `Background library persistence failed for "${entry.name}": ${error instanceof Error ? error.message : String(error)}`,
+          );
+          showInfoToast(
+            `"${entry.name}" is playable now, but RetroOasis could not finish saving it to the library.`,
+            "error",
+          );
+        });
+      }, 0);
+    }
     logImport(
       emulatorRef,
       settings,

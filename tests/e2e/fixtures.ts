@@ -174,10 +174,10 @@ export const test = base.extend<RetroOasisFixtures>({
     await page.addInitScript({ content: EMULATOR_STUB_SCRIPT });
 
     await page.goto("/", { timeout: 60_000, waitUntil: "domcontentloaded" });
-    // Wait for the landing page to appear before handing off to the test
-    await page.waitForSelector("#landing", {
-      timeout: 30_000,
-    });
+    // Wait for the current library shell before handing off to the test.
+    await expect(page).toHaveTitle(/RetroOasis/i, { timeout: 15_000 });
+    await expect(page.locator("#landing")).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator("#file-input")).toBeAttached({ timeout: 10_000 });
 
     await use(page);
   },

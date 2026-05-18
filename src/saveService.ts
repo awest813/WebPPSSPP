@@ -109,6 +109,17 @@ export class SaveGameService {
     return false;
   }
 
+  private async readStateDataAfterQuickSave(slot: number): Promise<Uint8Array | null> {
+    for (let attempt = 0; attempt <= this.readinessRetries; attempt++) {
+      const stateBytes = this.emulator.readStateData(slot);
+      if (stateBytes && stateBytes.byteLength > 0) return stateBytes;
+      if (attempt < this.readinessRetries) {
+        await new Promise((resolve) => setTimeout(resolve, this.readinessRetryDelayMs));
+      }
+    }
+    return null;
+  }
+
 
   private resolveContext(override?: Partial<SaveGameContext>): SaveGameContext | null {
     if (override?.gameId && override.gameName && override.systemId) {
@@ -140,7 +151,7 @@ export class SaveGameService {
           this.emit({ status: "idle", gameId: context.gameId, slot });
           return null;
         }
-        const stateBytes = this.emulator.readStateData(slot);
+        const stateBytes = await this.readStateDataAfterQuickSave(slot);
         if (!stateBytes || stateBytes.byteLength === 0) {
           this.emit({
             status: "idle",

@@ -26,4 +26,11 @@ describe("bundled EmulatorJS runtime patches", () => {
     expect(runtime).toContain('const filePathKey = path.split("/").pop().split("?")[0].split("#")[0];');
     expect(runtime).toContain("this.config.filePaths[filePathKey]");
   });
+
+  it("routes PPSSPP asset zips through EJS_paths before falling back local", () => {
+    const gameManager = readFileSync(resolve("data/src/GameManager.js"), "utf8");
+
+    expect(gameManager).toContain('this.EJS.config?.filePaths?.["ppsspp-assets.zip"]');
+    expect(gameManager).toContain('"data/cores/ppsspp-assets.zip"');
+  });
 });

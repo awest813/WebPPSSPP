@@ -539,6 +539,11 @@ function clampThreadOption(
   return String(Math.max(1, Math.min(safeRequested, cpuBudget, maxAllowed)));
 }
 
+function emulatorJsBaseFileName(gameName: string): string {
+  const invalidCharacters = /[#<$+%>!`&*'|{}/\\?"=@:^\r\n]/gi;
+  return gameName.replace(invalidCharacters, "").trim();
+}
+
 /**
  * Reset the cached WebGL2 support flag. Exposed for unit tests only.
  * @internal
@@ -3303,10 +3308,9 @@ export class PSPEmulator {
 
       // ── Set EJS globals ───────────────────────────────────────────────────
       this._revokeBlobUrl();
-      this._blobUrl = URL.createObjectURL(gameFile);
       window.EJS_player        = `#${this._playerId}`;
       window.EJS_core          = system.coreId ?? system.id;
-      window.EJS_gameUrl       = this._blobUrl;
+      window.EJS_gameUrl       = gameFile;
       window.EJS_gameName      = gameName;
       window.EJS_pathtodata    = EJS_DATA_BASE;
       window.EJS_startOnLoaded = true;
@@ -3332,6 +3336,9 @@ export class PSPEmulator {
           [`${selectedCore}-legacy-wasm.data`]:        `${coreCdnBase}cores/${selectedCore}-legacy-wasm.data`,
           [`${selectedCore}-thread-wasm.data`]:        `${coreCdnBase}cores/${selectedCore}-thread-wasm.data`,
           [`${selectedCore}-thread-legacy-wasm.data`]: `${coreCdnBase}cores/${selectedCore}-thread-legacy-wasm.data`,
+          ...(selectedCore === "ppsspp"
+            ? { "ppsspp-assets.zip": `${coreCdnBase}cores/ppsspp-assets.zip` }
+            : {}),
         };
       }
 
@@ -3589,18 +3596,27 @@ export class PSPEmulator {
 
     const gameName = window.EJS_gameName;
     if (!gameName) return null;
+    const safeGameName = emulatorJsBaseFileName(gameName) || gameName;
+    const quickStatePath = `/${slot || 1}-quick.state`;
 
     // RetroArch-flavoured cores typically persist under /home/web_user/retroarch/states,
     // while some EmulatorJS runtimes expose the same save states under /data/states.
     // Keep /data/saves as a legacy fallback for older packaged layouts.
-    const paths = [
+    const paths = [...new Set([
+      quickStatePath,
       `/home/web_user/retroarch/states/${gameName}.state${slot}`,
       `/home/web_user/retroarch/states/${gameName}.state`,
+      `/home/web_user/retroarch/states/${safeGameName}.state${slot}`,
+      `/home/web_user/retroarch/states/${safeGameName}.state`,
       `/data/states/${gameName}.state${slot}`,
       `/data/states/${gameName}.state`,
+      `/data/states/${safeGameName}.state${slot}`,
+      `/data/states/${safeGameName}.state`,
       `/data/saves/${gameName}.state${slot}`,
       `/data/saves/${gameName}.state`,
-    ];
+      `/data/saves/${safeGameName}.state${slot}`,
+      `/data/saves/${safeGameName}.state`,
+    ])];
 
     for (const path of paths) {
       try {
@@ -3624,6 +3640,7 @@ export class PSPEmulator {
 
     const gameName = window.EJS_gameName;
     if (!gameName) return false;
+    const safeGameName = emulatorJsBaseFileName(gameName) || gameName;
 
     const basePaths = [
       "/home/web_user/retroarch/states",
@@ -3632,6 +3649,12 @@ export class PSPEmulator {
 
     try {
       let writeSucceeded = false;
+      try {
+        emu.Module.FS.writeFile(`/${slot || 1}-quick.state`, data);
+        writeSucceeded = true;
+      } catch {
+        // Continue to compatibility paths below.
+      }
       for (const basePath of basePaths) {
         try {
           emu.Module.FS.stat(basePath);
@@ -3644,6 +3667,9 @@ export class PSPEmulator {
           }
         }
         emu.Module.FS.writeFile(`${basePath}/${gameName}.state${slot}`, data);
+        if (safeGameName !== gameName) {
+          emu.Module.FS.writeFile(`${basePath}/${safeGameName}.state${slot}`, data);
+        }
         writeSucceeded = true;
       }
       return writeSucceeded;

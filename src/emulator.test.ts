@@ -696,7 +696,7 @@ describe('PSPEmulator', () => {
       expect(materialised).not.toBe(picked);
       const out = new Uint8Array(await materialised!.arrayBuffer());
       expect(out).toEqual(payload);
-      expect((window as unknown as Record<string, unknown>).EJS_gameUrl).toBe('blob:fake');
+      expect((window as unknown as Record<string, unknown>).EJS_gameUrl).toBe(materialised);
     });
   });
 
@@ -793,6 +793,7 @@ describe('PSPEmulator', () => {
       expect(window.EJS_paths?.['ppsspp-thread-wasm.data']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/ppsspp-thread-wasm.data`);
       expect(window.EJS_paths?.['ppsspp-wasm.data']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/ppsspp-wasm.data`);
       expect(window.EJS_paths?.['ppsspp.json']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/reports/ppsspp.json`);
+      expect(window.EJS_paths?.['ppsspp-assets.zip']).toBe(`${EJS_NIGHTLY_CDN_BASE}cores/ppsspp-assets.zip`);
       expect(window.EJS_Settings?.ppsspp_rendering_mode).toBe('OpenGL');
       expect(window.EJS_disableAutoUnload).toBe(true);
       expect(window.EJS_askBeforeExit).toBe(true);
@@ -2587,12 +2588,37 @@ describe('PSPEmulator', () => {
       expect(result).toEqual(fakeData);
     });
 
+    it('reads EmulatorJS quick-save state files first', () => {
+      const fakeData = new Uint8Array([0x51, 0x53]);
+      const analyzePathMock = vi.fn().mockImplementation((path: string) => ({ exists: path === '/1-quick.state' }));
+      const readFileMock = vi.fn().mockReturnValue(fakeData);
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'Gran Turismo (USA) (EnFrEs) (v2.00)';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: {
+          FS: {
+            readFile: readFileMock,
+            writeFile: vi.fn(),
+            stat: vi.fn(),
+            readdir: vi.fn(),
+            unlink: vi.fn(),
+            analyzePath: analyzePathMock,
+          },
+        },
+      };
+
+      const result = emulator.readStateData(1);
+
+      expect(result).toEqual(fakeData);
+      expect(analyzePathMock).toHaveBeenCalledWith('/1-quick.state');
+      expect(readFileMock).toHaveBeenCalledWith('/1-quick.state');
+    });
+
     it('falls back to EmulatorJS /data/states paths when RetroArch paths are absent', () => {
       const fakeData = new Uint8Array([0xBA, 0xAD, 0xF0, 0x0D]);
-      const analyzePathMock = vi.fn()
-        .mockReturnValueOnce({ exists: false })
-        .mockReturnValueOnce({ exists: false })
-        .mockReturnValueOnce({ exists: true });
+      const analyzePathMock = vi.fn().mockImplementation((path: string) => ({
+        exists: path === '/data/states/TestGame.state1',
+      }));
       (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
       (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
         setVolume: vi.fn(),
@@ -2610,7 +2636,7 @@ describe('PSPEmulator', () => {
 
       const result = emulator.readStateData(1);
       expect(result).toEqual(fakeData);
-      expect(analyzePathMock).toHaveBeenNthCalledWith(3, '/data/states/TestGame.state1');
+      expect(analyzePathMock).toHaveBeenCalledWith('/data/states/TestGame.state1');
     });
   });
 
@@ -2645,8 +2671,22 @@ describe('PSPEmulator', () => {
       const data = new Uint8Array([0xDE, 0xAD]);
       const result = emulator.writeStateData(1, data);
       expect(result).toBe(true);
+      expect(writeFileMock).toHaveBeenCalledWith('/1-quick.state', data);
       expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state1', data);
       expect(writeFileMock).toHaveBeenCalledWith('/data/states/TestGame.state1', data);
+    });
+
+    it('writes EmulatorJS quick-save state files for quickLoad compatibility', () => {
+      const writeFileMock = vi.fn();
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'Gran Turismo (USA) (EnFrEs) (v2.00)';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: writeFileMock, mkdir: vi.fn(), stat: vi.fn(), readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      const data = new Uint8Array([0x01, 0x02]);
+
+      expect(emulator.writeStateData(2, data)).toBe(true);
+      expect(writeFileMock).toHaveBeenCalledWith('/2-quick.state', data);
     });
 
     it('creates missing states directories and returns true when writes succeed', () => {
@@ -2690,9 +2730,10 @@ describe('PSPEmulator', () => {
       const statMock = vi.fn().mockImplementation(() => { throw new Error('No such file'); });
       const mkdirMock = vi.fn().mockImplementation(() => { throw new Error('mkdir failed'); });
       (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      const writeFileMock = vi.fn().mockImplementation(() => { throw new Error('write failed'); });
       (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
         setVolume: vi.fn(),
-        Module: { FS: { readFile: vi.fn(), writeFile: vi.fn(), mkdir: mkdirMock, stat: statMock, readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+        Module: { FS: { readFile: vi.fn(), writeFile: writeFileMock, mkdir: mkdirMock, stat: statMock, readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
       };
       expect(emulator.writeStateData(1, new Uint8Array([1, 2]))).toBe(false);
     });

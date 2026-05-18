@@ -214,6 +214,29 @@ describe('GameLibrary.updateGameFile', () => {
   });
 });
 
+describe('GameLibrary.addGameForImmediateLaunch', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('creates a metadata entry while keeping the selected file available from the session cache', async () => {
+    const file = new File(['large-rom'], 'big-game.iso', { type: 'application/octet-stream' });
+
+    const entry = await library.addGameForImmediateLaunch(file, 'psp');
+
+    expect(entry.blob).toBe(file);
+    const metadata = (await library.getAllGamesMetadata()).find((game) => game.id === entry.id);
+    expect(metadata).toBeDefined();
+    expect('blob' in metadata!).toBe(false);
+
+    const cachedBlob = await library.getGameBlob(entry.id);
+    expect(cachedBlob).toBe(file);
+  });
+});
+
 // ── changeSystemId ────────────────────────────────────────────────────────────
 
 describe('GameLibrary.changeSystemId', () => {

@@ -811,6 +811,43 @@ describe("resolveSystemAndAdd mobile/import fallbacks", () => {
     const launchedFile = (onLaunchGame.mock.calls[0] as unknown as [File, string, string?])[0];
     expect(launchedFile.name).toBe("beta.nes");
   });
+
+  it("launches large disc images before waiting for the ROM blob to persist", async () => {
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("unknown");
+
+    const settings = makeSettings();
+    const onLaunchGame = vi.fn(async () => {});
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGameForImmediateLaunch: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "large-game",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+        blob: incoming,
+      })),
+      addGame: vi.fn(),
+      updateGameFile: vi.fn().mockResolvedValue({ id: "large-game" }),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const file = new File([new Uint8Array([0x00])], "Final Fantasy Tactics - The War of the Lions (USA).cso", {
+      type: "application/octet-stream",
+    });
+    Object.defineProperty(file, "size", { value: 300 * 1024 * 1024, configurable: true });
+
+    await resolveSystemAndAdd(file, library, settings, onLaunchGame);
+
+    expect(library.addGameForImmediateLaunch).toHaveBeenCalledTimes(1);
+    expect(library.addGame).not.toHaveBeenCalled();
+    expect(onLaunchGame).toHaveBeenCalledWith(file, "psp", "large-game");
+
+    await flushUI(1);
+    expect(library.updateGameFile).toHaveBeenCalledWith("large-game", file);
+  });
 });
 
 describe("game card NEW badge", () => {

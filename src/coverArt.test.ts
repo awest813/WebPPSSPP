@@ -542,6 +542,14 @@ describe("LibretroCoverArtProvider", () => {
     for (const r of results) expect(r.sourceName).toBe("Libretro Thumbnails");
   });
 
+  it("expands compact language tags to Libretro's comma-separated naming", async () => {
+    const p = new LibretroCoverArtProvider({ imageTypes: ["Named_Boxarts"] });
+    const results = await p.search("Gran Turismo (USA) (EnFrEs) (v2.00).chd", "psp");
+    expect(results.some((r) =>
+      r.imageUrl.includes("Gran%20Turismo%20(USA)%20(En%2CFr%2CEs)%20(v2.00).png")
+    )).toBe(true);
+  });
+
   it("respects the limit option", async () => {
     const p = new LibretroCoverArtProvider();
     const results = await p.search("Zelda (USA).nes", "nes", { limit: 1 });

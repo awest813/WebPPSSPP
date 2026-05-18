@@ -714,6 +714,13 @@ export function cleanRomNameForLibretro(raw: string): string {
   // Remove bracketed dump / verification tags only — NOT parenthetical tags.
   s = s.replace(/\[[^\]]*\]/g, " ");
 
+  // Some dump names compact language tags as "(EnFrEs)" while Libretro's
+  // No-Intro thumbnails use comma-separated tags: "(En,Fr,Es)".
+  s = s.replace(/\((([A-Z][a-z]){2,})\)/g, (_match, compact: string) => {
+    const langs = compact.match(/[A-Z][a-z]/g);
+    return langs && langs.length >= 2 ? `(${langs.join(",")})` : `(${compact})`;
+  });
+
   // Collapse whitespace introduced by removals.
   s = s.replace(/\s+/g, " ").trim();
 

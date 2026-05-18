@@ -200,6 +200,20 @@ const _preloadInFlight = new Map<string, Promise<Blob | null>>();
 // ── GameLibrary class ─────────────────────────────────────────────────────────
 
 export class GameLibrary {
+  private buildGameEntry(file: File, systemId: string, blob: Blob | null): GameEntry {
+    return {
+      id:           createUuid(),
+      name:         file.name.replace(/\.[^.]+$/, ""),
+      fileName:     file.name,
+      systemId,
+      size:         file.size,
+      addedAt:      Date.now(),
+      lastPlayedAt: null,
+      blob,
+      isFavorite:   false,
+    };
+  }
+
   /**
    * Add a game to the library.
    *
@@ -209,21 +223,27 @@ export class GameLibrary {
    */
   async addGame(file: File, systemId: string): Promise<GameEntry> {
     const db    = await openDB();
-    const entry: GameEntry = {
-      id:           createUuid(),
-      name:         file.name.replace(/\.[^.]+$/, ""),
-      fileName:     file.name,
-      systemId,
-      size:         file.size,
-      addedAt:      Date.now(),
-      lastPlayedAt: null,
-      blob:         file,
-      isFavorite:   false,
-    };
+    const entry = this.buildGameEntry(file, systemId, file);
     await promisify(tx(db, "readwrite").put(entry));
     invalidateMetadataCache();
     setCachedBlob(entry.id, file);
     return entry;
+  }
+
+  /**
+   * Add a local game identity without blocking on the ROM blob write.
+   *
+   * Large disc images can take a long time to clone into IndexedDB. This keeps
+   * the selected File in the session cache so launch/save identity is available
+   * immediately, while callers persist the blob with updateGameFile() later.
+   */
+  async addGameForImmediateLaunch(file: File, systemId: string): Promise<GameEntry> {
+    const db    = await openDB();
+    const entry = this.buildGameEntry(file, systemId, null);
+    await promisify(tx(db, "readwrite").put(entry));
+    invalidateMetadataCache();
+    setCachedBlob(entry.id, file);
+    return { ...entry, blob: file };
   }
 
   /**

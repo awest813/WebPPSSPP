@@ -209,6 +209,39 @@ describe("SaveGameService", () => {
     expect(events).toContain("idle");
   });
 
+  it("waits briefly for quick-save state bytes to flush", async () => {
+    const saveState = vi.fn<(entry: SaveStateEntry) => Promise<void>>().mockResolvedValue(undefined);
+    const saveLibrary = {
+      saveState,
+      getState: vi.fn(async (_gameId: string, slot: number) => makeEntry(slot)),
+    } as unknown as SaveStateLibrary;
+
+    const emulator = {
+      state: "running" as const,
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      readStateData: vi
+        .fn()
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(new Uint8Array([7, 8, 9])),
+      writeStateData: vi.fn(() => true),
+      captureScreenshotAsync: vi.fn(async () => null),
+    };
+
+    const service = new SaveGameService({
+      saveLibrary,
+      emulator,
+      getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "psp" }),
+      readinessRetryDelayMs: 1,
+    });
+
+    const result = await service.saveSlot(1);
+
+    expect(result).not.toBeNull();
+    expect(emulator.readStateData).toHaveBeenCalledTimes(2);
+    expect(saveState).toHaveBeenCalledTimes(1);
+  });
+
   it("emits an integrity warning but still loads a valid slot", async () => {
     const entry = makeEntry(1);
     entry.checksum = "00000000";
