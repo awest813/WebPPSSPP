@@ -143,7 +143,8 @@ function buildSettingsContent(
   const tabBtns: HTMLButtonElement[] = [];
   const panels: HTMLElement[] = [];
 
-  const switchTab = (id: SettingsTab) => {
+  // Single-page scrolling view: all panels are visible.
+  const switchTab = (id: SettingsTab, scroll = true) => {
     if (!tabIndexById.has(id)) return;
     activeTab = id;
     const activeIndex = tabIndexById.get(id) ?? -1;
@@ -153,20 +154,30 @@ function buildSettingsContent(
       btn.setAttribute("tabindex", isActive ? "0" : "-1");
       btn.classList.toggle("settings-tab--active", isActive);
     });
-    panels.forEach((panel, i) => {
-      const isActive = tabs[i]!.id === id;
-      panel.hidden = !isActive;
-      panel.setAttribute("aria-hidden", String(!isActive));
-    });
-    const activeBtn = activeIndex >= 0 ? tabBtns[activeIndex] : null;
+    
     activeTabLabel.textContent = activeIndex >= 0 ? `Viewing: ${tabs[activeIndex]!.label}` : "";
-    if (activeBtn) {
-      const scrollIntoViewFn = (activeBtn as HTMLElement & { scrollIntoView?: unknown }).scrollIntoView;
-      if (typeof scrollIntoViewFn === "function") {
-        scrollIntoViewFn.call(activeBtn, { block: "nearest", inline: "nearest" });
-      }
+    
+    if (scroll && activeIndex >= 0) {
+      const panel = panels[activeIndex]!;
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
+
+  // IntersectionObserver to spy on scroll position and update active tab
+  const observer = new IntersectionObserver((entries) => {
+    let bestMatch = activeTab;
+    let maxRatio = 0;
+    entries.forEach(entry => {
+      if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
+        maxRatio = entry.intersectionRatio;
+        const id = entry.target.id.replace("tab-panel-", "") as SettingsTab;
+        bestMatch = id;
+      }
+    });
+    if (maxRatio > 0 && bestMatch !== activeTab) {
+      switchTab(bestMatch, false);
+    }
+  }, { root: bodyEl, threshold: 0.2 });
 
   tabs.forEach((tab, i) => {
     const iconEl = settingsSidebarIconEl(tab.id);
@@ -208,12 +219,17 @@ function buildSettingsContent(
       id: `tab-panel-${tab.id}`,
       class: "settings-panel-content",
       role: "tabpanel",
-      "aria-hidden": tab.id === activeTab ? "false" : "true",
+      "aria-hidden": "false",
       "aria-labelledby": `tab-${tab.id}`,
     });
-    if (tab.id !== activeTab) panel.hidden = true;
+    
+    // Add a heading for the section since it's a continuous page
+    const panelHeader = make("h2", { class: "settings-panel-header" }, tab.label);
+    panel.appendChild(panelHeader);
+
     panels.push(panel);
     panelsEl.appendChild(panel);
+    observer.observe(panel);
   });
 
   bodyEl.appendChild(panelsEl);

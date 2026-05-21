@@ -1,6 +1,6 @@
 /* ============================================================
    RetroOasis — Design System Tokens
-   Dark Chrome UI v3: charcoal base, steel-blue & bronze accents.
+   Glass & Silver UI: pitch black base, silver-steel accents, minimal design.
 
    Import this file before any component CSS that uses these tokens.
    All tokens are declared on :root so they cascade freely.
@@ -10,83 +10,83 @@
   /* ── UI Scale — applied as a multiplier to all layout tokens ── */
   --ui-scale: 1;
 
-  /* ── NSO Console Color Palette ── */
-  --c-bg:         #121212;
-  --c-surface:    #1a1a1a;
-  --c-surface2:   #222222;
-  --c-surface3:   #2a2a2a;
-  --c-border:     #333333;
-  --c-border-lt:  #444444;
+  /* ── Core Color Palette (Minimalist) ── */
+  --c-bg:         #000000;
+  --c-surface:    #0a0a0c;
+  --c-surface2:   #121215;
+  --c-surface3:   #1a1a1f;
+  --c-border:     rgba(255, 255, 255, 0.08);
+  --c-border-lt:  rgba(255, 255, 255, 0.15);
 
-  /* Primary accent: NSO Red — vibrant and energetic */
-  --c-accent:       #e60012;
-  --c-accent-h:     #ff1a1a;
-  --c-accent-light: #ff4d4d;
-  --c-accent-dark:  #99000c;
-  --c-accent-dim:   rgba(230, 0, 18, 0.15);
-  --c-accent-glow:  rgba(230, 0, 18, 0.40);
+  /* Primary accent: Silver / Steel Blue */
+  --c-accent:       #7a98b8;
+  --c-accent-h:     #9bb5d1;
+  --c-accent-light: #b4c9df;
+  --c-accent-dark:  #4a6582;
+  --c-accent-dim:   rgba(122, 152, 184, 0.15);
+  --c-accent-glow:  rgba(122, 152, 184, 0.35);
 
-  /* Secondary accent: Antique Bronze / Muted Gold */
-  --c-gold:       #b89040;
-  --c-gold-h:     #cca855;
-  --c-gold-dim:   rgba(184, 144, 64, 0.14);
-  --c-gold-glow:  rgba(184, 144, 64, 0.25);
+  /* Secondary accent: Muted Gold (for warnings/highlights) */
+  --c-gold:       #a88c54;
+  --c-gold-h:     #c2a770;
+  --c-gold-dim:   rgba(168, 140, 84, 0.14);
+  --c-gold-glow:  rgba(168, 140, 84, 0.25);
 
-  /* Tertiary: Silver-slate for info states */
-  --c-accent-2:      #7a98b8;
-  --c-accent-2-dim:  rgba(122, 152, 184, 0.14);
-  --c-accent-2-glow: rgba(122, 152, 184, 0.25);
+  /* Tertiary: Soft gray */
+  --c-accent-2:      #8a8a99;
+  --c-accent-2-dim:  rgba(138, 138, 153, 0.14);
+  --c-accent-2-glow: rgba(138, 138, 153, 0.25);
 
   /* Legacy aliases (kept for system color compatibility) */
-  --c-joy-red:    #c84040;
-  --c-joy-blue:   #3a72cc;
-  --c-joy-red-dim:  rgba(200, 64, 64, 0.12);
-  --c-joy-blue-dim: rgba(58, 114, 204, 0.12);
+  --c-joy-red:    #a85c65;
+  --c-joy-blue:   #5c7aa8;
+  --c-joy-red-dim:  rgba(168, 92, 101, 0.12);
+  --c-joy-blue-dim: rgba(92, 122, 168, 0.12);
 
   /* Semantic colors */
-  --c-danger:     #c84040;
-  --c-warn:       #b89040;
-  --c-success:    #3a9a60;
-  --c-fav:        #f43f5e; /* favorites / star / heart highlight */
+  --c-danger:     #c95454;
+  --c-warn:       #a88c54;
+  --c-success:    #54a87b;
+  --c-fav:        #d45d79;
 
   /* Status indicators */
-  --c-status-running: #00ff00;
-  --c-status-paused:  #ffaa00;
-  --c-status-online:  #00ff88;
-  --c-status-offline: #ff4444;
-  --c-status-inactive: #555555;
+  --c-status-running: #6be394;
+  --c-status-paused:  #e3b96b;
+  --c-status-online:  #6be394;
+  --c-status-offline: #e36b6b;
+  --c-status-inactive: #555566;
 
-  /* Pure tones (use sparingly — prefer semantic variables above) */
+  /* Pure tones */
   --c-white:      #ffffff;
   --c-black:      #000000;
 
   /* Doctor / diagnostic status */
-  --c-doctor-pass: #4CAF50;
-  --c-doctor-warn: #FFC107;
-  --c-doctor-fail: #F44336;
+  --c-doctor-pass: #54a87b;
+  --c-doctor-warn: #a88c54;
+  --c-doctor-fail: #c95454;
 
   /* Tier badge colors */
-  --c-tier-ok:       #00ff88;
-  --c-tier-ok-text:  #004422;
-  --c-tier-mid:      #ffcc00;
-  --c-tier-mid-text: #443300;
-  --c-tier-warn:     #ff4444;
-  --c-tier-warn-text:#440000;
+  --c-tier-ok:       #6be394;
+  --c-tier-ok-text:  #1a442a;
+  --c-tier-mid:      #e3b96b;
+  --c-tier-mid-text: #44351a;
+  --c-tier-warn:     #e36b6b;
+  --c-tier-warn-text:#441a1a;
 
   /* Cover art matching */
-  --c-perfect-match: #00e676;
+  --c-perfect-match: #6be394;
 
   /* Text hierarchy */
-  --c-text:       #dcdce8;
-  --c-text-dim:   #848499;
-  --c-text-faint: #545468;
-  --c-text-muted: #696978;
+  --c-text:       #e8e8ed;
+  --c-text-dim:   #a0a0ab;
+  --c-text-faint: #6e6e78;
+  --c-text-muted: #80808c;
 
   /* ── Shape & Sizing ── */
-  --radius:       8px;
-  --radius-sm:    5px;
-  --radius-lg:    13px;
-  --radius-xl:    18px;
+  --radius:       6px;
+  --radius-sm:    4px;
+  --radius-lg:    10px;
+  --radius-xl:    14px;
   --radius-pill:  999px;
 
   /* ── Safe area insets (iOS notch / home bar) ── */
@@ -96,58 +96,55 @@
   --safe-right:  env(safe-area-inset-right, 0px);
 
   /* ── Layout ── */
-  --header-h:     clamp(64px, 6vw, 72px);
-  --footer-h:     clamp(56px, 5vw, 64px);
-  --sidebar-w:    300px;
-  --settings-sidebar-w: clamp(162px, 22vw, 320px);
-  --shell-gutter: clamp(16px, 3vw, 40px);
-  --shell-gutter-lg: clamp(24px, 5vw, 72px);
-  --section-gap: clamp(16px, 2.5vw, 32px);
-  --library-shell-max-w: min(1200px, calc(100vw - (var(--shell-gutter) * 2)));
-  --content-max-w: min(800px, calc(100vw - (var(--shell-gutter) * 2)));
+  --header-h:     clamp(56px, 5vw, 64px);
+  --footer-h:     clamp(48px, 4vw, 56px);
+  --sidebar-w:    260px;
+  --settings-sidebar-w: clamp(162px, 22vw, 260px);
+  --shell-gutter: clamp(16px, 3vw, 32px);
+  --shell-gutter-lg: clamp(24px, 5vw, 48px);
+  --section-gap: clamp(16px, 2.5vw, 24px);
+  
+  /* Full width layout for 3-pane style */
+  --library-shell-max-w: 100%;
+  --content-max-w: 100%;
   --toast-bottom: calc(var(--footer-h) + var(--safe-bottom) + 14px);
 
-  /* ── Scaled layout — all dimensions multiply by --ui-scale ── */
-
   /* ── Transitions ── */
-  --transition:       0.18s ease;
+  --transition:       0.15s ease;
   --transition-fast:  0.1s ease;
   --transition-med:   0.25s ease;
   --spring:           0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   --spring-fast:      0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* Restrained “premium” easing — less bounce than --spring for large surfaces */
   --ease-premium-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out:         cubic-bezier(0.16, 1, 0.3, 1);
 
   /* ── Shadows ── */
   --shadow:       0 20px 60px rgba(0, 0, 0, 0.85);
   --shadow-sm:    0 4px 18px rgba(0, 0, 0, 0.55);
-  --shadow-lg:    0 32px 80px rgba(0, 0, 0, 0.90);
-  --shadow-card:  0 4px 16px rgba(0, 0, 0, 0.65);
-  /** Subtle top edge lift on elevated cards */
-  --shadow-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --shadow-lift:  0 14px 40px rgba(0, 0, 0, 0.75);
+  --shadow-lg:    0 24px 70px rgba(0, 0, 0, 0.95);
+  --shadow-card:  0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow-lift:  0 12px 30px rgba(0, 0, 0, 0.65);
 
   /* ── Glass / depth ── */
-  --glass-bg:     rgba(10, 10, 13, 0.95);
-  --glass-border: rgba(55, 55, 75, 0.50);
+  --glass-bg:     rgba(10, 10, 13, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.08);
 
-  /* ── Typography — Exo 2 for display headings, Inter for body ── */
-  --font-display: "Exo 2", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* ── Typography — Inter everywhere for a clean modern OS look ── */
+  --font-display: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-sans:    "Inter", system-ui, -apple-system, "Segoe UI", "Trebuchet MS", sans-serif;
   --font-mono:    "SF Mono", "Fira Code", "JetBrains Mono", "Consolas", monospace;
   font-family: var(--font-sans);
-  font-size: calc(clamp(14px, 0.14vw + 13.1px, 15px) * var(--ui-scale));
+  font-size: calc(clamp(13.5px, 0.14vw + 12.8px, 14.5px) * var(--ui-scale));
   color: var(--c-text);
   background: var(--c-bg);
   color-scheme: dark;
-  /* ── Easing helpers ── */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* ── Premium Console Helpers ── */
-  --bg-gradient: radial-gradient(circle at top left, #1a1a1a 0%, #121212 100%);
+  --bg-gradient: radial-gradient(circle at top left, #121215 0%, #000000 100%);
   --accent-gradient: linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-dark) 100%);
-  --glass-fx: saturate(180%) blur(20px);
-  --glass-bg-accent: rgba(230, 0, 18, 0.08);
+  --glass-fx: saturate(150%) blur(25px);
+  --glass-bg-accent: rgba(122, 152, 184, 0.05);
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

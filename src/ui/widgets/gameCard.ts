@@ -505,6 +505,56 @@ export function buildGameCard(
     }
   };
 
+  const updateSidebar = () => {
+    const empty = document.querySelector(".landing-details__empty");
+    const content = document.getElementById("landing-details-content");
+    if (!empty || !content) return;
+    empty.setAttribute("hidden", "true");
+    content.removeAttribute("hidden");
+    
+    const coverSrc = coverArtObjectUrl || game.thumbnailUrl || "";
+    
+    content.innerHTML = "";
+    
+    if (coverSrc) {
+      const img = document.createElement("img");
+      img.src = coverSrc;
+      img.className = "landing-details__cover";
+      img.alt = "";
+      content.appendChild(img);
+    }
+    
+    const title = document.createElement("div");
+    title.className = "landing-details__title";
+    title.textContent = game.name;
+    content.appendChild(title);
+    
+    const meta = document.createElement("div");
+    meta.className = "landing-details__meta";
+    meta.innerHTML = `
+      <strong>Platform:</strong> ${system?.name ?? game.systemId}<br>
+      <strong>Added:</strong> ${formatRelativeTime(game.addedAt)}<br>
+      <strong>Last Played:</strong> ${game.lastPlayedAt ? formatRelativeTime(game.lastPlayedAt) : 'Never'}
+    `;
+    content.appendChild(meta);
+    
+    const actions = document.createElement("div");
+    actions.className = "landing-details__actions";
+    
+    const btnPlay = document.createElement("button");
+    btnPlay.className = "btn btn--primary";
+    btnPlay.textContent = "Play";
+    btnPlay.onclick = launch;
+    
+    actions.appendChild(btnPlay);
+    content.appendChild(actions);
+  };
+
+  card.addEventListener("mouseenter", updateSidebar);
+  card.addEventListener("focusin", updateSidebar);
+
+
+
   card.addEventListener("click", () => {
     void showGameDetails(game, {
       system: system ?? null,

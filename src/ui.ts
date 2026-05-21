@@ -274,10 +274,18 @@ export function buildDOM(app: HTMLElement): void {
     <main class="app-main">
 
       <!-- Library / landing view -->
-      <section id="landing" aria-label="Game Library">
+      <section id="landing" aria-label="Game Library" class="landing-layout">
+        
+        <!-- Left Sidebar -->
+        <aside class="landing-sidebar" id="landing-sidebar">
+          <div class="landing-sidebar__header">Platforms</div>
+          <div class="system-filter" id="system-filter">
+            <!-- System filter chips — populated by renderLibrary() -->
+          </div>
+        </aside>
 
-        <!-- Library grid -->
-        <div id="library-section">
+        <!-- Main Center Content -->
+        <div class="landing-main" id="library-section">
           <div class="library-toolbar">
             <div class="library-title-row">
               <h2 class="library-title">My Library</h2>
@@ -329,9 +337,6 @@ export function buildDOM(app: HTMLElement): void {
           </div>
           <div id="library-highlights" aria-label="Library highlights">
             <!-- Favorites + recent-sessions feed populated by renderLibrary() -->
-          </div>
-          <div class="system-filter" id="system-filter">
-            <!-- System filter chips — populated by renderLibrary() -->
           </div>
           <div class="library-grid" id="library-grid">
             <!-- Cards populated by renderLibrary() -->
@@ -405,6 +410,15 @@ export function buildDOM(app: HTMLElement): void {
           Bring your own legally obtained ROM files. This app does not provide ROMs or BIOS files.
           <a href="https://emulatorjs.org" target="_blank" rel="noopener">Powered by EmulatorJS</a>
         </p>
+        </div> <!-- End landing-main -->
+
+        <!-- Right Sidebar (Game Details) -->
+        <aside class="landing-details" id="landing-details">
+          <div class="landing-details__empty">Select a game to view details</div>
+          <div class="landing-details__content" id="landing-details-content" hidden>
+            <!-- Populated by showGameDetails() -->
+          </div>
+        </aside>
       </section>
 
       <!-- EmulatorJS mount point (hidden until a game launches) -->

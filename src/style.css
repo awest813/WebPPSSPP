@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    RetroOasis — Polished NSO Console Design System
    A deep-cleaned, optimized, and performant stylesheet.
    ============================================================ */
@@ -381,16 +381,91 @@ body.is-playing #landing.hidden {
 #landing {
   position: absolute;
   inset: 0;
-  overflow-y: auto;
-  padding: var(--section-gap) var(--shell-gutter) calc(var(--shell-gutter) + var(--footer-h));
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  overflow: hidden;
+  background: var(--bg-gradient);
 }
 
 #library-section {
+  flex: 1;
+  min-width: 0;
+  padding: var(--section-gap) var(--shell-gutter) calc(var(--shell-gutter) + var(--footer-h));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 3-Pane Layout Sidebars ── */
+.landing-sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--glass-bg);
+  border-right: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  padding: var(--shell-gutter);
+  overflow-y: auto;
+}
+
+.landing-sidebar__header {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--c-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+
+.landing-details {
+  width: 320px;
+  flex-shrink: 0;
+  background: var(--glass-bg);
+  border-left: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  padding: var(--shell-gutter);
+  overflow-y: auto;
+}
+
+.landing-details__empty {
+  color: var(--c-text-dim);
+  text-align: center;
+  margin-top: 50%;
+  font-style: italic;
+}
+
+.landing-details__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.landing-details__cover {
   width: 100%;
-  max-width: var(--library-shell-max-w);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.landing-details__title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: var(--c-white);
+  line-height: 1.2;
+}
+
+.landing-details__meta {
+  color: var(--c-text-dim);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.landing-details__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
 }
 
 /* ── Library Toolbar ── */
@@ -833,26 +908,36 @@ body.is-playing #landing.hidden {
 }
 
 /* ── System Selector ── */
-.system-filter { display: flex; align-items: flex-start; gap: 12px; padding: 20px 0; overflow-x: auto; scrollbar-width: none; flex-wrap: wrap; }
-.system-filter::-webkit-scrollbar { display: none; }
+.system-filter { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 6px; 
+}
 
 .sys-filter-chip {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 20px;
-  background: var(--c-surface2);
-  border: 2px solid var(--c-border);
-  border-radius: 10px;
-  color: #fff;
-  transition: all 0.25s var(--spring);
+  padding: 8px 12px;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--c-text-dim);
+  transition: all 0.15s ease;
   cursor: pointer;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 
-.sys-filter-chip:hover { transform: translateY(-4px); border-color: var(--c-text-dim); }
-.sys-filter-chip.active { background: var(--c-accent); border-color: #fff; box-shadow: 0 12px 32px var(--c-accent-glow); transform: scale(1.05); }
+.sys-filter-chip:hover {
+  background: var(--c-surface2);
+  color: var(--c-white);
+}
+
+.sys-filter-chip.active {
+  background: var(--c-surface3);
+  color: var(--c-white);
+  border-left: 3px solid var(--c-accent);
+  font-weight: 700;
+}
 
 .sys-filter-chip:focus-visible {
   outline: 2px solid var(--c-accent-light);
@@ -935,14 +1020,16 @@ body.is-playing #landing.hidden {
 }
 
 .settings-modal-box {
-  width: var(--library-shell-max-w);
+  width: 100vw;
   max-width: none;
-  height: min(800px, calc(100vh - (var(--shell-gutter) * 2)));
+  height: 100vh;
   max-height: none;
+  border-radius: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--c-bg);
 }
 
 @media (max-width: 768px) {
@@ -2920,9 +3007,9 @@ body:has(#ejs-container.visible) .app-header {
   inset: 0;
   z-index: 2000;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  padding: 40px;
+  padding: 0;
 }
 
 #settings-panel[hidden] {
@@ -2941,19 +3028,22 @@ body:has(#ejs-container.visible) .app-header {
 
 #settings-content {
   width: 100%;
-  max-width: var(--library-shell-max-w);
+  max-width: none;
   flex: 1 1 auto;
-  min-height: 0;
-  height: auto;
-  max-height: 800px;
+  height: 100%;
   background: var(--c-bg);
-  border-radius: var(--radius-xl);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0;
+  border: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 50px 100px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  animation: modal-pop 0.35s var(--spring);
+  box-shadow: none;
+  animation: slide-up 0.35s var(--ease-premium-out);
+}
+
+@keyframes slide-up {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
 }
 
 .settings-sidebar__item {
@@ -2984,8 +3074,8 @@ body:has(#ejs-container.visible) .app-header {
 /* Sidebar Navigation */
 .settings-sidebar {
   width: var(--settings-sidebar-w);
-  background: var(--c-surface);
-  border-right: 2px solid var(--c-surface3);
+  background: var(--glass-bg);
+  border-right: 1px solid var(--c-border);
   padding: clamp(24px, 4vw, 32px) clamp(12px, 2vw, 16px);
   display: flex;
   flex-direction: column;
@@ -3012,14 +3102,14 @@ body:has(#ejs-container.visible) .app-header {
 .settings-sidebar__item:hover {
   background: var(--c-surface2);
   color: #fff;
-  transform: translateX(8px);
+  transform: translateX(4px);
 }
 
 .settings-sidebar__item.settings-tab--active {
-  background: var(--c-accent);
+  background: var(--c-surface3);
   color: #fff;
-  box-shadow: 0 10px 25px var(--c-accent-glow);
-  transform: scale(1.05) translateX(12px);
+  border-left: 3px solid var(--c-accent);
+  transform: translateX(8px);
 }
 
 .settings-sidebar__icon {
@@ -3046,23 +3136,31 @@ body:has(#ejs-container.visible) .app-header {
 }
 
 .settings-panels {
-  padding: clamp(28px, 5vw, 60px);
+  padding: clamp(28px, 5vw, 60px) clamp(24px, 10vw, 120px);
+  display: flex;
+  flex-direction: column;
+  gap: 60px;
 }
 
 .settings-panel-content {
-  animation: tab-fade-in 0.3s ease-out;
+  scroll-margin-top: 20px;
 }
 
-@keyframes tab-fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+.settings-panel-header {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 800;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text);
 }
 
 /* Settings Header / Quickbar */
 .settings-quickbar {
-  background: var(--c-surface);
+  background: var(--glass-bg);
   padding: clamp(18px, 3vw, 24px) clamp(20px, 4vw, 40px);
-  border-bottom: 2px solid var(--c-surface3);
+  border-bottom: 1px solid var(--c-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
