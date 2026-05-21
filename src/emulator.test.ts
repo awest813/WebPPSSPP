@@ -8,7 +8,7 @@ import {
   wasmCorePackageNameFor,
 } from "./emulator.js";
 import { NetplayManager } from "./multiplayer.js";
-import { getSystemById } from "./systems.js";
+import { SYSTEMS, getSystemById } from "./systems.js";
 
 describe('PSPEmulator', () => {
   let emulator: PSPEmulator;
@@ -4601,5 +4601,46 @@ describe("wasmCorePackageNameFor", () => {
     expect(wasmCorePackageNameFor(getSystemById("segaMDWide")!, { retroarch_core: "genesis_plus_gx_wide" })).toBe("genesis_plus_gx_wide");
     expect(wasmCorePackageNameFor(getSystemById("3ds")!, { retroarch_core: "azahar" })).toBe("azahar");
     expect(wasmCorePackageNameFor(getSystemById("dos")!, { retroarch_core: "dosbox_pure" })).toBe("dosbox_pure");
+  });
+
+  it("keeps every audited system profile pinned to its intended wasm core package", () => {
+    const expectedPackages: Record<string, string> = {
+      psp: "ppsspp",
+      nes: "fceumm",
+      snes: "snes9x",
+      snesBsnes: "bsnes",
+      gba: "mgba",
+      gbc: "gambatte",
+      gb: "gambatte",
+      nds: "desmume2015",
+      "3ds": "azahar",
+      n64: "mupen64plus_next",
+      psx: "mednafen_psx_hw",
+      segaMD: "genesis_plus_gx",
+      segaMDWide: "genesis_plus_gx_wide",
+      segaGG: "genesis_plus_gx",
+      segaMS: "genesis_plus_gx",
+      atari2600: "stella2014",
+      intv: "freeintv",
+      dos: "dosbox_pure",
+      arcade: "fbneo",
+      segaSaturn: "yabause",
+      segaDC: "flycast",
+      mame2003: "mame2003_plus",
+      atari7800: "prosystem",
+      lynx: "handy",
+      ngp: "mednafen_ngp",
+    };
+
+    for (const system of SYSTEMS) {
+      const expected = expectedPackages[system.id];
+      expect(expected, `${system.id} should be covered by the core audit`).toBeDefined();
+      for (const tier of ["low", "medium", "high", "ultra"] as const) {
+        expect(
+          wasmCorePackageNameFor(system, system.tierSettings?.[tier] ?? {}),
+          `${system.id} ${tier}`,
+        ).toBe(expected);
+      }
+    }
   });
 });
