@@ -39,7 +39,7 @@ async function selectWebDavProvider(page: import("@playwright/test").Page): Prom
   const dialog = page.locator("[aria-label='Cloud Connection']");
   await dialog.locator("button:has-text('WebDAV')").click();
   await dialog.locator("button:has-text('Next')").click();
-  await expect(dialog.getByLabel("Server URL")).toBeVisible({ timeout: 5_000 });
+  await expect(dialog.locator("#csd-url")).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe("Cloud Sync journey", () => {
@@ -90,9 +90,9 @@ test.describe("Cloud Sync journey", () => {
     await selectWebDavProvider(page);
 
     const dialog = page.locator("[aria-label='Cloud Connection']");
-    await dialog.getByLabel("Server URL").fill("/mock-dav/saves");
-    await dialog.getByLabel("Username").fill("demo-user");
-    await dialog.getByLabel("Password").fill("demo-pass");
+    await dialog.locator("#csd-url").fill("/mock-dav/saves");
+    await dialog.locator("#csd-user").fill("demo-user");
+    await dialog.locator("#csd-pass").fill("demo-pass");
     await dialog.getByRole("button", { name: "Connect" }).click();
 
     await expect(page.locator("[aria-label='Cloud Connection']")).toBeHidden({ timeout: 5_000 });

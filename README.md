@@ -3,7 +3,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Vite](https://img.shields.io/badge/built%20with-Vite-646CFF.svg)
 ![TypeScript](https://img.shields.io/badge/language-TypeScript-3178C6.svg)
-![Tests](https://img.shields.io/badge/tests-1775%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-2399%20passing-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-18%2B-339933.svg)
 
 RetroOasis is a browser-based multi-system retro emulator frontend built on [EmulatorJS](https://emulatorjs.org/). Most cores use the stable CDN channel (`cdn.emulatorjs.org/stable`); PSP intentionally uses the EmulatorJS nightly PPSSPP bundle so RetroOasis can pick up the 4.3-pre hardware-rendering and fast-forward improvements without moving every system to pre-release cores. Cores ship as compressed `*-wasm.data` packages that the loader downloads and decompresses at runtime. The app provides ROM library management, save states, hardware-aware performance tuning, optional WebGPU post-processing, and experimental netplay — all without a backend server.
@@ -197,7 +197,7 @@ Deploy the contents of `dist/` to any static host. See [`guide.md`](guide.md) fo
 npm test
 ```
 
-Runs the full Vitest suite (1700+ unit tests across all modules).
+Runs the full Vitest suite (2399 unit tests across all modules).
 
 ### Manual / user testing
 
