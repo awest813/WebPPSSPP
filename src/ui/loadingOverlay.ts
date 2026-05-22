@@ -1,7 +1,4 @@
-let _loadingPercent: number | null = null;
-
 export function setLoadingProgress(percent: number | null): void {
-  _loadingPercent = percent;
   const container = document.getElementById("loading-progress-container");
   const bar = document.getElementById("loading-progress-bar");
   if (!container || !bar) return;
@@ -42,8 +39,4 @@ export function setLoadingSubtitle(msg: string): void {
   e.textContent = msg;
   if (msg.trim()) e.removeAttribute("hidden");
   else e.setAttribute("hidden", "true");
-}
-
-export function getLoadingProgress(): number | null {
-  return _loadingPercent;
 }

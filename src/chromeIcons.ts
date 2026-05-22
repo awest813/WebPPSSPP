@@ -32,8 +32,6 @@ export const ICON_BATTERY_SVG = `<svg class="footer-battery__glyph" viewBox="0 0
 
 export const ICON_TROPHY_SVG = `<svg class="game-card__ach-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v3a5 5 0 0 1-10 0V4zM7 4H5a2 2 0 0 0-2 2v1c0 1.5 1.5 3 3.5 3M17 4h2a2 2 0 0 1 2 2v1c0 1.5-1.5 3-3.5 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-export const ICON_PWA_INSTALL_SVG = `<svg class="pwa-install__glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-
 /** Inline SVG strings produced by this module (leading whitespace allowed). */
 export function isSvgMarkup(s: string): boolean {
   return /^\s*<svg\b/i.test(s);

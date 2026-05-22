@@ -124,12 +124,6 @@ export interface ScreenshotOptions {
   quality?: number;
 }
 
-export interface InputEvent {
-  playerIndex: number;
-  buttonIndex: number;
-  value: number;
-}
-
 export interface DiskInfo {
   current: number;
   count: number;
