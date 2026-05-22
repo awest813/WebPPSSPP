@@ -35,9 +35,14 @@ let _settingsContentCleanups: Array<() => void> = [];
 let _settingsContentToken = 0;
 let _settingsTabsModule: typeof import("../settingsTabs.js") | null = null;
 
-export type SettingsTab = "performance" | "display" | "library" | "cloud" | "bios" | "multiplayer" | "achievements" | "apikeys" | "debug" | "about";
+export type SettingsTab = "performance" | "display" | "library" | "cloud" | "bios" | "multiplayer" | "achievements" | "apikeys" | "debug" | "about" | "help";
+type CanonicalSettingsTab = Exclude<SettingsTab, "help">;
 
-const SETTINGS_SIDEBAR_ICON_SVG: Record<SettingsTab, string> = {
+function canonicalSettingsTab(tab: SettingsTab | undefined): CanonicalSettingsTab | undefined {
+  return tab === "help" ? "about" : tab;
+}
+
+const SETTINGS_SIDEBAR_ICON_SVG: Record<CanonicalSettingsTab, string> = {
   performance: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
   display: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>`,
   library: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`,
@@ -50,7 +55,7 @@ const SETTINGS_SIDEBAR_ICON_SVG: Record<SettingsTab, string> = {
   about: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>`,
 };
 
-function settingsSidebarIconEl(tabId: SettingsTab): HTMLElement {
+function settingsSidebarIconEl(tabId: CanonicalSettingsTab): HTMLElement {
   const wrap = make("span", { class: "settings-sidebar__icon", "aria-hidden": "true" });
   wrap.innerHTML = SETTINGS_SIDEBAR_ICON_SVG[tabId];
   return wrap;
@@ -108,7 +113,7 @@ function buildSettingsContent(
   const activeTabLabel = make("p", { class: "settings-active-tab-label", "aria-live": "polite" });
   quickBar.append(activeTabLabel);
 
-  const tabs: Array<{ id: SettingsTab; label: string; ariaLabel: string }> = [
+  const tabs: Array<{ id: CanonicalSettingsTab; label: string; ariaLabel: string }> = [
     { id: "performance",  label: "Performance",   ariaLabel: "Performance" },
     { id: "display",      label: "Display",        ariaLabel: "Display" },
     { id: "library",      label: "My Games",       ariaLabel: "My Games" },
@@ -120,10 +125,11 @@ function buildSettingsContent(
     { id: "debug",        label: "Advanced",       ariaLabel: "Advanced" },
     { id: "about",        label: "Help",            ariaLabel: "Help" },
   ];
-  const tabIndexById = new Map<SettingsTab, number>(tabs.map((t, i) => [t.id, i]));
+  const tabIndexById = new Map<CanonicalSettingsTab, number>(tabs.map((t, i) => [t.id, i]));
 
-  const requestedTab = initialTab ?? "performance";
-  let activeTab: SettingsTab = tabIndexById.has(requestedTab) ? requestedTab : "performance";
+  const requestedTab = canonicalSettingsTab(initialTab) ?? "performance";
+  let activeTab: CanonicalSettingsTab = tabIndexById.has(requestedTab) ? requestedTab : "performance";
+  let suppressScrollSpyUntil = 0;
 
   const tabBar = make("div", {
     class: "settings-sidebar",
@@ -145,9 +151,10 @@ function buildSettingsContent(
   const panels: HTMLElement[] = [];
 
   // Single-page scrolling view: all panels are visible.
-  const switchTab = (id: SettingsTab, scroll = true) => {
+  const switchTab = (id: CanonicalSettingsTab, scroll = true) => {
     if (!tabIndexById.has(id)) return;
     activeTab = id;
+    if (scroll) suppressScrollSpyUntil = performance.now() + 900;
     const activeIndex = tabIndexById.get(id) ?? -1;
     tabBtns.forEach((btn, i) => {
       const isActive = tabs[i]!.id === id;
@@ -175,6 +182,7 @@ function buildSettingsContent(
   _settingsPanelIo?.disconnect();
   _settingsPanelIo = typeof IntersectionObserver !== "undefined"
     ? new IntersectionObserver(() => {
+        if (performance.now() < suppressScrollSpyUntil) return;
         const scrollAnchor = bodyEl.scrollTop + 96;
         let bestMatch = activeTab;
         let bestOffset = Number.NEGATIVE_INFINITY;
@@ -182,7 +190,7 @@ function buildSettingsContent(
           const offset = panel.offsetTop;
           if (offset <= scrollAnchor && offset >= bestOffset) {
             bestOffset = offset;
-            bestMatch = panel.id.replace("tab-panel-", "") as SettingsTab;
+            bestMatch = panel.id.replace("tab-panel-", "") as CanonicalSettingsTab;
           }
         });
         if (bestOffset > Number.NEGATIVE_INFINITY && bestMatch !== activeTab) {
@@ -287,6 +295,9 @@ function buildSettingsContent(
       _settingsContentCleanups.push(apiKeysCleanup);
       panels[9]!.textContent = "";
       st.buildAboutTab(panels[9]!, APP_NAME);
+      if (requestedTab === "about") {
+        switchTab("about");
+      }
     });
   } catch (e) {
     console.error(`${APP_NAME} settings: dynamic tab load failed`, e);
@@ -426,8 +437,10 @@ export function openSettingsPanel(
   }
   panel.hidden = false;
   if (initialTab) {
+    const tabToFocus = canonicalSettingsTab(initialTab);
     const jumpToRequestedTab = () => {
-      content.querySelector<HTMLButtonElement>(`#tab-${initialTab}`)?.click();
+      if (!tabToFocus) return;
+      content.querySelector<HTMLButtonElement>(`#tab-${tabToFocus}`)?.click();
     };
     requestAnimationFrame(() => requestAnimationFrame(jumpToRequestedTab));
     window.setTimeout(jumpToRequestedTab, 180);

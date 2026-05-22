@@ -3821,7 +3821,7 @@ describe("buildLandingControls — Help button is present", () => {
     expect(helpBtn).toBeTruthy();
   });
 
-  it("clicking the Help button opens Settings on the about tab", async () => {
+  it("clicking the Help button opens Settings on the Help section", async () => {
     const settings = makeSettings();
     const fullCaps: DeviceCapabilities = {
       isLowSpec: false, isChromOS: false, isIOS: false, isAndroid: false, isMobile: false,
@@ -3856,6 +3856,8 @@ describe("buildLandingControls — Help button is present", () => {
 
     const aboutPanel = document.getElementById("tab-panel-about");
     expect(aboutPanel?.hidden).toBe(false);
+    const helpTab = document.getElementById("tab-about");
+    expect(helpTab?.getAttribute("aria-selected")).toBe("true");
   });
 });
 

@@ -134,7 +134,6 @@ export function buildGameCard(
 
   const fallback = make("div", { class: "game-card__fallback" });
   fallback.style.setProperty("--sys-color-bright", `${sysColor}dd`);
-  const fallbackBadge = make("div", { class: "game-card__fallback-badge" }, system?.shortName ?? "Game");
   const fallbackIcon = make("div", { class: "game-card__fallback-icon" });
   if (iconOutput.includes("/assets/")) {
     const fallbackImg = make("img", { src: iconOutput, alt: "", class: "game-card__fallback-img" });
@@ -149,7 +148,7 @@ export function buildGameCard(
     fallbackIcon.textContent = iconOutput;
   }
   const fallbackName = make("div", { class: "game-card__fallback-name" }, game.name);
-  fallback.append(fallbackBadge, fallbackIcon, fallbackName);
+  fallback.append(fallbackIcon, fallbackName);
   icon.appendChild(fallback);
 
   let coverArtObjectUrl: string | null = null;
@@ -194,10 +193,8 @@ export function buildGameCard(
   const info = make("div", { class: "game-card__info" });
   const name = make("div", { class: "game-card__name" }, game.name);
   const meta = make("div", { class: "game-card__meta" });
-  const badge = make("span", { class: "sys-badge" }, system?.shortName ?? game.systemId);
-  badge.style.setProperty("--sys-color", sysColor);
   const size = make("span", { class: "game-card__size" }, formatBytes(game.size));
-  meta.append(badge, size);
+  meta.append(size);
   if (system?.experimental) {
     meta.append(make("span", { class: "sys-badge sys-badge--experimental", title: system.stabilityNotice ?? "Experimental support" }, "EXP"));
   }

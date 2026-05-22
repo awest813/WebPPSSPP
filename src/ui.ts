@@ -1853,7 +1853,7 @@ function _wireLibraryControls(
   const onboardingHelpBtn = document.getElementById("btn-open-help-onboarding");
   if (onboardingHelpBtn) {
     onboardingHelpBtn.addEventListener("click", () => {
-      _openSettingsFn?.("about");
+      _openSettingsFn?.("help");
     });
   }
 
@@ -2122,7 +2122,7 @@ export function buildLandingControls(
   });
   btnHelp.textContent = "Help";
   btnHelp.addEventListener("click", () => {
-    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, getNetplayManager, "about");
+    openSettingsPanel(settings, deviceCaps, library, biosLibrary, onSettingsChange, emulatorRef, onLaunchGame, saveLibrary, getNetplayManager, "help");
   });
 
   const btnMultiplayer = make("button", {
