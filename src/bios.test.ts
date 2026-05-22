@@ -55,11 +55,10 @@ describe('BIOS_REQUIREMENTS', () => {
     }
   });
 
-  it('PS1 BIOS entries are required alternatives', () => {
+  it('PS1 BIOS entries are optional enhancements', () => {
     const psxReqs = BIOS_REQUIREMENTS['psx'];
     expect(psxReqs).toBeDefined();
-    expect(psxReqs!.every((r: BiosRequirement) => r.required)).toBe(true);
-    expect(new Set(psxReqs!.map((r: BiosRequirement) => r.group))).toEqual(new Set(['psx-bios']));
+    expect(psxReqs!.every((r: BiosRequirement) => !r.required)).toBe(true);
   });
 
   it('PS1 BIOS includes NTSC-J (SCPH-5500) entry for Japanese game compatibility', () => {
@@ -69,7 +68,7 @@ describe('BIOS_REQUIREMENTS', () => {
     expect(fileNames).toContain('scph5500.bin');
     const entry = psxReqs!.find((r: BiosRequirement) => r.fileName === 'scph5500.bin');
     expect(entry).toBeDefined();
-    expect(entry?.required).toBe(true);
+    expect(entry?.required).toBe(false);
     // Description should mention Japanese or NTSC-J
     expect(entry?.description.toLowerCase()).toMatch(/japan/);
   });
@@ -462,14 +461,14 @@ describe('BiosLibrary.isBiosReady', () => {
     expect(ready).toBe(true);
   });
 
-  // ── PS1 — required alternatives ────────────────────────────────────────────
+  // ── PS1 — optional BIOS with runtime fallback ──────────────────────────────
 
-  it('returns false for PS1 when no BIOS is stored', async () => {
+  it('returns true for PS1 when no BIOS is stored', async () => {
     const ready = await lib.isBiosReady('psx');
-    expect(ready).toBe(false);
+    expect(ready).toBe(true);
   });
 
-  it('returns true for PS1 when at least one BIOS alternative is stored', async () => {
+  it('returns true for PS1 when at least one optional BIOS is stored', async () => {
     await lib.addBios(makeBiosFile('scph5501.bin'), 'psx');
     const ready = await lib.isBiosReady('psx');
     expect(ready).toBe(true);

@@ -831,6 +831,32 @@ describe('PSPEmulator', () => {
       },
     );
 
+    it('routes PS1 no-BIOS fallback launches through PCSX ReARMed without Beetle-only options', async () => {
+      (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+        async () => {
+          await Promise.resolve();
+          window.EJS_onGameStart?.();
+        };
+
+      await emulator.launch({
+        file:                 new File(['data'], 'Final Fantasy VII (USA) (Disc 1).bin'),
+        volume:               0.7,
+        systemId:             'psx',
+        performanceMode:      'auto',
+        deviceCaps:           nesCaps,
+        coreSettingsOverride: { retroarch_core: 'pcsx_rearmed' },
+      });
+
+      expect(window.EJS_core).toBe('psx');
+      expect(window.EJS_Settings?.retroarch_core).toBe('pcsx_rearmed');
+      expect(window.EJS_Settings?.beetle_psx_hw_internal_resolution).toBeUndefined();
+      expect(window.EJS_paths?.['pcsx_rearmed.json']).toBe(`${EJS_CDN_BASE}cores/reports/pcsx_rearmed.json`);
+      expect(window.EJS_paths?.['pcsx_rearmed-wasm.data']).toBe(`${EJS_CDN_BASE}cores/pcsx_rearmed-wasm.data`);
+      expect(emulator.resolvedWasmCoreName).toBe('pcsx_rearmed');
+      expect(window.EJS_disableCue).toBeUndefined();
+      expect(emulator.state).toBe('running');
+    });
+
     it('routes new 4.3-pre selected cores to the EmulatorJS nightly channel', async () => {
       (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
         async () => {

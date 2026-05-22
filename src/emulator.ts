@@ -2595,6 +2595,10 @@ export class PSPEmulator {
     }
 
     if (systemId === "psx") {
+      if (ejsSettings.retroarch_core && ejsSettings.retroarch_core !== "mednafen_psx_hw") {
+        return;
+      }
+
       let maxPsxResIdx = tier === "ultra" ? 2 : tier === "high" ? 1 : 0;
       if (gpu.maxTextureSize < 8192 || caps.estimatedVRAMMB < 384 || constrainedMemory) {
         maxPsxResIdx = Math.min(maxPsxResIdx, 1);
@@ -2858,6 +2862,15 @@ export class PSPEmulator {
   }
 
   // ── launch ──────────────────────────────────────────────────────────────────
+
+  private _stripBeetlePsxSettingsForFallbackCore(ejsSettings: Record<string, string>): void {
+    if (ejsSettings.retroarch_core === "mednafen_psx_hw") return;
+    for (const key of Object.keys(ejsSettings)) {
+      if (key.startsWith("beetle_psx_hw_")) {
+        delete ejsSettings[key];
+      }
+    }
+  }
 
   async launch(opts: LaunchOptions): Promise<void> {
     if (this._state === "loading") {
@@ -3158,6 +3171,9 @@ export class PSPEmulator {
       // without having to dig through EJS_Settings manually.
       this._applyHeavyCoreGpuOverrides(opts.systemId, tier, opts.deviceCaps, ejsSettings);
       this._applyLightCorePerformanceOverrides(opts.systemId, tier, opts.deviceCaps, ejsSettings);
+      if (opts.systemId === "psx") {
+        this._stripBeetlePsxSettingsForFallbackCore(ejsSettings);
+      }
       this._syncDRSInitialStep(opts.systemId, ejsSettings);
 
       {
