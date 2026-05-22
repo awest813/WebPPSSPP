@@ -27,7 +27,7 @@ import { SaveGameService } from "./saveService.js";
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 import { getNetplayManager, peekNetplayManager } from "./netplaySingleton.js";
 import { GameLibrary, getGameTierProfile, saveGameTierProfile, getGameGraphicsProfile } from "./library.js";
-import { BiosLibrary }   from "./bios.js";
+import { BiosLibrary, BIOS_REQUIREMENTS }   from "./bios.js";
 import { SaveStateLibrary, AUTO_SAVE_SLOT } from "./saves.js";
 import {
   detectCapabilitiesCached,
@@ -46,7 +46,7 @@ import { buildDOM, initUI,
           buildLandingControls, showTierDowngradePrompt,
           promptAutoSaveRestore,
           resolveSystemAndAdd,
-          showError, showInfoToast, showLoadingOverlay,
+          showError, showInfoToast, showLoadingOverlay, hideLoadingOverlay,
           setLoadingMessage, setLoadingSubtitle,
           openEasyNetplayModal } from "./ui.js";
 import { extractJoinCodeFromUrl } from "./netplay/signalingClient.js";
@@ -605,6 +605,28 @@ async function main(): Promise<void> {
     setLoadingMessage(`Starting ${gameName}…`);
     setLoadingSubtitle("Preparing the emulator and loading your game…");
 
+    const launchSystem = getSystemById(systemId);
+    try {
+      const biosReady = await biosLibrary.isBiosReady(systemId);
+      if (!biosReady) {
+        const requiredNames = (BIOS_REQUIREMENTS[systemId] ?? [])
+          .filter(req => req.required)
+          .map(req => req.fileName);
+        const startupFileHint = requiredNames.length > 0
+          ? `Upload one of these startup files in Settings -> System Files: ${requiredNames.join(", ")}.`
+          : "Upload the required startup file in Settings -> System Files.";
+        hideLoadingOverlay();
+        showError(
+          `${launchSystem?.name ?? systemId} needs a BIOS/startup file before this game can load.\n\n` +
+          startupFileHint
+        );
+        launchLock = false;
+        return;
+      }
+    } catch {
+      // If the readiness check itself fails, continue with the best-effort BIOS lookup below.
+    }
+
     // Orientation lock
     if (settings.orientationLock && "orientation" in screen) {
       (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })
@@ -726,7 +748,6 @@ async function main(): Promise<void> {
 
     const apiStore = getApiKeyStore();
     const raState = apiStore.getState("retroachievements");
-    const launchSystem = getSystemById(systemId);
     const raCreds = (launchSystem?.hasAchievements && raState.enabled && raState.key)
       ? parseRAKey(raState.key)
       : null;

@@ -68,7 +68,7 @@ const RESOLUTION_LADDERS: Record<string, { key: string; values: string[] }> = {
   psx: {
     key: "beetle_psx_hw_internal_resolution",
     // Matches Beetle PSX HW libretro steps (preset "4×" maps to index 2 = 4x).
-    values: ["1x (native)", "2x", "4x", "8x", "16x"],
+    values: ["1x(native)", "2x", "4x", "8x", "16x"],
   },
   nds: {
     key: "desmume_internal_resolution",
@@ -219,9 +219,9 @@ case "psp":
     case "psx":
       Object.assign(out, {
         beetle_psx_hw_filter: preset === "native" ? "nearest" : "bilinear",
-        beetle_psx_hw_dither_mode: preset === "native" ? "1x (native)" : preset === "balanced" ? "internal resolution" : "disabled",
-        beetle_psx_hw_depth: preset === "native" ? "16bpp (native)" : "32bpp",
-        beetle_psx_hw_pgxp_mode: preset === "ultra" ? "memory + CPU" : preset === "quality" ? "memory only" : "disabled",
+        beetle_psx_hw_dither_mode: preset === "native" ? "1x(native)" : preset === "balanced" ? "internal resolution" : "disabled",
+        beetle_psx_hw_depth: preset === "native" ? "16bpp(native)" : "32bpp",
+        beetle_psx_hw_pgxp_mode: preset === "ultra" ? "memory + CPU (Buggy)" : preset === "quality" ? "memory only" : "disabled",
         beetle_psx_hw_pgxp_texture: preset === "native" || preset === "balanced" ? "disabled" : "enabled",
         beetle_psx_hw_gte_overclock: preset === "native" ? "disabled" : "enabled",
         beetle_psx_hw_msaa: preset === "ultra" ? "4x" : preset === "quality" ? "2x" : "disabled",

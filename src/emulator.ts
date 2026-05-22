@@ -81,6 +81,8 @@ declare global {
     EJS_fixedSaveInterval?: number;
     /** Disable DOSBox Pure's generated BOOTUP.BAT helper. */
     EJS_disableBatchBootup?: boolean;
+    /** Disable EmulatorJS-generated CUE wrappers for single-file disc images. */
+    EJS_disableCue?:    boolean;
     EJS_biosUrl?:      string | File;
     /** Override path to the core `.data` bundle (absolute URL). Used for cores not on the CDN. */
     EJS_corePath?:     string;
@@ -509,7 +511,7 @@ let cachedWebGL2Support: boolean | null = null;
 const PSP_RESOLUTION_STEPS = ["1", "2", "4", "8"];
 const NDS_RESOLUTION_STEPS = ["256x192", "512x384", "768x576", "1024x768"];
 const N64_RESOLUTION_STEPS = ["1", "2", "4"];
-const PSX_RESOLUTION_STEPS = ["1x (native)", "2x", "4x", "8x", "16x"];
+const PSX_RESOLUTION_STEPS = ["1x(native)", "2x", "4x", "8x", "16x"];
 const DREAMCAST_RESOLUTION_STEPS = ["640x480", "1280x960", "1920x1440", "2560x1920"];
 
 function clampLadderValue(value: string | undefined, ladder: readonly string[], maxIdx: number): string {
@@ -2607,14 +2609,14 @@ export class PSPEmulator {
         Object.assign(ejsSettings, {
           beetle_psx_hw_frame_duping: "enabled",
           beetle_psx_hw_filter: "nearest",
-          beetle_psx_hw_dither_mode: "1x (native)",
-          beetle_psx_hw_depth: "16bpp (native)",
+          beetle_psx_hw_dither_mode: "1x(native)",
+          beetle_psx_hw_depth: "16bpp(native)",
           beetle_psx_hw_pgxp_mode: "disabled",
           beetle_psx_hw_pgxp_texture: "disabled",
           beetle_psx_hw_pgxp_vertex: "disabled",
           beetle_psx_hw_gte_overclock: "disabled",
           beetle_psx_hw_renderer_software_fb: "enabled",
-          beetle_psx_hw_gpu_overclock: "1x (native)",
+          beetle_psx_hw_gpu_overclock: "1x(native)",
           beetle_psx_hw_super_sampling: "disabled",
           beetle_psx_hw_msaa: "disabled",
         });
@@ -3346,6 +3348,12 @@ export class PSPEmulator {
       window.EJS_askBeforeExit = true;
       window.EJS_fixedSaveInterval = 30_000;
       window.EJS_disableBatchBootup = false;
+      const launchExt = gameFile.name.split(".").pop()?.toLowerCase() ?? "";
+      if (opts.systemId === "psx" && ["chd", "iso", "pbp"].includes(launchExt)) {
+        window.EJS_disableCue = true;
+      } else {
+        delete window.EJS_disableCue;
+      }
 
       if (opts.biosAsset instanceof Blob) {
         this._biosUrl = URL.createObjectURL(opts.biosAsset);
@@ -4221,6 +4229,7 @@ export class PSPEmulator {
     delete ejsWindow.EJS_askBeforeExit;
     delete ejsWindow.EJS_fixedSaveInterval;
     delete ejsWindow.EJS_disableBatchBootup;
+    delete ejsWindow.EJS_disableCue;
     delete ejsWindow.EJS_defaultOptions;
     delete ejsWindow.EJS_Settings;
     delete ejsWindow.EJS_netplayServer;

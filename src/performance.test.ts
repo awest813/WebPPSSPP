@@ -2415,7 +2415,7 @@ describe('performance', () => {
       it('maps PSX native preset to fastest hardware-renderer options', () => {
         expect(getGraphicsPresetCoreOptions('psx', 'native')).toMatchObject({
           beetle_psx_hw_filter: 'nearest',
-          beetle_psx_hw_dither_mode: '1x (native)',
+          beetle_psx_hw_dither_mode: '1x(native)',
           beetle_psx_hw_pgxp_mode: 'disabled',
         });
       });

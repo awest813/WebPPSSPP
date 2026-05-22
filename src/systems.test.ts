@@ -384,8 +384,8 @@ describe('systems performance profiles', () => {
 
     it('uses native resolution on low and medium tiers', () => {
       const psx = getSystemById('psx');
-      expect(psx?.tierSettings?.low?.beetle_psx_hw_internal_resolution).toBe('1x (native)');
-      expect(psx?.tierSettings?.medium?.beetle_psx_hw_internal_resolution).toBe('1x (native)');
+      expect(psx?.tierSettings?.low?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
+      expect(psx?.tierSettings?.medium?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
     });
 
     it('uses higher resolution on high and ultra tiers', () => {
@@ -409,7 +409,7 @@ describe('systems performance profiles', () => {
 
     it('getPSXSettingsForTier returns a copy of the correct tier settings', () => {
       const lowSettings = getPSXSettingsForTier('low');
-      expect(lowSettings.beetle_psx_hw_internal_resolution).toBe('1x (native)');
+      expect(lowSettings.beetle_psx_hw_internal_resolution).toBe('1x(native)');
       expect(lowSettings.beetle_psx_hw_frame_duping).toBe('enabled');
 
       const ultraSettings = getPSXSettingsForTier('ultra');
@@ -446,7 +446,7 @@ describe('systems performance profiles', () => {
     it('uses upstream PGXP mode strings', () => {
       const psx = getSystemById('psx');
       expect(psx?.tierSettings?.high?.beetle_psx_hw_pgxp_mode).toBe('memory only');
-      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_pgxp_mode).toBe('memory + CPU');
+      expect(psx?.tierSettings?.ultra?.beetle_psx_hw_pgxp_mode).toBe('memory + CPU (Buggy)');
     });
 
     it('enables GTE overclock on high and ultra tiers only', () => {

@@ -2222,7 +2222,7 @@ describe('PSPEmulator', () => {
       });
 
       const settings = emulator.activeCoreSettings;
-      expect(settings?.beetle_psx_hw_internal_resolution).toBe('1x (native)');
+      expect(settings?.beetle_psx_hw_internal_resolution).toBe('1x(native)');
       expect(settings?.beetle_psx_hw_frame_duping).toBe('enabled');
       expect(settings?.beetle_psx_hw_pgxp_mode).toBe('disabled');
       expect(settings?.beetle_psx_hw_msaa).toBe('disabled');
@@ -3758,6 +3758,33 @@ describe('PSPEmulator', () => {
 
       const extErrors = errors.filter(e => e.includes('Unsupported file type'));
       expect(extErrors).toHaveLength(0);
+    });
+
+    it.each(['game.chd', 'game.iso', 'EBOOT.PBP'])(
+      'disables generated CUE wrappers for single-file PSX %s launches',
+      async (fileName) => {
+        await emulator.launch({
+          file:            new File(['data'], fileName),
+          volume:          0.7,
+          systemId:        'psx',
+          performanceMode: 'auto',
+          deviceCaps:      fakeCaps,
+        });
+
+        expect(window.EJS_disableCue).toBe(true);
+      },
+    );
+
+    it('keeps generated CUE wrappers available for raw PSX .bin launches', async () => {
+      await emulator.launch({
+        file:            new File(['data'], 'track01.bin'),
+        volume:          0.7,
+        systemId:        'psx',
+        performanceMode: 'auto',
+        deviceCaps:      fakeCaps,
+      });
+
+      expect(window.EJS_disableCue).toBeUndefined();
     });
 
     it('rejects a .iso file for the NES system', async () => {
