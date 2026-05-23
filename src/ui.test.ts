@@ -3149,9 +3149,9 @@ describe("openEasyNetplayModal", () => {
     expect(segBoxes.length).toBe(6);
 
     // Simulate typing lowercase
-    segBoxes[0].value = "a";
-    segBoxes[0].dispatchEvent(new Event("input"));
-    expect(segBoxes[0].value).toBe("A");
+    segBoxes[0]!.value = "a";
+    segBoxes[0]!.dispatchEvent(new Event("input"));
+    expect(segBoxes[0]!.value).toBe("A");
   });
 
   it("join tab Join button is disabled until the full 6-character invite code is entered", () => {
