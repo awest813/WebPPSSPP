@@ -175,7 +175,7 @@ export class HttpSignalingClient implements SignalingClient {
         maxPlayers: options.maxPlayers ?? 2,
         password:   options.password,
       }),
-    }, signal);
+    }, signal, 2);
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -194,7 +194,7 @@ export class HttpSignalingClient implements SignalingClient {
     const res = await this._fetchWithTimeout(
       `${this._httpBase}/rooms/${encodeURIComponent(normalised)}`,
       { headers: { Accept: "application/json" } },
-      signal
+      signal, 2
     );
 
     if (res.status === 404) {
@@ -227,8 +227,9 @@ export class HttpSignalingClient implements SignalingClient {
       try {
         const url = this._buildLobbyUrl(candidate.path, candidate.includeLegacyDomain);
         const res = await this._fetchWithTimeout(url, {
+          method: "GET",
           headers: { Accept: "application/json" },
-        }, signal);
+        }, signal, 0);
         if (!res.ok) continue;
         const body = await res.json() as unknown;
         return this._coerceList(body);
@@ -267,6 +268,10 @@ export class HttpSignalingClient implements SignalingClient {
     }
     return arr
       .filter(item => item && typeof item === "object")
+      .filter(item => {
+        const row = item as Record<string, unknown>;
+        return Boolean(row.id || row.roomId || row.room_id);
+      })
       .map(item => this._coerce(item as Record<string, unknown>));
   }
 
@@ -335,30 +340,47 @@ export class HttpSignalingClient implements SignalingClient {
     input: RequestInfo | URL,
     init: RequestInit,
     signal?: AbortSignal,
+    maxRetries = 2
   ): Promise<Response> {
-    const controller = new AbortController();
-    let timedOut = false;
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, HttpSignalingClient._REQUEST_TIMEOUT_MS);
+    let attempt = 0;
+    while (true) {
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, HttpSignalingClient._REQUEST_TIMEOUT_MS);
 
-    const onAbort = () => controller.abort();
-    if (signal) {
-      if (signal.aborted) controller.abort();
-      else signal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    try {
-      return await fetch(input, { ...init, signal: controller.signal });
-    } catch (err) {
-      if (timedOut && !(signal?.aborted) && err instanceof Error && err.name === "AbortError") {
-        throw Object.assign(new Error("Request timed out"), { code: "network_timeout" });
+      const onAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener("abort", onAbort, { once: true });
       }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
-      signal?.removeEventListener("abort", onAbort);
+
+      try {
+        const res = await fetch(input, { ...init, signal: controller.signal });
+        // Return immediately on success or client errors (except timeouts/rate limits)
+        if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429)) {
+          return res;
+        }
+        throw new Error(`Server returned ${res.status}`);
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        
+        if (attempt >= maxRetries) {
+          if (timedOut && !(signal?.aborted) && err instanceof Error && err.name === "AbortError") {
+            throw Object.assign(new Error("Request timed out"), { code: "network_timeout" });
+          }
+          throw err;
+        }
+        
+        attempt++;
+        const delayMs = 500 * Math.pow(2, attempt - 1);
+        await new Promise(r => setTimeout(r, delayMs));
+      } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
+      }
     }
   }
 }

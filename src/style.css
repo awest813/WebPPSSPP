@@ -5954,6 +5954,238 @@ body.using-gamepad .game-card:focus {
   margin-top: 20px;
 }
 
+/* ── Host panel: game banner ─────────────────────────────── */
+
+.enp-host-game-banner--loaded {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--c-accent) 10%, var(--c-surface2));
+  border: 1px solid color-mix(in srgb, var(--c-accent) 35%, var(--c-border));
+  border-radius: var(--radius);
+}
+
+.enp-host-game-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--c-accent-light);
+}
+
+.enp-host-game-title {
+  font-size: 0.9rem;
+  color: var(--c-text-dim);
+}
+
+.enp-host-game-title strong {
+  color: var(--c-text);
+  font-weight: 700;
+}
+
+/* ── Host panel: no-game empty state ────────────────────── */
+
+.enp-host-game-banner--empty {
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--c-surface2) 80%, transparent);
+}
+
+.enp-no-game-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.enp-no-game-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--c-text-dim);
+  opacity: 0.5;
+}
+
+.enp-no-game-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--c-text);
+  margin: 0;
+}
+
+.enp-no-game-sub {
+  font-size: 0.85rem;
+  color: var(--c-text-dim);
+  margin: 0;
+  max-width: 320px;
+}
+
+.enp-no-game-btn {
+  margin-top: 4px;
+}
+
+/* ── Host panel: privacy radio cards ────────────────────── */
+
+.enp-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.enp-radio-card {
+  display: grid;
+  grid-template-columns: 36px 1fr 24px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--c-surface2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  color: var(--c-text);
+  font: inherit;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    transform 80ms ease;
+}
+
+.enp-radio-card:hover {
+  background: var(--c-surface3);
+  border-color: color-mix(in srgb, var(--c-accent) 40%, var(--c-border));
+}
+
+.enp-radio-card:active {
+  transform: translateY(1px);
+}
+
+.enp-radio-card--active {
+  background: color-mix(in srgb, var(--c-accent) 12%, var(--c-surface2));
+  border-color: color-mix(in srgb, var(--c-accent) 60%, var(--c-border));
+}
+
+.enp-radio-card--active:hover {
+  border-color: var(--c-accent);
+}
+
+.enp-radio-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--c-surface3);
+  border: 1px solid var(--c-border-lt);
+  flex-shrink: 0;
+  color: var(--c-text-dim);
+  transition: color var(--transition), background var(--transition);
+}
+
+.enp-radio-card--active .enp-radio-card__icon {
+  background: color-mix(in srgb, var(--c-accent) 18%, var(--c-surface3));
+  border-color: color-mix(in srgb, var(--c-accent) 35%, var(--c-border));
+  color: var(--c-accent-light);
+}
+
+.enp-radio-card__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.enp-radio-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.enp-radio-card__label {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--c-text);
+}
+
+.enp-radio-card__desc {
+  font-size: 0.8rem;
+  color: var(--c-text-dim);
+  line-height: 1.35;
+}
+
+.enp-radio-card__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--c-border);
+  flex-shrink: 0;
+  color: transparent;
+  transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.enp-radio-card__check svg {
+  width: 10px;
+  height: 10px;
+}
+
+.enp-radio-card--active .enp-radio-card__check {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: #fff;
+}
+
+/* ── Join panel: segmented invite code input ─────────────── */
+
+.enp-seg-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.enp-seg-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.enp-seg-row {
+  display: flex;
+  gap: 6px;
+}
+
+.enp-seg-box {
+  width: 44px;
+  height: 52px;
+  text-align: center;
+  font-size: 1.4rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--c-text);
+  background: var(--c-surface2);
+  border: 2px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  caret-color: var(--c-accent);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.enp-seg-box:focus {
+  border-color: var(--c-accent);
+  background: var(--c-surface3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 25%, transparent);
+}
+
+.enp-seg-row--complete .enp-seg-box {
+  border-color: color-mix(in srgb, var(--c-success) 60%, var(--c-border));
+  background: color-mix(in srgb, var(--c-success) 8%, var(--c-surface2));
+}
+
 /* ── Cloud Library ─────────────────────────────────────────── */
 
 .cloud-library-section {

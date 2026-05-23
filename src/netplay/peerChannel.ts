@@ -124,6 +124,7 @@ export class PeerDataChannel {
   private _iceServers: RTCIceServer[];
   private _reconnectAttempts: number = 0;
   private _maxReconnectAttempts: number;
+  private _watchdogId: ReturnType<typeof setTimeout> | null = null;
 
   // Callback hooks
   onOpen?:    () => void;
@@ -262,6 +263,7 @@ export class PeerDataChannel {
 
   /** Close the peer connection and data channel. */
   close(): void {
+    if (this._watchdogId) clearTimeout(this._watchdogId);
     if (this._state === "closed") return;
     this._setState("closed");
     this._dc?.close();
@@ -302,6 +304,13 @@ export class PeerDataChannel {
     this._pc = new RTCPeerConnection({ iceServers: this._iceServers });
     this._setState("connecting");
 
+    if (this._watchdogId) clearTimeout(this._watchdogId);
+    this._watchdogId = setTimeout(() => {
+      if (this._state === "connecting" || this._state === "reconnecting") {
+        this._handleConnectionFailure();
+      }
+    }, 15000);
+
     // ── ICE candidates ───────────────────────────────────────────────────────
     this._pc.onicecandidate = (ev) => {
       if (ev.candidate) {
@@ -335,6 +344,7 @@ export class PeerDataChannel {
 
   private _wireDataChannel(dc: RTCDataChannel): void {
     dc.onopen = () => {
+      if (this._watchdogId) clearTimeout(this._watchdogId);
       this._reconnectAttempts = 0;
       this._setState("open");
       this.onOpen?.();
@@ -380,6 +390,13 @@ export class PeerDataChannel {
         // return a Promise.  A full reconnection requires re-negotiation via
         // createOffer/createAnswer which is driven by the caller.
         this._pc?.restartIce();
+      if (this._watchdogId) clearTimeout(this._watchdogId);
+      this._watchdogId = setTimeout(() => {
+        if (this._state === "reconnecting") {
+          this._setState("failed");
+          this.onClose?.("Connection failed: ICE restart unsuccessful.");
+        }
+      }, 15000);
       } catch {
         // ICE restart not supported or connection already gone — fall through to failed.
         this._setState("failed");
@@ -418,6 +435,7 @@ export class SpectatorChannel {
   private _dc:    RTCDataChannel    | null = null;
   private _state: PeerChannelState  = "new";
   private _iceServers: RTCIceServer[];
+  private _watchdogId: ReturnType<typeof setTimeout> | null = null;
 
   onOpen?:         () => void;
   onClose?:        (reason?: string) => void;
@@ -454,6 +472,14 @@ export class SpectatorChannel {
     this._pc = new RTCPeerConnection({ iceServers: this._iceServers });
     this._setState("connecting");
 
+    if (this._watchdogId) clearTimeout(this._watchdogId);
+    this._watchdogId = setTimeout(() => {
+      if (this._state === "connecting") {
+        this._setState("failed");
+        this.onClose?.("Connection timed out.");
+      }
+    }, 15000);
+
     this._pc.onicecandidate = (ev) => {
       if (ev.candidate) this.onIceCandidate?.(ev.candidate);
     };
@@ -468,7 +494,11 @@ export class SpectatorChannel {
     this._pc.ondatachannel = (ev) => {
       this._dc = ev.channel;
 
-      this._dc.onopen  = () => { this._setState("open"); this.onOpen?.(); };
+      this._dc.onopen  = () => { 
+        if (this._watchdogId) clearTimeout(this._watchdogId);
+        this._setState("open"); 
+        this.onOpen?.(); 
+      };
       this._dc.onclose = () => { this._setState("disconnected"); this.onClose?.(); };
       this._dc.onerror = (e) => {
         this.onError?.(extractRTCError(e, "Spectator data channel error"));
@@ -502,6 +532,7 @@ export class SpectatorChannel {
 
   /** Close the spectator channel. */
   close(): void {
+    if (this._watchdogId) clearTimeout(this._watchdogId);
     if (this._state === "closed") return;
     this._setState("closed");
     this._dc?.close();

@@ -362,7 +362,7 @@ describe("HttpSignalingClient", () => {
       const pending = expect(client.joinRoom("ABCDEF")).rejects.toMatchObject({
         code: "network_timeout",
       });
-      await vi.advanceTimersByTimeAsync(10_100);
+      await vi.advanceTimersByTimeAsync(32_000);
       await pending;
       vi.unstubAllGlobals();
     } finally {

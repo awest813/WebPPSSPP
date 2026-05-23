@@ -637,45 +637,26 @@ export class NetplayManager {
     const err = this.validateServerUrl(this._settings.serverUrl);
     if (err || !this.isActive) return [];
 
-    const base = this._settings.serverUrl
-      .replace(/^ws:\/\//i, "http://")
-      .replace(/^wss:\/\//i, "https://")
-      .replace(/\/+$/, "");
+    const { HttpSignalingClient } = await import("./netplay/signalingClient.js");
+    const client = new HttpSignalingClient(this._settings.serverUrl);
 
-    const endpointCandidates: Array<{ path: string; includeLegacyQuery?: boolean }> = [
-      { path: "/rooms" },
-      { path: "/lobby/rooms" },
-      { path: "/netplay/rooms" },
-      { path: "/list", includeLegacyQuery: true },
-    ];
-
-    for (const candidate of endpointCandidates) {
-      try {
-        const url = new URL(`${base}${candidate.path}`);
-        if (candidate.includeLegacyQuery) {
-          url.searchParams.set("domain", window.location.host);
-        }
-
-        const res = await fetch(url.toString(), {
-          method: "GET",
-          headers: { "Accept": "application/json" },
-          signal,
-        });
-        if (!res.ok) continue;
-
-        // HTTP 200: this endpoint is active. Parse rooms and return immediately
-        // regardless of room count — the server authoritatively said there are
-        // none, so there's no point querying an alternative endpoint.
-        const body = await res.json() as unknown;
-        return this._coerceLobbyRooms(body);
-      } catch (err) {
-        // Re-throw AbortErrors immediately — the signal was cancelled by the
-        // caller and we must not silently swallow it or probe further endpoints.
-        if (err instanceof Error && err.name === "AbortError") throw err;
-        // Network error or non-JSON body — keep trying alternative endpoints.
-      }
+    try {
+      const rooms = await client.listRooms(signal);
+      return rooms.map(r => ({
+        id: r.id,
+        gameId: parseInt(r.gameId, 10) || undefined,
+        name: r.name,
+        host: r.hostName,
+        players: r.playerCount,
+        maxPlayers: r.maxPlayers,
+        hasPassword: r.hasPassword,
+        systemId: r.systemId || undefined,
+        latencyMs: r.latencyMs,
+      }));
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
+      return [];
     }
-    return [];
   }
 
   // ── Persistence ────────────────────────────────────────────────────────────
@@ -712,73 +693,5 @@ export class NetplayManager {
     }
   }
 
-  private _coerceLobbyRooms(body: unknown): NetplayLobbyRoom[] {
-    const wrapped = body && typeof body === "object" ? (body as { rooms?: unknown }).rooms : undefined;
-    const raw = Array.isArray(body)
-      ? body
-      : (Array.isArray(wrapped)
-        ? wrapped
-        : (body && typeof body === "object"
-          ? this._mapLegacyRoomDictionary(body as Record<string, unknown>)
-          : []));
 
-    const out: NetplayLobbyRoom[] = [];
-    for (const item of raw) {
-      if (!item || typeof item !== "object") continue;
-      const row = item as Record<string, unknown>;
-
-      const id = typeof row.id === "string"
-        ? row.id
-        : (typeof row.roomId === "string"
-          ? row.roomId
-          : (typeof row.room_id === "string" ? row.room_id : null));
-      if (!id) continue;
-
-      const gameId = this._readOptionalNumber(row, ["gameId", "game_id"]);
-      const players = this._readOptionalNumber(row, ["players", "current", "player_count"]);
-      const maxPlayers = this._readOptionalNumber(row, ["maxPlayers", "max", "max_players"]);
-
-      out.push({
-        id,
-        gameId,
-        name: this._readOptionalString(row, ["name", "room_name"]),
-        host: typeof row.host === "string" ? row.host : undefined,
-        players,
-        maxPlayers,
-        hasPassword: typeof row.hasPassword === "boolean"
-          ? row.hasPassword
-          : (typeof row.has_password === "boolean"
-            ? row.has_password
-            : undefined),
-        systemId:  this._readOptionalString(row, ["systemId", "system_id", "system"]),
-        latencyMs: this._readOptionalNumber(row, ["latencyMs", "latency_ms", "latency", "ping"]),
-      });
-    }
-    return out;
-  }
-
-  private _mapLegacyRoomDictionary(body: Record<string, unknown>): unknown[] {
-    const rows: unknown[] = [];
-    for (const [id, value] of Object.entries(body)) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      rows.push({ id, ...(value as Record<string, unknown>) });
-    }
-    return rows;
-  }
-
-  private _readOptionalNumber(row: Record<string, unknown>, keys: string[]): number | undefined {
-    for (const key of keys) {
-      const value = row[key];
-      if (typeof value === "number" && Number.isFinite(value)) return value;
-    }
-    return undefined;
-  }
-
-  private _readOptionalString(row: Record<string, unknown>, keys: string[]): string | undefined {
-    for (const key of keys) {
-      const value = row[key];
-      if (typeof value === "string") return value;
-    }
-    return undefined;
-  }
 }

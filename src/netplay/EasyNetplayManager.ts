@@ -175,6 +175,7 @@ export class EasyNetplayManager {
       };
 
       const sigRoom = await this._sigClient.createRoom(createOpts, this._hostAbort.signal);
+      if (this._hostAbort.signal.aborted) return;
       this._diagnostics.info(MSG.signalingConnected);
 
       const room = signalingRoomToEasyRoom(sigRoom);
@@ -240,6 +241,7 @@ export class EasyNetplayManager {
 
     try {
       const sigRoom = await this._sigClient.joinRoom(normCode, this._joinAbort.signal);
+      if (this._joinAbort.signal.aborted) return;
       this._diagnostics.info(MSG.signalingConnected);
 
       const room = signalingRoomToEasyRoom(sigRoom);
@@ -360,6 +362,7 @@ export class EasyNetplayManager {
 
     try {
       const sigRoom = await this._sigClient.joinRoom(normCode, this._joinAbort.signal);
+      if (this._joinAbort.signal.aborted) return;
       this._diagnostics.info(MSG.signalingConnected);
 
       const room = signalingRoomToEasyRoom(sigRoom);

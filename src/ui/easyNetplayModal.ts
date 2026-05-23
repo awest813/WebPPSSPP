@@ -1,5 +1,5 @@
 /**
- * easyNetplayModal.ts — Play Together modal (Host / Join / LAN / Browse / Watch)
+ * easyNetplayModal.ts â€” Play Together modal (Host / Join / LAN / Browse / Watch)
  *
  * Extracted from src/ui.ts as part of the modularisation effort.
  * The modal is a self-contained overlay with its own tab bar, panel builders,
@@ -404,44 +404,95 @@ function _buildHostPanel(
 ): () => void {
   const { easyMgr, username, currentGameId, currentGameName, currentSystemId, serverUrl } = opts;
 
-  container.appendChild(make("p", { class: "enp-panel-desc" },
-    "Host a room so friends can join your game."
-  ));
+  // â”€â”€ Game context banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const hasGame = !!(currentGameId || currentGameName);
+  const gameBanner = make("div", { class: "enp-host-game-banner" });
+  if (hasGame) {
+    const gameIcon = `<svg class="enp-host-game-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M7 10v2M9 10v2" stroke-width="1.8"/></svg>`;
+    gameBanner.innerHTML = `${gameIcon}<span class="enp-host-game-title">Hosting: <strong>${currentGameName ?? currentGameId ?? "Unknown Game"}</strong></span>`;
+    gameBanner.classList.add("enp-host-game-banner--loaded");
+  } else {
+    gameBanner.classList.add("enp-host-game-banner--empty");
+    gameBanner.innerHTML = `
+      <div class="enp-no-game-state">
+        <svg class="enp-no-game-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M7 10v2M9 10v2" stroke-width="1.8"/></svg>
+        <p class="enp-no-game-title">No game loaded</p>
+        <p class="enp-no-game-sub">Open a game ROM first, then come back to host a session for friends.</p>
+      </div>`;
+    const pickBtn = make("button", { class: "btn enp-no-game-btn", type: "button" }, "Choose Game File") as HTMLButtonElement;
+    pickBtn.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent(LEGACY_EVENTS.closeEasyNetplay));
+      setTimeout(() => {
+        const picker = document.getElementById("file-input") as HTMLInputElement | null;
+        picker?.click();
+      }, 40);
+    });
+    gameBanner.querySelector(".enp-no-game-state")?.appendChild(pickBtn);
+  }
+  container.appendChild(gameBanner);
 
-  const typeWrap = make("div", { class: "enp-field" });
-  typeWrap.appendChild(make("label", { class: "enp-label", for: "enp-room-type" }, "Room type"));
-  const typeSelect = make("select", {
-    id:    "enp-room-type",
-    class: "enp-select",
-    name:  "roomType",
-  }) as HTMLSelectElement;
-  const typeOptions: Array<{ value: string; label: string; desc: string }> = [
+  if (!hasGame) return () => {};
+
+  // â”€â”€ Privacy radio cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const cardDefs: Array<{ value: string; label: string; desc: string; icon: string }> = [
     {
       value: "local",
-      label: "Same Wi\u2011Fi / LAN",
-      desc: "Lowest latency when everyone is nearby. You still need the same server URL so this device can register the room (paste it in Play Together settings).",
+      label: "Same Wi-Fi / LAN",
+      desc: "Lowest latency. Works without a server â€” everyone must be on the same network.",
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.75 8.75A11.73 11.73 0 0 1 12 5c3.9 0 7.37 1.9 9.5 4.75"/><path d="M4.75 11.75A7.73 7.73 0 0 1 12 9c2.87 0 5.39 1.47 6.88 3.69"/><path d="M8 14.5A3.87 3.87 0 0 1 12 13c1.55 0 2.91.85 3.63 2.1"/><circle cx="12" cy="18" r="1"/></svg>`,
     },
-    { value: "private", label: "Private (invite code)", desc: "Only people with the code can join \u2014 best for playing with a specific friend." },
-    { value: "public",  label: "Public lobby",        desc: "Shows in Browse so anyone on the same game can join." },
+    {
+      value: "private",
+      label: "Private (invite code)",
+      desc: "Only players with the 6-character code can join. Best for playing with specific friends.",
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+    },
+    {
+      value: "public",
+      label: "Public lobby",
+      desc: "Visible in the Browse tab â€” anyone playing the same game can join.",
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    },
   ];
-  for (const opt of typeOptions) {
-    typeSelect.appendChild(make("option", { value: opt.value }, opt.label));
-  }
-  typeWrap.appendChild(typeSelect);
 
-  const typeDesc = make("p", { class: "enp-help" }, typeOptions[0]!.desc);
-  typeSelect.addEventListener("change", () => {
-    const found = typeOptions.find(o => o.value === typeSelect.value);
-    typeDesc.textContent = found?.desc ?? "";
-  });
-  typeWrap.appendChild(typeDesc);
-  container.appendChild(typeWrap);
+  const radioGroup = make("div", { class: "enp-radio-group", role: "radiogroup", "aria-label": "Room visibility" });
+  let selectedPrivacy = "private"; // sensible default
+  const cardEls: HTMLElement[] = [];
+
+  for (const def of cardDefs) {
+    const card = make("button", {
+      type: "button",
+      class: "enp-radio-card" + (def.value === selectedPrivacy ? " enp-radio-card--active" : ""),
+      role: "radio",
+      "aria-checked": def.value === selectedPrivacy ? "true" : "false",
+      "data-value": def.value,
+    }) as HTMLButtonElement;
+    card.innerHTML = `
+      <span class="enp-radio-card__icon" aria-hidden="true">${def.icon}</span>
+      <span class="enp-radio-card__content">
+        <span class="enp-radio-card__label">${def.label}</span>
+        <span class="enp-radio-card__desc">${def.desc}</span>
+      </span>
+      <span class="enp-radio-card__check" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </span>`;
+    card.addEventListener("click", () => {
+      selectedPrivacy = def.value;
+      cardEls.forEach((c) => {
+        const active = c.dataset["value"] === selectedPrivacy;
+        c.classList.toggle("enp-radio-card--active", active);
+        c.setAttribute("aria-checked", String(active));
+      });
+    });
+    radioGroup.appendChild(card);
+    cardEls.push(card);
+  }
+  container.appendChild(radioGroup);
 
   if (!serverUrl) {
-    const warn = make("p", { class: "enp-server-warn" },
-      "No server URL configured. Local-only rooms cannot be discovered by others. Add a server in Settings \u2192 Play Together."
-    );
-    container.appendChild(warn);
+    container.appendChild(make("p", { class: "enp-server-warn" },
+      "No server URL configured. Add one in Settings â†’ Play Together to host online or private rooms."
+    ));
   }
 
   const statusArea = make("div", {
@@ -455,25 +506,7 @@ function _buildHostPanel(
   const btnCreate = make("button", {
     class: "btn btn--primary enp-btn-create",
   }) as HTMLButtonElement;
-  btnCreate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Host Game`;
-
-  const hasGame = !!(currentGameId || currentGameName);
-  if (!hasGame) {
-    btnCreate.disabled = true;
-    btnCreate.title    = "Open a game first, then come back to host";
-    container.appendChild(make("p", { class: "enp-help enp-help--warn" },
-      "Open a game first, then click Play Together to host."
-    ));
-    const pickGameBtn = make("button", { class: "btn enp-btn-secondary" }, "Choose Game File") as HTMLButtonElement;
-    pickGameBtn.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent(LEGACY_EVENTS.closeEasyNetplay));
-      setTimeout(() => {
-        const picker = document.getElementById("file-input") as HTMLInputElement | null;
-        picker?.click();
-      }, 40);
-    });
-    container.appendChild(pickGameBtn);
-  }
+  btnCreate.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>&ensp;Host Game`;
 
   let activeUnsub: (() => void) | null = null;
 
@@ -508,7 +541,7 @@ function _buildHostPanel(
         statusArea.innerHTML = "";
         statusArea.appendChild(make("p", { class: "enp-diag enp-diag--error" }, ev.message));
         btnCreate.disabled = false;
-        btnCreate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Try Again`;
+        btnCreate.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>&ensp;Try Again`;
       }
     });
 
@@ -517,7 +550,7 @@ function _buildHostPanel(
       gameId:      currentGameId  ?? currentGameName ?? "unknown",
       gameName:    currentGameName ?? currentGameId  ?? "Unknown Game",
       systemId:    currentSystemId ?? "psp",
-      privacy:     (typeSelect.value as import("../netplay/netplayTypes.js").RoomPrivacy),
+      privacy:     (selectedPrivacy as import("../netplay/netplayTypes.js").RoomPrivacy),
       maxPlayers:  2,
     });
   });
@@ -548,57 +581,100 @@ function _buildJoinPanel(
     "Enter the invite code your friend shared to join their room."
   ));
 
-  const codeField = make("div", { class: "enp-field" });
-  codeField.appendChild(make("label", { class: "enp-label", for: "enp-join-code" }, "Invite code"));
-  const codeInput = make("input", {
-    type:         "text",
-    id:           "enp-join-code",
-    name:         "inviteCode",
-    class:        "enp-code-input",
-    placeholder:  "ABC123\u2026",
-    maxlength:    String(INVITE_CODE_LEN),
-    autocomplete: "off",
-    autocapitalize: "characters",
-    autocorrect:  "off",
-    spellcheck:   "false",
-    inputmode:    "text",
-  }) as HTMLInputElement;
+  // ── Segmented code input (6-box, 2FA-style) ──────────────────────────────
+  const segWrap = make("div", { class: "enp-seg-wrap" });
+  segWrap.appendChild(make("label", { class: "enp-label", for: "enp-seg-0" }, "Invite code"));
+  const segRow  = make("div", { class: "enp-seg-row" });
+  const boxes: HTMLInputElement[] = [];
 
-  const syncCodeInput = () => {
-    const norm = normaliseInviteCode(codeInput.value);
-    if (norm !== codeInput.value) codeInput.value = norm;
-    codeError.hidden = true;
-    btnJoin.disabled = norm.length < INVITE_CODE_LEN;
+  for (let i = 0; i < INVITE_CODE_LEN; i++) {
+    const box = make("input", {
+      id:          i === 0 ? "enp-seg-0" : `enp-seg-${i}`,
+      type:        "text",
+      class:       "enp-seg-box",
+      maxlength:   "1",
+      inputmode:   "text",
+      autocomplete: "off",
+      autocapitalize: "characters",
+      autocorrect: "off",
+      spellcheck:  "false",
+      "aria-label": `Invite code character ${i + 1} of ${INVITE_CODE_LEN}`,
+    }) as HTMLInputElement;
+
+    box.addEventListener("input", () => {
+      const ch = normaliseInviteCode(box.value).slice(-1);
+      box.value = ch;
+      codeError.hidden = true;
+      syncSegBoxes();
+      if (ch && i < INVITE_CODE_LEN - 1) boxes[i + 1]!.focus();
+    });
+
+    box.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Backspace" && !box.value && i > 0) {
+        e.preventDefault();
+        boxes[i - 1]!.value = "";
+        boxes[i - 1]!.focus();
+        syncSegBoxes();
+      } else if (e.key === "ArrowLeft" && i > 0) {
+        e.preventDefault();
+        boxes[i - 1]!.focus();
+      } else if (e.key === "ArrowRight" && i < INVITE_CODE_LEN - 1) {
+        e.preventDefault();
+        boxes[i + 1]!.focus();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const code = getFullCode();
+        if (code.length === INVITE_CODE_LEN) void attemptJoin(code);
+      }
+    });
+
+    box.addEventListener("paste", (e: ClipboardEvent) => {
+      e.preventDefault();
+      const pasted = normaliseInviteCode(e.clipboardData?.getData("text") ?? "");
+      for (let j = 0; j < INVITE_CODE_LEN; j++) boxes[j]!.value = pasted[j] ?? "";
+      codeError.hidden = true;
+      syncSegBoxes();
+      boxes[Math.min(pasted.length, INVITE_CODE_LEN - 1)]!.focus();
+    });
+
+    box.addEventListener("focus", () => box.select());
+    segRow.appendChild(box);
+    boxes.push(box);
+  }
+
+  const getFullCode = () => boxes.map(b => b.value).join("");
+  const syncSegBoxes = () => {
+    const code = getFullCode();
+    const full = code.length === INVITE_CODE_LEN;
+    btnJoin.disabled = !full;
+    segRow.classList.toggle("enp-seg-row--complete", full);
   };
-  codeInput.addEventListener("input", syncCodeInput);
-  const codeRow = make("div", { class: "enp-code-row" });
-  const btnPasteCode = make("button", {
-    type: "button",
-    class: "btn enp-btn-paste-code",
-  }, "Paste") as HTMLButtonElement;
-  btnPasteCode.addEventListener("click", async () => {
+
+  const btnPaste = make("button", { type: "button", class: "btn enp-btn-paste-code" }, "Paste") as HTMLButtonElement;
+  btnPaste.addEventListener("click", async () => {
     try {
       const text = await navigator.clipboard?.readText();
-      if (!text) {
-        codeInput.focus();
-        return;
-      }
-      codeInput.value = text;
-      syncCodeInput();
-      codeInput.focus();
+      const norm = normaliseInviteCode(text ?? "");
+      for (let j = 0; j < INVITE_CODE_LEN; j++) boxes[j]!.value = norm[j] ?? "";
+      codeError.hidden = true;
+      syncSegBoxes();
+      boxes[Math.min(norm.length, INVITE_CODE_LEN - 1)]!.focus();
     } catch {
-      codeInput.focus();
+      boxes[0]!.focus();
       showInfoToast("Clipboard paste is blocked. Type the code here instead.", "warning");
     }
   });
-  codeRow.append(codeInput, btnPasteCode);
-  codeField.appendChild(codeRow);
-  container.appendChild(codeField);
+
+  const segActions = make("div", { class: "enp-seg-actions" });
+  segActions.append(segRow, btnPaste);
+  segWrap.appendChild(segActions);
+  container.appendChild(segWrap);
 
   opts.onCodeSetterReady?.((code: string) => {
-    codeInput.value = normaliseInviteCode(code);
-    syncCodeInput();
-    codeInput.focus();
+    const norm = normaliseInviteCode(code);
+    for (let j = 0; j < INVITE_CODE_LEN; j++) boxes[j]!.value = norm[j] ?? "";
+    syncSegBoxes();
+    boxes[Math.min(norm.length, INVITE_CODE_LEN - 1)]!.focus();
   });
 
   const codeError = make("p", {
@@ -627,13 +703,15 @@ function _buildJoinPanel(
     class:    "btn btn--primary enp-btn-join",
     disabled: "",
   }) as HTMLButtonElement;
-  btnJoin.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Join Room`;
+  btnJoin.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>&ensp;Join Room`;
 
   let activeUnsub: (() => void) | null = null;
   const attemptJoin = async (prefilledCode?: string) => {
-    const code = normaliseInviteCode(prefilledCode ?? codeInput.value);
-    codeInput.value = code;
-    syncCodeInput();
+    const code = normaliseInviteCode(prefilledCode ?? getFullCode());
+    if (prefilledCode) {
+      for (let j = 0; j < INVITE_CODE_LEN; j++) boxes[j]!.value = code[j] ?? "";
+      syncSegBoxes();
+    }
     if (code.length < INVITE_CODE_LEN) {
       codeError.textContent = `Enter the full invite code (${INVITE_CODE_LEN} characters).`;
       codeError.hidden = false;
@@ -657,9 +735,8 @@ function _buildJoinPanel(
       if (ev.type === "room_joined") {
         activeUnsub?.();
         activeUnsub = null;
-        const room = ev.room;
         statusArea.innerHTML = "";
-        sharedRenderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr, isHost: false, showToast: showInfoToast });
+        sharedRenderRoomCard(statusArea, ev.room, { showLeaveBtn: true, easyMgr, isHost: false, showToast: showInfoToast });
         btnJoin.textContent = "Joined";
         btnJoin.disabled    = true;
       }
@@ -671,19 +748,19 @@ function _buildJoinPanel(
         codeError.hidden = false;
         statusArea.hidden = true;
         btnJoin.disabled = false;
-        btnJoin.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Try Again`;
+        btnJoin.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>&ensp;Try Again`;
       }
     });
 
     await easyMgr.joinRoom({
-        code,
-        playerName:    username || "Anonymous",
-        localGameId:   opts.currentGameId   ?? undefined,
-        localSystemId: opts.currentSystemId ?? undefined,
-      });
+      code,
+      playerName:    username || "Anonymous",
+      localGameId:   opts.currentGameId   ?? undefined,
+      localSystemId: opts.currentSystemId ?? undefined,
+    });
   };
   btnJoin.addEventListener("click", () => { void attemptJoin(); });
-  opts.onJoinActionReady?.((code) => { void attemptJoin(code); });
+  opts.onJoinActionReady?.((code: string) => { void attemptJoin(code); });
 
   container.appendChild(btnJoin);
   return () => {

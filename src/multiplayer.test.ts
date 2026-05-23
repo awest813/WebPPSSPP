@@ -560,8 +560,8 @@ describe('NetplayManager.fetchLobbyRooms', () => {
     );
 
     expect(rooms).toEqual([
-      { id: 'room-a', gameId: 123, name: 'Room A', host: 'alice', players: 1, maxPlayers: 2 },
-      { id: 'room-b', players: 2 },
+      { id: 'room-a', gameId: 123, name: 'Room A', host: 'alice', players: 1, maxPlayers: 2, hasPassword: false, systemId: undefined, latencyMs: undefined },
+      { id: 'room-b', gameId: undefined, name: 'Room room-b', host: 'Host', players: 2, maxPlayers: 2, hasPassword: false, systemId: undefined, latencyMs: undefined },
     ]);
   });
 
@@ -594,7 +594,7 @@ describe('NetplayManager.fetchLobbyRooms', () => {
     );
 
     expect(rooms).toEqual([
-      { id: 'legacy-a', name: 'Legacy Room', players: 1, maxPlayers: 4, hasPassword: true },
+      { id: 'legacy-a', gameId: undefined, name: 'Legacy Room', host: 'Host', players: 1, maxPlayers: 4, hasPassword: true, systemId: undefined, latencyMs: undefined },
     ]);
   });
   it('returns empty when first 200 endpoint returns invalid/empty payload', async () => {
