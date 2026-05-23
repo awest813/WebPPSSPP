@@ -3438,6 +3438,15 @@ export class PSPEmulator {
           performance.mark(LEGACY_PERF_MARKS.coreReady);
           performance.measure(LEGACY_PERF_MARKS.launchToReady, LEGACY_PERF_MARKS.launch, LEGACY_PERF_MARKS.coreReady);
         } catch { /* marks may be unavailable in some sandboxed contexts */ }
+
+        if (opts.systemId === "psp") {
+          window.setTimeout(() => {
+            if (this._state === "loading" && window.EJS_emulator) {
+              this.logDiagnostic("system", "PSP core ready; continuing after missing game-start callback");
+              window.EJS_onGameStart?.();
+            }
+          }, 2_500);
+        }
       };
 
       window.EJS_onGameStart = () => {

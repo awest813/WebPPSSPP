@@ -351,6 +351,7 @@ export function buildDOM(app: HTMLElement): void {
           <input type="file"
                  id="file-input"
                  accept="${acceptList}"
+                 multiple
                  aria-label="Select game ROM file" />
           <div class="drop-zone__icon" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
@@ -604,6 +605,80 @@ export interface UIOptions {
 
 export const RESTART_REQUIRED_EVENT = LEGACY_EVENTS.restartRequired;
 
+function filesToArray(files: FileList | DataTransferItemList | readonly File[] | null | undefined): File[] {
+  if (!files) return [];
+  const out: File[] = [];
+  const length = "length" in files ? files.length : 0;
+  for (let i = 0; i < length; i++) {
+    const item = files[i];
+    if (!item) continue;
+    if (item instanceof File) {
+      out.push(item);
+      continue;
+    }
+    const file = item.kind === "file" ? item.getAsFile() : null;
+    if (file) out.push(file);
+  }
+  return out;
+}
+
+function fileBaseName(fileName: string): string {
+  return fileName.split(/[/\\]/).pop()?.toLowerCase() ?? fileName.toLowerCase();
+}
+
+async function parseCueReferencedFileNames(cueFile: File): Promise<string[]> {
+  let text = "";
+  try {
+    text = await cueFile.text();
+  } catch {
+    return [];
+  }
+
+  const refs: string[] = [];
+  const quoted = /^\s*FILE\s+"([^"]+)"/gim;
+  const bare = /^\s*FILE\s+([^\r\n]+?)\s+(?:BINARY|MOTOROLA|AIFF|WAVE|MP3)\s*$/gim;
+
+  for (const match of text.matchAll(quoted)) {
+    const value = match[1]?.trim();
+    if (value) refs.push(fileBaseName(value));
+  }
+  for (const match of text.matchAll(bare)) {
+    const value = match[1]?.trim();
+    if (value) refs.push(fileBaseName(value));
+  }
+
+  return [...new Set(refs)];
+}
+
+export async function selectImportFileFromSelection(
+  files: FileList | DataTransferItemList | readonly File[] | null | undefined,
+): Promise<File | null> {
+  const selected = filesToArray(files);
+  if (selected.length === 0) return null;
+
+  const cueFiles = selected.filter(file => file.name.toLowerCase().endsWith(".cue"));
+  if (cueFiles.length > 0) {
+    for (const cueFile of cueFiles) {
+      const referencedNames = await parseCueReferencedFileNames(cueFile);
+      const referencedPayload = selected.find(file =>
+        referencedNames.includes(fileBaseName(file.name)) &&
+        !file.name.toLowerCase().endsWith(".cue")
+      );
+      if (referencedPayload) return referencedPayload;
+    }
+
+    if (selected.length === 1) {
+      showError(
+        "This PS1 .cue file points to a separate disc image.\n\n" +
+        "Choose or drop the matching .bin file instead, or select/drop both the .cue and .bin together."
+      );
+      return null;
+    }
+  }
+
+  return selected[0] ?? null;
+}
+
 export function initUI(opts: UIOptions): void {
   // Re-initialisation safety: remove previously registered listeners so
   // repeated initUI() calls (tests/hot-reload) don't accumulate handlers.
@@ -796,7 +871,7 @@ export function initUI(opts: UIOptions): void {
   };
 
   const onFileInputChange = async () => {
-    const file = fileInput.files?.[0];
+    const file = await selectImportFileFromSelection(fileInput.files);
     if (!file) {
       fileInput.value = "";
       return;
@@ -868,13 +943,15 @@ export function initUI(opts: UIOptions): void {
     const e = event as DragEvent;
     e.preventDefault();
     clearDragOver();
-    const file = e.dataTransfer?.files[0];
-    if (!file) return;
     if (emulator.state === "running") {
       showError("Return to the library first (Esc or ← Library) before loading a new game.");
       return;
     }
-    void onFileChosen(file);
+    void (async () => {
+      const file = await selectImportFileFromSelection(e.dataTransfer?.files);
+      if (!file) return;
+      await onFileChosen(file);
+    })();
   };
   bindEvent(document, "dragover", onDragOver);
   bindEvent(document, "dragenter", onDragEnter);

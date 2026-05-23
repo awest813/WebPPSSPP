@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, showError, hideError, showInfoToast, withRetry, isTransientImportError } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, showError, hideError, showInfoToast, withRetry, isTransientImportError, selectImportFileFromSelection } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import { registerNetplayInstance } from "./netplaySingleton.js";
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
@@ -3909,6 +3909,33 @@ describe("buildLandingControls — Help button is present", () => {
     expect(aboutPanel?.hidden).toBe(false);
     const helpTab = document.getElementById("tab-about");
     expect(helpTab?.getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+describe("selectImportFileFromSelection", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("uses the matching PS1 BIN payload when a CUE and BIN are selected together", async () => {
+    const cue = new File([
+      'FILE "Final Fantasy VII (USA) (Disc 1).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n',
+    ], "Final Fantasy VII (USA) (Disc 1).cue", { type: "text/plain" });
+    const bin = new File([new Uint8Array([1, 2, 3])], "Final Fantasy VII (USA) (Disc 1).bin");
+
+    await expect(selectImportFileFromSelection([cue, bin])).resolves.toBe(bin);
+  });
+
+  it("does not launch a lone CUE file without its referenced disc image", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+    const cue = new File([
+      'FILE "Final Fantasy VII (USA) (Disc 1).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n',
+    ], "Final Fantasy VII (USA) (Disc 1).cue", { type: "text/plain" });
+
+    await expect(selectImportFileFromSelection([cue])).resolves.toBeNull();
+    expect(document.body.textContent).toMatch(/matching \.bin file/i);
   });
 });
 

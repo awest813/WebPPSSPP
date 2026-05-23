@@ -802,6 +802,43 @@ describe('PSPEmulator', () => {
       expect(emulator.state).toBe('running');
     });
 
+    it('continues PSP launch when PPSSPP misses the game-start callback', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({}) as never);
+        (emulator as unknown as { _loadScript: (src: string) => Promise<void> })._loadScript =
+          async () => {
+            await Promise.resolve();
+            window.EJS_emulator = {
+              setVolume: () => {},
+              pause: () => {},
+              resume: () => {},
+              gameManager: {
+                restart: () => {},
+                quickSave: () => true,
+                quickLoad: () => {},
+                supportsStates: () => true,
+              },
+            };
+            window.EJS_ready?.();
+          };
+
+        await emulator.launch({
+          file:            pspFile,
+          volume:          0.7,
+          systemId:        'psp',
+          performanceMode: 'auto',
+          deviceCaps:      pspCaps,
+        });
+
+        expect(emulator.state).toBe('loading');
+        await vi.advanceTimersByTimeAsync(2_500);
+        expect(emulator.state).toBe('running');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it.each(["game.iso", "game.cso", "game.pbp"])(
       'loads PSP %s with PPSSPP nightly paths after PSP is selected',
       async (fileName) => {
