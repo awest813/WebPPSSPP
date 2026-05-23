@@ -1489,7 +1489,7 @@ export async function renderLibrary(
             if (!blob && game.cloudId) {
               setLoadingMessage("Streaming from cloud…");
               setLoadingSubtitle(`Downloading ${game.name} from ${game.cloudId} (Pull & Play)`);
-              blob = await fetchFromCloud(game, settings);
+              blob = await fetchFromCloud(game, settings, library);
             }
             if (!blob) {
               hideLoadingOverlay();
@@ -1513,7 +1513,7 @@ export async function renderLibrary(
             if (!blob && game.cloudId) {
               setLoadingMessage("Streaming from cloud…");
               setLoadingSubtitle(`Downloading ${game.name} from ${game.cloudId} (Pull & Play)`);
-              blob = await fetchFromCloud(game, settings);
+              blob = await fetchFromCloud(game, settings, library);
             }
             if (!blob) {
               hideLoadingOverlay();
@@ -2398,7 +2398,7 @@ function updateStatusDot(state: EmulatorState): void {
 
 const setLoadingProgress = setLoadingProgressImpl;
 
-async function fetchFromCloud(game: GameMetadata, settings: Settings): Promise<Blob> {
+async function fetchFromCloud(game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary): Promise<Blob> {
   const conn = settings.cloudLibraries.find(c => c.id === game.cloudId);
   if (!conn) throw new Error("Cloud connection not found. Reconnect your library in Settings.");
   const provider = createProvider(conn);
@@ -2437,20 +2437,45 @@ async function fetchFromCloud(game: GameMetadata, settings: Settings): Promise<B
   let loaded = 0;
 
   const reader = response.body?.getReader();
-  if (!reader) return await response.blob();
+  if (!reader) {
+    const blob = await response.blob();
+    await cacheCloudGameBlob(game, blob, libraryForCache);
+    return blob;
+  }
 
-  const chunks = [];
+  const chunks: BlobPart[] = [];
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    const chunk = new Uint8Array(value.byteLength);
+    chunk.set(value);
+    chunks.push(chunk);
     loaded += value.length;
     if (total > 0) {
       setLoadingProgress((loaded / total) * 100);
     }
   }
 
-  return new Blob(chunks);
+  const blob = new Blob(chunks);
+  await cacheCloudGameBlob(game, blob, libraryForCache);
+  return blob;
+}
+
+async function cacheCloudGameBlob(
+  game: GameMetadata,
+  blob: Blob,
+  libraryForCache?: GameLibrary,
+): Promise<void> {
+  if (!libraryForCache || !game.cloudId) return;
+  setLoadingSubtitle("Saving a browser copy for faster future launches...");
+  try {
+    await libraryForCache.updateGameFile(game.id, toLaunchFile(blob, game.fileName));
+  } catch (error) {
+    showInfoToast(
+      `Downloaded "${game.name}", but could not keep a browser copy: ${error instanceof Error ? error.message : String(error)}`,
+      "warning",
+    );
+  }
 }
 
 

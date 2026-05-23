@@ -12,7 +12,7 @@ export function buildLibraryHero(opts: {
   onLaunchGame(file: File, systemId: string, gameId?: string): Promise<void>;
   systemIcon(systemId: string): string;
   escapeHtml(value: string): string;
-  fetchFromCloud(game: GameMetadata, settings: Settings): Promise<Blob | null>;
+  fetchFromCloud(game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary): Promise<Blob | null>;
   toLaunchFile(blob: Blob, fileName: string): File;
   showLoadingOverlay(): void;
   setLoadingMessage(message: string): void;
@@ -77,7 +77,7 @@ export function buildLibraryHero(opts: {
       if (!blob && game.cloudId) {
         setLoadingMessage("Streaming from cloud…");
         setLoadingSubtitle(`Downloading ${game.name} from ${game.cloudId} (Pull & Play)`);
-        blob = await fetchFromCloud(game, settings);
+        blob = await fetchFromCloud(game, settings, library);
       }
       if (!blob) {
         hideLoadingOverlay();

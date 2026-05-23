@@ -91,7 +91,7 @@ export async function resolveSystemAndAddImpl(
   emulatorRef:   PSPEmulator | undefined,
   onApplyPatch:  ((gameId: string, patchFile: File) => Promise<void>) | undefined,
   onRenderLibrary: () => void,
-  onFetchFromCloud: (game: GameMetadata, settings: Settings) => Promise<Blob>,
+  onFetchFromCloud: (game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary) => Promise<Blob>,
 ): Promise<void> {
   const ext = fileExt(file.name);
   if (PATCH_EXT_SET.has(ext)) {
@@ -366,7 +366,7 @@ export async function resolveSystemAndAddImpl(
         let blob = existing.blob;
         if (!blob && existing.cloudId) {
           setLoadingSubtitle(`Downloading from ${existing.cloudId}…`);
-          blob = await onFetchFromCloud(existing, settings);
+          blob = await onFetchFromCloud(existing, settings, library);
         }
         if (!blob) {
           hideLoadingOverlay();
@@ -510,7 +510,7 @@ async function handleM3UFile(
   emulatorRef:   PSPEmulator | undefined,
   _onApplyPatch: ((gameId: string, patchFile: File) => Promise<void>) | undefined,
   onRenderLibrary: () => void,
-  _onFetchFromCloud: (game: GameMetadata, settings: Settings) => Promise<Blob>,
+  _onFetchFromCloud: (game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary) => Promise<Blob>,
 ): Promise<void> {
   let m3uText: string;
   try { m3uText = await m3uFile.text(); } catch { showError("Could not read the .m3u file."); return; }

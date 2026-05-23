@@ -839,6 +839,21 @@ export function buildCloudTab(
     id: cloudStorageHeadingId,
   }, "Cloud Storage"));
   section.appendChild(make("p", { class: "settings-section__desc" }, `${APP_NAME} uses cloud storage in two independent ways: cloud save-state backup mirrors RetroOasis snapshots, and cloud library sources add remote games beside your local ROMs.`));
+  const cloudStorageSummary = make("p", {
+    class: "cloud-storage-summary",
+    role: "status",
+    "aria-live": "polite",
+  }, "Checking local library cache...");
+  void library.getAllGamesMetadata().then((games) => {
+    const remoteIndexed = games.filter(game => game.cloudId).length;
+    const browserReady = games.filter(game => game.hasLocalBlob).length;
+    cloudStorageSummary.textContent =
+      `${browserReady} browser-ready game${browserReady === 1 ? "" : "s"} ` +
+      `and ${remoteIndexed} cloud-indexed game${remoteIndexed === 1 ? "" : "s"} ready in your library.`;
+  }).catch(() => {
+    cloudStorageSummary.textContent = "Library storage status could not be read.";
+  });
+  section.appendChild(cloudStorageSummary);
 
   const overview = make("div", { class: "cloud-storage-overview" });
 
@@ -846,14 +861,14 @@ export function buildCloudTab(
   saveCard.innerHTML = `
     <div class="cloud-storage-card__eyebrow">Cloud save states</div>
     <h5 class="cloud-storage-card__title">Mirror progress, keep local ownership</h5>
-    <p class="cloud-storage-card__body">Save states stay in your browser first. When cloud backup is connected, ${APP_NAME} mirrors those snapshots to the provider you chose. In-game save files still remain managed by the core.</p>
+    <p class="cloud-storage-card__body">Snapshots stay in this browser first. When backup is connected, ${APP_NAME} mirrors them quietly to your provider.</p>
   `;
 
   const libraryCard = make("div", { class: "cloud-storage-card" });
   libraryCard.innerHTML = `
     <div class="cloud-storage-card__eyebrow">Cloud library</div>
-    <h5 class="cloud-storage-card__title">Add remote games next to local ROMs</h5>
-    <p class="cloud-storage-card__body">Remote games are indexed as their own entries, so they can sit alongside files stored on this device without replacing them.</p>
+    <h5 class="cloud-storage-card__title">Index remote games, cache after play</h5>
+    <p class="cloud-storage-card__body">Cloud games appear beside local ROMs. After the first download, a browser copy is kept for faster future launches when storage allows.</p>
   `;
 
   overview.append(saveCard, libraryCard);
@@ -879,7 +894,7 @@ export function buildCloudTab(
 
     if (cloudManager.isConnected()) {
       const provLabel = getCloudProviderLabel(cloudManager.providerId);
-      const statusDot = make("span", { class: "cloud-connection-item__status status--online" }, "● Connected");
+      const statusDot = make("span", { class: "cloud-connection-item__status status--online" }, "Connected");
       const provName  = make("span", { class: "cloud-save-status__provider" }, `${provLabel} backup active`);
       const lastSync  = cloudManager.lastSyncAt
         ? make("span", { class: "cloud-save-status__lastsync" }, `Last sync: ${formatRelativeTime(cloudManager.lastSyncAt)}`)
@@ -950,7 +965,7 @@ export function buildCloudTab(
     id: cloudLibrarySourcesHeadingId,
   }, "Cloud Library Sources"));
   librarySection.appendChild(make("p", { class: "settings-help" },
-    "Connect a remote folder below — supported ROM filenames in that folder’s root are indexed beside your local games. Nested subfolders are not scanned yet."));
+    "Connect a remote folder below. Supported ROM files are indexed beside local games; first launch downloads and stores a browser copy when quota allows."));
 
   if (settings.cloudLibraries.length === 0) {
     const empty = make("div", { class: "cloud-connection-empty" });
@@ -961,23 +976,32 @@ export function buildCloudTab(
       const item   = make("div", { class: "cloud-connection-item" });
       const info   = make("div", { class: "cloud-connection-item__info" });
       info.appendChild(make("strong", {}, conn.name));
-      info.appendChild(make("span", {}, getCloudProviderLabel(conn.provider)));
+      const sourceMeta = make("span", {}, `${getCloudProviderLabel(conn.provider)} source`);
+      info.appendChild(sourceMeta);
+      void library.getAllGamesMetadata().then((games) => {
+        const indexedGames = games.filter(game => game.cloudId === conn.id);
+        const cached = indexedGames.filter(game => game.hasLocalBlob).length;
+        sourceMeta.textContent =
+          `${getCloudProviderLabel(conn.provider)} source · ${indexedGames.length} indexed · ${cached} cached`;
+      }).catch(() => {
+        sourceMeta.textContent = `${getCloudProviderLabel(conn.provider)} source`;
+      });
 
-      const statusDot = make("span", { class: "cloud-connection-item__status" }, "● Checking…");
+      const statusDot = make("span", { class: "cloud-connection-item__status" }, "Checking...");
       info.appendChild(statusDot);
 
       // Async availability check — update badge once resolved
       const provider = createProvider(conn);
       if (provider) {
         provider.isAvailable().then(ok => {
-          statusDot.textContent = ok ? "● Ready" : "● Unavailable";
+          statusDot.textContent = ok ? "Ready" : "Unavailable";
           statusDot.className   = `cloud-connection-item__status ${ok ? "status--online" : "status--offline"}`;
         }).catch(() => {
-          statusDot.textContent = "● Unavailable";
+          statusDot.textContent = "Unavailable";
           statusDot.className   = "cloud-connection-item__status status--offline";
         });
       } else {
-        statusDot.textContent = "● Config error";
+        statusDot.textContent = "Config error";
         statusDot.className   = "cloud-connection-item__status status--offline";
       }
 
@@ -987,7 +1011,7 @@ export function buildCloudTab(
         class: "btn btn--sm",
         type: "button",
         "aria-label": `Sync remote games from ${conn.name}`,
-      }, "↻ Sync");
+      }, "Sync");
       syncBtn.addEventListener("click", () => { void syncCloudLibrary(conn, library, syncBtn); });
       if (netOffline) {
         syncBtn.disabled = true;
@@ -1015,7 +1039,7 @@ export function buildCloudTab(
     class: "btn btn--primary cloud-connection-add",
     type: "button",
     "aria-label": "Add a new cloud library source",
-  }, "+ Connect New Source");
+  }, "Connect New Source");
   addBtn.addEventListener("click", () => {
     void showAddCloudLibraryDialog(settings, onSettingsChange, rebuildTab);
   });

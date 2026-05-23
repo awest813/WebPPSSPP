@@ -66,7 +66,7 @@ export function buildGameCard(
   opts: {
     onLaunchGame:      (file: File, systemId: string, gameId?: string) => Promise<void>;
     onRenderLibrary:   () => void;
-    onFetchFromCloud:  (game: GameMetadata, settings: Settings) => Promise<Blob>;
+    onFetchFromCloud:  (game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary) => Promise<Blob>;
     onOpenApiKeySettings?: () => void;
     emulatorRef?:      PSPEmulator;
     onApplyPatch?:     (gameId: string, patchFile: File) => Promise<void>;
@@ -488,7 +488,7 @@ export function buildGameCard(
       if (!blob && game.cloudId) {
         setLoadingMessage("Streaming from cloud\u2026");
         setLoadingSubtitle(`Downloading ${game.name} from ${game.cloudId} (Pull & Play)`);
-        blob = await onFetchFromCloud(game, settings);
+        blob = await onFetchFromCloud(game, settings, library);
       }
       if (!blob) {
         hideLoadingOverlay();

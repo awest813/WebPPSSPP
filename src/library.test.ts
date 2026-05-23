@@ -594,6 +594,18 @@ describe('GameLibrary.setCoverArt / getCoverArt', () => {
     expect(meta!.hasCoverArt).toBe(false);
   });
 
+  it('hasLocalBlob is true for browser-stored games and false for uncached cloud games', async () => {
+    const local = await library.addGame(new File(['rom'], 'local.gba', { type: 'application/octet-stream' }), 'gba');
+    const cloud = await library.addVirtualGame(
+      'Cloud Game', 'cloud.gba', 'gba', 3,
+      'cloud-source', '/roms/cloud.gba',
+    );
+
+    const metas = await library.getAllGamesMetadata();
+    expect(metas.find(g => g.id === local.id)?.hasLocalBlob).toBe(true);
+    expect(metas.find(g => g.id === cloud.id)?.hasLocalBlob).toBe(false);
+  });
+
   it('getCoverArt returns null for an unknown game id', async () => {
     const blob = await library.getCoverArt('nonexistent-id');
     expect(blob).toBeNull();
@@ -644,5 +656,49 @@ describe('GameLibrary.setThumbnailUrl', () => {
     await expect(
       library.setThumbnailUrl('nonexistent-id', 'https://example.com/x.jpg')
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('GameLibrary.upsertVirtualGame', () => {
+  let library: GameLibrary;
+
+  beforeEach(async () => {
+    library = new GameLibrary();
+    await library.clearAll();
+  });
+
+  it('preserves a browser-cached cloud game blob when remote metadata is unchanged', async () => {
+    const entry = await library.addVirtualGame(
+      'Cloud Game', 'cloud-game.gba', 'gba', 9,
+      'cloud-source', '/roms/cloud-game.gba',
+    );
+    await library.updateGameFile(entry.id, new File(['cloud-rom'], 'cloud-game.gba'));
+
+    const refreshed = await library.upsertVirtualGame(
+      'Cloud Game', 'cloud-game.gba', 'gba', 9,
+      'cloud-source', '/roms/cloud-game.gba',
+    );
+
+    expect(refreshed.id).toBe(entry.id);
+    expect(refreshed.cloudId).toBe('cloud-source');
+    expect(refreshed.remotePath).toBe('/roms/cloud-game.gba');
+    const blob = await library.getGameBlob(entry.id);
+    expect(await blob?.text()).toBe('cloud-rom');
+  });
+
+  it('drops a stale browser-cached cloud game blob when remote size changes', async () => {
+    const entry = await library.addVirtualGame(
+      'Cloud Game', 'cloud-game.gba', 'gba', 9,
+      'cloud-source', '/roms/cloud-game.gba',
+    );
+    await library.updateGameFile(entry.id, new File(['cloud-rom'], 'cloud-game.gba'));
+
+    await library.upsertVirtualGame(
+      'Cloud Game', 'cloud-game.gba', 'gba', 12,
+      'cloud-source', '/roms/cloud-game.gba',
+    );
+
+    const blob = await library.getGameBlob(entry.id);
+    expect(blob).toBeNull();
   });
 });

@@ -66,7 +66,10 @@ export interface GameEntry {
  * potentially large Blob objects when rendering the library grid, which
  * is a meaningful win on low-memory devices (Chromebooks, budget phones).
  */
-export type GameMetadata = Omit<GameEntry, "blob" | "coverArtBlob">;
+export type GameMetadata = Omit<GameEntry, "blob" | "coverArtBlob"> & {
+  /** True when a ROM payload is stored locally and can launch without a cloud download. */
+  hasLocalBlob?: boolean;
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -313,6 +316,9 @@ export class GameLibrary {
   ): Promise<GameEntry> {
     const db = await openDB();
     const existing = await this.findVirtualGame(cloudId, remotePath);
+    const existingBlob = existing?.blob && existing.size === size && existing.fileName === fileName
+      ? existing.blob
+      : null;
     const entry: GameEntry = {
       id: existing?.id ?? createUuid(),
       name,
@@ -321,13 +327,18 @@ export class GameLibrary {
       size,
       addedAt: existing?.addedAt ?? Date.now(),
       lastPlayedAt: existing?.lastPlayedAt ?? null,
-      blob: null,
+      blob: existingBlob,
       cloudId,
       remotePath,
       thumbnailUrl,
       isFavorite: existing?.isFavorite ?? false,
     };
     await promisify(tx(db, "readwrite").put(entry));
+    if (existingBlob) {
+      setCachedBlob(entry.id, existingBlob);
+    } else {
+      _blobCache.delete(entry.id);
+    }
     invalidateMetadataCache();
     return entry;
   }
@@ -514,7 +525,9 @@ export class GameLibrary {
             const cursor = req.result;
             if (cursor) {
               const entry = cursor.value as GameEntry;
-              const { blob: _blob, coverArtBlob: _art, ...meta } = entry;
+              const { blob: _blob, coverArtBlob: _art, ...entryMetadata } = entry;
+              const meta: GameMetadata = entryMetadata;
+              meta.hasLocalBlob = entry.blob != null;
               meta.hasCoverArt = entry.coverArtBlob != null;
               results.push(meta);
               cursor.continue();
