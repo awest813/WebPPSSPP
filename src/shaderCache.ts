@@ -39,8 +39,6 @@ const GAME_WARMUP_STORE = "gameWarmupPrograms";
  * persisted under the game's ID for targeted pre-compilation on next launch.
  */
 export const GAME_WARMUP_WINDOW_MS = 60_000;
-export const DEFAULT_MAX_PROGRAMS     = 64;
-export const DEFAULT_MAX_WGSL_MODULES = 32;
 
 /**
  * Maximum cached GLSL programs, scaled by device tier.

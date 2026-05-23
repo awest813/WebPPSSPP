@@ -108,8 +108,6 @@ export const MSG = {
   unknownError:         "Something went wrong — please try again.",
 } as const;
 
-export type MsgKey = keyof typeof MSG;
-
 // ── Error code → plain-English mapping ───────────────────────────────────────
 
 const _CODE_MAP: Record<string, string> = {

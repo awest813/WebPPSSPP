@@ -96,15 +96,6 @@ import { getSystemById } from "./systems.js";
 const APP_NAME = "RetroOasis";
 registerCOIServiceWorker();
 
-export interface CloudLibraryConnection {
-  id: string;
-  provider: "gdrive" | "dropbox" | "onedrive" | "pcloud" | "webdav" | "blomp" | "box";
-  name: string;
-  enabled: boolean;
-  /** JSON-stringified provider-specific settings (tokens, URLs, etc.) */
-  config: string;
-}
-
 // ── Settings schema ───────────────────────────────────────────────────────────
 // Settings interface is defined in src/types/settings.ts and re-exported above.
 
