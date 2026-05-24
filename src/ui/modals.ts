@@ -249,8 +249,8 @@ export function showGamePickerDialog(
 
 export function showArchiveEntryPickerDialog(
   format: ArchiveFormat,
-  candidates: Array<{ name: string; blob: Blob; size: number }>,
-): Promise<{ name: string; blob: Blob; size: number } | null> {
+  candidates: { name: string; size: number; blob?: Blob }[],
+): Promise<{ name: string; size: number; blob?: Blob } | null> {
   return new Promise((resolve) => {
     const ac = new AbortController();
     const overlay = createElement("div", { class: "confirm-overlay" });
@@ -287,7 +287,7 @@ export function showArchiveEntryPickerDialog(
     footer.appendChild(btnCancel);
     box.appendChild(footer);
 
-    const close = (picked: { name: string; blob: Blob; size: number } | null) => {
+    const close = (picked: { name: string; size: number; blob?: Blob } | null) => {
       ac.abort();
       overlay.classList.remove("confirm-overlay--visible");
       setTimeout(() => overlay.remove(), 180);
