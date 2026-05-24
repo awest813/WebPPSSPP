@@ -899,6 +899,110 @@ describe("resolveSystemAndAdd mobile/import fallbacks", () => {
     await flushUI(1);
     expect(library.updateGameFile).toHaveBeenCalledWith("large-game", file);
   });
+
+  it("routes a ZIP containing a Game Gear ROM to the Game Gear profile", async () => {
+    const extractedBlob = new Blob([new Uint8Array([0xaa, 0xbb])]);
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("zip");
+    vi.spyOn(archive, "extractFromArchive").mockResolvedValue({
+      format: "zip",
+      name: "X-Men (USA).gg",
+      blob: extractedBlob,
+      candidates: [{ name: "X-Men (USA).gg", blob: extractedBlob, size: extractedBlob.size }],
+    });
+
+    const settings = makeSettings();
+    const onLaunchGame = vi.fn(async () => {});
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "gg-game",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+        blob: incoming,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    await resolveSystemAndAdd(new File([new Uint8Array([0x50])], "X-Men.zip"), library, settings, onLaunchGame);
+
+    expect(library.addGame).toHaveBeenCalledWith(expect.objectContaining({ name: "X-Men (USA).gg" }), "segaGG");
+    expect(onLaunchGame).toHaveBeenCalledWith(expect.objectContaining({ name: "X-Men (USA).gg" }), "segaGG", "gg-game");
+  });
+
+  it("routes a ZIP containing a 32X ROM to the 32X profile", async () => {
+    const extractedBlob = new Blob([new Uint8Array([0x20, 0x20, 0x53, 0x45])]);
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("zip");
+    vi.spyOn(archive, "extractFromArchive").mockResolvedValue({
+      format: "zip",
+      name: "Space Harrier (USA).32x",
+      blob: extractedBlob,
+      candidates: [{ name: "Space Harrier (USA).32x", blob: extractedBlob, size: extractedBlob.size }],
+    });
+
+    const settings = makeSettings();
+    const onLaunchGame = vi.fn(async () => {});
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "32x-game",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+        blob: incoming,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    await resolveSystemAndAdd(new File([new Uint8Array([0x50])], "Space Harrier.zip"), library, settings, onLaunchGame);
+
+    expect(library.addGame).toHaveBeenCalledWith(expect.objectContaining({ name: "Space Harrier (USA).32x" }), "sega32x");
+    expect(onLaunchGame).toHaveBeenCalledWith(expect.objectContaining({ name: "Space Harrier (USA).32x" }), "sega32x", "32x-game");
+  });
+
+  it("routes a DOS installer ZIP to DOS without prompting for arcade systems", async () => {
+    const installerBlob = new Blob([new Uint8Array([0x40])]);
+    vi.spyOn(archive, "detectArchiveFormat").mockResolvedValue("zip");
+    vi.spyOn(archive, "extractFromArchive").mockResolvedValue({
+      format: "zip",
+      name: "INSTALL.BAT",
+      blob: installerBlob,
+      candidates: [
+        { name: "INSTALL.BAT", blob: installerBlob, size: installerBlob.size },
+        { name: "DEICE.EXE", blob: new Blob([new Uint8Array([0x4d, 0x5a])]), size: 2 },
+      ],
+    });
+
+    const settings = makeSettings();
+    const onLaunchGame = vi.fn(async () => {});
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "dos-game",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+        blob: incoming,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const zip = new File([new Uint8Array([0x50, 0x4b])], "doom19s.zip", { type: "application/zip" });
+    await resolveSystemAndAdd(zip, library, settings, onLaunchGame);
+
+    expect(document.getElementById("system-picker")?.hasAttribute("hidden")).toBe(true);
+    expect(library.addGame).toHaveBeenCalledWith(zip, "dos");
+    expect(onLaunchGame).toHaveBeenCalledWith(zip, "dos", "dos-game");
+  });
 });
 
 describe("game card NEW badge", () => {
@@ -3941,6 +4045,46 @@ describe("selectImportFileFromSelection", () => {
     await expect(selectImportFileFromSelection([cue])).resolves.toBeNull();
     expect(document.body.textContent).toMatch(/matching binary track file/i);
   });
+
+  it("packages dropped DOS folders into a ZIP for DOSBox Pure", async () => {
+    const makeFileEntry = (file: File) => ({
+      name: file.name,
+      isFile: true,
+      isDirectory: false,
+      file: (success: (value: File) => void) => success(file),
+    });
+    const makeDirectoryEntry = (name: string, children: unknown[]) => ({
+      name,
+      isFile: false,
+      isDirectory: true,
+      createReader: () => {
+        let read = false;
+        return {
+          readEntries: (success: (value: unknown[]) => void) => {
+            success(read ? [] : children);
+            read = true;
+          },
+        };
+      },
+    });
+
+    const install = new File(["@echo off\r\nDEICE.EXE\r\n"], "INSTALL.BAT");
+    const payload = new File([new Uint8Array([1, 2, 3])], "DOOMS_19.1");
+    const directory = makeDirectoryEntry("doom19s", [makeFileEntry(install), makeFileEntry(payload)]);
+    const item = {
+      kind: "file",
+      getAsFile: () => null,
+      webkitGetAsEntry: () => directory,
+    };
+    const items = { 0: item, length: 1 } as unknown as DataTransferItemList;
+
+    const selected = await selectImportFileFromSelection(items);
+
+    expect(selected).not.toBeNull();
+    expect(selected!.name).toBe("doom19s.zip");
+    expect(selected!.type).toBe("application/zip");
+    expect(selected!.size).toBeGreaterThan(install.size + payload.size);
+  });
 });
 
 describe("system picker subtitle for unknown extension", () => {
@@ -4128,6 +4272,77 @@ describe("PSP disc imports", () => {
 
     document.getElementById("system-picker-close")?.click();
     await importPromise;
+  });
+});
+
+describe("multi-disc playlist imports", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+  });
+
+  it("passes the stored playlist game id into launch so quick saves have context", async () => {
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:disc1"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    const discBlob = new Blob([new Uint8Array([1, 2, 3])]);
+    const library = {
+      findByFileName: vi.fn(async (fileName: string) => {
+        if (fileName === "disc1.cue") {
+          return { id: "disc-1", name: "disc1", fileName, systemId: "psx", blob: discBlob };
+        }
+        return null;
+      }),
+      addGame: vi.fn(async (incoming: File, systemId: string) => ({
+        id: "playlist-game",
+        name: incoming.name.replace(/\.[^.]+$/, ""),
+        fileName: incoming.name,
+        systemId,
+        size: incoming.size,
+        addedAt: Date.now(),
+        lastPlayedAt: null,
+      })),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+    const onLaunchGame = vi.fn(async () => {});
+
+    try {
+      const importPromise = resolveSystemAndAdd(
+        new File(["disc1.cue\n"], "collection.m3u", { type: "text/plain" }),
+        library,
+        makeSettings(),
+        onLaunchGame,
+      );
+      await flushUI();
+
+      const psxButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".system-pick-btn"))
+        .find((button) => button.textContent?.includes("PlayStation 1"));
+      expect(psxButton).toBeTruthy();
+      psxButton!.click();
+      await importPromise;
+
+      expect(library.addGame).toHaveBeenCalledWith(expect.objectContaining({ name: "collection.m3u" }), "psx");
+      expect(onLaunchGame).toHaveBeenCalledWith(expect.objectContaining({ name: "collection.m3u" }), "psx", "playlist-game");
+    } finally {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: originalCreateObjectURL,
+      });
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        value: originalRevokeObjectURL,
+      });
+    }
   });
 });
 

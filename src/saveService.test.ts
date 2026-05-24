@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { SaveGameService } from "./saveService.js";
+import { SaveGameService, stateCaptureRetriesForSystem } from "./saveService.js";
 import type { SaveStateLibrary, SaveStateEntry } from "./saves.js";
+import { SYSTEMS } from "./systems.js";
 
 function makeEntry(slot: number): SaveStateEntry {
   return {
@@ -20,6 +21,18 @@ function makeEntry(slot: number): SaveStateEntry {
 }
 
 describe("SaveGameService", () => {
+  it("has a save-state capture retry policy for every supported system", () => {
+    for (const system of SYSTEMS) {
+      expect(stateCaptureRetriesForSystem(system.id, 2), system.id).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it("uses longer save-state capture windows for heavier console cores", () => {
+    for (const systemId of ["psp", "nds", "3ds", "n64", "psx", "segaCD", "segaSaturn", "segaDC"]) {
+      expect(stateCaptureRetriesForSystem(systemId, 2), systemId).toBeGreaterThanOrEqual(18);
+    }
+  });
+
   it("queues duplicate saves for same slot", async () => {
     const saveState = vi.fn<(entry: SaveStateEntry) => Promise<void>>().mockResolvedValue(undefined);
     const getState = vi.fn().mockImplementation(async (_gameId: string, slot: number) => makeEntry(slot));
@@ -78,6 +91,75 @@ describe("SaveGameService", () => {
 
     expect(events).toContain("emulator-not-ready");
     vi.useRealTimers();
+  });
+
+  it("waits for running cores to report save-state support before saving", async () => {
+    vi.useFakeTimers();
+    const saveState = vi.fn<(entry: SaveStateEntry) => Promise<void>>().mockResolvedValue(undefined);
+    const saveLibrary = {
+      saveState,
+      getState: vi.fn(async (_gameId: string, slot: number) => makeEntry(slot)),
+    } as unknown as SaveStateLibrary;
+    const emulator = {
+      state: "running" as const,
+      quickSave: vi.fn(() => true),
+      quickLoad: vi.fn(),
+      supportsStates: vi
+        .fn()
+        .mockReturnValueOnce(false)
+        .mockReturnValueOnce(false)
+        .mockReturnValue(true),
+      readStateData: vi.fn(() => new Uint8Array([1, 2, 3])),
+      writeStateData: vi.fn(() => true),
+      captureScreenshotAsync: vi.fn(async () => null),
+    };
+
+    const service = new SaveGameService({
+      saveLibrary,
+      emulator,
+      getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "n64" }),
+      readinessRetries: 5,
+      readinessRetryDelayMs: 100,
+    });
+
+    const promise = service.saveSlot(1);
+    await vi.advanceTimersByTimeAsync(250);
+    const result = await promise;
+
+    expect(result).not.toBeNull();
+    expect(emulator.quickSave).toHaveBeenCalledWith(1);
+    expect(saveState).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("does not try to read state bytes when the core rejects quick save", async () => {
+    const events: string[] = [];
+    const saveLibrary = {
+      saveState: vi.fn(),
+      getState: vi.fn(async () => null),
+    } as unknown as SaveStateLibrary;
+    const emulator = {
+      state: "running" as const,
+      quickSave: vi.fn(() => false),
+      quickLoad: vi.fn(),
+      supportsStates: vi.fn(() => true),
+      readStateData: vi.fn(() => null),
+      writeStateData: vi.fn(() => true),
+      captureScreenshotAsync: vi.fn(async () => null),
+    };
+
+    const service = new SaveGameService({
+      saveLibrary,
+      emulator,
+      getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "n64" }),
+    });
+    service.onStatus((e) => events.push(e.status));
+
+    const result = await service.saveSlot(1);
+
+    expect(result).toBeNull();
+    expect(emulator.readStateData).not.toHaveBeenCalled();
+    expect(events).toContain("emulator-not-ready");
   });
 
   it("loads valid local states through emulator write + quickLoad", async () => {
@@ -240,6 +322,43 @@ describe("SaveGameService", () => {
     expect(result).not.toBeNull();
     expect(emulator.readStateData).toHaveBeenCalledTimes(2);
     expect(saveState).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives N64 cores extra time to flush quick-save state bytes", async () => {
+    vi.useFakeTimers();
+    const saveState = vi.fn<(entry: SaveStateEntry) => Promise<void>>().mockResolvedValue(undefined);
+    const saveLibrary = {
+      saveState,
+      getState: vi.fn(async (_gameId: string, slot: number) => makeEntry(slot)),
+    } as unknown as SaveStateLibrary;
+    const emulator = {
+      state: "running" as const,
+      quickSave: vi.fn(() => true),
+      quickLoad: vi.fn(),
+      readStateData: vi.fn(() => null as Uint8Array | null),
+      writeStateData: vi.fn(() => true),
+      captureScreenshotAsync: vi.fn(async () => null),
+    };
+    emulator.readStateData.mockImplementation(() => (
+      emulator.readStateData.mock.calls.length >= 8 ? new Uint8Array([9, 6, 4]) : null
+    ));
+
+    const service = new SaveGameService({
+      saveLibrary,
+      emulator,
+      getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "n64" }),
+      readinessRetries: 2,
+      readinessRetryDelayMs: 100,
+    });
+
+    const promise = service.saveSlot(1);
+    await vi.advanceTimersByTimeAsync(800);
+    const result = await promise;
+
+    expect(result).not.toBeNull();
+    expect(emulator.readStateData.mock.calls.length).toBeGreaterThan(2);
+    expect(saveState).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it("emits an integrity warning but still loads a valid slot", async () => {

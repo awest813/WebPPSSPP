@@ -1207,6 +1207,35 @@ const GENESIS_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
 
 const GENESIS_WIDE_TIER_SETTINGS = overrideRetroarchCore(GENESIS_TIER_SETTINGS, "genesis_plus_gx_wide");
 
+const SEGA_CD_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  low: {
+    ...GENESIS_TIER_SETTINGS.low,
+    genesis_plus_gx_cartridge_slot: "mcd",
+    genesis_plus_gx_cdda_volume: "80",
+    genesis_plus_gx_pcm_volume: "80",
+  },
+  medium: {
+    ...GENESIS_TIER_SETTINGS.medium,
+    genesis_plus_gx_cartridge_slot: "mcd",
+    genesis_plus_gx_cdda_volume: "90",
+    genesis_plus_gx_pcm_volume: "90",
+  },
+  high: {
+    ...GENESIS_TIER_SETTINGS.high,
+    genesis_plus_gx_cartridge_slot: "mcd",
+    genesis_plus_gx_cdda_volume: "100",
+    genesis_plus_gx_pcm_volume: "100",
+  },
+  ultra: {
+    ...GENESIS_TIER_SETTINGS.ultra,
+    genesis_plus_gx_cartridge_slot: "mcd",
+    genesis_plus_gx_cdda_volume: "100",
+    genesis_plus_gx_pcm_volume: "100",
+  },
+};
+
+const SEGA_32X_TIER_SETTINGS = fixedCoreTierSettings("picodrive");
+
 const INTELLIVISION_TIER_SETTINGS = fixedCoreTierSettings("freeintv");
 
 const N3DS_TIER_SETTINGS = fixedCoreTierSettings("azahar");
@@ -1505,6 +1534,33 @@ export const SYSTEMS: SystemInfo[] = [
     tierSettings: GENESIS_WIDE_TIER_SETTINGS,
   },
   {
+    id: "segaCD",
+    name: "Sega CD / Mega-CD",
+    shortName: "Sega CD",
+    extensions: ["cue", "chd", "iso", "bin", "m3u"],
+    color: "#0f4fa8",
+    needsThreads: false,
+    needsWebGL2: false,
+    needsBios: true,
+    hasAchievements: true,
+    qualitySettings: SEGA_CD_TIER_SETTINGS.high,
+    perfSettings: SEGA_CD_TIER_SETTINGS.low,
+    tierSettings: SEGA_CD_TIER_SETTINGS,
+  },
+  {
+    id: "sega32x",
+    name: "Sega 32X",
+    shortName: "32X",
+    extensions: ["32x", "68k"],
+    color: "#31343a",
+    needsThreads: false,
+    needsWebGL2: false,
+    hasAchievements: true,
+    qualitySettings: SEGA_32X_TIER_SETTINGS.high,
+    perfSettings: SEGA_32X_TIER_SETTINGS.low,
+    tierSettings: SEGA_32X_TIER_SETTINGS,
+  },
+  {
     id: "segaGG",
     name: "Game Gear",
     shortName: "GG",
@@ -1685,6 +1741,7 @@ const WEBRETRO_CORE_TO_SYSTEM_ID: Record<string, string> = {
   freeintv: "intv",
   gambatte: "gbc",
   genesis_plus_gx: "segaMD",
+  picodrive: "sega32x",
   handy: "lynx",
   mame2003_plus: "mame2003",
   mednafen_ngp: "ngp",

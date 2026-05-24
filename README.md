@@ -45,7 +45,7 @@ RetroOasis currently defines profiles for:
 - Nintendo 3DS, experimental
 - NES, SNES, and SNES bsnes
 - Game Boy, Game Boy Color, and Game Boy Advance
-- Sega Genesis / Mega Drive, Genesis Wide, Game Gear, and Master System
+- Sega Genesis / Mega Drive, Genesis Wide, Sega CD / Mega-CD, Sega 32X, Game Gear, and Master System
 - Sega Saturn
 - Dreamcast, experimental Flycast
 - MS-DOS via DOSBox Pure
@@ -66,6 +66,7 @@ Use the on-screen drop zone, mobile add button, PWA file handling, or OS share t
 - Preserve native package archives when extraction would be wrong
 - Apply IPS, BPS, and UPS patches
 - Handle `.m3u` playlists for multi-disc games
+- Support Sega CD disc images (`.cue`, `.chd`, `.iso`, `.m3u`) and Sega 32X ROMs (`.32x`, `.68k`)
 - Route webretro-style links such as `?core=parallel_n64` as import hints
 
 For privacy and legal clarity, RetroOasis does not provide ROM downloads.

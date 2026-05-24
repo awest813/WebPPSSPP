@@ -36,7 +36,8 @@ export interface SaveRuntimeAdapter {
   readStateData(slot: number): Uint8Array | null;
   writeStateData(slot: number, data: Uint8Array): boolean;
   quickLoad(slot: number): void;
-  quickSave(slot: number): void;
+  quickSave(slot: number): boolean | void;
+  supportsStates?(): boolean;
   captureScreenshotAsync?(): Promise<Blob | null>;
   playerId?: string;
 }
@@ -45,6 +46,29 @@ interface SaveGameContext {
   gameId: string;
   gameName: string;
   systemId: string;
+}
+
+const DEFAULT_STATE_CAPTURE_RETRIES = 8;
+const SLOW_STATE_CAPTURE_RETRIES = 18;
+const SLOW_STATE_CAPTURE_SYSTEMS = new Set([
+  "psp",
+  "nds",
+  "3ds",
+  "n64",
+  "psx",
+  "segaCD",
+  "dos",
+  "arcade",
+  "mame2003",
+  "segaSaturn",
+  "segaDC",
+]);
+
+export function stateCaptureRetriesForSystem(systemId: string, configuredRetries: number): number {
+  const baseline = Math.max(configuredRetries, DEFAULT_STATE_CAPTURE_RETRIES);
+  return SLOW_STATE_CAPTURE_SYSTEMS.has(systemId)
+    ? Math.max(baseline, SLOW_STATE_CAPTURE_RETRIES)
+    : baseline;
 }
 
 export interface SaveGameServiceOptions {
@@ -95,7 +119,9 @@ export class SaveGameService {
   private async waitForEmulatorReady(context: SaveGameContext, slot: number): Promise<boolean> {
     for (let attempt = 0; attempt <= this.readinessRetries; attempt++) {
       const state = this.emulator.state;
-      if (state === "running" || state === "paused") return true;
+      const running = state === "running" || state === "paused";
+      const statesReady = this.emulator.supportsStates?.() !== false;
+      if (running && statesReady) return true;
       if (attempt < this.readinessRetries) {
         await new Promise((resolve) => setTimeout(resolve, this.readinessRetryDelayMs));
       }
@@ -109,11 +135,12 @@ export class SaveGameService {
     return false;
   }
 
-  private async readStateDataAfterQuickSave(slot: number): Promise<Uint8Array | null> {
-    for (let attempt = 0; attempt <= this.readinessRetries; attempt++) {
+  private async readStateDataAfterQuickSave(slot: number, context: SaveGameContext): Promise<Uint8Array | null> {
+    const retries = stateCaptureRetriesForSystem(context.systemId, this.readinessRetries);
+    for (let attempt = 0; attempt <= retries; attempt++) {
       const stateBytes = this.emulator.readStateData(slot);
       if (stateBytes && stateBytes.byteLength > 0) return stateBytes;
-      if (attempt < this.readinessRetries) {
+      if (attempt < retries) {
         await new Promise((resolve) => setTimeout(resolve, this.readinessRetryDelayMs));
       }
     }
@@ -146,12 +173,21 @@ export class SaveGameService {
         if (!ready) return null;
 
         try {
-          this.emulator.quickSave(slot);
+          const accepted = this.emulator.quickSave(slot);
+          if (accepted === false) {
+            this.emit({
+              status: "emulator-not-ready",
+              gameId: context.gameId,
+              slot,
+              message: "Save states are not ready for this core yet. Try again in a moment.",
+            });
+            return null;
+          }
         } catch {
           this.emit({ status: "idle", gameId: context.gameId, slot });
           return null;
         }
-        const stateBytes = await this.readStateDataAfterQuickSave(slot);
+        const stateBytes = await this.readStateDataAfterQuickSave(slot, context);
         if (!stateBytes || stateBytes.byteLength === 0) {
           this.emit({
             status: "idle",

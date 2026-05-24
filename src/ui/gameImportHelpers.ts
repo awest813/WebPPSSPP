@@ -45,7 +45,7 @@ const NATIVE_PACKAGE_ARCHIVE_SUFFIX_RE = /\.(zip|7z)$/i;
 const ARCADE_SET_ARCHIVE_SUFFIX_RE = /\.(zip|7z)$/i;
 const ARCADE_SET_STEM_RE = /^[a-z0-9][a-z0-9_+.-]{1,15}$/i;
 export const DESCRIPTIVE_DISC_ARCHIVE_RE =
-  /\b(disc|disk|track|usa|europe|japan|rev|playstation|psx|ps1)\b/i;
+  /\b(disc|disk|track|usa|europe|japan|rev|playstation|psx|ps1|sega[\s_-]*cd|mega[\s_-]*cd)\b/i;
 
 export function fileExt(fileName: string): string {
   const dotIdx = fileName.lastIndexOf(".");

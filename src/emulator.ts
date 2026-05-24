@@ -573,6 +573,8 @@ const CORE_PREFETCH_MAP: Record<string, string> = {
   snesBsnes:  "cores/bsnes-wasm.data",
   segaMD:     "cores/genesis_plus_gx-wasm.data",
   segaMDWide: "cores/genesis_plus_gx_wide-wasm.data",
+  segaCD:     "cores/genesis_plus_gx-wasm.data",
+  sega32x:    "cores/picodrive-wasm.data",
   segaGG:     "cores/genesis_plus_gx-wasm.data",
   segaMS:     "cores/genesis_plus_gx-wasm.data",
   arcade:     "cores/fbneo-wasm.data",
@@ -3601,10 +3603,10 @@ export class PSPEmulator {
     }
   }
 
-  quickSave(slot = 1): void {
+  quickSave(slot = 1): boolean {
     const emu = window.EJS_emulator;
-    if (!emu?.gameManager?.supportsStates?.()) return;
-    emu.gameManager?.quickSave(slot);
+    if (!emu?.gameManager?.supportsStates?.()) return false;
+    return emu.gameManager?.quickSave(slot) ?? false;
   }
 
   quickLoad(slot = 1): void {

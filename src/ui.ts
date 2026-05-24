@@ -74,6 +74,7 @@ import {
 import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 import { createProvider } from "./cloudLibrary.js";
 import { SaveGameService } from "./saveService.js";
+import { createStoredZip } from "./zip.js";
 import { LEGACY_EVENTS } from "./legacy.js";
 import { queryRequired as el, createElement as make } from "./ui/dom.js";
 import {
@@ -604,6 +605,38 @@ export interface UIOptions {
 
 export const RESTART_REQUIRED_EVENT = LEGACY_EVENTS.restartRequired;
 
+interface FileSystemEntryLike {
+  name: string;
+  isFile: boolean;
+  isDirectory: boolean;
+}
+
+interface FileSystemFileEntryLike extends FileSystemEntryLike {
+  isFile: true;
+  file(success: (file: File) => void, error?: (err: DOMException) => void): void;
+}
+
+interface FileSystemDirectoryEntryLike extends FileSystemEntryLike {
+  isDirectory: true;
+  createReader(): {
+    readEntries(
+      success: (entries: FileSystemEntryLike[]) => void,
+      error?: (err: DOMException) => void,
+    ): void;
+  };
+}
+
+interface DirectoryCapableDataTransferItem {
+  kind: string;
+  getAsFile(): File | null;
+  webkitGetAsEntry?: () => FileSystemEntryLike | null;
+}
+
+interface CollectedFile {
+  file: File;
+  path: string;
+}
+
 function filesToArray(files: FileList | DataTransferItemList | readonly File[] | null | undefined): File[] {
   if (!files) return [];
   const out: File[] = [];
@@ -619,6 +652,74 @@ function filesToArray(files: FileList | DataTransferItemList | readonly File[] |
     if (file) out.push(file);
   }
   return out;
+}
+
+function isDataTransferItemList(
+  files: FileList | DataTransferItemList | readonly File[] | null | undefined,
+): files is DataTransferItemList {
+  if (!files || !("length" in files) || files.length === 0) return false;
+  const first = files[0] as unknown;
+  return !!first && typeof first === "object" && "kind" in first && "getAsFile" in first;
+}
+
+function readFileEntry(entry: FileSystemFileEntryLike, pathPrefix: string): Promise<CollectedFile> {
+  return new Promise((resolve, reject) => {
+    entry.file(
+      (file) => resolve({ file, path: `${pathPrefix}${file.name}` }),
+      (err) => reject(err),
+    );
+  });
+}
+
+async function readDirectoryEntries(entry: FileSystemDirectoryEntryLike): Promise<FileSystemEntryLike[]> {
+  const reader = entry.createReader();
+  const entries: FileSystemEntryLike[] = [];
+  for (;;) {
+    const batch = await new Promise<FileSystemEntryLike[]>((resolve, reject) => {
+      reader.readEntries(resolve, reject);
+    });
+    if (batch.length === 0) break;
+    entries.push(...batch);
+  }
+  return entries;
+}
+
+async function collectEntryFiles(entry: FileSystemEntryLike, pathPrefix = ""): Promise<CollectedFile[]> {
+  if (entry.isFile) {
+    return [await readFileEntry(entry as FileSystemFileEntryLike, pathPrefix)];
+  }
+  if (!entry.isDirectory) return [];
+
+  const dir = entry as FileSystemDirectoryEntryLike;
+  const nextPrefix = `${pathPrefix}${dir.name}/`;
+  const children = await readDirectoryEntries(dir);
+  const nested = await Promise.all(children.map((child) => collectEntryFiles(child, nextPrefix)));
+  return nested.flat();
+}
+
+async function createFolderZipFile(rootName: string, files: CollectedFile[]): Promise<File | null> {
+  if (files.length === 0) return null;
+  const entries = await Promise.all(files.map(async ({ file, path }) => ({
+    path,
+    bytes: new Uint8Array(await file.arrayBuffer()),
+  })));
+  const zipBytes = createStoredZip(entries);
+  const safeRoot = (rootName.trim() || "folder").replace(/[\\/:*?"<>|]+/g, "-");
+  return new File([zipBytes.slice()], `${safeRoot}.zip`, { type: "application/zip" });
+}
+
+async function fileFromDirectoryItems(items: DataTransferItemList): Promise<File | null> {
+  const roots: FileSystemEntryLike[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] as DirectoryCapableDataTransferItem | undefined;
+    if (!item || item.kind !== "file") continue;
+    const entry = item.webkitGetAsEntry?.();
+    if (entry) roots.push(entry);
+  }
+  const directoryRoots = roots.filter((entry) => entry.isDirectory);
+  if (directoryRoots.length === 0) return null;
+  const collected = (await Promise.all(directoryRoots.map((entry) => collectEntryFiles(entry)))).flat();
+  return createFolderZipFile(directoryRoots[0]?.name ?? "folder", collected);
 }
 
 function fileBaseName(fileName: string): string {
@@ -652,6 +753,10 @@ async function parseCueReferencedFileNames(cueFile: File): Promise<string[]> {
 export async function selectImportFileFromSelection(
   files: FileList | DataTransferItemList | readonly File[] | null | undefined,
 ): Promise<File | null> {
+  if (isDataTransferItemList(files)) {
+    const folderZip = await fileFromDirectoryItems(files);
+    if (folderZip) return folderZip;
+  }
   const selected = filesToArray(files);
   if (selected.length === 0) return null;
 
@@ -1161,7 +1266,7 @@ export function initUI(opts: UIOptions): void {
     (e) => {
       if (!_isInGameSession(emulator)) return false;
       switch (e.key) {
-        case "F5": void saveService.saveSlot(1).then((entry) => { if (entry) showInfoToast("Saved to Slot 1"); else showError("Quick save failed � add this game to your library or wait for the core to finish starting."); }); return true;
+        case "F5": void saveService.saveSlot(1).then((entry) => { if (entry) showInfoToast("Saved to Slot 1"); else showError(quickSaveFailureMessage(emulator, getCurrentGameId)); }); return true;
         case "F7": void saveService.loadSlot(1).then((ok) => { if (ok) showInfoToast("Loaded Slot 1"); else showError("Nothing saved in Slot 1 yet, or the emulator is still starting."); }); return true;
         case "F8": void saveService.findNextSlot().then((slot) => { void saveService.saveSlot(slot).then((entry) => { if (entry) showInfoToast(`Saved to Slot ${slot}`); else showError("Save failed � wait for the core to finish starting."); }); }); return true;
         case "F1": void (async () => { const confirmed = await showConfirmDialog("Unsaved progress will be lost.", { title: "Reset Game?", confirmLabel: "Reset", isDanger: true }); if (confirmed) emulator.reset(); })(); return true;
@@ -2209,6 +2314,19 @@ function _isInGameSession(emulator: PSPEmulator): boolean {
   return emulator.state === "running" || emulator.state === "paused";
 }
 
+function quickSaveFailureMessage(
+  emulator: PSPEmulator,
+  getCurrentGameId?: () => string | null,
+): string {
+  if (!_isInGameSession(emulator)) {
+    return "Quick save is not ready yet. Wait for the game to finish starting, then try again.";
+  }
+  if (!getCurrentGameId?.()) {
+    return "Quick save needs a library game context. Return to the library and launch the saved game again.";
+  }
+  return "Quick save could not capture state data yet. Wait a moment, then try again.";
+}
+
 /** Minimal in-game overlay: hamburger button that expands to show controls. */
 function buildInGameControls(
   emulator:           PSPEmulator,
@@ -2217,7 +2335,7 @@ function buildInGameControls(
   onReturnToLibrary:  () => void,
   _saveLibrary?:      SaveStateLibrary,
   saveService?:      SaveGameService,
-  _getCurrentGameId?:  () => string | null,
+  getCurrentGameId?:  () => string | null,
   getCurrentGameName?: () => string | null,
   _getCurrentSystemId?: () => string | null,
   _onOpenSettings?:    (tab?: SettingsTab) => void,
@@ -2327,7 +2445,7 @@ function buildInGameControls(
       btnQuickSave.addEventListener("click", () => {
         void saveService.saveSlot(1).then((entry) => {
           if (entry) showInfoToast("Saved to Slot 1");
-          else showError("Quick save failed — add this game to your library or wait for the core to finish starting.");
+          else showError(quickSaveFailureMessage(emulator, getCurrentGameId));
         });
       }, { signal });
       actions.append(btnQuickSave);

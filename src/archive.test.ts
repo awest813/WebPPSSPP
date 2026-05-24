@@ -488,6 +488,34 @@ describe('extractFromZip', () => {
     expect(result!.name).toBe('mario.64');
   });
 
+  it('recognises .32x files as valid ROM entries inside ZIP archives', async () => {
+    const noteData = new Uint8Array([0x6e, 0x6f, 0x74, 0x65]); // "note"
+    const romData  = new Uint8Array([0x20, 0x20, 0x53, 0x45]); // partial Sega header-ish payload
+
+    const zipBuf = buildZipWithTwoEntries(
+      'readme.txt', noteData,
+      'knuckles-chaotix.32x', romData,
+    );
+
+    const result = await extractFromZip(new Blob([zipBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('knuckles-chaotix.32x');
+  });
+
+  it('recognises .gg files as valid ROM entries inside ZIP archives', async () => {
+    const noteData = new Uint8Array([0x6e, 0x6f, 0x74, 0x65]); // "note"
+    const romData  = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd]);
+
+    const zipBuf = buildZipWithTwoEntries(
+      'readme.txt', noteData,
+      'X-Men (USA).gg', romData,
+    );
+
+    const result = await extractFromZip(new Blob([zipBuf]));
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('X-Men (USA).gg');
+  });
+
   it('returns null when no ROM-extension entry exists in the ZIP', async () => {
     const content = new Uint8Array([1, 2, 3]);
     const zipBuf  = buildZip('unknown.xyz', content);

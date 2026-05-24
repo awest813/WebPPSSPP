@@ -105,6 +105,7 @@ export async function resolveSystemAndAddImpl(
   let resolvedFile = file;
   let archiveFormat: ArchiveFormat = "unknown";
   let archiveModulePromise: Promise<typeof import("../../archive.js")> | null = null;
+  let forcedSystemId: string | null = null;
   const getArchiveModule = (): Promise<typeof import("../../archive.js")> => {
     if (!archiveModulePromise) archiveModulePromise = import("../../archive.js");
     return archiveModulePromise;
@@ -195,6 +196,7 @@ export async function resolveSystemAndAddImpl(
 
         if (shouldPreferNativePackageRouting || shouldPreferDosPackageRouting) {
           resolvedFile = file;
+          if (shouldPreferDosPackageRouting) forcedSystemId = "dos";
           setLoadingMessage("Detected native package archive — using original file…");
           setLoadingSubtitle("");
           logImport(
@@ -301,7 +303,8 @@ export async function resolveSystemAndAddImpl(
     );
   }
 
-  const preferredSystem = preferredSystemId ? getSystemById(preferredSystemId) ?? null : null;
+  const preferredOrForcedSystemId = preferredSystemId ?? forcedSystemId;
+  const preferredSystem = preferredOrForcedSystemId ? getSystemById(preferredOrForcedSystemId) ?? null : null;
   const detected = detectSystem(resolvedFile.name);
   let system: SystemInfo | null = null;
 
@@ -581,16 +584,20 @@ async function handleM3UFile(
   const gameName = m3uFile.name.replace(/\.[^.]+$/, "");
   settings.lastGameName = gameName;
 
+  let launchGameId: string | undefined;
   try {
     const existing = await library.findByFileName(m3uFile.name, system.id);
     if (!existing) {
-      await library.addGame(m3uFile, system.id);
+      const added = await library.addGame(m3uFile, system.id);
+      launchGameId = added.id;
       onRenderLibrary();
+    } else {
+      launchGameId = existing.id;
     }
   } catch { /* ignore */ }
 
   try {
-    await onLaunchGame(syntheticFile, system.id);
+    await onLaunchGame(syntheticFile, system.id, launchGameId);
     if (emulatorRef?.state === "error") {
       blobUrls.forEach(u => URL.revokeObjectURL(u));
       return;

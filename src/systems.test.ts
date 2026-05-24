@@ -50,12 +50,26 @@ describe('systems performance profiles', () => {
       const n64Detected = detectSystem('pilotwings.64');
       expect(Array.isArray(n64Detected)).toBe(false);
       expect(n64Detected && !Array.isArray(n64Detected) ? n64Detected.id : null).toBe('n64');
+
+      const gameGearDetected = detectSystem('X-Men (USA).gg');
+      expect(Array.isArray(gameGearDetected)).toBe(false);
+      expect(gameGearDetected && !Array.isArray(gameGearDetected) ? gameGearDetected.id : null).toBe('segaGG');
     });
 
     it('defaults Genesis ROMs to the standard core instead of prompting for the wide variant', () => {
       const detected = detectSystem('Shining Force (USA).md');
       expect(Array.isArray(detected)).toBe(false);
       expect(detected && !Array.isArray(detected) ? detected.id : null).toBe('segaMD');
+    });
+
+    it('detects Sega 32X ROM extensions directly', () => {
+      const detected = detectSystem('Knuckles Chaotix (USA).32x');
+      expect(Array.isArray(detected)).toBe(false);
+      expect(detected && !Array.isArray(detected) ? detected.id : null).toBe('sega32x');
+
+      const alternate = detectSystem('Virtua Racing Deluxe.68k');
+      expect(Array.isArray(alternate)).toBe(false);
+      expect(alternate && !Array.isArray(alternate) ? alternate.id : null).toBe('sega32x');
     });
 
     it('.iso is shared between PSP and PSX — returns an array of candidates', () => {
@@ -141,20 +155,22 @@ describe('systems performance profiles', () => {
     });
 
     it('detects other ambiguous disc formats shared between systems', () => {
-      // .m3u is shared between PSX, Saturn, and Dreamcast
+      // .m3u is shared between PSX, Sega CD, Saturn, and Dreamcast
       const m3uDetected = detectSystem('playlist.m3u');
       expect(Array.isArray(m3uDetected)).toBe(true);
       let ids = (m3uDetected as SystemInfo[]).map(s => s.id);
       expect(ids).toContain('psx');
+      expect(ids).toContain('segaCD');
       expect(ids).toContain('segaSaturn');
       expect(ids).toContain('segaDC');
 
-      // .cue, .img, .mdf, .ccd are shared between PSX and Saturn
+      // .cue is shared across CD-based systems; .img, .mdf, .ccd are shared between PSX and Saturn
       ['game.cue', 'game.img', 'game.mdf', 'game.ccd'].forEach(file => {
         const detected = detectSystem(file);
         expect(Array.isArray(detected)).toBe(true);
         ids = (detected as SystemInfo[]).map(s => s.id);
         expect(ids).toContain('psx');
+        if (file.endsWith('.cue')) expect(ids).toContain('segaCD');
         expect(ids).toContain('segaSaturn');
       });
     });
@@ -206,12 +222,17 @@ describe('systems performance profiles', () => {
       expect(getSystemFeatureSummary(gba)).toContain('RetroAchievements');
       expect(getSystemFeatureSummary(psp)).toContain('RetroAchievements');
       const psx = getSystemById('psx')!;
-      expect(getSystemFeatureSummary(psx)).toContain('RetroAchievements');
-      const genesis = getSystemById('segaMD')!;
-      expect(getSystemFeatureSummary(genesis)).toContain('RetroAchievements');
-      const nds = getSystemById('nds')!;
-      expect(getSystemFeatureSummary(nds)).toContain('Built-in touch');
-    });
+    expect(getSystemFeatureSummary(psx)).toContain('RetroAchievements');
+    const genesis = getSystemById('segaMD')!;
+    expect(getSystemFeatureSummary(genesis)).toContain('RetroAchievements');
+    const segaCd = getSystemById('segaCD')!;
+    expect(getSystemFeatureSummary(segaCd)).toContain('BIOS');
+    expect(getSystemFeatureSummary(segaCd)).toContain('RetroAchievements');
+    const sega32x = getSystemById('sega32x')!;
+    expect(getSystemFeatureSummary(sega32x)).toContain('RetroAchievements');
+    const nds = getSystemById('nds')!;
+    expect(getSystemFeatureSummary(nds)).toContain('Built-in touch');
+  });
   });
 
   it('provides tier settings for PSP, NDS, N64, Saturn and Dreamcast', () => {
@@ -226,6 +247,9 @@ describe('systems performance profiles', () => {
     expect(nds?.tierSettings?.ultra?.desmume_internal_resolution).toBe('1024x768');
     expect(getSystemById('3ds')?.tierSettings?.low?.retroarch_core).toBe('azahar');
     expect(getSystemById('dos')?.tierSettings?.low?.retroarch_core).toBe('dosbox_pure');
+    expect(getSystemById('segaCD')?.tierSettings?.high?.retroarch_core).toBe('genesis_plus_gx');
+    expect(getSystemById('segaCD')?.tierSettings?.high?.genesis_plus_gx_cartridge_slot).toBe('mcd');
+    expect(getSystemById('sega32x')?.tierSettings?.high?.retroarch_core).toBe('picodrive');
     expect(n64?.tierSettings?.low?.['mupen64plus-rdp-plugin']).toBe('rice');
     expect(n64?.tierSettings?.ultra?.['mupen64plus-resolution-factor']).toBe('4');
     expect(saturn?.tierSettings?.low?.retroarch_core).toBe('yabause');
@@ -273,6 +297,8 @@ describe('systems performance profiles', () => {
     expect(getSystemById('snesBsnes')?.tierSettings?.high?.retroarch_core).toBe('bsnes');
     expect(getSystemById('segaMDWide')?.coreId).toBe('segaMD');
     expect(getSystemById('segaMDWide')?.tierSettings?.high?.retroarch_core).toBe('genesis_plus_gx_wide');
+    expect(getSystemById('segaCD')?.tierSettings?.high?.retroarch_core).toBe('genesis_plus_gx');
+    expect(getSystemById('sega32x')?.tierSettings?.high?.retroarch_core).toBe('picodrive');
     expect(getSystemById('3ds')?.experimental).toBe(true);
     expect(getSystemById('3ds')?.needsThreads).toBe(true);
     expect(getSystemById('dos')?.needsThreads).toBe(true);
@@ -293,6 +319,8 @@ describe('systems performance profiles', () => {
       psx: "mednafen_psx_hw",
       segaMD: "genesis_plus_gx",
       segaMDWide: "genesis_plus_gx_wide",
+      segaCD: "genesis_plus_gx",
+      sega32x: "picodrive",
       segaGG: "genesis_plus_gx",
       segaMS: "genesis_plus_gx",
       atari2600: "stella2014",

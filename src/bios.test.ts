@@ -37,6 +37,7 @@ function makeBiosFile(name: string, content = 'bios-data'): File {
 describe('BIOS_REQUIREMENTS', () => {
   it('contains entries for known systems', () => {
     expect(BIOS_REQUIREMENTS).toHaveProperty('psx');
+    expect(BIOS_REQUIREMENTS).toHaveProperty('segaCD');
     expect(BIOS_REQUIREMENTS).toHaveProperty('segaSaturn');
     expect(BIOS_REQUIREMENTS).toHaveProperty('segaDC');
     expect(BIOS_REQUIREMENTS).toHaveProperty('lynx');
@@ -109,6 +110,20 @@ describe('BIOS_REQUIREMENTS', () => {
     const groups = new Set(required.map((r: BiosRequirement) => r.group));
     expect(groups.size).toBe(1);
     expect([...groups][0]).toBeTruthy();
+  });
+
+  it('Sega CD has regional BIOS alternatives in the same group', () => {
+    const segaCdReqs = BIOS_REQUIREMENTS['segaCD'];
+    expect(segaCdReqs).toBeDefined();
+    const required = segaCdReqs!.filter((r: BiosRequirement) => r.required);
+    expect(required).toHaveLength(3);
+    const fileNames = required.map((r: BiosRequirement) => r.fileName);
+    expect(fileNames).toContain('bios_cd_u.bin');
+    expect(fileNames).toContain('bios_cd_e.bin');
+    expect(fileNames).toContain('bios_cd_j.bin');
+    const groups = new Set(required.map((r: BiosRequirement) => r.group));
+    expect(groups.size).toBe(1);
+    expect([...groups][0]).toBe('sega-cd-bios');
   });
 
   it('Dreamcast has alternative boot BIOS entries in a group and a standalone flash ROM', () => {
@@ -529,6 +544,17 @@ describe('BiosLibrary.isBiosReady', () => {
   });
 
   // ── Dreamcast — requires BOTH dc_boot.bin/dreamdash.bin AND dc_flash.bin ────────────────
+
+  it('returns false for Sega CD when no regional BIOS is stored', async () => {
+    const ready = await lib.isBiosReady('segaCD');
+    expect(ready).toBe(false);
+  });
+
+  it('returns true for Sega CD when any regional BIOS is stored', async () => {
+    await lib.addBios(makeBiosFile('bios_CD_U.bin'), 'segaCD');
+    const ready = await lib.isBiosReady('segaCD');
+    expect(ready).toBe(true);
+  });
 
   it('returns false for Dreamcast when neither BIOS file is stored', async () => {
     const ready = await lib.isBiosReady('segaDC');
