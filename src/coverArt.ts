@@ -549,6 +549,41 @@ export class GitHubCoverArtProvider implements CoverArtProvider {
 /** Default network timeout when downloading cover image bytes from a URL (ms). Pass `timeoutMs: null` to disable. */
 export const DEFAULT_COVER_IMAGE_FETCH_TIMEOUT_MS = 45_000;
 
+async function validateImageBlob(blob: Blob): Promise<void> {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(blob);
+    bitmap.close();
+    return;
+  }
+
+  if (
+    typeof Image === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function"
+  ) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(blob);
+    const cleanup = (): void => {
+      img.onload = null;
+      img.onerror = null;
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.onload = () => {
+      cleanup();
+      resolve();
+    };
+    img.onerror = () => {
+      cleanup();
+      reject(new Error("Could not decode image"));
+    };
+    img.src = objectUrl;
+  });
+}
+
 /**
  * Fetch a candidate's image URL and validate the response with
  * `createImageBitmap`, mirroring the existing "Use Image URL" flow in the
@@ -598,8 +633,7 @@ export async function fetchAndValidateCoverArt(
     }
     const blob = await resp.blob();
     if (blob.size === 0) throw new Error("Server returned an empty response.");
-    const bitmap = await createImageBitmap(blob);
-    bitmap.close();
+    await validateImageBlob(blob);
     return blob;
   } catch (err: unknown) {
     const looksLikeAbort =
@@ -619,6 +653,46 @@ export async function fetchAndValidateCoverArt(
     if (spinTimer) clearTimeout(spinTimer);
     if (parent) parent.removeEventListener("abort", onParentAbort);
   }
+}
+
+export interface ValidCoverArtResult {
+  candidate: CoverArtCandidate;
+  blob: Blob;
+}
+
+/**
+ * Try candidates in confidence order and return the first image that actually
+ * downloads and decodes. Useful for automated flows where a high-confidence
+ * Libretro/GitHub URL may still 404 because a ROM's region tag differs from
+ * the thumbnail repository.
+ */
+export async function fetchFirstValidCoverArtCandidate(
+  candidates: readonly CoverArtCandidate[],
+  opts: {
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number | null;
+    minScore?: number;
+    maxAttempts?: number;
+  } = {},
+): Promise<ValidCoverArtResult | null> {
+  const maxAttempts = Math.max(1, Math.min(10, opts.maxAttempts ?? 4));
+  const minScore = opts.minScore ?? 0;
+  const sorted = [...candidates]
+    .filter((candidate) => candidate.score >= minScore)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxAttempts);
+
+  for (const candidate of sorted) {
+    if (opts.signal?.aborted) return null;
+    try {
+      const blob = await fetchAndValidateCoverArt(candidate.imageUrl, opts);
+      return { candidate, blob };
+    } catch {
+      if (opts.signal?.aborted) return null;
+    }
+  }
+  return null;
 }
 
 // ── Bulk-fetch helpers ───────────────────────────────────────────────────────
@@ -938,6 +1012,7 @@ export class WikimediaCoverArtProvider implements CoverArtProvider {
 
 /** Maximum number of concurrent `ChainedCoverArtProvider.search()` calls. */
 export const CHAINED_SEARCH_MAX_CONCURRENCY = 4;
+export const CHAINED_PROVIDER_SEARCH_TIMEOUT_MS = 12_000;
 
 let _chainedSearchInFlight = 0;
 
@@ -972,7 +1047,61 @@ export class ChainedCoverArtProvider implements CoverArtProvider {
   readonly id = "chained";
   readonly name = "All Sources";
 
-  constructor(private readonly providers: readonly CoverArtProvider[]) {}
+  private readonly providerTimeoutMs: number | null;
+
+  constructor(
+    private readonly providers: readonly CoverArtProvider[],
+    opts: { providerTimeoutMs?: number | null } = {},
+  ) {
+    this.providerTimeoutMs =
+      opts.providerTimeoutMs === undefined ? CHAINED_PROVIDER_SEARCH_TIMEOUT_MS : opts.providerTimeoutMs;
+  }
+
+  private async searchProvider(
+    provider: CoverArtProvider,
+    name: string,
+    systemId: string,
+    opts: {
+      limit: number;
+      signal?: AbortSignal;
+      hashes?: { md5?: string; sha1?: string };
+      fileName?: string;
+    },
+  ): Promise<CoverArtCandidate[]> {
+    if (this.providerTimeoutMs === null || this.providerTimeoutMs <= 0) {
+      return provider.search(name, systemId, opts).catch(() => []);
+    }
+
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onParentAbort: (() => void) | undefined;
+    const timeoutPromise = new Promise<CoverArtCandidate[]>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        controller.abort();
+        resolve([]);
+      };
+      timer = setTimeout(finish, this.providerTimeoutMs!);
+      onParentAbort = finish;
+      if (opts.signal?.aborted) {
+        finish();
+      } else {
+        opts.signal?.addEventListener("abort", onParentAbort, { once: true });
+      }
+    });
+    const searchPromise = provider
+      .search(name, systemId, { ...opts, signal: controller.signal })
+      .catch(() => []);
+
+    try {
+      return await Promise.race([searchPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (onParentAbort) opts.signal?.removeEventListener("abort", onParentAbort);
+    }
+  }
 
   async search(
     name: string,
@@ -1005,7 +1134,7 @@ export class ChainedCoverArtProvider implements CoverArtProvider {
           continue;
         }
         try {
-          const results = await provider.search(name, systemId, { ...opts, limit });
+          const results = await this.searchProvider(provider, name, systemId, { ...opts, limit });
           for (const c of results) {
             if (!seenUrls.has(c.imageUrl)) {
               seenUrls.add(c.imageUrl);
@@ -1592,6 +1721,179 @@ export class TheGamesDBCoverArtProvider implements ApiKeyedProvider {
 }
 
 // ── SteamGridDB ───────────────────────────────────────────────────────────────
+
+// ── IGDB ─────────────────────────────────────────────────────────────────────
+
+/** Tunable options for `IGDBCoverArtProvider`. */
+export interface IGDBCoverArtProviderOptions {
+  /** Callable that returns the stored `clientId:clientSecret` pair. */
+  getApiKey: () => string;
+  fetchImpl?: typeof fetch;
+  cacheTtlMs?: number;
+}
+
+interface IGDBTokenResponse {
+  access_token?: string;
+  expires_in?: number;
+}
+
+interface IGDBCoverGame {
+  id?: number;
+  name?: string;
+  cover?: {
+    image_id?: string;
+    url?: string;
+  };
+}
+
+function parseIGDBCredentials(raw: string): { clientId: string; clientSecret: string } | null {
+  const idx = raw.indexOf(":");
+  if (idx <= 0) return null;
+  const clientId = raw.slice(0, idx).trim();
+  const clientSecret = raw.slice(idx + 1).trim();
+  return clientId && clientSecret ? { clientId, clientSecret } : null;
+}
+
+function igdbCoverUrl(cover: IGDBCoverGame["cover"]): string {
+  const imageId = cover?.image_id;
+  if (imageId) return `https://images.igdb.com/igdb/image/upload/t_cover_big_2x/${imageId}.jpg`;
+  const url = cover?.url;
+  if (!url) return "";
+  const absolute = url.startsWith("//") ? `https:${url}` : url;
+  return absolute.replace("/t_thumb/", "/t_cover_big_2x/");
+}
+
+/**
+ * IGDB-backed cover provider. IGDB already powers optional metadata in the
+ * details modal; adding it to the cover chain makes that same key useful for
+ * official box art when retro-specific sources miss a game.
+ */
+export class IGDBCoverArtProvider implements ApiKeyedProvider {
+  readonly id = "igdb";
+  readonly name = "IGDB";
+  readonly requiresApiKey = true as const;
+  readonly providerId = "igdb";
+  readonly signupUrl = "https://api-docs.igdb.com/";
+
+  private readonly getApiKey: () => string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly cache: KeyedProviderCache;
+  private accessToken: string | null = null;
+  private accessTokenExpiresAt = 0;
+
+  constructor(opts: IGDBCoverArtProviderOptions) {
+    this.getApiKey = opts.getApiKey;
+    this.fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
+    this.cache = new KeyedProviderCache(opts.cacheTtlMs);
+  }
+
+  isAvailable(): boolean {
+    return parseIGDBCredentials(this.getApiKey().trim()) !== null;
+  }
+
+  private async getAccessToken(signal?: AbortSignal): Promise<string | null> {
+    if (this.accessToken && Date.now() < this.accessTokenExpiresAt) return this.accessToken;
+    const creds = parseIGDBCredentials(this.getApiKey().trim());
+    if (!creds) return null;
+    const url =
+      "https://id.twitch.tv/oauth2/token" +
+      `?client_id=${encodeURIComponent(creds.clientId)}` +
+      `&client_secret=${encodeURIComponent(creds.clientSecret)}` +
+      "&grant_type=client_credentials";
+    try {
+      const resp = await this.fetchImpl(url, { method: "POST", signal });
+      if (!resp.ok) return null;
+      const body = (await resp.json()) as IGDBTokenResponse;
+      this.accessToken = typeof body.access_token === "string" ? body.access_token : null;
+      const expiresInSeconds =
+        typeof body.expires_in === "number" && Number.isFinite(body.expires_in)
+          ? body.expires_in
+          : 3600;
+      this.accessTokenExpiresAt = this.accessToken
+        ? Date.now() + Math.max(60, expiresInSeconds - 60) * 1000
+        : 0;
+      return this.accessToken;
+    } catch {
+      return null;
+    }
+  }
+
+  async search(
+    name: string,
+    systemId: string,
+    opts: { limit?: number; signal?: AbortSignal } = {},
+  ): Promise<CoverArtCandidate[]> {
+    if (opts.signal?.aborted) return [];
+    const creds = parseIGDBCredentials(this.getApiKey().trim());
+    if (!creds) return [];
+    const normQuery = normalizeRomName(name);
+    if (!normQuery) return [];
+
+    const limit = Math.max(1, Math.min(20, opts.limit ?? 6));
+    const cacheKey = `igdb|${systemId}|${normQuery}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached) return cached.slice(0, limit);
+
+    const token = await this.getAccessToken(opts.signal);
+    if (!token) return [];
+
+    const safeQuery = normQuery.replace(/["\\]/g, " ");
+    const query =
+      `search "${safeQuery}"; ` +
+      "fields name, cover.image_id, cover.url; " +
+      `limit ${Math.min(limit * 2, 20)};`;
+
+    let games: IGDBCoverGame[];
+    try {
+      const resp = await this.fetchImpl("https://api.igdb.com/v4/games", {
+        method: "POST",
+        signal: opts.signal,
+        headers: {
+          "Client-ID": creds.clientId,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "text/plain",
+        },
+        body: query,
+      });
+      if (!resp.ok) {
+        if (resp.status === 401 || resp.status === 403) {
+          this.accessToken = null;
+          this.accessTokenExpiresAt = 0;
+        }
+        return [];
+      }
+      const body = (await resp.json()) as IGDBCoverGame[];
+      games = Array.isArray(body) ? body : [];
+    } catch {
+      return [];
+    }
+
+    const out: CoverArtCandidate[] = [];
+    const seen = new Set<string>();
+    for (const game of games) {
+      const title = typeof game.name === "string" ? game.name : "";
+      const imageUrl = igdbCoverUrl(game.cover);
+      if (!title || !imageUrl || seen.has(imageUrl)) continue;
+      const score = diceCoefficient(normQuery, normalizeRomName(title));
+      if (score <= 0) continue;
+      seen.add(imageUrl);
+      out.push({ title, systemId, imageUrl, sourceName: this.name, score });
+    }
+
+    out.sort((a, b) => b.score - a.score);
+    const trimmed = out.slice(0, limit);
+    this.cache.set(cacheKey, trimmed);
+    return trimmed;
+  }
+
+  async testConnection(opts: { signal?: AbortSignal } = {}): Promise<true | string> {
+    if (!parseIGDBCredentials(this.getApiKey().trim())) {
+      return "Format must be 'clientId:clientSecret'.";
+    }
+    const token = await this.getAccessToken(opts.signal);
+    return token ? true : "IGDB rejected the credentials or could not be reached.";
+  }
+}
 
 /** Tunable options for `SteamGridDBCoverArtProvider`. */
 export interface SteamGridDBProviderOptions {

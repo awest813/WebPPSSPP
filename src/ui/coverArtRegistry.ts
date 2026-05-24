@@ -22,6 +22,7 @@
 import {
   ChainedCoverArtProvider,
   GitHubCoverArtProvider,
+  IGDBCoverArtProvider,
   LibretroCoverArtProvider,
   MobyGamesCoverArtProvider,
   RawgCoverArtProvider,
@@ -61,6 +62,7 @@ export function getKeyedProviders(): Map<string, ApiKeyedProvider> {
     _keyedProviders.set("mobygames",  new MobyGamesCoverArtProvider({  getApiKey: () => store.getKey("mobygames") }));
     _keyedProviders.set("thegamesdb", new TheGamesDBCoverArtProvider({ getApiKey: () => store.getKey("thegamesdb") }));
     _keyedProviders.set("steamgriddb", new SteamGridDBCoverArtProvider({ getApiKey: () => store.getKey("steamgriddb") }));
+    _keyedProviders.set("igdb", new IGDBCoverArtProvider({ getApiKey: () => store.getKey("igdb") }));
     _keyedProviders.set("screenscraper", new ScreenScraperCoverArtProvider(() => store.getKey("screenscraper")));
   }
   return _keyedProviders;

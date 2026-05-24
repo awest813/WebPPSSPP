@@ -137,7 +137,7 @@ All phases 1–9 listed in prior roadmaps are complete. Below is the current sta
 | MobyGamesCoverArtProvider | MobyGames API | API key |
 | TheGamesDBCoverArtProvider | TheGamesDB API | API key |
 | ScreenScraperCoverArtProvider | ScreenScraper | Credential |
-| IGDBClient | IGDB API | API key |
+| IGDBCoverArtProvider / IGDBClient | IGDB API | API key |
 | SGDBClient / SteamGridDB | SteamGridDB | API key |
 
 Credential management via `ApiKeyStore`, per-provider caching (5 min – 24 h), `testConnection()` on keyed providers.

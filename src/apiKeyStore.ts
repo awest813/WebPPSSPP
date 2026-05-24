@@ -341,9 +341,15 @@ export const DEFAULT_API_KEY_PROVIDERS: readonly ApiKeyProviderConfig[] = Object
   {
     id: "igdb",
     name: "IGDB",
-    description: "The internet's most comprehensive game database. Detailed metadata, ratings, and company info. (via Twitch Dev)",
+    description: "The internet's most comprehensive game database. Covers, detailed metadata, ratings, and company info. Format: clientId:clientSecret from Twitch Developer.",
     signupUrl: "https://api-docs.igdb.com/",
-    validate: genericKeyValidator(16, "IGDB"),
+    validate: (val: string) => {
+      const parts = val.split(":");
+      if (parts.length !== 2 || !parts[0]?.trim() || !parts[1]?.trim()) {
+        return "Format must be 'clientId:clientSecret'. Create an app in the Twitch Developer Console for IGDB.";
+      }
+      return true;
+    },
   },
   {
     id: "screenscraper",

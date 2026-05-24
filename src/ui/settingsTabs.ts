@@ -636,7 +636,7 @@ export function buildApiKeysTab(
     const enableLabel = cfg.id === "retroachievements"
       ? `Use ${cfg.name} for achievement tracking`
       : cfg.id === "igdb"
-        ? `Use ${cfg.name} for game metadata`
+        ? `Use ${cfg.name} for cover art and game metadata`
         : `Use ${cfg.name} for cover art`;
     const enabledBox = make("input", {
       id: enabledId, type: "checkbox", class: "api-key-enabled__box",

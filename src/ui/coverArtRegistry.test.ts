@@ -28,6 +28,7 @@ describe("coverArtRegistry", () => {
     expect(providers.has("mobygames")).toBe(true);
     expect(providers.has("thegamesdb")).toBe(true);
     expect(providers.has("steamgriddb")).toBe(true);
+    expect(providers.has("igdb")).toBe(true);
     expect(providers.has("screenscraper")).toBe(true);
   });
 

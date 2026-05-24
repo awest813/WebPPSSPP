@@ -142,9 +142,17 @@ describe("ApiKeyStore", () => {
     expect(ids).toContain("rawg");
     expect(ids).toContain("mobygames");
     expect(ids).toContain("thegamesdb");
+    expect(ids).toContain("igdb");
     for (const p of DEFAULT_API_KEY_PROVIDERS) {
       expect(p.signupUrl).toMatch(/^https:\/\//);
       expect(typeof p.validate).toBe("function");
     }
+  });
+
+  it("accepts IGDB's clientId:clientSecret credential pair", () => {
+    const igdb = DEFAULT_API_KEY_PROVIDERS.find((p) => p.id === "igdb");
+    expect(igdb).toBeDefined();
+    expect(igdb!.validate("client:secret")).toBe(true);
+    expect(igdb!.validate("client-only")).toMatch(/clientId:clientSecret/);
   });
 });

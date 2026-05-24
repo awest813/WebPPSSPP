@@ -236,7 +236,7 @@ describe("buildApiKeysTab", () => {
     expect(container.querySelector(".api-keys-footer")?.textContent).toContain("Wikimedia");
   });
 
-  it("uses purpose-specific enable labels for achievements and metadata providers", () => {
+  it("uses purpose-specific enable labels for achievements and cover-art providers", () => {
     document.body.innerHTML = "";
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -260,7 +260,7 @@ describe("buildApiKeysTab", () => {
     expect(container.querySelector<HTMLInputElement>("#api-key-enabled-retroachievements")?.getAttribute("aria-label"))
       .toBe("Use RetroAchievements for achievement tracking");
     expect(container.querySelector<HTMLInputElement>("#api-key-enabled-igdb")?.getAttribute("aria-label"))
-      .toBe("Use IGDB for game metadata");
+      .toBe("Use IGDB for cover art and game metadata");
   });
 });
 

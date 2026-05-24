@@ -85,9 +85,9 @@ import {
   showConfirmDialog as showConfirmDialogImpl,
 } from "./ui/modals.js";
 import {
-  fetchAndValidateCoverArt,
   listGamesMissingCoverArt,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
+  fetchFirstValidCoverArtCandidate,
 } from "./coverArt.js";
 import {
   buildFilteredLibraryEmptyState,
@@ -808,11 +808,14 @@ export function initUI(opts: UIOptions): void {
   }
 
   // ── Console Clock Loop ──
-  const updateClock = () => {
+  let clockDisposed = false;
+  const updateClock = (): boolean => {
+    if (clockDisposed || typeof document === "undefined") return false;
     const clockEl = document.getElementById("footer-clock");
-    if (!clockEl) return;
+    if (!clockEl) return false;
     const now = new Date();
     clockEl.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return true;
   };
   updateClock();
   // Align the repeating interval to the next wall-clock minute so the display
@@ -820,8 +823,13 @@ export function initUI(opts: UIOptions): void {
   const msToNextMinute = 60_000 - (Date.now() % 60_000);
   let clockInterval: ReturnType<typeof setInterval> | null = null;
   const clockAlignTimeout = setTimeout(() => {
-    updateClock();
-    clockInterval = setInterval(updateClock, 60_000);
+    if (!updateClock()) return;
+    clockInterval = setInterval(() => {
+      if (!updateClock() && clockInterval !== null) {
+        clearInterval(clockInterval);
+        clockInterval = null;
+      }
+    }, 60_000);
   }, msToNextMinute);
 
   const { emulator, library, biosLibrary, saveLibrary, settings, deviceCaps,
@@ -845,7 +853,11 @@ export function initUI(opts: UIOptions): void {
   });
 
   const cleanupFns: Array<() => void> = [
-    () => { clearTimeout(clockAlignTimeout); if (clockInterval !== null) clearInterval(clockInterval); }
+    () => {
+      clockDisposed = true;
+      clearTimeout(clockAlignTimeout);
+      if (clockInterval !== null) clearInterval(clockInterval);
+    }
   ];
   const bindEvent = (
     target: EventTarget,
@@ -1504,19 +1516,23 @@ async function _runBulkCoverArtFetch(
 
       try {
         const candidates = await provider.search(game.name, game.systemId, {
-          limit: 1,
+          limit: 5,
           signal: controller.signal,
           hashes,
+          fileName: game.fileName,
         });
         if (controller.signal.aborted) return;
-        const best = candidates[0];
-        if (!best || best.score < AUTO_APPLY_CONFIDENCE_THRESHOLD) {
+        const result = await fetchFirstValidCoverArtCandidate(candidates, {
+          signal: controller.signal,
+          minScore: AUTO_APPLY_CONFIDENCE_THRESHOLD,
+          maxAttempts: 4,
+        });
+        if (!result) {
           skipped++;
           continue;
         }
-        const blob = await fetchAndValidateCoverArt(best.imageUrl, { signal: controller.signal });
         if (controller.signal.aborted) return;
-        await library.setCoverArt(game.id, blob);
+        await library.setCoverArt(game.id, result.blob);
         applied++;
       } catch {
         if (controller.signal.aborted) return;

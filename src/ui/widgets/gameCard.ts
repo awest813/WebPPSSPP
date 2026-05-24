@@ -15,6 +15,8 @@ import { diagWarn } from "../../diagnosticLog.js";
 import { parseRAKey } from "../../raCredentials.js";
 import {
   fetchAndValidateCoverArt,
+  fetchFirstValidCoverArtCandidate,
+  AUTO_APPLY_CONFIDENCE_THRESHOLD,
   type CoverArtCandidate,
 } from "../../coverArt.js";
 import {
@@ -413,11 +415,19 @@ export function buildGameCard(
         try {
           fetchedBlob = await fetchAndValidateCoverArt(pickedUrl);
         } catch (fetchErr) {
-          showError(
-            `Could not download the selected cover: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}. ` +
-            "Try again or upload an image file instead.",
+          const fallback = await fetchFirstValidCoverArtCandidate(
+            candidates.filter((candidate) => candidate.imageUrl !== pickedUrl),
+            { minScore: AUTO_APPLY_CONFIDENCE_THRESHOLD, maxAttempts: 3 },
           );
-          return;
+          if (!fallback) {
+            showError(
+              `Could not download the selected cover: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}. ` +
+              "Try again or upload an image file instead.",
+            );
+            return;
+          }
+          fetchedBlob = fallback.blob;
+          showInfoToast("Selected cover was unavailable, so the next best match was used.", "info");
         }
         await library.setCoverArt(game.id, fetchedBlob);
         if (coverArtObjectUrl) URL.revokeObjectURL(coverArtObjectUrl);

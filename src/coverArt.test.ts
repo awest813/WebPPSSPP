@@ -6,6 +6,7 @@ import {
   systemIdToCollectionFolders,
   listGamesMissingCoverArt,
   fetchAndValidateCoverArt,
+  fetchFirstValidCoverArtCandidate,
   GitHubCoverArtProvider,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
   cleanRomNameForLibretro,
@@ -17,11 +18,13 @@ import {
   MobyGamesCoverArtProvider,
   TheGamesDBCoverArtProvider,
   SteamGridDBCoverArtProvider,
+  IGDBCoverArtProvider,
   WikimediaCoverArtProvider,
   systemIdToRawgPlatformId,
   systemIdToMobyPlatformId,
   systemIdToTgdbPlatformId,
   isApiKeyedProvider,
+  type CoverArtCandidate,
 } from "./coverArt.js";
 import type { GameMetadata } from "./library.js";
 
@@ -434,6 +437,47 @@ describe("fetchAndValidateCoverArt", () => {
   });
 });
 
+describe("fetchFirstValidCoverArtCandidate", () => {
+  it("tries the next candidate when a high-confidence image URL is stale", async () => {
+    const goodBlob = new Blob(["png"], { type: "image/png" });
+    const fetchImpl = (async (url: RequestInfo | URL): Promise<Response> => {
+      if (String(url).includes("stale")) {
+        return new Response("", { status: 404 });
+      }
+      return new Response(goodBlob, { status: 200, headers: { "Content-Type": "image/png" } });
+    }) as unknown as typeof fetch;
+    const originalBitmap = (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
+    (globalThis as unknown as { createImageBitmap: (b: Blob) => Promise<{ close(): void }> })
+      .createImageBitmap = async () => ({ close: () => {} });
+    try {
+      const result = await fetchFirstValidCoverArtCandidate([
+        { title: "Stale", systemId: "snes", imageUrl: "https://x/stale.png", sourceName: "A", score: 0.99 },
+        { title: "Good", systemId: "snes", imageUrl: "https://x/good.png", sourceName: "B", score: 0.96 },
+      ], { fetchImpl, minScore: 0.85 });
+
+      expect(result?.candidate.title).toBe("Good");
+      expect(result?.blob.size).toBeGreaterThan(0);
+    } finally {
+      (globalThis as { createImageBitmap?: unknown }).createImageBitmap = originalBitmap;
+    }
+  });
+
+  it("returns null when every candidate is below the minimum score", async () => {
+    let called = 0;
+    const fetchImpl = (async (): Promise<Response> => {
+      called++;
+      return new Response("", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await fetchFirstValidCoverArtCandidate([
+      { title: "Weak", systemId: "nes", imageUrl: "https://x/weak.png", sourceName: "A", score: 0.4 },
+    ], { fetchImpl, minScore: 0.85 });
+
+    expect(result).toBeNull();
+    expect(called).toBe(0);
+  });
+});
+
 
 // ── cleanRomNameForLibretro ───────────────────────────────────────────────────
 
@@ -619,6 +663,31 @@ describe("ChainedCoverArtProvider", () => {
     const results = await chain.search("Zelda", "nes");
     expect(results.length).toBe(1);
     expect(results[0]!.title).toBe("Good Result");
+  });
+
+  it("continues past a provider that never resolves", async () => {
+    let aborted = false;
+    const hanging = {
+      id: "hang", name: "Hang",
+      search: async (
+        _name: string,
+        _systemId: string,
+        opts?: { signal?: AbortSignal },
+      ) => new Promise<CoverArtCandidate[]>(() => {
+        opts?.signal?.addEventListener("abort", () => { aborted = true; });
+      }),
+    };
+    const good = {
+      id: "good", name: "Good",
+      search: async () => [
+        { title: "Good Result", systemId: "nes", imageUrl: "https://good.example/img.png", sourceName: "Good", score: 0.8 },
+      ],
+    };
+    const chain = new ChainedCoverArtProvider([hanging, good], { providerTimeoutMs: 1 });
+    const results = await chain.search("Zelda", "nes");
+    expect(results.length).toBe(1);
+    expect(results[0]!.sourceName).toBe("Good");
+    expect(aborted).toBe(true);
   });
 
   it("returns [] for an empty provider list", async () => {
@@ -1115,6 +1184,84 @@ describe("SteamGridDBCoverArtProvider", () => {
     expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "k".repeat(32), fetchImpl: bad }).testConnection()).toMatch(/rejected/i);
     expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "k".repeat(32), fetchImpl: boom }).testConnection()).toMatch(/Could not reach/i);
     expect(await new SteamGridDBCoverArtProvider({ getApiKey: () => "" }).testConnection()).toMatch(/No API key/);
+  });
+});
+
+// ── IGDBCoverArtProvider ──────────────────────────────────────────────────────
+
+describe("IGDBCoverArtProvider", () => {
+  it("isAvailable() requires clientId:clientSecret", () => {
+    expect(new IGDBCoverArtProvider({ getApiKey: () => "" }).isAvailable()).toBe(false);
+    expect(new IGDBCoverArtProvider({ getApiKey: () => "client:secret" }).isAvailable()).toBe(true);
+  });
+
+  it("search() returns cover candidates with upgraded IGDB image size", async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      calls.push(String(url));
+      if (String(url).includes("oauth2/token")) {
+        expect(init?.method).toBe("POST");
+        return jsonResponse({ access_token: "token", expires_in: 3600 });
+      }
+      expect(init?.method).toBe("POST");
+      expect((init?.headers as Record<string, string>)["Client-ID"]).toBe("client");
+      return jsonResponse([
+        {
+          id: 1,
+          name: "Chrono Trigger",
+          cover: {
+            image_id: "abc123",
+            url: "//images.igdb.com/igdb/image/upload/t_thumb/abc123.jpg",
+          },
+        },
+      ]);
+    }) as unknown as typeof fetch;
+
+    const provider = new IGDBCoverArtProvider({ getApiKey: () => "client:secret", fetchImpl });
+    const results = await provider.search("Chrono Trigger (USA).sfc", "snes");
+
+    expect(calls.length).toBe(2);
+    expect(results[0]!.title).toBe("Chrono Trigger");
+    expect(results[0]!.sourceName).toBe("IGDB");
+    expect(results[0]!.imageUrl).toBe(
+      "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/abc123.jpg",
+    );
+    expect(results[0]!.score).toBeGreaterThan(0.9);
+  });
+
+  it("search() reuses a fresh token and clears it when IGDB rejects the request", async () => {
+    let tokenCalls = 0;
+    let gameCalls = 0;
+    const fetchImpl = (async (url: RequestInfo | URL): Promise<Response> => {
+      if (String(url).includes("oauth2/token")) {
+        tokenCalls++;
+        return jsonResponse({ access_token: `token-${tokenCalls}`, expires_in: 3600 });
+      }
+      gameCalls++;
+      if (gameCalls === 1) {
+        return jsonResponse([
+          { id: 1, name: "Ridge Racer", cover: { image_id: "rr" } },
+        ]);
+      }
+      return new Response("", { status: 401 });
+    }) as unknown as typeof fetch;
+
+    const provider = new IGDBCoverArtProvider({
+      getApiKey: () => "client:secret",
+      fetchImpl,
+      cacheTtlMs: 1,
+    });
+    expect(await provider.search("Ridge Racer", "psx")).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(await provider.search("Ridge Racer", "psx")).toEqual([]);
+    await provider.testConnection();
+
+    expect(tokenCalls).toBe(2);
+  });
+
+  it("testConnection reports malformed credentials", async () => {
+    await expect(new IGDBCoverArtProvider({ getApiKey: () => "not-a-pair" }).testConnection())
+      .resolves.toMatch(/clientId:clientSecret/);
   });
 });
 
