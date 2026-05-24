@@ -563,7 +563,7 @@ export function clearWebGL2SupportCache(): void {
 const CORE_PREFETCH_MAP: Record<string, string> = {
   psp:        "cores/ppsspp-thread-wasm.data",
   n64:        "cores/parallel_n64-wasm.data",
-  psx:        "cores/mednafen_psx_hw-wasm.data",
+  psx:        "cores/pcsx_rearmed-wasm.data",
   nds:        "cores/desmume2015-wasm.data",
   gba:        "cores/mgba-wasm.data",
   gb:         "cores/gambatte-wasm.data",
@@ -2552,9 +2552,9 @@ export class PSPEmulator {
     }
 
     if (systemId === "psx") {
-      if (ejsSettings.retroarch_core && ejsSettings.retroarch_core !== "mednafen_psx_hw") {
-        return;
-      }
+      // pcsx_rearmed (low/medium) has no beetle_psx_hw_* options — nothing to clamp.
+      const isUsingBeetle = ejsSettings.retroarch_core === "mednafen_psx_hw";
+      if (!isUsingBeetle) return;
 
       let maxPsxResIdx = tier === "ultra" ? 2 : tier === "high" ? 1 : 0;
       if (gpu.maxTextureSize < 8192 || caps.estimatedVRAMMB < 384 || constrainedMemory) {

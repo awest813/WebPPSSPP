@@ -4748,6 +4748,7 @@ describe("wasmCorePackageNameFor", () => {
   });
 
   it("keeps every audited system profile pinned to its intended wasm core package", () => {
+    // Systems with a single core for all tiers
     const expectedPackages: Record<string, string> = {
       psp: "ppsspp",
       nes: "fceumm",
@@ -4759,7 +4760,6 @@ describe("wasmCorePackageNameFor", () => {
       nds: "desmume2015",
       "3ds": "azahar",
       n64: "parallel_n64",
-      psx: "mednafen_psx_hw",
       segaMD: "genesis_plus_gx",
       segaMDWide: "genesis_plus_gx_wide",
       segaCD: "genesis_plus_gx",
@@ -4779,6 +4779,7 @@ describe("wasmCorePackageNameFor", () => {
     };
 
     for (const system of SYSTEMS) {
+      if (system.id === "psx") continue; // psx is checked separately below (two-core strategy)
       const expected = expectedPackages[system.id];
       expect(expected, `${system.id} should be covered by the core audit`).toBeDefined();
       for (const tier of ["low", "medium", "high", "ultra"] as const) {
@@ -4788,5 +4789,13 @@ describe("wasmCorePackageNameFor", () => {
         ).toBe(expected);
       }
     }
+
+    // PSX uses pcsx_rearmed (low/medium) and mednafen_psx_hw (high/ultra)
+    const psxSystem = SYSTEMS.find(s => s.id === "psx")!;
+    expect(psxSystem, "psx system must exist").toBeDefined();
+    expect(wasmCorePackageNameFor(psxSystem, psxSystem.tierSettings?.["low"] ?? {}), "psx low").toBe("pcsx_rearmed");
+    expect(wasmCorePackageNameFor(psxSystem, psxSystem.tierSettings?.["medium"] ?? {}), "psx medium").toBe("pcsx_rearmed");
+    expect(wasmCorePackageNameFor(psxSystem, psxSystem.tierSettings?.["high"] ?? {}), "psx high").toBe("mednafen_psx_hw");
+    expect(wasmCorePackageNameFor(psxSystem, psxSystem.tierSettings?.["ultra"] ?? {}), "psx ultra").toBe("mednafen_psx_hw");
   });
 });

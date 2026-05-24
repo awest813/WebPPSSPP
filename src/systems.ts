@@ -484,70 +484,44 @@ const GBA_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
   },
 };
 
-// ── PS1 (Beetle PSX HW) tier-specific core options ────────────────────────────
+// ── PS1 tier-specific core options ───────────────────────────────────────────
 //
-// EmulatorJS loads mednafen_psx_hw with HAVE_HW, so libretro option keys use the
-// beetle_psx_hw_* prefix (see beetle-psx-libretro libretro_options.h).
-
+// Strategy:
+//   low / medium  → pcsx_rearmed (EmulatorJS default; lightweight, high compat)
+//   high / ultra  → mednafen_psx_hw (Beetle PSX HW with Vulkan, PGXP, upscaling)
+//
+// pcsx_rearmed key options:
+//   pcsx_rearmed_drc               — Dynamic recompiler (big speed win)
+//   pcsx_rearmed_frameskip         — 0 = off; raise only if GPU bound
+//   pcsx_rearmed_spu_update_freq   — SPU update frequency (lower = faster)
+//   pcsx_rearmed_show_bios_bootlogo — Skip the PS1 boot logo for speed
+//
+// mednafen_psx_hw (Beetle PSX HW) key options:
+//   beetle_psx_hw_internal_resolution — GPU resolution multiplier (1x–16x)
+//   beetle_psx_hw_frame_duping        — Repeat last frame when unchanged
+//   beetle_psx_hw_filter              — Texture filter (nearest = fastest)
+//   beetle_psx_hw_pgxp_mode          — Perspective-correct geometry
+//   beetle_psx_hw_gte_overclock      — One-cycle GTE latency
 /**
- * Beetle PSX HW / mednafen_psx_hw RetroArch core options per tier.
+ * PS1 RetroArch core options per tier.
  *
- * Key options:
- *   beetle_psx_hw_internal_resolution — GPU resolution multiplier (1x–16x)
- *   beetle_psx_hw_frame_duping          — Repeat last frame when unchanged (saves GPU)
- *   beetle_psx_hw_filter                  — Texture filter (nearest = fastest)
- *   beetle_psx_hw_dither_mode           — Dither pattern (match native / internal / off)
- *   beetle_psx_hw_cd_access_method      — Disc read model (sync = safest; async can hitch less)
- *   beetle_psx_hw_gte_overclock         — One-cycle GTE latency (big win for 3D-heavy games)
- *   beetle_psx_hw_analog_calibration    — DualShock analog range calibration
- *   beetle_psx_hw_cpu_dynarec           — Lightrec dynarec: disabled | execute | …
+ * low/medium: pcsx_rearmed (default, no retroarch_core override needed).
+ * high/ultra: mednafen_psx_hw (Beetle PSX HW — Vulkan, PGXP, high-res).
  */
 const PSX_TIER_SETTINGS: Record<PerformanceTier, Record<string, string>> = {
+  // pcsx_rearmed is the EmulatorJS default — no retroarch_core override needed.
+  // Only set performance-critical pcsx_rearmed_ options.
   low: {
-    // Force Beetle PSX HW over EmulatorJS default pcsx_rearmed so these options apply.
-    retroarch_core: "mednafen_psx_hw",
-    beetle_psx_hw_renderer: "hardware",
-    beetle_psx_hw_internal_resolution: "1x(native)",
-    beetle_psx_hw_frame_duping: "enabled",
-    beetle_psx_hw_filter: "nearest",
-    beetle_psx_hw_dither_mode: "1x(native)",
-    beetle_psx_hw_depth: "16bpp(native)",
-    beetle_psx_hw_cd_access_method: "sync",
-    beetle_psx_hw_cpu_dynarec: "execute",
-    beetle_psx_hw_dynarec_invalidate: "full",
-    beetle_psx_hw_pgxp_mode: "disabled",
-    beetle_psx_hw_pgxp_texture: "disabled",
-    beetle_psx_hw_pgxp_vertex: "disabled",
-    beetle_psx_hw_analog_calibration: "disabled",
-    beetle_psx_hw_widescreen_hack: "disabled",
-    beetle_psx_hw_renderer_software_fb: "enabled",
-    beetle_psx_hw_gpu_overclock: "1x(native)",
-    beetle_psx_hw_cd_fastload: "2x(native)",
-    beetle_psx_hw_gte_overclock: "disabled",
-    beetle_psx_hw_mdec_yuv: "disabled",
+    pcsx_rearmed_drc: "enabled",
+    pcsx_rearmed_frameskip: "0",
+    pcsx_rearmed_spu_update_freq: "50",
+    pcsx_rearmed_show_bios_bootlogo: "disabled",
   },
   medium: {
-    retroarch_core: "mednafen_psx_hw",
-    beetle_psx_hw_renderer: "hardware",
-    beetle_psx_hw_internal_resolution: "1x(native)",
-    beetle_psx_hw_frame_duping: "enabled",
-    beetle_psx_hw_filter: "nearest",
-    beetle_psx_hw_dither_mode: "1x(native)",
-    beetle_psx_hw_depth: "16bpp(native)",
-    beetle_psx_hw_cd_access_method: "async",
-    // "execute" = max-performance dynarec (upstream value; not "enabled")
-    beetle_psx_hw_cpu_dynarec: "execute",
-    beetle_psx_hw_dynarec_invalidate: "full",
-    beetle_psx_hw_pgxp_mode: "disabled",
-    beetle_psx_hw_pgxp_texture: "disabled",
-    beetle_psx_hw_pgxp_vertex: "disabled",
-    beetle_psx_hw_analog_calibration: "enabled",
-    beetle_psx_hw_widescreen_hack: "disabled",
-    beetle_psx_hw_renderer_software_fb: "enabled",
-    beetle_psx_hw_gpu_overclock: "1x(native)",
-    beetle_psx_hw_cd_fastload: "6x",
-    beetle_psx_hw_gte_overclock: "disabled",
-    beetle_psx_hw_mdec_yuv: "enabled",
+    pcsx_rearmed_drc: "enabled",
+    pcsx_rearmed_frameskip: "0",
+    pcsx_rearmed_spu_update_freq: "100",
+    pcsx_rearmed_show_bios_bootlogo: "disabled",
   },
   high: {
     retroarch_core: "mednafen_psx_hw",
