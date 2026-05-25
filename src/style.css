@@ -2176,7 +2176,7 @@ body:has(#ejs-container.visible) .app-header {
   font-size: 0.9rem;
 }
 
-/* Cloud Connection List */
+/* Remote connection list */
 .cloud-connection-list {
   display: flex;
   flex-direction: column;
@@ -8068,9 +8068,18 @@ body {
 
 .game-card__fallback {
   padding: 28px;
+  pointer-events: none;
   background:
     radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--sys-color-bright, #d8bc70) 22%, transparent), transparent 44%),
     linear-gradient(180deg, #131316 0%, #050506 100%);
+}
+
+.game-card {
+  scroll-margin-top: calc(var(--header-h) + 96px);
+}
+
+.game-card__new-badge {
+  pointer-events: none;
 }
 
 .game-card__fallback-badge {
@@ -8107,6 +8116,7 @@ body {
   background: rgba(4,4,5,0.64);
   border-color: rgba(255,255,255,0.14);
   box-shadow: 0 10px 22px rgba(0,0,0,0.35);
+  z-index: 20;
 }
 
 .game-card__fav.active,
@@ -9073,6 +9083,14 @@ body {
 .game-card__fav,
 .game-card__remove {
   border-radius: 6px;
+  scroll-margin-top: calc(var(--header-h) + 112px);
+  z-index: 30;
+}
+
+.game-card__icon,
+.game-card__new-badge,
+.game-card__fallback {
+  pointer-events: none;
 }
 
 .conflict-card:hover {

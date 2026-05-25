@@ -42,11 +42,16 @@ test.describe("Add ROM journey", () => {
     await page.waitForFunction(() => !document.body.classList.contains("is-playing"), { timeout: 15_000 });
     await expect(page.locator("#landing")).not.toHaveClass("hidden", { timeout: 10_000 });
 
-    const favorite = page.getByRole("button", { name: "Add quick-actions to favorites" });
+    const card = page.locator(".game-card, .library-game-card, [data-game-id]").first();
+    await card.scrollIntoViewIfNeeded();
+    await card.hover();
+
+    const favorite = card.getByRole("button", { name: "Add quick-actions to favorites" });
+    await expect(favorite).toBeVisible();
     await favorite.click();
     await expect(page.getByRole("button", { name: "Remove quick-actions from favorites" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Change system for quick-actions" }).click();
+    await card.getByRole("button", { name: "Change system for quick-actions" }).click();
     await expect(page.getByRole("dialog", { name: "Choose System" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog", { name: "Choose System" })).toBeHidden();

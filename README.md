@@ -7,7 +7,7 @@
 
 RetroOasis is a polished, self-hostable retro game library and emulator frontend for the browser. It is built with TypeScript, Vite, and [EmulatorJS](https://emulatorjs.org/), and it runs as a static web app: no backend server is required for local play.
 
-Bring your own legally obtained ROMs and BIOS files. RetroOasis stores games, saves, cover art, API keys, and settings in your browser unless you explicitly connect a cloud provider.
+Bring your own legally obtained ROMs and BIOS files. RetroOasis stores games, saves, cover art, optional connection credentials, and settings in your browser unless you explicitly connect a provider.
 
 ## Why RetroOasis?
 
@@ -19,7 +19,7 @@ Raw browser emulator integrations can boot games, but a good daily-use library n
 - BIOS management and per-system launch checks
 - Per-device performance tiers with per-system core options
 - Save slots, thumbnails, auto-restore, and optional cloud sync
-- Cover art discovery from free sources and optional bring-your-own API keys
+- Cover art discovery from free sources and optional bring-your-own provider credentials
 - PWA install support and cross-origin isolation for threaded cores
 - Experimental multiplayer, cloud libraries, and LANemu workflows
 
@@ -78,7 +78,7 @@ Local data is stored in browser storage:
 - ROM library: IndexedDB
 - Save states and thumbnails: IndexedDB
 - BIOS files: IndexedDB
-- Settings and API keys: localStorage
+- Settings and optional connection credentials: localStorage
 
 Cloud features are optional. Save sync and cloud library indexing support WebDAV / Nextcloud, Google Drive, Dropbox, OneDrive, pCloud, Blomp, Box, and Mega depending on the flow and credentials configured in Settings.
 
@@ -90,7 +90,7 @@ Free cover sources run without an account:
 - [ramiabraham/cover-art-collection](https://github.com/ramiabraham/cover-art-collection)
 - Wikimedia / Wikipedia metadata fallbacks
 
-Optional API-key providers can be enabled in Settings:
+Optional cover and metadata providers can be enabled in Settings > Connections:
 
 - RAWG
 - MobyGames

@@ -19,7 +19,7 @@ All of the following are stored in your browser only (IndexedDB and `localStorag
 | Per-game tier and graphics profiles | `localStorage` (`rv:tier:*`, `rv:gfx:*`) | Local only |
 | Cloud provider access tokens (Google Drive, Dropbox, etc.) | `localStorage` | Tokens are used only to talk to the respective provider's API on your behalf |
 | Cloud provider credentials (WebDAV URL, username, password; MEGA email/password) | `localStorage` | Encrypted in transit to your own server; never sent to RetroOasis |
-| Third-party API keys (RAWG, MobyGames, TheGamesDB) | `localStorage` | Sent only to the respective provider's API; never logged or forwarded |
+| Optional provider credentials (RAWG, MobyGames, TheGamesDB, SteamGridDB, IGDB, ScreenScraper.fr) | `localStorage` | Sent only to the respective provider's API; never logged or forwarded |
 | Netplay display name | `localStorage` (`rv:netplay`) | Shared with the signaling server you configure; not collected by RetroOasis |
 | Compiled WebAssembly modules (emulator cores) | IndexedDB (`retro-oasis-wasm`) | Cached for performance; sourced from public CDNs |
 
@@ -43,9 +43,9 @@ RetroOasis makes network requests **only at your direction** and to the services
 | **Your WebDAV server** | Only when you configure WebDAV | Your credentials + save-state files |
 | **GitHub API** (`api.github.com`, `raw.githubusercontent.com`) | When fetching cover art from the default provider | Game display name + system ID (no ROM data) |
 | **Libretro Thumbnails CDN** (`thumbnails.libretro.com`) | When fetching cover art | ROM filename hint (no ROM bytes) |
-| **RAWG** (`rawg.io`) | Only when you add a RAWG API key | Game name + system ID (your API key) |
-| **MobyGames** | Only when you add a MobyGames API key | Game name + system ID (your API key) |
-| **TheGamesDB** | Only when you add a TheGamesDB API key | Game name + system ID (your API key) |
+| **RAWG** (`rawg.io`) | Only when you add RAWG credentials in Connections | Game name + system ID (your credential) |
+| **MobyGames** | Only when you add MobyGames credentials in Connections | Game name + system ID (your credential) |
+| **TheGamesDB** | Only when you add TheGamesDB credentials in Connections | Game name + system ID (your credential) |
 | **Your netplay signaling server** | Only when you configure and use Play Together | Room metadata (display name, game name, system ID); no ROM data |
 
 ---
