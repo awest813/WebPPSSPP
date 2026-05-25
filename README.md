@@ -157,7 +157,7 @@ It should be `true`. See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [guide.m
 | Multiplayer | [src/multiplayer.ts](./src/multiplayer.ts), [src/netplay/](./src/netplay/), [src/multiplayer/](./src/multiplayer/) |
 | Tests | [src](./src), [tests/e2e](./tests/e2e), [tests/multiplayer](./tests/multiplayer) |
 
-For deeper context, read [docs/ARCHITECTURE_MAP.md](./docs/ARCHITECTURE_MAP.md), [docs/ROADMAP.md](./docs/ROADMAP.md), and [docs/SUPPORT_RUNBOOK.md](./docs/SUPPORT_RUNBOOK.md).
+For deeper context, read [docs/ARCHITECTURE_MAP.md](./docs/ARCHITECTURE_MAP.md), [docs/PLAN.md](./docs/PLAN.md), and [docs/SUPPORT_RUNBOOK.md](./docs/SUPPORT_RUNBOOK.md).
 
 ## Troubleshooting
 
@@ -175,7 +175,7 @@ For deeper context, read [docs/ARCHITECTURE_MAP.md](./docs/ARCHITECTURE_MAP.md),
 
 - [Deployment](./docs/DEPLOYMENT.md)
 - [Architecture map](./docs/ARCHITECTURE_MAP.md)
-- [Roadmap](./docs/ROADMAP.md)
+- [Plan](./docs/PLAN.md)
 - [Netplay guide](./docs/NETPLAY.md)
 - [User testing checklist](./docs/USER_TESTING.md)
 - [Support runbook](./docs/SUPPORT_RUNBOOK.md)

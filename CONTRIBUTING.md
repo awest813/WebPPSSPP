@@ -134,7 +134,7 @@ To add a new emulated system:
    - `tierSettings` object with `low`, `medium`, `high`, and `ultra` entries
    - BIOS requirements if applicable
 2. **`src/systems.test.ts`** — add tests verifying the new system is returned by `getSystemById()` and that all four tiers are defined
-3. **`docs/ROADMAP.md`** — add the new system to the relevant completed phase
+3. **`docs/PLAN.md`** — add the new system to the relevant current-state or planned-work section
 4. **`README.md`** — add the system to the features list if it is a notable addition
 
 ### Tier settings guidelines
@@ -163,7 +163,7 @@ Document the measurement in the PR description so it can be reproduced by review
 ## Documentation Changes
 
 - Keep documentation accurate and consistent with the code
-- Update `docs/ROADMAP.md` when completing or planning features
+- Update `docs/PLAN.md` when completing or planning features
 - Update `README.md` when adding significant new capabilities
 - Consult `docs/USER_TESTING.md` when describing how to manually verify a feature
 
