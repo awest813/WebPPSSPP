@@ -4,6 +4,7 @@ import {
   isNetplaySupportedSystemId,
   SYSTEM_LINK_CAPABILITIES,
 } from "./multiplayerUtils.js";
+import { HttpSignalingClient } from "./netplay/signalingClient.js";
 export {
   DEFAULT_ICE_SERVERS,
   NETPLAY_SUPPORTED_SYSTEM_IDS,
@@ -637,7 +638,6 @@ export class NetplayManager {
     const err = this.validateServerUrl(this._settings.serverUrl);
     if (err || !this.isActive) return [];
 
-    const { HttpSignalingClient } = await import("./netplay/signalingClient.js");
     const client = new HttpSignalingClient(this._settings.serverUrl);
 
     try {
