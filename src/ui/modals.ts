@@ -1051,13 +1051,13 @@ export function showConflictDialog(
       class: "confirm-box conflict-resolver-box",
       role: "dialog",
       "aria-modal": "true",
-      "aria-label": "Resolve Save Conflict",
+      "aria-label": "Resolve Saved Progress Conflict",
     });
 
-    box.appendChild(createElement("h3", { class: "confirm-title" }, "Save Conflict Detected"));
+    box.appendChild(createElement("h3", { class: "confirm-title" }, "Saved Progress Conflict"));
     box.appendChild(createElement("p", { class: "confirm-body" },
       `Conflict detected for Slot ${conflict.local.slot} of "${conflict.local.gameName}". ` +
-      "Select which save state you would like to keep. The other copy will be overwritten:"
+      "Select which saved progress copy you would like to keep. The other copy will be overwritten:"
     ));
 
     const grid = createElement("div", { class: "conflict-grid" });
@@ -1067,7 +1067,7 @@ export function showConflictDialog(
       class: "conflict-card conflict-card--local",
       type: "button",
     });
-    const localHeader = createElement("div", { class: "conflict-card__header" }, "Local Save State");
+    const localHeader = createElement("div", { class: "conflict-card__header" }, "Local Saved Progress");
     const localLabel = createElement("div", { class: "conflict-card__label" }, conflict.local.label);
     const localTime = createElement("div", { class: "conflict-card__time" }, new Date(conflict.local.timestamp).toLocaleString());
     const localBadge = createElement("span", { class: "sys-badge conflict-card__badge" }, "On this device");
@@ -1079,7 +1079,7 @@ export function showConflictDialog(
       class: "conflict-card conflict-card--remote",
       type: "button",
     });
-    const remoteHeader = createElement("div", { class: "conflict-card__header" }, "Synced Save State");
+    const remoteHeader = createElement("div", { class: "conflict-card__header" }, "Synced Saved Progress");
     const remoteLabel = createElement("div", { class: "conflict-card__label" }, conflict.remote.label);
     const remoteTime = createElement("div", { class: "conflict-card__time" }, new Date(conflict.remote.timestamp).toLocaleString());
     const remoteBadge = createElement("span", { class: "sys-badge conflict-card__badge" }, "From save sync");

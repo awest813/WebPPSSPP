@@ -154,6 +154,7 @@ export function openEasyNetplayModal(opts: {
   brand.append(logoImg, titleStack);
   header.appendChild(brand);
   const btnCopyDiagnostics = make("button", {
+    type: "button",
     class: "enp-copy-diag",
     "aria-label": "Copy multiplayer diagnostics",
     title: "Copy connection diagnostics",
@@ -171,15 +172,24 @@ export function openEasyNetplayModal(opts: {
       return `[${ts}] [${entry.level.toUpperCase()}] ${entry.message}${detail}`;
     }).join("\n");
     const text = `${titleLine}\n${body}`;
+    const origText = btnCopyDiagnostics.textContent ?? "Logs";
+    btnCopyDiagnostics.disabled = true;
+    btnCopyDiagnostics.setAttribute("aria-busy", "true");
+    btnCopyDiagnostics.textContent = "Copying...";
     void navigator.clipboard?.writeText(text).then(() => {
       showInfoToast("Diagnostics copied.");
     }).catch(() => {
       showInfoToast("Couldn't copy logs. Please allow clipboard access.");
+    }).finally(() => {
+      btnCopyDiagnostics.disabled = false;
+      btnCopyDiagnostics.removeAttribute("aria-busy");
+      btnCopyDiagnostics.textContent = origText;
     });
   });
   header.appendChild(btnCopyDiagnostics);
 
   const btnClose = make("button", {
+    type: "button",
     class:       "enp-close",
     "aria-label": "Close multiplayer",
   }) as HTMLButtonElement;
@@ -273,6 +283,7 @@ export function openEasyNetplayModal(opts: {
 
   for (const tab of tabs) {
     const btn = make("button", {
+      type: "button",
       class: "enp-tab",
       role:  "tab",
       "aria-selected": tab.id === activeTabId ? "true" : "false",
@@ -504,6 +515,7 @@ function _buildHostPanel(
   container.appendChild(statusArea);
 
   const btnCreate = make("button", {
+    type: "button",
     class: "btn btn--primary enp-btn-create",
   }) as HTMLButtonElement;
   btnCreate.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>&ensp;Host Game`;
@@ -512,6 +524,7 @@ function _buildHostPanel(
 
   btnCreate.addEventListener("click", async () => {
     btnCreate.disabled = true;
+    btnCreate.setAttribute("aria-busy", "true");
     btnCreate.textContent = "Creating room\u2026";
     statusArea.hidden = false;
     statusArea.innerHTML = "";
@@ -534,6 +547,7 @@ function _buildHostPanel(
         sharedRenderRoomCard(statusArea, room, { showLeaveBtn: true, easyMgr, isHost: true, showToast: showInfoToast });
         btnCreate.textContent = "Hosting";
         btnCreate.disabled    = true;
+        btnCreate.removeAttribute("aria-busy");
       }
       if (ev.type === "error") {
         activeUnsub?.();
@@ -541,6 +555,7 @@ function _buildHostPanel(
         statusArea.innerHTML = "";
         statusArea.appendChild(make("p", { class: "enp-diag enp-diag--error" }, ev.message));
         btnCreate.disabled = false;
+        btnCreate.removeAttribute("aria-busy");
         btnCreate.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>&ensp;Try Again`;
       }
     });
@@ -700,6 +715,7 @@ function _buildJoinPanel(
   container.appendChild(statusArea);
 
   const btnJoin = make("button", {
+    type:     "button",
     class:    "btn btn--primary enp-btn-join",
     disabled: "",
   }) as HTMLButtonElement;
@@ -719,6 +735,7 @@ function _buildJoinPanel(
     }
 
     btnJoin.disabled = true;
+    btnJoin.setAttribute("aria-busy", "true");
     btnJoin.textContent = "Joining\u2026";
     statusArea.hidden  = false;
     statusArea.innerHTML = "";
@@ -739,6 +756,7 @@ function _buildJoinPanel(
         sharedRenderRoomCard(statusArea, ev.room, { showLeaveBtn: true, easyMgr, isHost: false, showToast: showInfoToast });
         btnJoin.textContent = "Joined";
         btnJoin.disabled    = true;
+        btnJoin.removeAttribute("aria-busy");
       }
       if (ev.type === "error") {
         activeUnsub?.();
@@ -748,6 +766,7 @@ function _buildJoinPanel(
         codeError.hidden = false;
         statusArea.hidden = true;
         btnJoin.disabled = false;
+        btnJoin.removeAttribute("aria-busy");
         btnJoin.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>&ensp;Try Again`;
       }
     });
@@ -907,7 +926,9 @@ function _buildBrowsePanel(
 
       if (!isFull && !incompatibleSystem) {
         const btnJoinRoom = make("button", {
+          type: "button",
           class: "btn btn--primary enp-room-join-btn",
+          "aria-label": `Quick join ${room.name || room.gameName || room.id}`,
         }) as HTMLButtonElement;
         btnJoinRoom.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Quick Join`;
         btnJoinRoom.addEventListener("click", () => {
@@ -922,7 +943,9 @@ function _buildBrowsePanel(
 
       if (!incompatibleSystem) {
         const btnWatch = make("button", {
+          type: "button",
           class: "btn enp-room-watch-btn",
+          "aria-label": `Watch ${room.name || room.gameName || room.id}`,
           title: "Watch this game as a spectator",
         }) as HTMLButtonElement;
         btnWatch.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watch`;
@@ -975,6 +998,7 @@ function _buildBrowsePanel(
     if (loadAbort) loadAbort.abort();
     loadAbort = new AbortController();
     refreshBtn.disabled = true;
+    refreshBtn.setAttribute("aria-busy", "true");
     refreshBtn.textContent = "Refreshing\u2026";
     countdownEl.textContent = "";
 
@@ -996,12 +1020,13 @@ function _buildBrowsePanel(
       ));
     } finally {
       refreshBtn.disabled  = false;
+      refreshBtn.removeAttribute("aria-busy");
       refreshBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refresh`;
     }
   };
 
   const footer = make("div", { class: "enp-browse-footer" });
-  const refreshBtn = make("button", { class: "btn enp-refresh-btn" }) as HTMLButtonElement;
+  const refreshBtn = make("button", { type: "button", class: "btn enp-refresh-btn" }) as HTMLButtonElement;
   refreshBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refresh`;
   refreshBtn.addEventListener("click", () => {
     stopAutoRefresh();
@@ -1092,6 +1117,7 @@ function _buildWatchPanel(
   container.appendChild(statusArea);
 
   const btnWatch = make("button", {
+    type:     "button",
     class:    "btn btn--secondary enp-btn-watch",
     disabled: "",
   }) as HTMLButtonElement;
@@ -1109,6 +1135,7 @@ function _buildWatchPanel(
     }
 
     btnWatch.disabled = true;
+    btnWatch.setAttribute("aria-busy", "true");
     btnWatch.textContent = "Connecting\u2026";
     statusArea.hidden   = false;
     statusArea.innerHTML = "";
@@ -1142,18 +1169,20 @@ function _buildWatchPanel(
         }
         card.appendChild(info);
         card.appendChild(make("p", { class: "enp-active-room__waiting" }, "\uD83D\uDC41 Spectating \u2014 watching the game\u2026"));
-        const btnLeave = make("button", { class: "btn btn--danger enp-leave-btn" }, "Stop Watching") as HTMLButtonElement;
+        const btnLeave = make("button", { type: "button", class: "btn btn--danger enp-leave-btn" }, "Stop Watching") as HTMLButtonElement;
         btnLeave.addEventListener("click", async () => {
           await easyMgr.leaveRoom();
           statusArea.innerHTML = "";
           statusArea.appendChild(make("p", { class: "enp-diag enp-diag--info" }, "You stopped watching."));
           btnWatch.disabled    = false;
+          btnWatch.removeAttribute("aria-busy");
           btnWatch.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watch Game`;
         });
         card.appendChild(btnLeave);
         statusArea.appendChild(card);
         btnWatch.textContent = "Watching";
         btnWatch.disabled    = true;
+        btnWatch.removeAttribute("aria-busy");
       }
       if (ev.type === "error") {
         activeUnsub?.();
@@ -1163,6 +1192,7 @@ function _buildWatchPanel(
         codeError.hidden  = false;
         statusArea.hidden = true;
         btnWatch.disabled = false;
+        btnWatch.removeAttribute("aria-busy");
         btnWatch.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Try Again`;
       }
     });

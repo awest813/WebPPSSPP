@@ -2438,7 +2438,38 @@ function buildInGameControls(
     const chip = make("div", { class: "in-game-overlay__panel-chip" });
     chip.textContent = `Now playing \u00b7 ${currentGameName}`;
 
+    const menuStatus = make("div", {
+      class: "in-game-overlay__status",
+      role: "status",
+      "aria-live": "polite",
+      "aria-atomic": "true",
+    });
+
     const actions = make("div", { class: "in-game-overlay__panel-actions", role: "group", "aria-label": "In-game quick actions" });
+    const runMenuTask = async <T>(
+      button: HTMLButtonElement,
+      busyLabel: string,
+      task: () => Promise<T>,
+    ): Promise<T | undefined> => {
+      if (button.disabled) return undefined;
+      const idleLabel = button.textContent ?? "";
+      const idleAriaLabel = button.getAttribute("aria-label");
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      button.setAttribute("aria-label", busyLabel);
+      button.textContent = busyLabel;
+      menuStatus.textContent = busyLabel;
+      try {
+        return await task();
+      } finally {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+        if (idleAriaLabel) button.setAttribute("aria-label", idleAriaLabel);
+        else button.removeAttribute("aria-label");
+        button.textContent = idleLabel;
+      }
+    };
+
     if (_onOpenSettings) {
       const btnSettings = make("button", {
         class: "btn btn--ghost in-game-overlay__btn",
@@ -2472,12 +2503,21 @@ function buildInGameControls(
         role: "menuitem",
       }, "Quick Save");
       btnQuickSave.addEventListener("click", () => {
-        void saveService.saveSlot(1)
-          .then((entry) => {
-            if (entry) showInfoToast("Saved to Slot 1");
-            else showError(quickSaveFailureMessage(emulator, getCurrentGameId));
-          })
-          .catch((err) => showError(`Quick save failed: ${err instanceof Error ? err.message : String(err)}`));
+        void runMenuTask(btnQuickSave, "Saving Slot 1...", async () => {
+          try {
+            const entry = await saveService.saveSlot(1);
+            if (entry) {
+              menuStatus.textContent = "Saved Slot 1";
+              showInfoToast("Saved to Slot 1");
+            } else {
+              menuStatus.textContent = "Save did not complete";
+              showError(quickSaveFailureMessage(emulator, getCurrentGameId));
+            }
+          } catch (err) {
+            menuStatus.textContent = "Save failed";
+            showError(`Quick save failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        });
       }, { signal });
       actions.append(btnQuickSave);
 
@@ -2489,12 +2529,21 @@ function buildInGameControls(
         role: "menuitem",
       }, "Quick Load");
       btnQuickLoad.addEventListener("click", () => {
-        void saveService.loadSlot(1)
-          .then((ok) => {
-            if (ok) showInfoToast("Loaded Slot 1");
-            else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
-          })
-          .catch((err) => showError(`Quick load failed: ${err instanceof Error ? err.message : String(err)}`));
+        void runMenuTask(btnQuickLoad, "Loading Slot 1...", async () => {
+          try {
+            const ok = await saveService.loadSlot(1);
+            if (ok) {
+              menuStatus.textContent = "Loaded Slot 1";
+              showInfoToast("Loaded Slot 1");
+            } else {
+              menuStatus.textContent = "Load did not complete";
+              showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
+            }
+          } catch (err) {
+            menuStatus.textContent = "Load failed";
+            showError(`Quick load failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        });
       }, { signal });
       actions.append(btnQuickLoad);
 
@@ -2505,20 +2554,26 @@ function buildInGameControls(
         "aria-label": "Sync Saves",
         role: "menuitem",
       }, "Sync Saves");
-      btnSyncCloud.addEventListener("click", async () => {
-        try {
-          const synced = await saveService.syncGameMetadata();
-          if (synced) {
-            showInfoToast("Save sync completed successfully");
-          } else if (!getCurrentGameId?.()) {
-            showError("Save sync needs an active library game. Return to the library and launch the saved game again.");
-          } else {
-            showError("Save sync is not connected. Turn it on in Settings \u2192 Save Sync.");
+      btnSyncCloud.addEventListener("click", () => {
+        void runMenuTask(btnSyncCloud, "Syncing saves...", async () => {
+          try {
+            const synced = await saveService.syncGameMetadata();
+            if (synced) {
+              menuStatus.textContent = "Save sync complete";
+              showInfoToast("Save sync completed successfully");
+            } else if (!getCurrentGameId?.()) {
+              menuStatus.textContent = "Save sync needs a library game";
+              showError("Save sync needs an active library game. Return to the library and launch the saved game again.");
+            } else {
+              menuStatus.textContent = "Save sync is not connected";
+              showError("Save sync is not connected. Turn it on in Settings \u2192 Save Sync.");
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            menuStatus.textContent = "Save sync failed";
+            showError(`Save sync failed: ${msg}`);
           }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          showError(`Save sync failed: ${msg}`);
-        }
+        });
       }, { signal });
       actions.append(btnSyncCloud);
     }
@@ -2535,7 +2590,7 @@ function buildInGameControls(
     });
     closeBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
-    expandedPanel.append(chip, actions, closeBtn);
+    expandedPanel.append(chip, menuStatus, actions, closeBtn);
     overlayContainer.append(hamburgerBtn, expandedPanel);
 
     const togglePanel = () => {
@@ -2656,9 +2711,9 @@ const setLoadingProgress = setLoadingProgressImpl;
 
 async function fetchFromCloud(game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary): Promise<Blob> {
   const conn = settings.cloudLibraries.find(c => c.id === game.cloudId);
-  if (!conn) throw new Error("Cloud connection not found. Reconnect your library in Settings.");
+  if (!conn) throw new Error("Remote library connection not found. Reconnect your library in Settings.");
   const provider = createProvider(conn);
-  if (!provider) throw new Error("Cloud provider could not be initialized.");
+  if (!provider) throw new Error("Remote library provider could not be initialized.");
   
   const url = await provider.getDownloadUrl(game.remotePath!);
   const headers: Record<string, string> = {};
@@ -2669,7 +2724,7 @@ async function fetchFromCloud(game: GameMetadata, settings: Settings, libraryFor
     if (config?.accessToken) headers["Authorization"] = `Bearer ${config.accessToken}`;
   } else if (conn.provider === "webdav") {
     const config = parseCloudLibraryConnectionConfig(conn.config);
-    if (!config) throw new Error("Cloud provider could not be initialized.");
+    if (!config) throw new Error("Remote library provider could not be initialized.");
     const credentials = `${config.username}:${config.password}`;
     const utf8Bytes = new TextEncoder().encode(credentials);
     let binary = "";
@@ -2682,9 +2737,9 @@ async function fetchFromCloud(game: GameMetadata, settings: Settings, libraryFor
   const response = await fetch(url, { headers });
   if (!response.ok) {
      if (response.status === 401 || response.status === 403) {
-       throw new Error("Cloud authentication failed. Please reconnect your account.");
+       throw new Error("Remote library authentication failed. Please reconnect your account.");
      }
-     throw new Error(`Cloud download failed: ${response.statusText} (${response.status})`);
+     throw new Error(`Remote library download failed: ${response.statusText} (${response.status})`);
   }
   
   // Stream with progress tracking

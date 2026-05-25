@@ -182,7 +182,7 @@ export function buildMultiplayerTab(
   serverSection.appendChild(urlRow);
 
   const unameRow   = make("div", { class: "settings-input-row" });
-  const unameLabel = make("label", { class: "settings-input-label", for: "netplay-username" }, "Display Name");
+  const unameLabel = make("label", { class: "settings-input-label", for: "netplay-username" }, "Display name");
   const unameInput = make("input", {
     type:               "text",
     id:                 "netplay-username",
@@ -216,7 +216,7 @@ export function buildMultiplayerTab(
     class: "settings-help",
     id: netplayUsernameHelpId,
   },
-    "Optional name visible in the lobby. Leave blank to stay anonymous-looking to other players.",
+    "Optional name visible in the lobby. Leave blank to use a temporary guest name.",
   ));
 
   const iceDetails = make("details", { class: "netplay-advanced" }) as HTMLDetailsElement;
@@ -257,6 +257,7 @@ export function buildMultiplayerTab(
       const row = make("div", { class: "netplay-ice-row" });
       row.appendChild(make("span", { class: "netplay-ice-url" }, urlStr));
       const removeBtn = make("button", {
+        type: "button",
         class: "btn netplay-ice-remove",
         "aria-label": `Remove ${urlStr}`,
       }) as HTMLButtonElement;
@@ -288,7 +289,7 @@ export function buildMultiplayerTab(
     autocapitalize: "none",
     spellcheck:   "false",
   }) as HTMLInputElement;
-  const addBtn = make("button", { class: "btn btn--primary" }, "Add") as HTMLButtonElement;
+  const addBtn = make("button", { type: "button", class: "btn btn--primary" }, "Add") as HTMLButtonElement;
   addBtn.addEventListener("click", () => {
     const url = addInput.value.trim();
     if (!url) return;
@@ -317,7 +318,7 @@ export function buildMultiplayerTab(
   addRow.append(addInput, addBtn);
   iceContent.appendChild(addRow);
 
-  const resetBtn = make("button", { class: "btn settings-clear-btn" }, "Reset to defaults") as HTMLButtonElement;
+  const resetBtn = make("button", { type: "button", class: "btn settings-clear-btn" }, "Reset to defaults") as HTMLButtonElement;
   resetBtn.addEventListener("click", () => {
     iceServers = [...DEFAULT_ICE_SERVERS];
     commitIceServers();
@@ -433,6 +434,7 @@ export function buildMultiplayerTab(
 
   const lobbyFooter = make("div", { class: "netplay-lobby-footer" });
   const refreshBtn = make("button", {
+    type: "button",
     class: "btn btn--primary netplay-lobby-refresh",
     "aria-label": "Refresh room list",
   }) as HTMLButtonElement;
@@ -455,6 +457,7 @@ export function buildMultiplayerTab(
     if (lobbyAbort) lobbyAbort.abort();
     lobbyAbort = new AbortController();
     refreshBtn.disabled = true;
+    refreshBtn.setAttribute("aria-busy", "true");
     refreshBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refreshing…`;
     lobbyLastRefreshed.textContent = "";
 
@@ -484,13 +487,14 @@ export function buildMultiplayerTab(
       ));
     } finally {
       refreshBtn.disabled = false;
+      refreshBtn.removeAttribute("aria-busy");
       refreshBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.5"/></svg> Refresh`;
     }
   };
 
   refreshBtn.addEventListener("click", doLobbyRefresh);
 
-  const autoNote = make("p", { class: "netplay-auto-note" }, "auto-refreshes every 30 s");
+  const autoNote = make("p", { class: "netplay-auto-note" }, "Auto-refreshes every 30 seconds");
   lobbyFooter.append(refreshBtn, lobbyLastRefreshed, autoNote);
   lobbySection.appendChild(lobbyFooter);
 
@@ -548,12 +552,14 @@ export function buildMultiplayerTab(
     ));
     const actionRow = make("div", { class: "netplay-room-actions" });
     const createBtn = make("button", {
+      type: "button",
       class: "btn btn--primary netplay-create-room",
       title: "Start a game and use the Online button to create a Play Together room",
       "aria-label": "Create room — shows how to start a room from the in-game Online button",
     }) as HTMLButtonElement;
     createBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Room`;
     const joinBtn = make("button", {
+      type: "button",
       class: "btn netplay-join-room",
       title: "Select a room above to join",
       disabled: "",

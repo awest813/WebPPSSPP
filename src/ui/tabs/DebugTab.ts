@@ -365,7 +365,7 @@ export function buildDebugTab(
     "Copy a snapshot of diagnostics to the clipboard for bug reports."
   ));
 
-  const btnCopy = make("button", { class: "btn" }, "Copy Debug Info");
+  const btnCopy = make("button", { type: "button", class: "btn" }, "Copy Debug Info") as HTMLButtonElement;
   btnCopy.addEventListener("click", () => {
     const lines = [
       `${APP_NAME} Debug Info \u2014 ${new Date().toISOString()}`,
@@ -458,16 +458,25 @@ export function buildDebugTab(
       }
     }
 
+    const origText = btnCopy.textContent ?? "Copy Debug Info";
+    btnCopy.disabled = true;
+    btnCopy.setAttribute("aria-busy", "true");
+    btnCopy.textContent = "Copying...";
+
     navigator.clipboard.writeText(lines.join("\n")).then(() => {
       showInfoToast("Debug info copied to clipboard.");
     }).catch(() => {
       showError("Could not copy to clipboard.");
+    }).finally(() => {
+      btnCopy.disabled = false;
+      btnCopy.removeAttribute("aria-busy");
+      btnCopy.textContent = origText;
     });
   });
   actionsSection.appendChild(btnCopy);
 
   // Clear device capability cache \u2014 forces full re-detection on next page load
-  const btnClearCaps = make("button", { class: "btn btn--secondary" }, "Clear Capability Cache");
+  const btnClearCaps = make("button", { type: "button", class: "btn btn--secondary" }, "Clear Capability Cache");
   btnClearCaps.title = "Force re-detection of GPU tier and device capabilities on next reload.";
   btnClearCaps.addEventListener("click", () => {
     clearCapabilitiesCache();

@@ -48,7 +48,7 @@ export function buildLibraryTab(
   };
   loadStats();
 
-  const btnClear = make("button", { class: "btn btn--danger settings-clear-btn" }, "Remove All Games");
+  const btnClear = make("button", { type: "button", class: "btn btn--danger settings-clear-btn" }, "Remove All Games");
   btnClear.addEventListener("click", async () => {
     const confirmed = await showConfirmDialog(
       "This will remove all games from your library. Your save states will not be deleted.",
@@ -102,7 +102,7 @@ export function buildLibraryTab(
     saveSection.appendChild(saveStatsEl);
     saveLibrary.count().then((count) => {
       saveStatsEl.textContent = count === 0
-        ? "No save states yet \u2014 use Save State in-game to snapshot your progress"
+        ? "No saved progress yet \u2014 use Quick Save in-game to snapshot your progress"
         : `${count} save state${count !== 1 ? "s" : ""} stored in your browser`;
     }).catch(() => { saveStatsEl.textContent = "Could not load save stats."; });
 
@@ -118,7 +118,7 @@ export function buildLibraryTab(
       "If you renamed a ROM file, use this tool to move its saves to the new library entry."
     ));
 
-    const btnMigrate = make("button", { class: "btn" }, "Migrate Saves\u2026");
+    const btnMigrate = make("button", { type: "button", class: "btn" }, "Migrate Saves\u2026");
     btnMigrate.addEventListener("click", async () => {
       let games: GameMetadata[];
       try { games = await library.getAllGamesMetadata(); } catch { games = []; }
@@ -143,7 +143,7 @@ export function buildLibraryTab(
     migrateSection.appendChild(btnMigrate);
     saveSection.appendChild(migrateSection);
 
-    const btnClearSaves = make("button", { class: "btn btn--danger settings-clear-btn" }, "Clear All Saves");
+    const btnClearSaves = make("button", { type: "button", class: "btn btn--danger settings-clear-btn" }, "Clear All Saves");
     btnClearSaves.addEventListener("click", async () => {
       const confirmed = await showConfirmDialog(
         "This will delete all save states and cannot be undone.",
@@ -194,7 +194,7 @@ export function buildLibraryTab(
     (v) => onSettingsChange({ recordPlayHistory: v })
   ));
 
-  const btnClearHistory = make("button", { class: "btn btn--danger settings-clear-btn" }, "Clear Play History");
+  const btnClearHistory = make("button", { type: "button", class: "btn btn--danger settings-clear-btn" }, "Clear Play History");
   btnClearHistory.addEventListener("click", async () => {
     const confirmed = await showConfirmDialog(
       "This will delete all recorded play sessions and cannot be undone.",

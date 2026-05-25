@@ -5,6 +5,7 @@ import {
   showGamePickerDialog,
   showArchiveEntryPickerDialog,
   showCoverArtPickerDialog,
+  showConflictDialog,
   isTopmostOverlay,
 } from "./modals.js";
 import type { SystemInfo } from "../systems.js";
@@ -113,6 +114,33 @@ describe("showConfirmDialog", () => {
 });
 
 // ── isTopmostOverlay ──────────────────────────────────────────────────────────
+
+describe("showConflictDialog", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("uses Saved Progress wording in the conflict resolver", async () => {
+    const promise = showConflictDialog({
+      local: { timestamp: 20, gameName: "Test Game", slot: 1, label: "Local copy" },
+      remote: { timestamp: 10, gameName: "Test Game", slot: 1, label: "Synced copy" },
+    });
+
+    const dialog = document.querySelector<HTMLElement>(".conflict-resolver-box")!;
+    expect(dialog.getAttribute("aria-label")).toBe("Resolve Saved Progress Conflict");
+    expect(dialog.textContent).toContain("Saved Progress Conflict");
+    expect(dialog.textContent).toContain("Local Saved Progress");
+    expect(dialog.textContent).toContain("Synced Saved Progress");
+    expect(dialog.textContent).not.toContain("Save State");
+
+    document.querySelector<HTMLButtonElement>(".confirm-footer .btn")!.click();
+    await promise;
+  });
+});
 
 describe("isTopmostOverlay", () => {
   beforeEach(() => {

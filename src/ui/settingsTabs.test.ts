@@ -163,6 +163,35 @@ describe("buildApiKeysTab", () => {
     expect(pill.textContent).toMatch(/Active/);
   });
 
+  it("marks the connection test button busy while testing", async () => {
+    document.body.innerHTML = "";
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const store = new ApiKeyStore({ storage: makeStorage(), providers: cfgs });
+    let resolveTest!: (value: true) => void;
+    const pendingTest = new Promise<true>((resolve) => { resolveTest = resolve; });
+    buildApiKeysTab(container, store, {
+      appName: "RetroOasis",
+      getTester: () => ({ testConnection: () => pendingTest }),
+      onError: vi.fn(),
+    });
+
+    store.setKey("rawg", "0123456789abcdef0123456789abcdef");
+    const testBtn = Array.from(
+      container.querySelectorAll('[data-provider-id="rawg"] button'),
+    ).find((b) => b.textContent === "Test again") as HTMLButtonElement;
+    testBtn.click();
+
+    expect(testBtn.disabled).toBe(true);
+    expect(testBtn.getAttribute("aria-busy")).toBe("true");
+    expect(testBtn.textContent).toBe("Testing...");
+
+    resolveTest(true);
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-provider-id="rawg"] .api-key-status')?.textContent).toMatch(/Active/);
+    });
+  });
+
   it("Test button reports failure for a rejecting tester", async () => {
     const { container, store, errors } = mount();
     store.setKey("mobygames", "0123456789abcdef0123456789abcdef");
@@ -324,7 +353,7 @@ describe("buildAchievementsTab", () => {
 
     buildAchievementsTab(container, store, { appName: "RetroOasis", onError: vi.fn() });
 
-    expect(container.textContent).toContain("expected username:apikey format");
+    expect(container.textContent).toContain("expected username:token format");
     expect(container.textContent).toContain("Fix RetroAchievements login");
   });
 });

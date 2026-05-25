@@ -185,6 +185,7 @@ function appendOAuthSignInButton(opts: {
 
   oauthBtn.addEventListener("click", async () => {
     oauthBtn.disabled = true;
+    oauthBtn.setAttribute("aria-busy", "true");
     oauthBtn.textContent = "Waiting for sign-in…";
     try {
       const result = opts.providerId === "gdrive"
@@ -192,8 +193,10 @@ function appendOAuthSignInButton(opts: {
         : await startDropboxOAuth();
       opts.tokenInput.value = result.accessToken;
       oauthBtn.textContent = "Signed in";
+      oauthBtn.removeAttribute("aria-busy");
     } catch (err) {
       oauthBtn.disabled = false;
+      oauthBtn.removeAttribute("aria-busy");
       oauthBtn.textContent = `Sign in with ${opts.providerLabel}`;
       const msg = err instanceof Error ? err.message : "OAuth sign-in failed.";
       const errorEl = opts.getErrorEl();
@@ -214,7 +217,7 @@ function showCloudConnectDialog(): Promise<boolean> {
       class: "confirm-box cloud-wizard-box",
       role:  "dialog",
       "aria-modal": "true",
-      "aria-label": "Cloud Connection",
+      "aria-label": "Save Sync Connection",
     });
 
     const close = (result: boolean) => {
@@ -248,7 +251,7 @@ function showCloudConnectDialog(): Promise<boolean> {
         const pCard = make("button", {
           class: `cloud-provider-card${p.id === selectedId ? " active" : ""}`,
           type: "button",
-          "aria-label": `${p.label} — backup provider`,
+          "aria-label": `${p.label} save sync provider`,
           "aria-pressed": p.id === selectedId ? "true" : "false",
         }) as HTMLButtonElement;
         pCard.appendChild(cloudProviderPickerIconEl(p.id));
@@ -515,7 +518,7 @@ function showAddCloudLibraryDialog(
         const card = make("button", {
           class: "cloud-provider-card",
           type:  "button",
-          "aria-label": p.label,
+          "aria-label": `${p.label} remote library source`,
         }) as HTMLButtonElement;
         card.appendChild(cloudProviderPickerIconEl(p.id));
         card.appendChild(make("span", { class: "cloud-provider-card__label" }, p.label));
@@ -699,6 +702,7 @@ function showAddCloudLibraryDialog(
 
           const prevLabel = saveBtn.textContent;
           saveBtn.disabled = true;
+          saveBtn.setAttribute("aria-busy", "true");
           saveBtn.textContent = "Verifying…";
 
           try {
@@ -727,6 +731,7 @@ function showAddCloudLibraryDialog(
             errorMsg.hidden = false;
           } finally {
             saveBtn.disabled = false;
+            saveBtn.removeAttribute("aria-busy");
             saveBtn.textContent = prevLabel ?? "Add Source";
           }
         })();
@@ -763,6 +768,7 @@ async function syncCloudLibrary(
     syncTrigger.disabled = true;
     syncTrigger.setAttribute("aria-busy", "true");
     syncTrigger.classList.add("is-loading");
+    syncTrigger.textContent = "Syncing...";
   }
 
   showLoadingOverlay();
@@ -800,7 +806,7 @@ async function syncCloudLibrary(
 
     if (romFiles.length === 0) {
       showInfoToast(
-        `Connected to ${conn.name}, but no supported ROM extensions were found in the root folder. Add files there or nested-folder listing is not run yet.`,
+        `Connected to ${conn.name}, but no supported ROM extensions were found in the root folder. Add files there, then sync again. Only the root folder is scanned right now.`,
         "info",
       );
     } else {
@@ -808,7 +814,7 @@ async function syncCloudLibrary(
     }
     document.dispatchEvent(new CustomEvent(LEGACY_EVENTS.libraryCatalogNeedsRefresh));
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Cloud library sync failed.";
+    const message = error instanceof Error ? error.message : "Remote library sync failed.";
     showError(message);
   } finally {
     _cloudLibrarySyncConnIds.delete(conn.id);
@@ -817,6 +823,7 @@ async function syncCloudLibrary(
       syncTrigger.disabled = false;
       syncTrigger.removeAttribute("aria-busy");
       syncTrigger.classList.remove("is-loading");
+      syncTrigger.textContent = "Sync";
     }
   }
 }

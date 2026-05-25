@@ -7,11 +7,12 @@ import * as archive from "./archive.js";
 import type { PSPEmulator } from "./emulator.js";
 import type { GameLibrary, GameMetadata } from "./library.js";
 import type { BiosLibrary } from "./bios.js";
-import type { SaveStateLibrary } from "./saves.js";
+import type { SaveStateEntry, SaveStateLibrary } from "./saves.js";
 import type { Settings } from "./main.js";
 import { UIDirtyFlags, UIDirtyTracker, type DeviceCapabilities } from "./performance.js";
 import { store } from "./store/index.js";
 import { LEGACY_EVENTS } from "./legacy.js";
+import { getCloudSaveManager } from "./cloudSaveSingleton.js";
 
 function makeSaveLibraryStub(overrides: Partial<SaveStateLibrary> = {}): SaveStateLibrary {
   return {
@@ -1543,6 +1544,18 @@ describe("buildMultiplayerTab", () => {
     const nameInput = document.getElementById("netplay-username") as HTMLInputElement;
     expect(nameInput).toBeTruthy();
     expect(nameInput.value).toBe("alice");
+    const label = document.querySelector<HTMLLabelElement>('label[for="netplay-username"]');
+    expect(label?.textContent).toBe("Display name");
+  });
+
+  it("uses polished Play Together helper copy", () => {
+    settings = makeSettings({ netplayEnabled: true });
+    openMultiplayerTab();
+    const panel = document.getElementById("tab-panel-multiplayer")!;
+    expect(panel.textContent).toContain("Leave blank to use a temporary guest name.");
+    expect(panel.textContent).toContain("Auto-refreshes every 30 seconds");
+    expect(panel.textContent).not.toContain("anonymous-looking");
+    expect(panel.textContent).not.toContain("auto-refreshes every 30 s");
   });
 
   it("changing username calls onSettingsChange and netplayManager.setUsername", async () => {
@@ -1919,6 +1932,33 @@ describe("buildDebugTab", () => {
     expect(copyBtn).toBeTruthy();
   });
 
+  it("Copy Debug Info exposes a busy state while writing to the clipboard", async () => {
+    let resolveCopy!: () => void;
+    const writeText = vi.fn().mockImplementation(() => new Promise<void>((resolve) => { resolveCopy = resolve; }));
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    openDebugTab();
+    const panel = document.getElementById("tab-panel-debug")!;
+    const copyBtn = Array.from(panel.querySelectorAll("button"))
+      .find(b => b.textContent?.includes("Copy Debug Info")) as HTMLButtonElement;
+
+    copyBtn.click();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(copyBtn.disabled).toBe(true);
+    expect(copyBtn.getAttribute("aria-busy")).toBe("true");
+    expect(copyBtn.textContent).toBe("Copying...");
+
+    resolveCopy();
+    await vi.waitFor(() => {
+      expect(copyBtn.disabled).toBe(false);
+    });
+    expect(copyBtn.getAttribute("aria-busy")).toBeNull();
+    expect(copyBtn.textContent).toBe("Copy Debug Info");
+  });
+
   it("Diagnostic Timeline section is present in the Debug tab", () => {
     openDebugTab();
     const panel = document.getElementById("tab-panel-debug")!;
@@ -2062,6 +2102,30 @@ describe("Help tab keyboard shortcut descriptions", () => {
       expect(aboutPanel.textContent).toContain("F3");
     });
     expect(aboutPanel.textContent).toContain("on-screen debug overlay");
+  });
+
+  it("uses current Data Management copy for metadata and connection exports", async () => {
+    openSettingsPanel(
+      makeSettings(),
+      caps,
+      { getAllGamesMetadata: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), totalSize: vi.fn().mockResolvedValue(0) } as unknown as GameLibrary,
+      { findBios: vi.fn().mockResolvedValue(null) } as unknown as BiosLibrary,
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "about"
+    );
+    const aboutPanel = document.getElementById("tab-panel-about")!;
+    await vi.waitFor(() => {
+      expect(aboutPanel.textContent).toContain("Data Management");
+    });
+    expect(aboutPanel.textContent).toContain("optional connection credentials");
+    expect(aboutPanel.textContent).toContain("ROM files are not included");
+    expect(aboutPanel.textContent).not.toContain("Backup your library metadata");
+    expect(aboutPanel.textContent).not.toContain("does NOT");
+    expect(aboutPanel.querySelector<HTMLInputElement>('input[aria-label="Import library metadata JSON"]')).toBeTruthy();
   });
 });
 
@@ -3247,6 +3311,231 @@ describe("in-game UI — rotate hint, keyboard reset, save gallery", () => {
     expect(document.getElementById("info-toast")?.textContent ?? "").not.toContain("completed successfully");
   });
 
+  it("shows busy feedback while saving from the in-game hamburger menu", async () => {
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+    let resolveSave: (entry: unknown) => void = () => {};
+    const saveService = {
+      syncGameMetadata: vi.fn(),
+      saveSlot: vi.fn(() => new Promise((resolve) => { resolveSave = resolve; })),
+      loadSlot: vi.fn(),
+    };
+
+    initUI({
+      ...makeOpts(makeSettings({ lastGameName: "Crisis Core" })),
+      emulator: emulatorMock,
+      saveService: saveService as never,
+      getCurrentGameId: () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    document.querySelector<HTMLButtonElement>(".in-game-overlay__hamburger")?.click();
+    const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".in-game-overlay__btn"))
+      .find((button) => button.textContent?.includes("Quick Save"));
+
+    saveButton?.click();
+
+    expect(saveService.saveSlot).toHaveBeenCalledWith(1);
+    expect(saveButton?.disabled).toBe(true);
+    expect(saveButton?.getAttribute("aria-busy")).toBe("true");
+    expect(saveButton?.textContent).toBe("Saving Slot 1...");
+    expect(document.querySelector(".in-game-overlay__status")?.textContent).toBe("Saving Slot 1...");
+
+    resolveSave({ id: "save-1" });
+    await flushUI();
+
+    expect(saveButton?.disabled).toBe(false);
+    expect(saveButton?.getAttribute("aria-busy")).toBeNull();
+    expect(saveButton?.textContent).toBe("Quick Save");
+    expect(document.querySelector(".in-game-overlay__status")?.textContent).toBe("Saved Slot 1");
+    expect(document.getElementById("info-toast")?.textContent).toContain("Saved to Slot 1");
+  });
+
+  it("shows busy feedback while loading from the in-game hamburger menu", async () => {
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+    let resolveLoad: (ok: boolean) => void = () => {};
+    const saveService = {
+      syncGameMetadata: vi.fn(),
+      saveSlot: vi.fn(),
+      loadSlot: vi.fn(() => new Promise<boolean>((resolve) => { resolveLoad = resolve; })),
+    };
+
+    initUI({
+      ...makeOpts(makeSettings({ lastGameName: "Crisis Core" })),
+      emulator: emulatorMock,
+      saveService: saveService as never,
+      getCurrentGameId: () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    document.querySelector<HTMLButtonElement>(".in-game-overlay__hamburger")?.click();
+    const loadButton = Array.from(document.querySelectorAll<HTMLButtonElement>(".in-game-overlay__btn"))
+      .find((button) => button.textContent?.includes("Quick Load"));
+
+    loadButton?.click();
+
+    expect(saveService.loadSlot).toHaveBeenCalledWith(1);
+    expect(loadButton?.disabled).toBe(true);
+    expect(loadButton?.getAttribute("aria-busy")).toBe("true");
+    expect(loadButton?.textContent).toBe("Loading Slot 1...");
+    expect(document.querySelector(".in-game-overlay__status")?.textContent).toBe("Loading Slot 1...");
+
+    resolveLoad(true);
+    await flushUI();
+
+    expect(loadButton?.disabled).toBe(false);
+    expect(loadButton?.getAttribute("aria-busy")).toBeNull();
+    expect(loadButton?.textContent).toBe("Quick Load");
+    expect(document.querySelector(".in-game-overlay__status")?.textContent).toBe("Loaded Slot 1");
+    expect(document.getElementById("info-toast")?.textContent).toContain("Loaded Slot 1");
+  });
+
+  it("saves through the hamburger menu into the running core state", async () => {
+    const stateBytes = new Uint8Array([0x10, 0x20, 0x30]);
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      supportsStates: vi.fn(() => true),
+      quickSave: vi.fn(() => true),
+      quickLoad: vi.fn(),
+      readStateData: vi.fn(() => stateBytes),
+      writeStateData: vi.fn(),
+      captureScreenshotAsync: vi.fn().mockResolvedValue(null),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+    let stored: SaveStateEntry | null = null;
+    const saveStateMock = vi.fn(async (entry: SaveStateEntry) => { stored = entry; });
+    const saveLibrary = makeSaveLibraryStub({
+      getState: vi.fn(async () => stored),
+      saveState: saveStateMock,
+    });
+
+    initUI({
+      ...makeOpts(makeSettings({ lastGameName: "Crisis Core" })),
+      emulator: emulatorMock,
+      saveLibrary,
+      getCurrentGameId: () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    document.querySelector<HTMLButtonElement>(".in-game-overlay__hamburger")?.click();
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".in-game-overlay__btn"))
+      .find((button) => button.textContent?.includes("Quick Save"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".in-game-overlay__status")?.textContent).toBe("Saved Slot 1");
+    });
+
+    expect(emulatorMock.quickSave).toHaveBeenCalledWith(1);
+    expect(emulatorMock.readStateData).toHaveBeenCalledWith(1);
+    expect(saveStateMock).toHaveBeenCalledTimes(1);
+    const saved = saveStateMock.mock.calls[0]![0];
+    expect(saved.gameId).toBe("game1");
+    expect(saved.gameName).toBe("Crisis Core");
+    expect(saved.systemId).toBe("psp");
+    expect(saved.slot).toBe(1);
+    expect(new Uint8Array(await saved.stateData!.arrayBuffer())).toEqual(stateBytes);
+  });
+
+  it("loads through the hamburger menu into the running core state", async () => {
+    const stateBytes = new Uint8Array([0x44, 0x55, 0x66]);
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: { id: "psp", shortName: "PSP", name: "PlayStation Portable" },
+      setFPSMonitorEnabled: vi.fn(),
+      prefetchCore: vi.fn(),
+      supportsStates: vi.fn(() => true),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      readStateData: vi.fn(),
+      writeStateData: vi.fn(() => true),
+      captureScreenshotAsync: vi.fn().mockResolvedValue(null),
+      reset: vi.fn(),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+    const saveLibrary = makeSaveLibraryStub({
+      getState: vi.fn(async () => ({
+        id: "game1:1",
+        gameId: "game1",
+        gameName: "Crisis Core",
+        systemId: "psp",
+        slot: 1,
+        label: "Slot 1",
+        timestamp: Date.now(),
+        thumbnail: null,
+        stateData: new Blob([stateBytes]),
+        isAutoSave: false,
+      })),
+    });
+
+    initUI({
+      ...makeOpts(makeSettings({ lastGameName: "Crisis Core" })),
+      emulator: emulatorMock,
+      saveLibrary,
+      getCurrentGameId: () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    (emulatorMock as unknown as { onGameStart: () => void }).onGameStart();
+    document.querySelector<HTMLButtonElement>(".in-game-overlay__hamburger")?.click();
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".in-game-overlay__btn"))
+      .find((button) => button.textContent?.includes("Quick Load"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(document.querySelector(".in-game-overlay__status")?.textContent).toBe("Loaded Slot 1");
+    });
+
+    expect(saveLibrary.getState).toHaveBeenCalledWith("game1", 1);
+    expect(emulatorMock.writeStateData).toHaveBeenCalledWith(1, stateBytes);
+    expect(emulatorMock.quickLoad).toHaveBeenCalledWith(1);
+  });
 
 });
 
@@ -3472,6 +3761,33 @@ describe("openEasyNetplayModal", () => {
 
     expect(joinTab.getAttribute("aria-selected")).toBe("true");
     expect(joinSpy).toHaveBeenCalledWith(expect.objectContaining({ code: "ABCDEF" }));
+  });
+
+  it("Browse refresh exposes a busy state while rooms load", async () => {
+    const mgr = new NetplayManager();
+    mgr.setEnabled(true);
+    mgr.setServerUrl("wss://netplay.example.com");
+    let resolveRooms!: (rooms: []) => void;
+    vi.spyOn(EasyNetplayManager.prototype, "listRooms")
+      .mockImplementation(() => new Promise((resolve) => { resolveRooms = resolve; }));
+
+    openEasyNetplayModal({ netplayManager: mgr });
+    const browseTab = Array.from(document.querySelectorAll<HTMLButtonElement>(".enp-tab"))
+      .find(t => t.textContent?.includes("Browse"))!;
+    browseTab.click();
+    await Promise.resolve();
+
+    const refreshBtn = document.querySelector<HTMLButtonElement>(".enp-refresh-btn")!;
+    expect(refreshBtn.disabled).toBe(true);
+    expect(refreshBtn.getAttribute("aria-busy")).toBe("true");
+    expect(refreshBtn.textContent).toContain("Refreshing");
+
+    resolveRooms([]);
+    await vi.waitFor(() => {
+      expect(refreshBtn.disabled).toBe(false);
+    });
+    expect(refreshBtn.getAttribute("aria-busy")).toBeNull();
+    expect(refreshBtn.textContent).toContain("Refresh");
   });
 
   it("pressing Escape closes the modal", () => {
@@ -4368,6 +4684,7 @@ describe("multi-disc playlist imports", () => {
     const app = document.createElement("div");
     document.body.appendChild(app);
     buildDOM(app);
+    getCloudSaveManager().disconnect();
   });
 
   it("passes the stored playlist game id into launch so quick saves have context", async () => {
@@ -4673,6 +4990,24 @@ describe("UX polish shortcuts and feedback", () => {
     await flushUI();
 
     expect(label?.textContent).toContain("Help");
+  });
+
+  it("keeps sidebar selection aligned after smooth-scrolling to Play Together", async () => {
+    vi.useFakeTimers();
+    try {
+      openSettingsPanel(makeSettings(), fullCapsForTests, makeFullLibForTests(), makeBiosLibForTests(), vi.fn());
+      const label = document.querySelector<HTMLElement>(".settings-active-tab-label");
+      const playTogetherTab = document.getElementById("tab-multiplayer") as HTMLButtonElement;
+      playTogetherTab.click();
+
+      vi.advanceTimersByTime(1_300);
+      await Promise.resolve();
+
+      expect(playTogetherTab.getAttribute("aria-selected")).toBe("true");
+      expect(label?.textContent).toContain("Play Together");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("focuses the retry action in the error banner and closes on Escape", async () => {
@@ -5139,6 +5474,33 @@ describe("buildCloudTab — Save Sync settings tab", () => {
     const connect = panel.querySelector<HTMLButtonElement>(".btn.btn--primary[type=button]");
     expect(connect?.getAttribute("aria-label")).toMatch(/Turn on save sync/i);
   });
+
+  it("Save Sync provider picker names providers as save sync destinations", async () => {
+    openCloudTab();
+    const connect = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Turn on save sync");
+    connect?.click();
+    await flushUI();
+
+    const dialog = document.querySelector<HTMLElement>(".cloud-wizard-box");
+    expect(dialog?.getAttribute("aria-label")).toBe("Save Sync Connection");
+    const providerCards = Array.from(document.querySelectorAll<HTMLButtonElement>(".cloud-provider-card"));
+    expect(providerCards.length).toBeGreaterThan(0);
+    expect(providerCards[0]?.getAttribute("aria-label")).toMatch(/save sync provider/i);
+    expect(providerCards[0]?.getAttribute("aria-label")).not.toMatch(/backup provider/i);
+  });
+
+  it("Remote Library provider picker names providers as remote library sources", async () => {
+    openCloudTab();
+    const addRemote = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Add remote library");
+    addRemote?.click();
+    await flushUI();
+
+    const providerCards = Array.from(document.querySelectorAll<HTMLButtonElement>(".cloud-provider-card"));
+    expect(providerCards.length).toBeGreaterThan(0);
+    expect(providerCards[0]?.getAttribute("aria-label")).toMatch(/remote library source/i);
+  });
 });
 
 // ── Library tab — Organization toggle ────────────────────────────────────────
@@ -5224,6 +5586,17 @@ describe("buildLibraryTab — Organization toggle", () => {
       `[role="region"][aria-labelledby="settings-library-organization-heading"]`,
     );
     expect(region?.contains(orgHeading ?? null)).toBe(true);
+  });
+
+  it("uses Saved Progress copy for the empty save library state", async () => {
+    openLibraryTab();
+    const panel = document.getElementById("tab-panel-library")!;
+    await vi.waitFor(() => {
+      expect(panel.textContent).toContain("No saved progress yet");
+    });
+    expect(panel.textContent).toContain("Quick Save in-game");
+    expect(panel.textContent).not.toContain("No save states yet");
+    expect(panel.textContent).not.toContain("Save State in-game");
   });
 });
 

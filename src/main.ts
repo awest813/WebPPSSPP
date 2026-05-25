@@ -642,7 +642,7 @@ async function main(): Promise<void> {
     }
 
     if (gameId && cloudSaveManager.isConnected()) {
-      setLoadingSubtitle("Checking local and synced save states before launch…");
+      setLoadingSubtitle("Checking local and synced saved progress before launch…");
       try {
         const result = await cloudSaveManager.syncGame(gameId, saveLibrary);
         if (result.errors > 0) {
@@ -650,16 +650,16 @@ async function main(): Promise<void> {
             `[${APP_NAME}] Save-state sync completed with slot errors before launch.`,
             result,
           );
-          showInfoToast(`Save sync had ${result.errors} error(s) — open the Save States panel to retry.`);
+          showInfoToast(`Save sync had ${result.errors} error(s) — open Saved Progress to retry.`);
         } else if (result.pulled > 0 || result.pushed > 0) {
           const parts: string[] = [];
           if (result.pulled > 0) parts.push(`${result.pulled} restored from sync`);
           if (result.pushed > 0) parts.push(`${result.pushed} mirrored to sync`);
-          showInfoToast(`Save states updated · ${parts.join(" · ")}`);
+          showInfoToast(`Saved progress updated · ${parts.join(" · ")}`);
         }
       } catch (error) {
         console.warn(
-          `[${APP_NAME}] Save-state sync failed before launch; continuing with local save states.`,
+          `[${APP_NAME}] Save sync failed before launch; continuing with local saved progress.`,
           error,
         );
       }

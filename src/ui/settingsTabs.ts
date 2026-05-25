@@ -65,12 +65,14 @@ export function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary, o
         style: "display:none",
       }) as HTMLInputElement;
 
-      const uploadBtn = make("button", { class: "btn bios-upload-btn" }, "Upload");
+      const uploadBtn = make("button", { type: "button", class: "btn bios-upload-btn" }, "Upload") as HTMLButtonElement;
       uploadBtn.addEventListener("click", () => uploadInput.click());
       uploadInput.addEventListener("change", async () => {
         const file = uploadInput.files?.[0];
         if (!file) return;
         uploadInput.value = "";
+        uploadBtn.disabled = true;
+        uploadBtn.setAttribute("aria-busy", "true");
         try {
           const canonical = new File([file], req.fileName, { type: file.type });
           await biosLibrary.addBios(canonical, sysId);
@@ -79,18 +81,22 @@ export function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary, o
           if (downloadBtn) downloadBtn.textContent = "Re-download";
         } catch (err) {
           onError(`BIOS upload failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          uploadBtn.disabled = false;
+          uploadBtn.removeAttribute("aria-busy");
         }
       });
 
       // "Download Free" button — only shown for entries with a free downloadUrl.
       let downloadBtn: HTMLButtonElement | null = null;
       if (req.downloadUrl) {
-        downloadBtn = make("button", { class: "btn bios-download-btn" }, "Download Free") as HTMLButtonElement;
+        downloadBtn = make("button", { type: "button", class: "btn bios-download-btn" }, "Download Free") as HTMLButtonElement;
         downloadBtn.title = `Fetch ${req.displayName} automatically`;
         downloadBtn.addEventListener("click", async () => {
           if (!downloadBtn) return;
           const origText = downloadBtn.textContent ?? "Download Free";
           downloadBtn.disabled = true;
+          downloadBtn.setAttribute("aria-busy", "true");
           downloadBtn.textContent = "Downloading…";
           try {
             const resp = await fetch(req.downloadUrl!);
@@ -106,6 +112,7 @@ export function buildBiosTab(container: HTMLElement, biosLibrary: BiosLibrary, o
             downloadBtn.textContent = origText;
           } finally {
             downloadBtn.disabled = false;
+            downloadBtn.removeAttribute("aria-busy");
           }
         });
       }
@@ -244,12 +251,21 @@ export function buildAboutTab(container: HTMLElement, appName: string): void {
 
   const dataSection = make("div", { class: "settings-section" });
   dataSection.appendChild(make("h4", { class: "settings-section__title" }, "Data Management"));
-  dataSection.appendChild(make("p", { class: "settings-help" }, "Backup your library metadata and settings to a JSON file. This does NOT include your ROM files, only the record of your collection and preferences."));
+  dataSection.appendChild(make("p", { class: "settings-help" },
+    "Export your library metadata, optional connection credentials, and settings to a JSON file. ROM files are not included."
+  ));
   
   const dataButtons = make("div", { class: "help-links" });
   
-  const exportBtn = make("button", { class: "btn" }, "Export Library JSON");
+  const exportBtn = make("button", { type: "button", class: "btn" }, "Export Library JSON") as HTMLButtonElement;
+  const importStatus = make("p", { class: "settings-import-status", "aria-live": "polite" });
   exportBtn.addEventListener("click", async () => {
+    const origText = exportBtn.textContent ?? "Export Library JSON";
+    exportBtn.disabled = true;
+    exportBtn.setAttribute("aria-busy", "true");
+    exportBtn.textContent = "Exporting...";
+    importStatus.textContent = "";
+    importStatus.className = "settings-import-status";
     try {
       const { GameLibrary } = await import("../library.js");
       const lib = new GameLibrary();
@@ -269,20 +285,33 @@ export function buildAboutTab(container: HTMLElement, appName: string): void {
       a.download = `retro-oasis-library-${new Date().toISOString().split("T")[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      importStatus.textContent = "Library metadata exported.";
+      importStatus.className = "settings-import-status settings-import-status--success";
     } catch (err) {
       console.error("Export failed:", err);
+      importStatus.textContent = "Failed to export data: " + (err instanceof Error ? err.message : String(err));
+      importStatus.className = "settings-import-status settings-import-status--error";
+    } finally {
+      exportBtn.disabled = false;
+      exportBtn.removeAttribute("aria-busy");
+      exportBtn.textContent = origText;
     }
   });
 
-  const importInput = make("input", { type: "file", accept: ".json", style: "display:none" }) as HTMLInputElement;
-  const importBtn = make("button", { class: "btn" }, "Import Library JSON");
-  const importStatus = make("p", { class: "settings-import-status", "aria-live": "polite" });
+  const importInput = make("input", {
+    type: "file",
+    accept: ".json",
+    style: "display:none",
+    "aria-label": "Import library metadata JSON",
+  }) as HTMLInputElement;
+  const importBtn = make("button", { type: "button", class: "btn" }, "Import Library JSON") as HTMLButtonElement;
   importBtn.addEventListener("click", () => importInput.click());
   importInput.addEventListener("change", async () => {
     const file = importInput.files?.[0];
     if (!file) return;
     importBtn.disabled = true;
     importBtn.classList.add("is-loading");
+    importBtn.setAttribute("aria-busy", "true");
     importStatus.textContent = "Importing...";
     importStatus.className = "settings-import-status settings-import-status--dim";
     try {
@@ -297,6 +326,7 @@ export function buildAboutTab(container: HTMLElement, appName: string): void {
     } catch (err) {
       importBtn.disabled = false;
       importBtn.classList.remove("is-loading");
+      importBtn.removeAttribute("aria-busy");
       importStatus.textContent = "Failed to import data: " + (err instanceof Error ? err.message : String(err));
       importStatus.className = "settings-import-status settings-import-status--error";
     }
@@ -347,7 +377,7 @@ export function buildAchievementsTab(
     const invalid = make("div", { class: "settings-section achievements-empty" });
     invalid.appendChild(make("h4", { class: "settings-section__title" }, "RetroAchievements"));
     invalid.appendChild(make("p", { class: "settings-help" },
-      "Your saved RetroAchievements login is not in the expected username:apikey format."
+      "Your saved RetroAchievements login is not in the expected username:token format."
     ));
     invalid.appendChild(showSetupButton("Fix RetroAchievements login"));
     container.appendChild(invalid);
@@ -1027,8 +1057,11 @@ export function buildApiKeysTab(
         return;
       }
       renderStatus("testing");
+      const origTestText = testBtn.textContent ?? "Test again";
       testBtn.disabled = true;
       testBtn.classList.add("is-loading");
+      testBtn.setAttribute("aria-busy", "true");
+      testBtn.textContent = "Testing...";
       testMsg.textContent = "";
       testMsg.className = "api-key-row__test-msg";
       try {
@@ -1056,6 +1089,8 @@ export function buildApiKeysTab(
       } finally {
         testBtn.disabled = false;
         testBtn.classList.remove("is-loading");
+        testBtn.removeAttribute("aria-busy");
+        testBtn.textContent = origTestText;
         rebuild();
       }
     };

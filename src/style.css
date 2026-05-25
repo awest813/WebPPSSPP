@@ -1587,6 +1587,13 @@ html.touch-ui #landing {
   animation: pulse-shadow 2s infinite;
 }
 
+.in-game-overlay__status {
+  min-height: 18px;
+  padding-inline: 4px;
+  color: var(--c-muted);
+  font-size: 0.78rem;
+}
+
 .in-game-overlay__panel-actions {
   display: flex;
   flex-direction: column;
@@ -1597,6 +1604,12 @@ html.touch-ui #landing {
   min-height: 38px;
   padding-inline: 14px;
   width: 100%;
+}
+
+.in-game-overlay__btn[aria-busy="true"],
+.in-game-overlay__btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .in-game-overlay__close {
@@ -3431,6 +3444,93 @@ body:has(#ejs-container.visible) .app-header {
 .radio-row:hover {
   background: var(--c-surface3);
   border-color: var(--c-border-lt);
+}
+
+.toggle-row {
+  background: var(--c-surface2);
+  padding: 20px 32px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 14px 0 12px;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.toggle-row:hover {
+  background: var(--c-surface3);
+  border-color: var(--c-border-lt);
+}
+
+.toggle-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.toggle-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 54px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--c-border-lt);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.toggle-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.toggle-switch__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--c-text);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch.is-checked {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+
+.toggle-switch.is-checked .toggle-switch__knob {
+  transform: translateX(24px);
+  background: #111;
+}
+
+.netplay-status-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 2px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-lt);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--c-text-dim);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.netplay-status-pill--active {
+  border-color: rgba(0, 255, 136, 0.35);
+  background: rgba(0, 255, 136, 0.12);
+  color: var(--c-tier-ok);
 }
 
 .radio-row input[type="radio"] {
