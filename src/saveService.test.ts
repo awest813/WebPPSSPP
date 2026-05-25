@@ -56,10 +56,12 @@ describe("SaveGameService", () => {
       getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "psp" }),
     });
 
-    await Promise.all([service.saveSlot(1), service.saveSlot(1)]);
+    const [first, second] = await Promise.all([service.saveSlot(1), service.saveSlot(1)]);
 
     expect(emulator.quickSave).toHaveBeenCalledTimes(1);
     expect(saveState).toHaveBeenCalledTimes(1);
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
   });
 
   it("reports emulator-not-ready when core never leaves loading", async () => {
@@ -188,6 +190,38 @@ describe("SaveGameService", () => {
     expect(ok).toBe(true);
     expect(emulator.writeStateData).toHaveBeenCalled();
     expect(emulator.quickLoad).toHaveBeenCalledWith(1);
+  });
+
+  it("returns false when quickLoad throws after state data is written", async () => {
+    const entry = makeEntry(1);
+    entry.checksum = "0b885c8b";
+    const events: string[] = [];
+
+    const emulator = {
+      state: "running" as const,
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(() => { throw new Error("core refused load"); }),
+      readStateData: vi.fn(() => new Uint8Array([1, 2, 3])),
+      writeStateData: vi.fn(() => true),
+    };
+
+    const saveLibrary = {
+      getState: vi.fn(async () => entry),
+    } as unknown as SaveStateLibrary;
+
+    const service = new SaveGameService({
+      saveLibrary,
+      emulator,
+      getCurrentGameContext: () => ({ gameId: "g", gameName: "Game", systemId: "psp" }),
+    });
+    service.onStatus((event) => {
+      if (event.message) events.push(event.message);
+    });
+
+    const ok = await service.loadSlot(1);
+    expect(ok).toBe(false);
+    expect(emulator.writeStateData).toHaveBeenCalled();
+    expect(events).toContain("core refused load");
   });
 
   it("emits a friendly sync success message when save sync succeeds", async () => {

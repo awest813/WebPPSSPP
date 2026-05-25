@@ -2310,6 +2310,50 @@ describe("F5/F7 keyboard shortcuts show toast feedback", () => {
     expect(saveLib.saveState).toHaveBeenCalledTimes(1);
   });
 
+  it("pressing F5 shows an error when save persistence fails", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const emulatorMock = {
+      state: "running",
+      activeTier: "medium",
+      currentSystem: null,
+      setFPSMonitorEnabled: vi.fn(),
+      quickSave: vi.fn(),
+      quickLoad: vi.fn(),
+      readStateData: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+      captureScreenshot: vi.fn().mockResolvedValue(null),
+      captureScreenshotAsync: vi.fn().mockResolvedValue(null),
+      onStateChange: null,
+      onProgress: null,
+      onError: null,
+      onGameStart: null,
+      onFPSUpdate: null,
+    } as unknown as PSPEmulator;
+
+    const saveLib = {
+      getState: vi.fn().mockResolvedValue(null),
+      saveState: vi.fn().mockRejectedValue(new Error("IndexedDB blocked")),
+    } as unknown as SaveStateLibrary;
+
+    initUI({
+      ...makeOpts(makeSettings()),
+      emulator: emulatorMock,
+      saveLibrary: saveLib,
+      getCurrentGameId:   () => "game1",
+      getCurrentGameName: () => "Crisis Core",
+      getCurrentSystemId: () => "psp",
+    });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true, cancelable: true }));
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(document.getElementById("error-banner")?.textContent).toContain("Quick save failed: IndexedDB blocked");
+  });
+
   it("pressing F7 shows a 'Loaded Slot 1' toast", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);

@@ -3629,6 +3629,7 @@ export class PSPEmulator {
     const basePaths = [
       "/home/web_user/retroarch/states",
       "/data/states",
+      "/data/saves",
     ];
 
     try {
@@ -3650,9 +3651,16 @@ export class PSPEmulator {
             continue;
           }
         }
-        emu.Module.FS.writeFile(`${basePath}/${gameName}.state${slot}`, data);
+        const normalizedSlot = slot || 1;
+        emu.Module.FS.writeFile(`${basePath}/${gameName}.state${normalizedSlot}`, data);
         if (safeGameName !== gameName) {
-          emu.Module.FS.writeFile(`${basePath}/${safeGameName}.state${slot}`, data);
+          emu.Module.FS.writeFile(`${basePath}/${safeGameName}.state${normalizedSlot}`, data);
+        }
+        if (normalizedSlot === 1) {
+          emu.Module.FS.writeFile(`${basePath}/${gameName}.state`, data);
+          if (safeGameName !== gameName) {
+            emu.Module.FS.writeFile(`${basePath}/${safeGameName}.state`, data);
+          }
         }
         writeSucceeded = true;
       }

@@ -2725,6 +2725,60 @@ describe('PSPEmulator', () => {
 
   // ── readStateData / writeStateData ────────────────────────────────────────
 
+  describe('quick save/load core bridge', () => {
+    afterEach(() => {
+      delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
+    });
+
+    it('delegates quickSave to the running core only when save states are supported', () => {
+      const quickSaveMock = vi.fn().mockReturnValue(true);
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        gameManager: {
+          restart: vi.fn(),
+          supportsStates: vi.fn().mockReturnValue(true),
+          quickSave: quickSaveMock,
+          quickLoad: vi.fn(),
+        },
+      };
+
+      expect(emulator.quickSave(3)).toBe(true);
+      expect(quickSaveMock).toHaveBeenCalledWith(3);
+    });
+
+    it('does not quickSave when the active core reports no state support', () => {
+      const quickSaveMock = vi.fn();
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        gameManager: {
+          restart: vi.fn(),
+          supportsStates: vi.fn().mockReturnValue(false),
+          quickSave: quickSaveMock,
+          quickLoad: vi.fn(),
+        },
+      };
+
+      expect(emulator.quickSave(1)).toBe(false);
+      expect(quickSaveMock).not.toHaveBeenCalled();
+    });
+
+    it('delegates quickLoad to the running core only when save states are supported', () => {
+      const quickLoadMock = vi.fn();
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        gameManager: {
+          restart: vi.fn(),
+          supportsStates: vi.fn().mockReturnValue(true),
+          quickSave: vi.fn(),
+          quickLoad: quickLoadMock,
+        },
+      };
+
+      emulator.quickLoad(2);
+      expect(quickLoadMock).toHaveBeenCalledWith(2);
+    });
+  });
+
   describe('readStateData', () => {
     afterEach(() => {
       delete (window as Window & { EJS_emulator?: unknown }).EJS_emulator;
@@ -2820,6 +2874,35 @@ describe('PSPEmulator', () => {
       const result = emulator.readStateData(1);
       expect(result).toEqual(fakeData);
       expect(readFileMock).toHaveBeenCalledWith('/data/states/TestGame.state1');
+    });
+
+    it('falls back to /data/saves paths used by some packaged cores', () => {
+      const fakeData = new Uint8Array([0xC0, 0xDE]);
+      const analyzePathMock = vi.fn().mockImplementation((path: string) => ({
+        exists: path === '/data/saves/TestGame.state1',
+      }));
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      const readFileMock = vi.fn().mockImplementation((path: string) => {
+        if (path === '/data/saves/TestGame.state1') return fakeData;
+        throw new Error('missing');
+      });
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: {
+          FS: {
+            readFile: readFileMock,
+            writeFile: vi.fn(),
+            stat: vi.fn(),
+            readdir: vi.fn(),
+            unlink: vi.fn(),
+            analyzePath: analyzePathMock,
+          },
+        },
+      };
+
+      const result = emulator.readStateData(1);
+      expect(result).toEqual(fakeData);
+      expect(readFileMock).toHaveBeenCalledWith('/data/saves/TestGame.state1');
     });
 
     it('reads quick-save bytes even when analyzePath has stale metadata', () => {
@@ -2918,6 +3001,7 @@ describe('PSPEmulator', () => {
       expect(writeFileMock).toHaveBeenCalledWith('/1-quick.state', data);
       expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state1', data);
       expect(writeFileMock).toHaveBeenCalledWith('/data/states/TestGame.state1', data);
+      expect(writeFileMock).toHaveBeenCalledWith('/data/saves/TestGame.state1', data);
     });
 
     it('writes EmulatorJS quick-save state files for quickLoad compatibility', () => {
@@ -2931,6 +3015,36 @@ describe('PSPEmulator', () => {
 
       expect(emulator.writeStateData(2, data)).toBe(true);
       expect(writeFileMock).toHaveBeenCalledWith('/2-quick.state', data);
+    });
+
+    it('writes slot 1 states to unsuffixed compatibility paths for cores that load .state', () => {
+      const writeFileMock = vi.fn();
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'Crisis Core: Final Fantasy VII (USA)';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: writeFileMock, mkdir: vi.fn(), stat: vi.fn(), readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      const data = new Uint8Array([0x07, 0x77]);
+
+      expect(emulator.writeStateData(1, data)).toBe(true);
+      expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/Crisis Core: Final Fantasy VII (USA).state', data);
+      expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/Crisis Core Final Fantasy VII (USA).state', data);
+      expect(writeFileMock).toHaveBeenCalledWith('/data/saves/Crisis Core: Final Fantasy VII (USA).state', data);
+      expect(writeFileMock).toHaveBeenCalledWith('/data/saves/Crisis Core Final Fantasy VII (USA).state', data);
+    });
+
+    it('keeps non-primary slots isolated from unsuffixed .state compatibility files', () => {
+      const writeFileMock = vi.fn();
+      (window as Window & { EJS_gameName?: string }).EJS_gameName = 'TestGame';
+      (window as Window & { EJS_emulator?: unknown }).EJS_emulator = {
+        setVolume: vi.fn(),
+        Module: { FS: { readFile: vi.fn(), writeFile: writeFileMock, mkdir: vi.fn(), stat: vi.fn(), readdir: vi.fn(), unlink: vi.fn(), analyzePath: vi.fn() } },
+      };
+      const data = new Uint8Array([0x02, 0x22]);
+
+      expect(emulator.writeStateData(2, data)).toBe(true);
+      expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state2', data);
+      expect(writeFileMock).not.toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state', data);
     });
 
     it('creates missing states directories and returns true when writes succeed', () => {
@@ -2948,8 +3062,10 @@ describe('PSPEmulator', () => {
       expect(result).toBe(true);
       expect(mkdirMock).toHaveBeenCalledWith('/home/web_user/retroarch/states', 0o777);
       expect(mkdirMock).toHaveBeenCalledWith('/data/states', 0o777);
+      expect(mkdirMock).toHaveBeenCalledWith('/data/saves', 0o777);
       expect(writeFileMock).toHaveBeenCalledWith('/home/web_user/retroarch/states/TestGame.state1', data);
       expect(writeFileMock).toHaveBeenCalledWith('/data/states/TestGame.state1', data);
+      expect(writeFileMock).toHaveBeenCalledWith('/data/saves/TestGame.state1', data);
     });
 
     it('returns true when one states directory fails but another write succeeds', () => {

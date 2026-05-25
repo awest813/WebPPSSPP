@@ -1278,9 +1278,22 @@ export function initUI(opts: UIOptions): void {
     (e) => {
       if (!_isInGameSession(emulator)) return false;
       switch (e.key) {
-        case "F5": void saveService.saveSlot(1).then((entry) => { if (entry) showInfoToast("Saved to Slot 1"); else showError(quickSaveFailureMessage(emulator, getCurrentGameId)); }); return true;
-        case "F7": void saveService.loadSlot(1).then((ok) => { if (ok) showInfoToast("Loaded Slot 1"); else showError("Nothing saved in Slot 1 yet, or the emulator is still starting."); }); return true;
-        case "F8": void saveService.findNextSlot().then((slot) => { void saveService.saveSlot(slot).then((entry) => { if (entry) showInfoToast(`Saved to Slot ${slot}`); else showError("Save failed � wait for the core to finish starting."); }); }); return true;
+        case "F5": void saveService.saveSlot(1)
+          .then((entry) => { if (entry) showInfoToast("Saved to Slot 1"); else showError(quickSaveFailureMessage(emulator, getCurrentGameId)); })
+          .catch((err) => showError(`Quick save failed: ${err instanceof Error ? err.message : String(err)}`));
+          return true;
+        case "F7": void saveService.loadSlot(1)
+          .then((ok) => { if (ok) showInfoToast("Loaded Slot 1"); else showError("Nothing saved in Slot 1 yet, or the emulator is still starting."); })
+          .catch((err) => showError(`Quick load failed: ${err instanceof Error ? err.message : String(err)}`));
+          return true;
+        case "F8": void saveService.findNextSlot()
+          .then((slot) => {
+            void saveService.saveSlot(slot)
+              .then((entry) => { if (entry) showInfoToast(`Saved to Slot ${slot}`); else showError("Save failed - wait for the core to finish starting."); })
+              .catch((err) => showError(`Save failed: ${err instanceof Error ? err.message : String(err)}`));
+          })
+          .catch((err) => showError(`Could not choose a save slot: ${err instanceof Error ? err.message : String(err)}`));
+          return true;
         case "F1": void (async () => { const confirmed = await showConfirmDialog("Unsaved progress will be lost.", { title: "Reset Game?", confirmLabel: "Reset", isDanger: true }); if (confirmed) emulator.reset(); })(); return true;
       }
       return false;
@@ -2459,10 +2472,12 @@ function buildInGameControls(
         role: "menuitem",
       }, "Quick Save");
       btnQuickSave.addEventListener("click", () => {
-        void saveService.saveSlot(1).then((entry) => {
-          if (entry) showInfoToast("Saved to Slot 1");
-          else showError(quickSaveFailureMessage(emulator, getCurrentGameId));
-        });
+        void saveService.saveSlot(1)
+          .then((entry) => {
+            if (entry) showInfoToast("Saved to Slot 1");
+            else showError(quickSaveFailureMessage(emulator, getCurrentGameId));
+          })
+          .catch((err) => showError(`Quick save failed: ${err instanceof Error ? err.message : String(err)}`));
       }, { signal });
       actions.append(btnQuickSave);
 
@@ -2474,10 +2489,12 @@ function buildInGameControls(
         role: "menuitem",
       }, "Quick Load");
       btnQuickLoad.addEventListener("click", () => {
-        void saveService.loadSlot(1).then((ok) => {
-          if (ok) showInfoToast("Loaded Slot 1");
-          else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
-        });
+        void saveService.loadSlot(1)
+          .then((ok) => {
+            if (ok) showInfoToast("Loaded Slot 1");
+            else showError("Nothing saved in Slot 1 yet, or the emulator is still starting.");
+          })
+          .catch((err) => showError(`Quick load failed: ${err instanceof Error ? err.message : String(err)}`));
       }, { signal });
       actions.append(btnQuickLoad);
 

@@ -92,7 +92,7 @@ export class SaveGameService {
   private readonly readinessRetries: number;
   private readonly readinessRetryDelayMs: number;
   private queue: Promise<void> = Promise.resolve();
-  private pendingSaveSlots = new Set<number>();
+  private pendingSaves = new Map<string, Promise<SaveStateEntry | null>>();
   private listeners = new Set<(event: SaveStatusEvent) => void>();
 
   constructor(opts: SaveGameServiceOptions) {
@@ -163,88 +163,90 @@ export class SaveGameService {
     const context = this.resolveContext(override);
     if (!context) return null;
 
-    if (this.pendingSaveSlots.has(slot)) {
-      return this.saveLibrary.getState(context.gameId, slot);
+    const pendingKey = `${context.gameId}:${slot}`;
+    const pending = this.pendingSaves.get(pendingKey);
+    if (pending) {
+      return pending;
     }
 
-    this.pendingSaveSlots.add(slot);
+    const pendingSave = this.enqueue(async () => {
+      this.emit({ status: "saving-local", gameId: context.gameId, slot });
 
-    try {
-      return await this.enqueue(async () => {
-        this.emit({ status: "saving-local", gameId: context.gameId, slot });
+      const ready = await this.waitForEmulatorReady(context, slot);
+      if (!ready) return null;
 
-        const ready = await this.waitForEmulatorReady(context, slot);
-        if (!ready) return null;
-
-        try {
-          const accepted = this.emulator.quickSave(slot);
-          if (accepted === false) {
-            this.emit({
-              status: "emulator-not-ready",
-              gameId: context.gameId,
-              slot,
-              message: "Save states are not ready for this core yet. Try again in a moment.",
-            });
-            return null;
-          }
-        } catch {
-          this.emit({ status: "idle", gameId: context.gameId, slot });
-          return null;
-        }
-        const stateBytes = await this.readStateDataAfterQuickSave(slot, context);
-        if (!stateBytes || stateBytes.byteLength === 0) {
+      try {
+        const accepted = this.emulator.quickSave(slot);
+        if (accepted === false) {
           this.emit({
-            status: "idle",
+            status: "emulator-not-ready",
             gameId: context.gameId,
             slot,
-            message: "Could not capture save data after quick-save. Try again in a moment.",
+            message: "Save states are not ready for this core yet. Try again in a moment.",
           });
           return null;
         }
-        const stateData = stateBytesToBlob(stateBytes);
-        const screenshot = this.emulator.captureScreenshotAsync
-          ? await this.emulator.captureScreenshotAsync()
-          : (this.emulator.playerId ? await captureScreenshot(this.emulator.playerId) : null);
-        const thumbnail = screenshot ? await createThumbnail(screenshot) : null;
-
-        // Preserve the user-defined label if one already exists for this slot.
-        const existing = await this.saveLibrary.getState(context.gameId, slot);
-        const entry: SaveStateEntry = {
-          id: saveStateKey(context.gameId, slot),
-          gameId: context.gameId,
-          gameName: context.gameName,
-          systemId: context.systemId,
-          slot,
-          label: existing?.label || defaultSlotLabel(slot),
-          timestamp: Date.now(),
-          thumbnail,
-          stateData,
-          isAutoSave: slot === AUTO_SAVE_SLOT,
-        };
-
-        await this.saveLibrary.saveState(entry);
-        const saved = await this.saveLibrary.getState(context.gameId, slot);
-
-        if (saved && this.cloudManager?.isConnected() && this.cloudManager.autoSyncEnabled) {
-          this.emit({ status: "syncing-cloud", gameId: context.gameId, slot });
-          try {
-            await this.cloudManager.push(saved);
-            this.emit({ status: "sync-success", gameId: context.gameId, slot, message: "Local save mirrored by save sync." });
-          } catch (error) {
-            this.emit({
-              status: "sync-error",
-              gameId: context.gameId,
-              slot,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-
+      } catch {
         this.emit({ status: "idle", gameId: context.gameId, slot });
-        return saved;
-      });
+        return null;
+      }
+      const stateBytes = await this.readStateDataAfterQuickSave(slot, context);
+      if (!stateBytes || stateBytes.byteLength === 0) {
+        this.emit({
+          status: "idle",
+          gameId: context.gameId,
+          slot,
+          message: "Could not capture save data after quick-save. Try again in a moment.",
+        });
+        return null;
+      }
+      const stateData = stateBytesToBlob(stateBytes);
+      const screenshot = this.emulator.captureScreenshotAsync
+        ? await this.emulator.captureScreenshotAsync()
+        : (this.emulator.playerId ? await captureScreenshot(this.emulator.playerId) : null);
+      const thumbnail = screenshot ? await createThumbnail(screenshot) : null;
+
+      // Preserve the user-defined label if one already exists for this slot.
+      const existing = await this.saveLibrary.getState(context.gameId, slot);
+      const entry: SaveStateEntry = {
+        id: saveStateKey(context.gameId, slot),
+        gameId: context.gameId,
+        gameName: context.gameName,
+        systemId: context.systemId,
+        slot,
+        label: existing?.label || defaultSlotLabel(slot),
+        timestamp: Date.now(),
+        thumbnail,
+        stateData,
+        isAutoSave: slot === AUTO_SAVE_SLOT,
+      };
+
+      await this.saveLibrary.saveState(entry);
+      const saved = await this.saveLibrary.getState(context.gameId, slot);
+
+      if (saved && this.cloudManager?.isConnected() && this.cloudManager.autoSyncEnabled) {
+        this.emit({ status: "syncing-cloud", gameId: context.gameId, slot });
+        try {
+          await this.cloudManager.push(saved);
+          this.emit({ status: "sync-success", gameId: context.gameId, slot, message: "Local save mirrored by save sync." });
+        } catch (error) {
+          this.emit({
+            status: "sync-error",
+            gameId: context.gameId,
+            slot,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      this.emit({ status: "idle", gameId: context.gameId, slot });
+      return saved;
+    });
+    this.pendingSaves.set(pendingKey, pendingSave);
+    try {
+      return await pendingSave;
     } finally {
-      this.pendingSaveSlots.delete(slot);
+      this.pendingSaves.delete(pendingKey);
     }
   }
 
@@ -308,7 +310,17 @@ export class SaveGameService {
         return false;
       }
 
-      this.emulator.quickLoad(slot);
+      try {
+        this.emulator.quickLoad(slot);
+      } catch (error) {
+        this.emit({
+          status: "emulator-not-ready",
+          gameId: context.gameId,
+          slot,
+          message: error instanceof Error ? error.message : "Could not load save data into the emulator.",
+        });
+        return false;
+      }
       this.emit({ status: "idle", gameId: context.gameId, slot });
       return true;
     });
