@@ -348,12 +348,12 @@ export function buildDOM(app: HTMLElement): void {
           </div>
 
         <!-- Drop zone -->
-          <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Add a game file" aria-describedby="drop-zone-subtitle drop-zone-formats">
+          <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Add game files" aria-describedby="drop-zone-subtitle drop-zone-formats">
           <input type="file"
                  id="file-input"
                  accept="${acceptList}"
                  multiple
-                 aria-label="Select game ROM file" />
+                 aria-label="Select one or more game ROM files" />
           <div class="drop-zone__icon" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -362,10 +362,10 @@ export function buildDOM(app: HTMLElement): void {
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </div>
-          <p class="drop-zone__label">${touchUI ? "Tap to add a game" : "Drop a game to begin"}</p>
-          <p class="drop-zone__sub" id="drop-zone-subtitle">${touchUI ? "Choose a ROM, archive, or disc image from your device" : 'ROMs, archives, and disc images launch locally, or <span class="drop-zone__browse">browse your device</span>'}</p>
+          <p class="drop-zone__label">${touchUI ? "Tap to add games" : "Drop games to begin"}</p>
+          <p class="drop-zone__sub" id="drop-zone-subtitle">${touchUI ? "Choose ROMs, archives, or disc images from your device" : 'ROMs, archives, and disc images import locally, or <span class="drop-zone__browse">browse your device</span>'}</p>
           <div class="drop-zone__actions">
-            <button class="btn btn--primary btn--sm drop-zone__cta" id="btn-add-game-onboarding" type="button">Choose Files</button>
+            <button class="btn btn--primary btn--sm drop-zone__cta" id="btn-add-game-onboarding" type="button">Choose ROMs</button>
           </div>
           <p class="drop-zone__formats" id="drop-zone-formats" title="Supported file formats">${formatHint}</p>
         </div>
@@ -381,7 +381,7 @@ export function buildDOM(app: HTMLElement): void {
           <div class="onboarding__grid">
             <div class="onboarding__card onboarding__card--main">
               <h3>Quiet start, fast launch</h3>
-              <p>Pick one file and ${APP_NAME} handles detection, startup, and local save management for you.</p>
+              <p>Pick one or many files and ${APP_NAME} handles detection, startup, and local save management for you.</p>
               <div class="welcome-steps">
                 <div class="welcome-step">1. Import a game</div>
                 <div class="welcome-step">2. Auto-detect the system</div>
@@ -391,7 +391,7 @@ export function buildDOM(app: HTMLElement): void {
           </div>
 
           <div class="onboarding__quick-actions" aria-label="Quick start actions">
-            <button class="btn btn--primary" id="btn-add-game-secondary" type="button">Choose Files</button>
+            <button class="btn btn--primary" id="btn-add-game-secondary" type="button">Choose ROMs</button>
             <button class="btn btn--ghost" id="btn-open-help-onboarding" type="button">View Guide</button>
           </div>
 
@@ -590,6 +590,7 @@ export interface UIOptions {
   onReturnToLibrary: () => void;
   onApplyPatch:      (gameId: string, patchFile: File) => Promise<void>;
   onFileChosen:      (file: File) => Promise<void>;
+  onFilesChosen?:    (files: File[]) => Promise<void>;
   getCurrentGameId:   () => string | null;
   getCurrentGameName: () => string | null;
   getCurrentSystemId: () => string | null;
@@ -796,6 +797,54 @@ export async function selectImportFileFromSelection(
   return selected[0]!;
 }
 
+export async function selectImportFilesFromSelection(
+  files: FileList | DataTransferItemList | readonly File[] | null | undefined,
+): Promise<File[]> {
+  if (isDataTransferItemList(files)) {
+    const folderZip = await fileFromDirectoryItems(files);
+    if (folderZip) return [folderZip];
+  }
+  const selected = filesToArray(files);
+  if (selected.length === 0) return [];
+
+  if (selected.length === 1 && !selected[0]!.name.toLowerCase().endsWith(".cue")) {
+    return [selected[0]!];
+  }
+
+  const cueFiles = selected.filter(file => file.name.toLowerCase().endsWith(".cue"));
+  const nonCueFiles = selected.filter(file => !file.name.toLowerCase().endsWith(".cue"));
+
+  if (cueFiles.length > 0) {
+    const referencedPayloads = new Set<File>();
+    for (const cueFile of cueFiles) {
+      const referencedNames = await parseCueReferencedFileNames(cueFile);
+      const referencedPayload = nonCueFiles.find(file =>
+        referencedNames.includes(fileBaseName(file.name))
+      );
+      if (referencedPayload) referencedPayloads.add(referencedPayload);
+    }
+
+    if (selected.length === 1) {
+      showError(
+        "This disc image (.cue) needs its matching binary track file.\n\n" +
+        "Select or drop both the .cue and .bin together, or use the .bin / .chd / .iso file directly."
+      );
+      return [];
+    }
+
+    if (referencedPayloads.size > 0) {
+      return [
+        ...referencedPayloads,
+        ...nonCueFiles.filter(file => !referencedPayloads.has(file)),
+      ];
+    }
+
+    if (nonCueFiles.length > 0) return nonCueFiles;
+  }
+
+  return selected;
+}
+
 export function initUI(opts: UIOptions): void {
   // Re-initialisation safety: remove previously registered listeners so
   // repeated initUI() calls (tests/hot-reload) don't accumulate handlers.
@@ -999,22 +1048,38 @@ export function initUI(opts: UIOptions): void {
     dropZone.classList.remove("drag-over");
   };
 
-  const onFileInputChange = async () => {
-    const file = await selectImportFileFromSelection(fileInput.files);
-    if (!file) {
-      fileInput.value = "";
-      return;
-    }
+  const importSelectedFiles = async (
+    files: FileList | DataTransferItemList | readonly File[] | null | undefined,
+  ): Promise<void> => {
+    const selected = await selectImportFilesFromSelection(files);
+    if (selected.length === 0) return;
     if (fileSelectionInProgress) {
-      fileInput.value = "";
       return;
     }
     fileSelectionInProgress = true;
     try {
-      await onFileChosen(file);
+      if (selected.length > 1) {
+        showInfoToast(`Importing ${selected.length} files to your library...`, "info");
+        if (opts.onFilesChosen) {
+          await opts.onFilesChosen(selected);
+        } else {
+          for (const file of selected) {
+            await onFileChosen(file);
+          }
+        }
+      } else {
+        await onFileChosen(selected[0]!);
+      }
+    } finally {
+      fileSelectionInProgress = false;
+    }
+  };
+
+  const onFileInputChange = async () => {
+    try {
+      await importSelectedFiles(fileInput.files);
     } finally {
       fileInput.value = "";
-      fileSelectionInProgress = false;
     }
   };
   bindEvent(fileInput, "change", onFileInputChange);
@@ -1077,9 +1142,7 @@ export function initUI(opts: UIOptions): void {
       return;
     }
     void (async () => {
-      const file = await selectImportFileFromSelection(e.dataTransfer?.files);
-      if (!file) return;
-      await onFileChosen(file);
+      await importSelectedFiles(e.dataTransfer?.items ?? e.dataTransfer?.files);
     })();
   };
   bindEvent(document, "dragover", onDragOver);
@@ -2259,11 +2322,13 @@ export async function resolveSystemAndAdd(
   emulatorRef?:  PSPEmulator,
   onApplyPatch?: (gameId: string, patchFile: File) => Promise<void>,
   preferredSystemId?: string,
+  opts?: { launchAfterImport?: boolean; quiet?: boolean },
 ): Promise<void> {
   return resolveSystemAndAddImpl(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch,
     () => { void renderLibrary(library, settings, onLaunchGame, emulatorRef, onApplyPatch); },
     fetchFromCloud,
     preferredSystemId,
+    opts,
   );
 }
 

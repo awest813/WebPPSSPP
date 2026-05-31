@@ -102,7 +102,9 @@ export async function resolveSystemAndAddImpl(
   onRenderLibrary: () => void,
   onFetchFromCloud: (game: GameMetadata, settings: Settings, libraryForCache?: GameLibrary) => Promise<Blob>,
   preferredSystemId?: string,
+  opts: { launchAfterImport?: boolean; quiet?: boolean } = {},
 ): Promise<void> {
+  const launchAfterImport = opts.launchAfterImport ?? true;
   const ext = fileExt(file.name);
   if (PATCH_EXT_SET.has(ext)) {
     await handlePatchFileDrop(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch, onRenderLibrary);
@@ -414,6 +416,10 @@ export async function resolveSystemAndAddImpl(
     const existing = await library.findByFileName(resolvedFile.name, system.id);
     if (existing) {
       hideLoadingOverlay();
+      if (!launchAfterImport) {
+        if (!opts.quiet) showInfoToast(`"${existing.name}" is already in your library.`, "info");
+        return;
+      }
       const playExisting = await showConfirmDialogImpl(
         `"${existing.name}" is already in your library.`,
         { title: "Already in Library", confirmLabel: "Play Existing" }
@@ -454,7 +460,7 @@ export async function resolveSystemAndAddImpl(
   setLoadingSubtitle("This only takes a moment the first time");
 
   try {
-    const shouldLaunchBeforeBlobPersist = resolvedFile.size >= IMMEDIATE_LAUNCH_IMPORT_BYTES;
+    const shouldLaunchBeforeBlobPersist = launchAfterImport && resolvedFile.size >= IMMEDIATE_LAUNCH_IMPORT_BYTES;
     const entry = shouldLaunchBeforeBlobPersist
       ? await withRetry(
           () => library.addGameForImmediateLaunch(resolvedFile, system.id),
@@ -491,6 +497,11 @@ export async function resolveSystemAndAddImpl(
       `Game added to library: "${entry.name}" (id: ${entry.id}, system: ${entry.systemId})`,
     );
     onRenderLibrary();
+    if (!launchAfterImport) {
+      hideLoadingOverlay();
+      if (!opts.quiet) showInfoToast(`Added "${entry.name}" to your library.`, "success");
+      return;
+    }
     setLoadingMessage(`Starting ${entry.name}…`);
     setLoadingSubtitle("Getting ready to play");
     if (shouldLaunchBeforeBlobPersist) {
@@ -521,7 +532,7 @@ export async function resolveSystemAndAddImpl(
     const errMsg = `Could not add game: ${err instanceof Error ? err.message : String(err)}`;
     logImportWarn(emulatorRef, settings, errMsg);
     showError(errMsg, () => {
-      void resolveSystemAndAddImpl(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch, onRenderLibrary, onFetchFromCloud, preferredSystemId);
+      void resolveSystemAndAddImpl(file, library, settings, onLaunchGame, emulatorRef, onApplyPatch, onRenderLibrary, onFetchFromCloud, preferredSystemId, opts);
     });
   }
 }

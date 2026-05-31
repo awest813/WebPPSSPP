@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, showError, hideError, showInfoToast, withRetry, isTransientImportError, selectImportFileFromSelection } from "./ui.js";
+import { buildDOM, initUI, openSettingsPanel, renderLibrary, toggleDevOverlay, isDevOverlayVisible, buildLandingControls, resolveSystemAndAdd, openEasyNetplayModal, showError, hideError, showInfoToast, withRetry, isTransientImportError, selectImportFileFromSelection, selectImportFilesFromSelection } from "./ui.js";
 import { NetplayManager, DEFAULT_ICE_SERVERS } from "./multiplayer.js";
 import { registerNetplayInstance } from "./netplaySingleton.js";
 import { EasyNetplayManager } from "./netplay/EasyNetplayManager.js";
@@ -267,12 +267,45 @@ describe("buildDOM", () => {
 
     const input = document.getElementById("file-input") as HTMLInputElement | null;
     expect(input).toBeTruthy();
+    expect(input?.multiple).toBe(true);
+    expect(input?.getAttribute("aria-label")).toContain("one or more");
     const accept = input?.getAttribute("accept") ?? "";
     expect(accept).toContain(".zip");
     expect(accept).toContain(".7z");
     expect(accept).toContain(".rar");
     expect(accept).toContain(".tar");
     expect(accept).toContain(".gz");
+  });
+
+  it("routes multi-file picker selections through the bulk import callback", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    buildDOM(app);
+
+    const settings = makeSettings();
+    const opts = {
+      ...makeOpts(settings),
+      onFilesChosen: vi.fn(async () => {}),
+    };
+    initUI(opts);
+    await flushUI();
+
+    const input = document.getElementById("file-input") as HTMLInputElement;
+    const files = [
+      new File([new Uint8Array([1])], "mario.nes"),
+      new File([new Uint8Array([2])], "zelda.sfc"),
+    ];
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: files,
+    });
+
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushUI(20);
+
+    expect(opts.onFilesChosen).toHaveBeenCalledTimes(1);
+    expect(opts.onFilesChosen).toHaveBeenCalledWith(files);
+    expect(opts.onFileChosen).not.toHaveBeenCalled();
   });
 
   it("opens the file picker only once when clicking the drop-zone Choose Files button", async () => {
@@ -435,6 +468,29 @@ describe("resolveSystemAndAdd mobile archive handling", () => {
     expect(archive.extractFromArchive).toHaveBeenCalledWith(file, expect.any(Object));
     expect(library.addGame).toHaveBeenCalledTimes(1);
     expect(onLaunchGame).toHaveBeenCalledWith(expect.any(File), "nes", "game-1");
+  });
+
+  it("can import a ROM into the library without launching it during bulk import", async () => {
+    const library = {
+      findByFileName: vi.fn().mockResolvedValue(null),
+      addGame: vi.fn().mockResolvedValue({
+        id: "bulk-1",
+        name: "bulk-cart",
+        fileName: "bulk-cart.nes",
+        systemId: "nes",
+      }),
+      getAllGamesMetadata: vi.fn().mockResolvedValue([]),
+    } as unknown as GameLibrary;
+
+    const onLaunchGame = vi.fn(async () => {});
+    const file = new File([new Uint8Array([0x4e, 0x45, 0x53])], "bulk-cart.nes");
+
+    await resolveSystemAndAdd(file, library, makeSettings(), onLaunchGame, undefined, undefined, undefined, {
+      launchAfterImport: false,
+    });
+
+    expect(library.addGame).toHaveBeenCalledTimes(1);
+    expect(onLaunchGame).not.toHaveBeenCalled();
   });
 
   it("blocks unsupported archives (bzip2) detected by content when extension is missing", async () => {
@@ -4491,6 +4547,16 @@ describe("selectImportFileFromSelection", () => {
     document.body.innerHTML = "";
   });
 
+  it("preserves multiple ROM files selected at once", async () => {
+    const files = [
+      new File([new Uint8Array([1])], "mario.nes"),
+      new File([new Uint8Array([2])], "sonic.md"),
+      new File([new Uint8Array([3])], "metroid.sfc"),
+    ];
+
+    await expect(selectImportFilesFromSelection(files)).resolves.toEqual(files);
+  });
+
   it("uses the matching PS1 BIN payload when a CUE and BIN are selected together", async () => {
     const cue = new File([
       'FILE "Final Fantasy VII (USA) (Disc 1).bin" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n',
@@ -4498,6 +4564,7 @@ describe("selectImportFileFromSelection", () => {
     const bin = new File([new Uint8Array([1, 2, 3])], "Final Fantasy VII (USA) (Disc 1).bin");
 
     await expect(selectImportFileFromSelection([cue, bin])).resolves.toBe(bin);
+    await expect(selectImportFilesFromSelection([cue, bin])).resolves.toEqual([bin]);
   });
 
   it("does not launch a lone CUE file without its referenced disc image", async () => {

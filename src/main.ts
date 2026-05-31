@@ -935,6 +935,30 @@ async function main(): Promise<void> {
   const onFileChosen = async (file: File): Promise<void> => {
     await resolveSystemAndAdd(file, library, settings, onLaunchGame, emulator, onApplyPatch, urlImportSystem?.id);
   };
+  const onFilesChosen = async (files: File[]): Promise<void> => {
+    let added = 0;
+    let skipped = 0;
+    for (const file of files) {
+      const beforeCount = await library.count().catch(() => null);
+      await resolveSystemAndAdd(file, library, settings, onLaunchGame, emulator, onApplyPatch, urlImportSystem?.id, {
+        launchAfterImport: false,
+        quiet: true,
+      });
+      const afterCount = await library.count().catch(() => null);
+      if (beforeCount !== null && afterCount !== null) {
+        if (afterCount > beforeCount) added += afterCount - beforeCount;
+        else skipped += 1;
+      } else {
+        added += 1;
+      }
+    }
+    if (added === 0) {
+      showInfoToast("No new games were added. They may already be in your library or need a different format.", "warning");
+      return;
+    }
+    const skippedText = skipped > 0 ? `, ${skipped} skipped` : "";
+    showInfoToast(`Imported ${added} ${added === 1 ? "file" : "files"} to your library${skippedText}.`, "success");
+  };
 
   // 5c. Wire auto-save persistence
   emulator.onAutoSave = (event: AutoSaveTriggerEvent) => {
@@ -1135,6 +1159,7 @@ async function main(): Promise<void> {
     onLaunchGame,
     onApplyPatch,
     onFileChosen,
+    onFilesChosen,
     onSettingsChange,
     onReturnToLibrary,
     getCurrentGameId:   () => currentGameId,
